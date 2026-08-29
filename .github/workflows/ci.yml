@@ -49,23 +49,32 @@ jobs:
           HUM_CI_HEAD_SHA: ${{ github.sha }}
         run: |
           $Mode = 'full'
+          $Result = $null
           try {
-            $Observed = @(
-              ./tools/check_workorder_status_boundary.ps1 `
-                -Repository $env:HUM_CI_REPOSITORY `
-                -WorkflowPath $env:HUM_CI_WORKFLOW_PATH `
-                -EventName $env:HUM_CI_EVENT_NAME `
-                -EventRef $env:HUM_CI_EVENT_REF `
-                -BaseCommit $env:HUM_CI_BASE_SHA `
-                -HeadCommit $env:HUM_CI_HEAD_SHA
-            )
-            if ($Observed.Count -eq 1 -and $Observed[0] -ceq 'fast') {
+            . ./tools/check_workorder_status_boundary.ps1
+            $Result = Invoke-ProductionWorkOrderStatusClassification `
+              -RepositoryIdentity $env:HUM_CI_REPOSITORY `
+              -Workflow $env:HUM_CI_WORKFLOW_PATH `
+              -Event $env:HUM_CI_EVENT_NAME `
+              -Ref $env:HUM_CI_EVENT_REF `
+              -Base $env:HUM_CI_BASE_SHA `
+              -Head $env:HUM_CI_HEAD_SHA
+            if ($Result.Mode -ceq 'fast') {
               $Mode = 'fast'
             }
           } catch {
             Write-Warning "CI evidence classifier failed closed: $($_.Exception.Message)"
           }
           "mode=$Mode" >> $env:GITHUB_OUTPUT
+          if ($Mode -ceq 'fast') {
+            "reason=$($Result.Reason)" >> $env:GITHUB_OUTPUT
+            "anchor=$($Result.Anchor)" >> $env:GITHUB_OUTPUT
+            "run_id=$($Result.RunId)" >> $env:GITHUB_OUTPUT
+            "run_attempt=$($Result.RunAttempt)" >> $env:GITHUB_OUTPUT
+            "ubuntu_job_id=$($Result.UbuntuJobId)" >> $env:GITHUB_OUTPUT
+            "windows_job_id=$($Result.WindowsJobId)" >> $env:GITHUB_OUTPUT
+            "transitions=$([string]::Join(',', $Result.Transitions))" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Cache Cargo artifacts
         if: steps.classify.outputs.mode != 'fast'
@@ -88,9 +97,36 @@ jobs:
           rustup component add rustfmt clippy
 
       - name: Run Hum preflight
+        id: full_preflight
         if: steps.classify.outputs.mode != 'fast'
         shell: pwsh
-        run: ./tools/check_all.ps1 -EvidenceTier Fast
+        env:
+          HUM_EVIDENCE_RECEIPT: ${{ runner.temp }}/hum-full-evidence.receipt
+        run: |
+          $env:HUM_BUILD_TARGET = if ($IsWindows) { 'x86_64-pc-windows-msvc' } else { 'x86_64-unknown-linux-gnu' }
+          $env:HUM_BUILD_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()
+          $StartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+          $Frequency = [Diagnostics.Stopwatch]::Frequency
+          $Output = Join-Path $env:RUNNER_TEMP 'hum-full-stdout.txt'
+          $ErrorOutput = Join-Path $env:RUNNER_TEMP 'hum-full-stderr.txt'
+          $Process = Start-Process pwsh -NoNewWindow -Wait -PassThru `
+            -ArgumentList @('-NoLogo','-NoProfile','-File','tools/check_all.ps1','-EvidenceTier','Fast') `
+            -RedirectStandardOutput $Output -RedirectStandardError $ErrorOutput
+          $CompletedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+          [Console]::Out.Write([IO.File]::ReadAllText($Output))
+          [Console]::Error.Write([IO.File]::ReadAllText($ErrorOutput))
+          if ($Process.ExitCode -ne 0) { exit $Process.ExitCode }
+          "started_ticks=$StartedTicks" >> $env:GITHUB_OUTPUT
+          "completed_ticks=$CompletedTicks" >> $env:GITHUB_OUTPUT
+          "timer_frequency=$Frequency" >> $env:GITHUB_OUTPUT
+          "duration_ms=$([math]::Floor(1000 * ($CompletedTicks - $StartedTicks) / $Frequency))" >> $env:GITHUB_OUTPUT
+          "stdout_sha256=$((Get-FileHash -LiteralPath $Output -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "stderr_sha256=$((Get-FileHash -LiteralPath $ErrorOutput -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          $Combined = [IO.File]::ReadAllBytes($Output) + [IO.File]::ReadAllBytes($ErrorOutput)
+          $Sha = [Security.Cryptography.SHA256]::Create()
+          try { "event_sha256=$( -join ($Sha.ComputeHash($Combined) | ForEach-Object ToString x2) )" >> $env:GITHUB_OUTPUT } finally { $Sha.Dispose() }
+          "receipt=$env:HUM_EVIDENCE_RECEIPT" >> $env:GITHUB_OUTPUT
+          Remove-Item -LiteralPath $Output,$ErrorOutput -Force
 
       - name: Run exhaustive canonical-seal evidence
         if: steps.classify.outputs.mode != 'fast' && matrix.os == 'ubuntu-latest'
@@ -98,30 +134,222 @@ jobs:
         shell: pwsh
         run: ./tools/check_all.ps1 -EvidenceTier Exhaustive
 
-      - name: Run status-only evidence
-        if: steps.classify.outputs.mode == 'fast'
+      - name: Generate evidence summary
+        id: generate_evidence_summary
+        if: steps.classify.outputs.mode != 'fast'
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          HUM_CI_REPOSITORY: ${{ github.repository }}
-          HUM_CI_WORKFLOW_PATH: .github/workflows/ci.yml
-          HUM_CI_EVENT_NAME: ${{ github.event_name }}
-          HUM_CI_EVENT_REF: ${{ github.ref }}
-          HUM_CI_BASE_SHA: ${{ github.event.before }}
-          HUM_CI_HEAD_SHA: ${{ github.sha }}
+          HUM_WORKFLOW: ci
+          HUM_CLASSIFIER_MODE: full
+          HUM_CLASSIFIER_REASON: no_status_transition
+          HUM_CLASSIFIER_ANCHOR: ''
+          HUM_CLASSIFIER_TRANSITIONS: ''
+          HUM_DURATION_MS: ${{ steps.full_preflight.outputs.duration_ms }}
+          HUM_STDOUT_SHA256: ${{ steps.full_preflight.outputs.stdout_sha256 }}
+          HUM_STDERR_SHA256: ${{ steps.full_preflight.outputs.stderr_sha256 }}
+          HUM_EVENT_SHA256: ${{ steps.full_preflight.outputs.event_sha256 }}
+          HUM_STARTED_TICKS: ${{ steps.full_preflight.outputs.started_ticks }}
+          HUM_COMPLETED_TICKS: ${{ steps.full_preflight.outputs.completed_ticks }}
+          HUM_TIMER_FREQUENCY: ${{ steps.full_preflight.outputs.timer_frequency }}
         run: |
-          $Observed = @(
-            ./tools/check_workorder_status_boundary.ps1 `
-              -Repository $env:HUM_CI_REPOSITORY `
-              -WorkflowPath $env:HUM_CI_WORKFLOW_PATH `
-              -EventName $env:HUM_CI_EVENT_NAME `
-              -EventRef $env:HUM_CI_EVENT_REF `
-              -BaseCommit $env:HUM_CI_BASE_SHA `
-              -HeadCommit $env:HUM_CI_HEAD_SHA
-          )
-          if ($Observed.Count -ne 1 -or $Observed[0] -cne 'fast') {
-            throw 'status-only trust envelope did not revalidate as fast'
+          $env:HUM_PLATFORM = if ($IsWindows) { 'windows' } else { 'ubuntu' }
+          $env:HUM_TARGET = if ($IsWindows) { 'x86_64-pc-windows-msvc' } else { 'x86_64-unknown-linux-gnu' }
+          $env:HUM_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()
+          $env:HUM_GH_PATH = (Get-Command gh -CommandType Application -TotalCount 1).Source
+          $env:HUM_DEPENDENCY_CLOSURE_SHA256 = (Get-FileHash Cargo.lock -Algorithm SHA256).Hash.ToLowerInvariant()
+          $Compiler = if ($IsWindows) { 'target/debug/hum.exe' } else { 'target/debug/hum' }
+          if (-not (Test-Path -LiteralPath $Compiler -PathType Leaf)) { throw 'full-anchor compiler executable is missing' }
+          $env:HUM_COMPILER_SHA256 = (Get-FileHash -LiteralPath $Compiler -Algorithm SHA256).Hash.ToLowerInvariant()
+          $ConfigurationBytes = [IO.File]::ReadAllBytes('.github/workflows/ci.yml') + [IO.File]::ReadAllBytes('tools/check_all.ps1')
+          $ConfigurationHasher = [Security.Cryptography.SHA256]::Create()
+          try { $env:HUM_CONFIGURATION_SHA256 = -join ($ConfigurationHasher.ComputeHash($ConfigurationBytes) | ForEach-Object { $_.ToString('x2') }) } finally { $ConfigurationHasher.Dispose() }
+          $Receipt = @{}
+          foreach ($Line in [IO.File]::ReadAllLines('${{ steps.full_preflight.outputs.receipt }}')) { $Key,$Value = $Line -split '=',2; if ($Receipt.ContainsKey($Key)) { throw "duplicate evidence receipt key $Key" }; $Receipt[$Key] = $Value }
+          foreach ($Key in @('selector_ledger_sha256','selector_count','mutation_ledger_sha256','mutation_count','suite_count','readiness','hygiene_file_count','claims','release_version')) { if (-not $Receipt.ContainsKey($Key)) { throw "missing evidence receipt key $Key" }; [Environment]::SetEnvironmentVariable("HUM_$($Key.ToUpperInvariant())",$Receipt[$Key]) }
+          $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
+          $OutputDirectory = Join-Path $env:RUNNER_TEMP 'hum-evidence-summary'
+          New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
+          $Output = Join-Path $OutputDirectory 'hum-evidence-summary.v1.json'
+          $Lines = @(& $Executable evidence summarize --output $Output)
+          if ($LASTEXITCODE -ne 0 -or $Lines.Count -ne 2) { throw 'summary generation failed closed' }
+          $SummaryName = ($Lines | Where-Object { $_ -clike 'summary_artifact=*' }).Substring(17)
+          $ExecutableName = ($Lines | Where-Object { $_ -clike 'executable_artifact=*' }).Substring(20)
+          if ([string]::IsNullOrEmpty($SummaryName) -or [string]::IsNullOrEmpty($ExecutableName)) { throw 'summary artifact output shape mismatch' }
+          "summary_name=$SummaryName" >> $env:GITHUB_OUTPUT
+          "summary_path=$Output" >> $env:GITHUB_OUTPUT
+          "executable_name=$ExecutableName" >> $env:GITHUB_OUTPUT
+          "executable_path=$Executable" >> $env:GITHUB_OUTPUT
+
+      - name: Upload evidence summary
+        id: upload_evidence_summary
+        if: steps.classify.outputs.mode != 'fast'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.generate_evidence_summary.outputs.summary_name }}
+          path: ${{ steps.generate_evidence_summary.outputs.summary_path }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
+      - name: Upload hum-dev executable
+        id: upload_hum_dev_executable
+        if: steps.classify.outputs.mode != 'fast'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.generate_evidence_summary.outputs.executable_name }}
+          path: ${{ steps.generate_evidence_summary.outputs.executable_path }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
+      - name: Close full evidence transport
+        if: always() && steps.classify.outputs.mode != 'fast'
+        shell: pwsh
+        run: |
+          foreach ($Owned in @('${{ steps.full_preflight.outputs.receipt }}', (Join-Path $env:RUNNER_TEMP 'hum-evidence-summary'))) {
+            if (-not [string]::IsNullOrEmpty($Owned) -and (Test-Path -LiteralPath $Owned)) { Remove-Item -LiteralPath $Owned -Recurse -Force }
+            if (-not [string]::IsNullOrEmpty($Owned) -and (Test-Path -LiteralPath $Owned)) { throw "full evidence transport cleanup failed: $Owned" }
           }
+
+      - name: Resolve status executable
+        id: start_status_review_and_resolve_hum_dev
+        if: steps.classify.outputs.mode == 'fast'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HUM_ANCHOR: ${{ steps.classify.outputs.anchor }}
+          HUM_RUN_ID: ${{ steps.classify.outputs.run_id }}
+          HUM_RUN_ATTEMPT: ${{ steps.classify.outputs.run_attempt }}
+          HUM_UBUNTU_JOB_ID: ${{ steps.classify.outputs.ubuntu_job_id }}
+          HUM_WINDOWS_JOB_ID: ${{ steps.classify.outputs.windows_job_id }}
+        run: |
+          function Assert-StatusField([string]$Name,[string]$Actual,[string]$Expected) { if ($Actual -cne $Expected) { throw "status $Name mismatch" } }
+          $StartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+          $Frequency = [Diagnostics.Stopwatch]::Frequency
+          $Platform = if ($IsWindows) { 'windows' } else { 'ubuntu' }
+          $Job = if ($IsWindows) { $env:HUM_WINDOWS_JOB_ID } else { $env:HUM_UBUNTU_JOB_ID }
+          $ExpectedJobName = if ($IsWindows) { 'preflight (windows-latest)' } else { 'preflight (ubuntu-latest)' }
+          $RunRecord = @(gh api "repos/${{ github.repository }}/actions/runs/$($env:HUM_RUN_ID)" --jq '[.id,.run_attempt,.head_sha,.event,.path,.name,.status,.conclusion] | @tsv')
+          if ($RunRecord.Count -ne 1) { throw 'status anchor run metadata cardinality mismatch' }
+          $RunFields = $RunRecord[0] -split "`t",-1
+          if ($RunFields.Count -ne 8) { throw 'status anchor run metadata shape mismatch' }
+          foreach ($Field in @(@('run ID',$RunFields[0],$env:HUM_RUN_ID),@('run attempt',$RunFields[1],$env:HUM_RUN_ATTEMPT),@('anchor SHA',$RunFields[2],$env:HUM_ANCHOR),@('event',$RunFields[3],'push'),@('workflow path',$RunFields[4],'.github/workflows/ci.yml'),@('workflow name',$RunFields[5],'ci'),@('run status',$RunFields[6],'completed'),@('run conclusion',$RunFields[7],'success'))) { Assert-StatusField @Field }
+          $Tree = @(gh api "repos/${{ github.repository }}/git/commits/$($env:HUM_ANCHOR)" --jq '.tree.sha')
+          if ($Tree.Count -ne 1 -or $Tree[0] -cnotmatch '^[0-9a-f]{40}$') { throw 'status anchor tree metadata mismatch' }
+          $JobRecord = @(gh api "repos/${{ github.repository }}/actions/jobs/$Job" --jq '[.id,.run_id,.run_attempt,.head_sha,.status,.conclusion,.name] | @tsv')
+          if ($JobRecord.Count -ne 1) { throw 'status producing-job metadata cardinality mismatch' }
+          $JobFields = $JobRecord[0] -split "`t",-1
+          if ($JobFields.Count -ne 7) { throw 'status producing-job metadata shape mismatch' }
+          foreach ($Field in @(@('job ID',$JobFields[0],$Job),@('job run ID',$JobFields[1],$env:HUM_RUN_ID),@('job attempt',$JobFields[2],$env:HUM_RUN_ATTEMPT),@('job SHA',$JobFields[3],$env:HUM_ANCHOR),@('job status',$JobFields[4],'completed'),@('job conclusion',$JobFields[5],'success'),@('job name',$JobFields[6],$ExpectedJobName))) { Assert-StatusField @Field }
+          $Prefix = "hum-dev-executable-transport-v1-$($env:HUM_RUN_ID)-$($env:HUM_RUN_ATTEMPT)-$Job-$Platform-"
+          $Rows = @(gh api "repos/${{ github.repository }}/actions/runs/$($env:HUM_RUN_ID)/artifacts?per_page=100" --paginate --jq '.artifacts[] | [.id,.name,.size_in_bytes,.expired,.digest] | @tsv')
+          $Match = @($Rows | Where-Object { $_ -clike "$Prefix*" })
+          if ($Match.Count -ne 1) { throw 'status executable artifact cardinality mismatch' }
+          $Fields = $Match[0] -split "`t",-1
+          if ($Fields.Count -ne 5) { throw 'status executable metadata shape mismatch' }
+          if ($Fields[0] -cnotmatch '^[1-9][0-9]*$') { throw 'status executable artifact ID mismatch' }
+          if ($Fields[2] -cnotmatch '^[1-9][0-9]*$') { throw 'status executable artifact size mismatch' }
+          if ($Fields[3] -cne 'false') { throw 'status executable artifact expiry mismatch' }
+          if ($Fields[4] -cnotmatch '^sha256:[0-9a-f]{64}$') { throw 'status executable artifact digest shape mismatch' }
+          $Hash = $Fields[1].Substring($Prefix.Length)
+          if ($Hash -cnotmatch '^[0-9a-f]{64}$') { throw 'status executable artifact name mismatch' }
+          "artifact_id=$($Fields[0])" >> $env:GITHUB_OUTPUT
+          "github_digest=$($Fields[4].Substring(7))" >> $env:GITHUB_OUTPUT
+          "executable_sha256=$Hash" >> $env:GITHUB_OUTPUT
+          "download_path=$($env:RUNNER_TEMP)/hum-status-bootstrap" >> $env:GITHUB_OUTPUT
+          "anchor_tree=$($Tree[0])" >> $env:GITHUB_OUTPUT
+          "started_ticks=$StartedTicks" >> $env:GITHUB_OUTPUT
+          "frequency=$Frequency" >> $env:GITHUB_OUTPUT
+
+      - name: Download hum-dev executable
+        id: download_hum_dev_executable
+        if: steps.classify.outputs.mode == 'fast'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.artifact_id }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.classify.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.download_path }}
+          merge-multiple: false
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Run status-only evidence
+        id: authenticate_and_run_status_only_evidence
+        if: always() && steps.classify.outputs.mode == 'fast' && steps.start_status_review_and_resolve_hum_dev.outcome == 'success'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HUM_STATUS_REPOSITORY: ${{ github.repository }}
+          HUM_STATUS_RUN_ID: ${{ steps.classify.outputs.run_id }}
+          HUM_STATUS_RUN_ATTEMPT: ${{ steps.classify.outputs.run_attempt }}
+          HUM_STATUS_UBUNTU_JOB_ID: ${{ steps.classify.outputs.ubuntu_job_id }}
+          HUM_STATUS_WINDOWS_JOB_ID: ${{ steps.classify.outputs.windows_job_id }}
+          HUM_STATUS_ANCHOR: ${{ steps.classify.outputs.anchor }}
+          HUM_STATUS_GH_PATH: ${{ github.workspace }}/gh-placeholder
+          HUM_STATUS_WORKORDER: ${{ github.workspace }}/workorders/active/WORKORDER_25.md
+          HUM_BOOTSTRAP_PATH: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.download_path }}
+          HUM_BOOTSTRAP_DIGEST: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.github_digest }}
+          HUM_EXECUTABLE_SHA256: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.executable_sha256 }}
+          HUM_ANCHOR_TREE: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.anchor_tree }}
+          HUM_REVIEW_STARTED_TICKS: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.started_ticks }}
+          HUM_REVIEW_FREQUENCY: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.frequency }}
+        run: |
+          $Root = [IO.Path]::GetFullPath($env:HUM_BOOTSTRAP_PATH)
+          try {
+            $Entries = @(Get-ChildItem -LiteralPath $Root -Force -Recurse)
+            if ($Entries.Count -ne 1) { throw 'status executable raw-archive entry count mismatch' }
+            if ($Entries[0].PSIsContainer) { throw 'status executable raw-archive entry is a directory' }
+            if ($Entries[0].Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'status executable raw-archive entry is a reparse point' }
+            $Archive = $Entries[0].FullName
+            if ((Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:HUM_BOOTSTRAP_DIGEST) { throw 'status executable GitHub digest mismatch' }
+            $ExpectedName = if ($IsWindows) { 'hum-dev.exe' } else { 'hum-dev' }
+            $Extraction = Join-Path $Root 'authenticated-executable'
+            New-Item -ItemType Directory -Path $Extraction | Out-Null
+            $Zip = [IO.Compression.ZipFile]::OpenRead($Archive)
+            try {
+              $ArchiveEntries = @($Zip.Entries)
+              if ($ArchiveEntries.Count -ne 1) { throw 'status executable archive entry count mismatch' }
+              if ($ArchiveEntries[0].FullName -cne $ExpectedName) { throw 'status executable filename mismatch' }
+              if ($ArchiveEntries[0].FullName.Contains('/') -or $ArchiveEntries[0].FullName.Contains('\') -or [IO.Path]::IsPathRooted($ArchiveEntries[0].FullName)) { throw 'status executable archive traversal mismatch' }
+              $UnixType = ($ArchiveEntries[0].ExternalAttributes -shr 16) -band 0xF000
+              if ($UnixType -ne 0 -and $UnixType -ne 0x8000) { throw 'status executable archive entry is not regular' }
+              $Executable = Join-Path $Extraction $ExpectedName
+              [IO.Compression.ZipFileExtensions]::ExtractToFile($ArchiveEntries[0],$Executable,$false)
+            } finally { $Zip.Dispose() }
+            $ExecutableInfo = Get-Item -LiteralPath $Executable -Force
+            if ($ExecutableInfo.PSIsContainer) { throw 'status executable extraction is a directory' }
+            if ($ExecutableInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'status executable extraction is a reparse point' }
+            if ((Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:HUM_EXECUTABLE_SHA256) { throw 'status executable byte hash mismatch' }
+            if (-not $IsWindows) {
+              [IO.File]::SetUnixFileMode($Executable,[IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserExecute)
+              if (([IO.File]::GetUnixFileMode($Executable) -band [IO.UnixFileMode]::UserExecute) -eq 0) { throw 'status executable bit missing' }
+            }
+            $env:HUM_STATUS_GH_PATH = (Get-Command gh -CommandType Application -TotalCount 1).Source
+            $StatusOut = Join-Path $Root 'status.stdout'
+            $StatusErr = Join-Path $Root 'status.stderr'
+            $PriorRelevant = @((Get-Process -Name 'hum-dev','gh' -ErrorAction SilentlyContinue).Id)
+            $StatusProcess = Start-Process -FilePath $Executable -ArgumentList @('evidence','status') -PassThru -Wait -RedirectStandardOutput $StatusOut -RedirectStandardError $StatusErr
+            $StatusPid = $StatusProcess.Id
+            $StatusExit = $StatusProcess.ExitCode
+            $StatusProcess.Dispose()
+            [Console]::Out.Write([IO.File]::ReadAllText($StatusOut))
+            [Console]::Error.Write([IO.File]::ReadAllText($StatusErr))
+            if (Get-Process -Id $StatusPid -ErrorAction SilentlyContinue) { throw 'status executable process or handle did not reach quiescence' }
+            $NewRelevant = @((Get-Process -Name 'hum-dev','gh' -ErrorAction SilentlyContinue).Id | Where-Object { $PriorRelevant -notcontains $_ })
+            if ($NewRelevant.Count -ne 0) { throw "status executable descendants survived: $([string]::Join(',', $NewRelevant))" }
+            if ($StatusExit -ne 0) { exit $StatusExit }
+          } finally {
+            if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
+            if (Test-Path -LiteralPath $Root) { throw 'status executable bootstrap cleanup failed' }
+          }
+          $ElapsedMs = [math]::Floor(1000 * ([Diagnostics.Stopwatch]::GetTimestamp() - [long]$env:HUM_REVIEW_STARTED_TICKS) / [long]$env:HUM_REVIEW_FREQUENCY)
+          if ($ElapsedMs -ge 120000) { throw "status-review performance boundary exceeded: $ElapsedMs ms" }
+          "elapsed_ms=$ElapsedMs" >> $env:GITHUB_OUTPUT
           ./tools/test_workorder_status_boundary.ps1
           ./tools/check_text_hygiene.ps1
           ./tools/check_public_readiness.ps1

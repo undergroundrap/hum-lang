@@ -2,10 +2,13 @@ mod cleanup;
 mod command;
 mod commit_message;
 mod identity;
+mod status;
 mod summary;
+mod workorder;
 
 use std::{
     ffi::OsStr,
+    fs,
     io::{self, Write},
     path::Path,
     process::{Command as ProcessCommand, ExitCode, Output},
@@ -76,12 +79,34 @@ fn execute(command: Command) -> Result<i32, String> {
             print!("{}", candidate_json(&CandidateIdentity::read(&repository)?));
             Ok(0)
         }
+        Command::Evidence(EvidenceProfile::Status) => {
+            print!("{}", status::run(&status::request_from_environment()?)?);
+            Ok(0)
+        }
         Command::Evidence(profile) => run_legacy(profile),
-        Command::EvidenceSummarize => {
-            let bytes = summary::summarize_without_authenticated_records()?;
-            io::stdout()
-                .write_all(&bytes)
+        Command::EvidenceSummarize(output) => {
+            let _unit_a_opacity = summary::summarize_without_authenticated_records;
+            let executable = fs::read(std::env::current_exe().map_err(|error| error.to_string())?)
                 .map_err(|error| error.to_string())?;
+            let candidate = CandidateIdentity::read(Path::new("."))?;
+            if !candidate.index_clean
+                || !candidate.worktree_clean
+                || !candidate.untracked_clean
+                || candidate.parents.len() != 1
+            {
+                return Err("summary producer candidate is not one clean linear commit".into());
+            }
+            let cargo_lock = fs::read("Cargo.lock").map_err(|error| error.to_string())?;
+            let job = summary::JobSummary::from_environment(
+                &executable,
+                status::resolve_current_job_id()?,
+                &candidate,
+                hum_sha256::digest_hex(&cargo_lock),
+            )?;
+            let bytes = job.canonical_bytes()?;
+            fs::write(output, bytes).map_err(|error| error.to_string())?;
+            println!("summary_artifact={}", job.artifact_name());
+            println!("executable_artifact={}", job.executable_artifact_name());
             Ok(0)
         }
         Command::CleanupVerify => {
@@ -94,8 +119,25 @@ fn execute(command: Command) -> Result<i32, String> {
             println!("cleanup_closed|{}", hum_sha256::digest_hex(path.as_bytes()));
             Ok(0)
         }
-        Command::WorkOrderStatusFacts => {
-            Err("workorder status-facts is reserved for WO25 Unit B".into())
+        Command::WorkOrderStatusFacts {
+            input,
+            base_sha256,
+            status_body,
+            gate_body,
+            output,
+        } => {
+            let facts = workorder::project_status(
+                &fs::read(input).map_err(|e| e.to_string())?,
+                &base_sha256,
+                &fs::read_to_string(status_body).map_err(|e| e.to_string())?,
+                &fs::read_to_string(gate_body).map_err(|e| e.to_string())?,
+            )?;
+            fs::write(output, &facts.bytes).map_err(|e| e.to_string())?;
+            println!(
+                "status_facts|base_sha256={}|immutable_sha256={}|projected_sha256={}",
+                facts.base_sha256, facts.immutable_sha256, facts.projected_sha256
+            );
+            Ok(0)
         }
     }
 }

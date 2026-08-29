@@ -37,18 +37,24 @@ pub enum MessageInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Evidence(EvidenceProfile),
-    EvidenceSummarize,
+    EvidenceSummarize(PathBuf),
     CommitMessage(MessageInput),
     CandidateIdentity(PathBuf),
     CleanupVerify,
-    WorkOrderStatusFacts,
+    WorkOrderStatusFacts {
+        input: PathBuf,
+        base_sha256: String,
+        status_body: PathBuf,
+        gate_body: PathBuf,
+        output: PathBuf,
+    },
 }
 
 impl Command {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let values: Vec<String> = args.into_iter().collect();
         match values.as_slice() {
-            [group, profile] if group == "evidence" && profile == "summarize" => Ok(Self::EvidenceSummarize),
+            [group, profile, flag, output] if group == "evidence" && profile == "summarize" && flag == "--output" => Ok(Self::EvidenceSummarize(output.into())),
             [group, profile] if group == "evidence" => Ok(Self::Evidence(EvidenceProfile::parse(profile)?)),
             [group, action, flag, subject] if group == "commit-message" && action == "check" && flag == "--subject" =>
                 Ok(Self::CommitMessage(MessageInput::Subject(subject.clone()))),
@@ -59,8 +65,8 @@ impl Command {
             [group, action, flag, path] if group == "candidate" && action == "identity" && flag == "--repository" =>
                 Ok(Self::CandidateIdentity(path.into())),
             [group, action] if group == "cleanup" && action == "verify" => Ok(Self::CleanupVerify),
-            [group, action] if group == "workorder" && action == "status-facts" => Ok(Self::WorkOrderStatusFacts),
-            _ => Err("usage: hum-dev evidence <focused|status|full|exhaustive|summarize> | commit-message check <--subject TEXT|--file PATH> | candidate identity [--repository PATH] | cleanup verify | workorder status-facts".into()),
+            [group, action, input_flag, input, base_flag, base_sha256, status_flag, status_body, gate_flag, gate_body, output_flag, output] if group == "workorder" && action == "status-facts" && input_flag == "--input" && base_flag == "--base-sha256" && status_flag == "--status-body-file" && gate_flag == "--gate-body-file" && output_flag == "--output" => Ok(Self::WorkOrderStatusFacts { input: input.into(), base_sha256: base_sha256.clone(), status_body: status_body.into(), gate_body: gate_body.into(), output: output.into() }),
+            _ => Err("usage: hum-dev evidence <focused|status|full|exhaustive> | evidence summarize --output PATH | commit-message check <--subject TEXT|--file PATH> | candidate identity [--repository PATH] | cleanup verify | workorder status-facts --input PATH --base-sha256 HASH --status-body-file PATH --gate-body-file PATH --output PATH".into()),
         }
     }
 }

@@ -495,6 +495,9 @@ function New-TestJob {
       (New-TestStep 'Set up job' 'success')
       (New-TestStep 'Run Hum preflight' 'success')
       (New-TestStep 'Run status-only evidence' 'skipped')
+      (New-TestStep 'Generate evidence summary' 'success')
+      (New-TestStep 'Upload evidence summary' 'success')
+      (New-TestStep 'Upload hum-dev executable' 'success')
     )
   }
 }
@@ -718,12 +721,24 @@ function Assert-ProductionSeamIsClosed {
     'ubuntu-latest',
     'Classify CI evidence lane',
     'Run Hum preflight',
-    'Run status-only evidence'
+    'Run status-only evidence',
+    'Generate evidence summary',
+    'Upload evidence summary',
+    'Upload hum-dev executable',
+    'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+    'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c'
   )) {
     Assert-BoundaryTest $Workflow.Contains($RequiredText) "workflow is missing $RequiredText"
   }
   Assert-BoundaryTest (-not $Workflow.Contains('paths-ignore')) 'workflow must not use paths-ignore'
   Assert-BoundaryTest ($Workflow.IndexOf('Classify CI evidence lane') -lt $Workflow.IndexOf('Cache Cargo artifacts')) 'classification must precede Cargo cache setup'
+  foreach ($RequiredTerminalStep in @('Generate evidence summary','Upload evidence summary','Upload hum-dev executable')) {
+    $Snapshot = New-TestSnapshot ('a' * 40)
+    ($Snapshot.JobPages[0].jobs[0].steps | Where-Object { $_.name -ceq $RequiredTerminalStep }).conclusion = 'failure'
+    $Rejected = $false
+    try { ConvertTo-ControlPlaneSnapshot $Snapshot ('a' * 40) | Out-Null } catch { $Rejected = $_.Exception.Message -ceq 'workorder-boundary:anchor_steps_invalid' }
+    Assert-BoundaryTest $Rejected "terminal full step $RequiredTerminalStep did not fail closed"
+  }
 
   $Classifier = [System.IO.File]::ReadAllText($ClassifierPath)
   foreach ($RequiredText in @(

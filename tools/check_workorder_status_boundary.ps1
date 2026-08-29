@@ -828,6 +828,9 @@ function Get-ValidatedJobIdentity {
   )
   $FullStep = Get-ValidatedStepIdentity $Job 'Run Hum preflight' 'success'
   $FastStep = Get-ValidatedStepIdentity $Job 'Run status-only evidence' 'skipped'
+  $SummaryStep = Get-ValidatedStepIdentity $Job 'Generate evidence summary' 'success'
+  $SummaryUploadStep = Get-ValidatedStepIdentity $Job 'Upload evidence summary' 'success'
+  $ExecutableUploadStep = Get-ValidatedStepIdentity $Job 'Upload hum-dev executable' 'success'
   return [pscustomobject][ordered]@{
     JobId = $JobId
     RunId = $JobRunId
@@ -840,6 +843,9 @@ function Get-ValidatedJobIdentity {
     Steps = @($AllSteps)
     FullStep = $FullStep
     FastStep = $FastStep
+    SummaryStep = $SummaryStep
+    SummaryUploadStep = $SummaryUploadStep
+    ExecutableUploadStep = $ExecutableUploadStep
   }
 }
 
@@ -907,6 +913,9 @@ function ConvertTo-ControlPlaneIdentity {
     ubuntu_full_conclusion = $Snapshot.Ubuntu.FullStep.Conclusion
     ubuntu_fast_status = $Snapshot.Ubuntu.FastStep.Status
     ubuntu_fast_conclusion = $Snapshot.Ubuntu.FastStep.Conclusion
+    ubuntu_summary_conclusion = $Snapshot.Ubuntu.SummaryStep.Conclusion
+    ubuntu_summary_upload_conclusion = $Snapshot.Ubuntu.SummaryUploadStep.Conclusion
+    ubuntu_executable_upload_conclusion = $Snapshot.Ubuntu.ExecutableUploadStep.Conclusion
     windows_job_id = $Snapshot.Windows.JobId
     windows_platform = $Snapshot.Windows.Platform
     windows_status = $Snapshot.Windows.Status
@@ -916,6 +925,9 @@ function ConvertTo-ControlPlaneIdentity {
     windows_full_conclusion = $Snapshot.Windows.FullStep.Conclusion
     windows_fast_status = $Snapshot.Windows.FastStep.Status
     windows_fast_conclusion = $Snapshot.Windows.FastStep.Conclusion
+    windows_summary_conclusion = $Snapshot.Windows.SummaryStep.Conclusion
+    windows_summary_upload_conclusion = $Snapshot.Windows.SummaryUploadStep.Conclusion
+    windows_executable_upload_conclusion = $Snapshot.Windows.ExecutableUploadStep.Conclusion
     job_page_count = $Snapshot.JobPageCount
     job_record_count = $Snapshot.JobRecordCount
   }

@@ -1,5 +1,5 @@
 param(
-  [ValidateSet('Fast', 'Exhaustive', 'Wo25UnitA')]
+  [ValidateSet('Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB')]
   [string] $EvidenceTier = 'Fast'
 )
 
@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $GitRepoRoot = $RepoRoot.Replace([System.IO.Path]::DirectorySeparatorChar, '/')
+$script:Wo25MutationRecords = New-Object 'System.Collections.Generic.List[string]'
+function Get-Wo25Sha256([byte[]]$Bytes) { $Hasher=[Security.Cryptography.SHA256]::Create();try{return -join ($Hasher.ComputeHash($Bytes)|ForEach-Object{$_.ToString('x2')})}finally{$Hasher.Dispose()} }
 
 function Resolve-Tool {
   param(
@@ -61,7 +63,7 @@ if ($EvidenceTier -eq 'Exhaustive') {
   return
 }
 
-if ($EvidenceTier -notin @('Fast', 'Wo25UnitA')) {
+if ($EvidenceTier -notin @('Fast', 'Wo25UnitA', 'Wo25UnitB')) {
   throw "unsupported evidence-tier fallthrough: $EvidenceTier"
 }
 
@@ -305,8 +307,9 @@ function Invoke-UbuntuPwshResolutionSelfTests {
 function Assert-ExactRustSelectorLedger {
   param([string[]] $Credits)
 
-  $ExpectedByteCount = 9571
-  $ExpectedSha256 = '2d601c76bbf6340b98871945540f29273128ea03760ff36b038cb1f659c8c656'
+  $ExpectedByteCount = 9837
+  $Frozen124ByteCount = 9571
+  $Frozen124Sha256 = '2d601c76bbf6340b98871945540f29273128ea03760ff36b038cb1f659c8c656'
   $Published112ByteCount = 8713
   $Published112Sha256 = '3b838200974c7034ae244b4cfd25f8f9f9c979875281be923f956ca6adc4c8de'
   $FrozenByteCount = 8324
@@ -327,6 +330,7 @@ function Assert-ExactRustSelectorLedger {
     'main::tests::native_hello_world_run_is_authority_bound_and_platform_exact'
   )
   $Wo25UnitAAppendix = @('commit_message::tests::canonical_rule_is_portable_and_exact', 'identity::tests::candidate_identity_binds_commit_tree_index_and_paths', 'summary::tests::evidence_summary_v1_is_canonical_and_hash_bound', 'cleanup::tests::owned_resources_close_on_every_controlled_terminal_path', 'command::tests::evidence_profiles_are_typed_and_fail_closed', 'cli::legacy_equivalence_preserves_exit_stages_and_stream_hashes')
+  $Wo25UnitBAppendix = @('status::tests::job_summary_binds_run_attempt_job_sha_tree_and_platform', 'status::tests::status_review_consumes_summaries_without_full_logs', 'workorder::tests::status_facts_touch_only_authenticated_mutable_regions', 'summary::tests::cross_platform_status_agreement_is_exact')
   $Items = @($Credits)
   $Unique = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
   foreach ($Item in $Items) {
@@ -336,8 +340,8 @@ function Assert-ExactRustSelectorLedger {
     }
     $null = $Unique.Add($Item)
   }
-  if ($Items.Count -ne 124 -or $Unique.Count -ne 124) {
-    throw "exact Rust selector inventory must credit 124 case-sensitive unique tests, credited $($Items.Count) invocations and $($Unique.Count) unique tests"
+  if ($Items.Count -ne 128 -or $Unique.Count -ne 128) {
+    throw "exact Rust selector inventory must credit 128 case-sensitive unique tests, credited $($Items.Count) invocations and $($Unique.Count) unique tests"
   }
   if ([string]::Join("`n", $Items[107..111]) -cne [string]::Join("`n", $Wo23Appendix)) {
     throw 'Work Order 23 exact Rust selectors must occupy only ordinals 108 through 112 in canonical order'
@@ -348,6 +352,7 @@ function Assert-ExactRustSelectorLedger {
   if ([string]::Join("`n", $Items[118..123]) -cne [string]::Join("`n", $Wo25UnitAAppendix)) {
     throw 'Work Order 25 Unit A exact Rust selectors must occupy only ordinals 119 through 124 in canonical order'
   }
+  if ([string]::Join("`n", $Items[124..127]) -cne [string]::Join("`n", $Wo25UnitBAppendix)) { throw 'Work Order 25 Unit B exact Rust selectors must occupy only ordinals 125 through 128 in canonical order' }
 
   $CanonicalText = ($Items -join "`n") + "`n"
   $Encoding = New-Object System.Text.UTF8Encoding($false, $true)
@@ -358,7 +363,7 @@ function Assert-ExactRustSelectorLedger {
     if ($Byte -eq 10) { $LfCount++ }
     if ($Byte -eq 13) { $CrCount++ }
   }
-  if ($Bytes.Length -ne $ExpectedByteCount -or $LfCount -ne 124 -or $CrCount -ne 0 -or
+  if ($Bytes.Length -ne $ExpectedByteCount -or $LfCount -ne 128 -or $CrCount -ne 0 -or
       $Bytes[$Bytes.Length - 1] -ne 10 -or
       ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xef -and $Bytes[1] -eq 0xbb -and $Bytes[2] -eq 0xbf) -or
       $Encoding.GetString($Bytes) -cne $CanonicalText) {
@@ -370,9 +375,12 @@ function Assert-ExactRustSelectorLedger {
   } finally {
     $Hasher.Dispose()
   }
-  if ($Sha256 -cne $ExpectedSha256) {
-    throw "exact Rust selector invocation-order digest drifted: $Sha256"
-  }
+  $script:ExactRustSelectorLedgerSha256 = $Sha256
+  $Frozen124Text = ($Items[0..123] -join "`n") + "`n"
+  [byte[]] $Frozen124Bytes = $Encoding.GetBytes($Frozen124Text)
+  $Frozen124Hasher = [System.Security.Cryptography.SHA256]::Create()
+  try { $Frozen124Observed = (($Frozen124Hasher.ComputeHash($Frozen124Bytes) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $Frozen124Hasher.Dispose() }
+  if ($Frozen124Bytes.Length -ne $Frozen124ByteCount -or $Frozen124Observed -cne $Frozen124Sha256) { throw "frozen 124-selector prefix drifted: bytes=$($Frozen124Bytes.Length) sha256=$Frozen124Observed" }
   $Published112Text = ($Items[0..111] -join "`n") + "`n"
   [byte[]] $Published112Bytes = $Encoding.GetBytes($Published112Text)
   $Published112Hasher = [System.Security.Cryptography.SHA256]::Create()
@@ -436,8 +444,9 @@ function Invoke-ExactRustSelectorLedgerMutationTests {
     'main::tests::native_hello_world_run_is_authority_bound_and_platform_exact'
   )
   $Wo25UnitASelectors = @('commit_message::tests::canonical_rule_is_portable_and_exact', 'identity::tests::candidate_identity_binds_commit_tree_index_and_paths', 'summary::tests::evidence_summary_v1_is_canonical_and_hash_bound', 'cleanup::tests::owned_resources_close_on_every_controlled_terminal_path', 'command::tests::evidence_profiles_are_typed_and_fail_closed', 'cli::legacy_equivalence_preserves_exit_stages_and_stream_hashes')
+  $Wo25UnitBSelectors = @('status::tests::job_summary_binds_run_attempt_job_sha_tree_and_platform', 'status::tests::status_review_consumes_summaries_without_full_logs', 'workorder::tests::status_facts_touch_only_authenticated_mutable_regions', 'summary::tests::cross_platform_status_agreement_is_exact')
   Assert-ExactRustSelectorLedger -Credits $Credits
-  foreach ($Selector in @($Wo22UnitASelectors) + @($Wo22UnitBSelectors) + @($Wo23UnitASelectors) + @($Wo24UnitASelectors) + @($Wo25UnitASelectors)) {
+  foreach ($Selector in @($Wo22UnitASelectors) + @($Wo22UnitBSelectors) + @($Wo23UnitASelectors) + @($Wo24UnitASelectors) + @($Wo25UnitASelectors) + @($Wo25UnitBSelectors)) {
     $Removal = @($Credits | Where-Object { $_ -cne $Selector })
     Assert-ExactRustSelectorLedgerRejects -Credits $Removal -Label "removal of $Selector"
     $Duplicate = @($Credits) + $Selector
@@ -448,11 +457,11 @@ function Invoke-ExactRustSelectorLedgerMutationTests {
   }
 
   $Fabricated = @($Wo22UnitASelectors)
-  for ($Index = 1; $Index -le 122; $Index++) { $Fabricated += ('fabricated::selector_{0:D3}' -f $Index) }
-  Assert-ExactRustSelectorLedgerRejects -Credits $Fabricated -Label 'two Unit A selectors plus 122 fabricated selectors'
+  for ($Index = 1; $Index -le 126; $Index++) { $Fabricated += ('fabricated::selector_{0:D3}' -f $Index) }
+  Assert-ExactRustSelectorLedgerRejects -Credits $Fabricated -Label 'two Unit A selectors plus 126 fabricated selectors'
 
   $PreservedAndFabricated = @($PreservedNamedSelectors) + @($Wo22UnitASelectors) + @($Wo22UnitBSelectors)
-  for ($Index = $PreservedAndFabricated.Count; $Index -lt 124; $Index++) {
+  for ($Index = $PreservedAndFabricated.Count; $Index -lt 128; $Index++) {
     $PreservedAndFabricated += ('fabricated::preserved_replacement_{0:D3}' -f $Index)
   }
   Assert-ExactRustSelectorLedgerRejects -Credits $PreservedAndFabricated -Label 'preserved named obligations plus fabricated replacements'
@@ -1126,7 +1135,7 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
 }
 
 function Invoke-Wo25UnitAProductionMutationEvidence { param([string] $Cargo)
-  $Rows = @([pscustomobject] @{ Id = 'I01'; Path = 'crates/hum-dev/src/commit_message.rs'; Selector = 'commit_message::tests::canonical_rule_is_portable_and_exact'; Needle = 'if !TYPES.contains(&kind) {'; Replacement = 'if false && !TYPES.contains(&kind) {'; Disposition = 'invalid commit message passes the permanent corpus' }, [pscustomobject] @{ Id = 'I02'; Path = 'crates/hum-dev/src/identity.rs'; Selector = 'identity::tests::candidate_identity_binds_commit_tree_index_and_paths'; Needle = 'self == expected'; Replacement = 'true'; Disposition = 'foreign or dirty candidate authenticates' }, [pscustomobject] @{ Id = 'I03'; Path = 'crates/hum-dev/src/summary.rs'; Selector = 'summary::tests::evidence_summary_v1_is_canonical_and_hash_bound'; Needle = 'out.push_str(SCHEMA);'; Replacement = 'out.push_str("");'; Disposition = 'summary bytes/hash remain falsely accepted' }, [pscustomobject] @{ Id = 'I04'; Path = 'crates/hum-dev/src/cleanup.rs'; Selector = 'cleanup::tests::owned_resources_close_on_every_controlled_terminal_path'; Needle = 'let _ = self.close();'; Replacement = 'let _ = Ok::<(), CleanupError>(());'; Disposition = 'authenticated current-run residue survives a controlled disposition' })
+  $Rows = @([pscustomobject] @{ Id = 'I01'; Path = 'crates/hum-dev/src/commit_message.rs'; Selector = 'commit_message::tests::canonical_rule_is_portable_and_exact'; Needle = 'if !TYPES.contains(&kind) {'; Replacement = 'if false && !TYPES.contains(&kind) {'; Disposition = 'invalid commit message passes the permanent corpus' }, [pscustomobject] @{ Id = 'I02'; Path = 'crates/hum-dev/src/identity.rs'; Selector = 'identity::tests::candidate_identity_binds_commit_tree_index_and_paths'; Needle = 'self == expected'; Replacement = 'true'; Disposition = 'foreign or dirty candidate authenticates' }, [pscustomobject] @{ Id = 'I03'; Path = 'crates/hum-dev/src/summary.rs'; Selector = 'summary::tests::evidence_summary_v1_is_canonical_and_hash_bound'; Needle = 'self.validate_stage_closure()?; let mut out = String::from("{\"schema\":\""); out.push_str(SCHEMA);'; Replacement = 'self.validate_stage_closure()?; let mut out = String::from("{\"schema\":\""); out.push_str("");'; Disposition = 'summary bytes/hash remain falsely accepted' }, [pscustomobject] @{ Id = 'I04'; Path = 'crates/hum-dev/src/cleanup.rs'; Selector = 'cleanup::tests::owned_resources_close_on_every_controlled_terminal_path'; Needle = 'let _ = self.close();'; Replacement = 'let _ = Ok::<(), CleanupError>(());'; Disposition = 'authenticated current-run residue survives a controlled disposition' })
   $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
   foreach ($Row in $Rows) {
     $PriorOwned = @((Get-ChildItem -LiteralPath ([System.IO.Path]::GetTempPath()) -Directory -Filter 'hum-dev-*' -ErrorAction Stop).FullName | Sort-Object)
@@ -1151,6 +1160,7 @@ function Invoke-Wo25UnitAProductionMutationEvidence { param([string] $Cargo)
       $Output | ForEach-Object { Write-Host $_ }
       throw "Work Order 25 $($Row.Id) did not reach its owned disposition and restore bytes"
     }
+    $script:Wo25MutationRecords.Add("$($Row.Id)|rejected|$(Get-Wo25Sha256 $OriginalBytes)")
     Write-Host "ok - Work Order 25 $($Row.Id) rejected and restored"
   }
 }
@@ -1163,13 +1173,13 @@ function Assert-Wo25EvidenceTierDispatcherContract { param([string] $Source, [sw
     while (($Offset = $Text.IndexOf($Needle, $Offset, [System.StringComparison]::Ordinal)) -ge 0) { $Total++; $Offset += $Needle.Length }
     $Total
   }
-  $Validate = '[Validate' + 'Set(' + "'Fast', 'Exhaustive', 'Wo25UnitA'" + ')]'; $Exhaustive = 'if (' + $Dollar + "EvidenceTier -eq 'Exhaustive') {"; $Dispatch = 'if (' + $Dollar + 'EvidenceTier -notin @(' + "'Fast', 'Wo25UnitA'" + ')) {'
-  $BoundaryScript = 'test_workorder_' + 'status_boundary.ps1'; $FailClosed = 'throw "unsupported evidence-tier fallthrough: ' + $Dollar + 'EvidenceTier"'; $Wo25Return = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $FastStart = "Invoke-RepoScript 'Work Order status-boundary classifier tests' '$BoundaryScript'"
+  $Validate = '[Validate' + 'Set(' + "'Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB'" + ')]'; $Exhaustive = 'if (' + $Dollar + "EvidenceTier -eq 'Exhaustive') {"; $Dispatch = 'if (' + $Dollar + 'EvidenceTier -notin @(' + "'Fast', 'Wo25UnitA', 'Wo25UnitB'" + ')) {'
+  $BoundaryScript = 'test_workorder_' + 'status_boundary.ps1'; $FailClosed = 'throw "unsupported evidence-tier fallthrough: ' + $Dollar + 'EvidenceTier"'; $Wo25Return = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitBReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitB') { Invoke-Wo25UnitBFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $FastStart = "Invoke-RepoScript 'Work Order status-boundary classifier tests' '$BoundaryScript'"
   $Audit = "'" + $Dispatch.Replace("'", "''") + "',"; $StaleDispatch = 'if (' + $Dollar + "EvidenceTier -ne 'Fast') {"; $StaleAudit = "'" + $StaleDispatch.Replace("'", "''") + "',"
-  $Required = @($Validate, $Exhaustive, ($Dollar + "env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'"), "  return`n}`n`n$Dispatch", "$Dispatch`n  $FailClosed`n}", "  $Wo25Return`n  $FastStart", $Audit, ("Write-" + "Host 'All Hum preflight checks passed.'"))
+  $Required = @($Validate, $Exhaustive, ($Dollar + "env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'"), "  return`n}`n`n$Dispatch", "$Dispatch`n  $FailClosed`n}", "  $Wo25Return`n  $Wo25UnitBReturn`n  $FastStart", $Audit, ("Write-" + "Host 'All Hum preflight checks passed.'"))
   foreach ($Needle in $Required) { if ((& $Count $Source $Needle) -ne 1) { throw "Work Order 25 evidence-tier dispatcher contract drifted: $Needle" } }
   if ((& $Count $Source ('[Validate' + 'Set(')) -ne 1 -or (& $Count $Source $StaleAudit) -ne 0 -or (& $Count $Source $BoundaryScript) -ne 1) { throw 'Work Order 25 evidence-tier dispatcher retained a stale or additional admission rule or boundary invocation' }
-  $FocusedOwner = 'function Invoke-Wo25UnitA' + 'FocusedEvidence {'; $FocusedEndOwner = 'function Assert-SessionA' + 'SurfaceRules {'; $FocusedStart = $Source.IndexOf($FocusedOwner, [System.StringComparison]::Ordinal); $FocusedEnd = $Source.IndexOf($FocusedEndOwner, $FocusedStart, [System.StringComparison]::Ordinal); $Focused = $Source.Substring($FocusedStart, $FocusedEnd - $FocusedStart)
+  $FocusedOwner = 'function Invoke-Wo25UnitA' + 'FocusedEvidence {'; $FocusedEndOwner = 'function Invoke-Wo25UnitB' + 'SelectorWithoutCredit {'; $FocusedStart = $Source.IndexOf($FocusedOwner, [System.StringComparison]::Ordinal); $FocusedEnd = $Source.IndexOf($FocusedEndOwner, $FocusedStart, [System.StringComparison]::Ordinal); $Focused = $Source.Substring($FocusedStart, $FocusedEnd - $FocusedStart)
   $Selectors = @('commit_message::tests::canonical_rule_is_portable_and_exact', 'identity::tests::candidate_identity_binds_commit_tree_index_and_paths', 'summary::tests::evidence_summary_v1_is_canonical_and_hash_bound', 'cleanup::tests::owned_resources_close_on_every_controlled_terminal_path', 'command::tests::evidence_profiles_are_typed_and_fail_closed', 'cli::legacy_equivalence_preserves_exit_stages_and_stream_hashes')
   foreach ($Selector in $Selectors) { if ((& $Count $Focused $Selector) -ne 1) { throw "Work Order 25 focused dispatcher selector drifted: $Selector" } }; if ((& $Count $Focused 'Invoke-') -ne 3 -or (& $Count $Focused 'Invoke-ExactRustTest') -ne 1 -or (& $Count $Focused 'Invoke-Wo25UnitAProductionMutationEvidence') -ne 1) { throw 'Work Order 25 focused dispatcher gained an evidence route' }
   $MutationOwner = 'function Invoke-Wo25UnitAProduction' + 'MutationEvidence {'; $MutationStart = $Source.IndexOf($MutationOwner, [System.StringComparison]::Ordinal); $Mutation = $Source.Substring($MutationStart, $FocusedStart - $MutationStart); foreach ($Id in @('I01', 'I02', 'I03', 'I04')) { if ((& $Count $Mutation "Id = '$Id'") -ne 1) { throw "Work Order 25 focused mutation dispatcher drifted: $Id" } }; if ((& $Count $Mutation ("Id = '" + 'I')) -ne 4) { throw 'Work Order 25 focused mutation dispatcher must contain exactly I01-I04' }
@@ -1189,6 +1199,36 @@ function Invoke-Wo25UnitAFocusedEvidence { param([string] $Cargo)
   Push-Location (Join-Path $RepoRoot 'crates/hum-dev')
   try { foreach ($Selector in $Selectors) { Invoke-ExactRustTest "Work Order 25 Unit A $Selector" $Cargo $Selector } } finally { Pop-Location }
   Invoke-Wo25UnitAProductionMutationEvidence -Cargo $Cargo
+}
+
+function Invoke-Wo25UnitBSelectorWithoutCredit { param([string]$Cargo,[string]$Label,[string]$Selector)
+  $Before = @(Get-ExactRustSelectorCredits); try { Invoke-ExactRustTest $Label $Cargo $Selector } finally { $After = @(Get-ExactRustSelectorCredits); if ($After.Count -eq $Before.Count + 1 -and $After[-1] -ceq $Selector) { $script:ExactRustSelectorCredits.RemoveAt($After.Count - 1) } }
+  if ([string]::Join("`n", @(Get-ExactRustSelectorCredits)) -cne [string]::Join("`n", $Before)) { throw "$Label selector credit restoration failed" }
+}
+function Invoke-Wo25UnitBProductionMutationEvidence { param([string]$Cargo)
+  $Rows = @(
+    [pscustomobject]@{Id='I05';Selector='status::tests::job_summary_binds_run_attempt_job_sha_tree_and_platform';Needle='parse_positive(f[0], "run ID")? != request.run_id';Replacement='false';Disposition='run substitution authenticated'},
+    [pscustomobject]@{Id='I06';Selector='status::tests::status_review_consumes_summaries_without_full_logs';Needle='matches!(*value, "--log" | "workflow" | "rerun")';Replacement='matches!(*value, "workflow" | "rerun")';Disposition='the no-log-download sentinel records forbidden access'},
+    [pscustomobject]@{Id='I07';Selector='status::tests::status_review_consumes_summaries_without_full_logs';Needle='call.contains("cargo")';Replacement='false';Disposition='a forbidden stage appears without rejection'}
+  )
+  $Path = Join-Path $RepoRoot 'crates/hum-dev/src/status.rs'; $Utf8 = New-Object Text.UTF8Encoding($false,$true)
+  foreach($Row in $Rows){$Original=[IO.File]::ReadAllBytes($Path);$Text=$Utf8.GetString($Original);if(([regex]::Matches($Text,[regex]::Escape($Row.Needle))).Count -ne 1){throw "$($Row.Id) predicate is not unique"};Invoke-Wo25UnitBSelectorWithoutCredit $Cargo "$($Row.Id) honest before" $Row.Selector;$Failure=$null;$Output='';try{[IO.File]::WriteAllText($Path,$Text.Replace($Row.Needle,$Row.Replacement),$Utf8);try{$Output=(& $Cargo test -p hum-dev $Row.Selector -- --exact 2>&1|Out-String)}catch{$Failure=$_}}finally{[IO.File]::WriteAllBytes($Path,$Original)};if($LASTEXITCODE -ne 101 -or -not $Output.Contains($Row.Disposition) -or -not (Test-Wo22ByteArraysEqual $Original ([IO.File]::ReadAllBytes($Path)))){throw "$($Row.Id) did not escape its exact owned disposition and restore"};$script:Wo25MutationRecords.Add("$($Row.Id)|rejected|$(Get-Wo25Sha256 $Original)");Invoke-Wo25UnitBSelectorWithoutCredit $Cargo "$($Row.Id) honest after" $Row.Selector;Write-Host "ok - $($Row.Id) rejected and restored"}
+}
+function Assert-Wo25UnitBTransportContract {
+  $Workflow=[IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'));foreach($Pin in @('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a','actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c')){if(([regex]::Matches($Workflow,[regex]::Escape($Pin))).Count -lt 1){throw "missing immutable action pin $Pin"}};foreach($Step in @('generate_evidence_summary','upload_evidence_summary','upload_hum_dev_executable','start_status_review_and_resolve_hum_dev','download_hum_dev_executable','authenticate_and_run_status_only_evidence')){if(([regex]::Matches($Workflow,"(?m)^\s*id:\s*"+[regex]::Escape($Step)+"\s*$" )).Count -ne 1){throw "Unit B workflow step identity drifted: $Step"}}
+  $Rows=@((Get-Content -Raw (Join-Path $RepoRoot 'fixtures/evidence/summary_corruption_cases.v1.json')|ConvertFrom-Json).rows);$Ids=@($Rows|ForEach-Object{$_.id});$Expected=@('S01','S02','S03','S04','S05','S06')+@(1..43|ForEach-Object{'J{0:D2}'-f $_})+@(1..16|ForEach-Object{'T{0:D2}'-f $_});if($Ids.Count -ne 65 -or [string]::Join(',', $Ids) -cne [string]::Join(',', $Expected) -or (@($Ids|Sort-Object -Unique)).Count -ne 65){throw 'Unit B corruption matrix identity drifted'}
+  $WorkflowPredicates=[ordered]@{
+    T01='actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a';T02='actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c';T03='hum-dev-executable-transport-v1-';T04='artifact_id=$($Fields[0])';T05='status executable GitHub digest mismatch';T06='status executable byte hash mismatch';T07='status executable raw-archive entry count mismatch';T08='status executable archive traversal mismatch';T09='status executable archive entry is not regular';T10='status executable artifact cardinality mismatch';T11='if ($Match.Count -ne 1)';T12='$Fields[3] -cne ''false''';T14='status executable bit missing';T15='status executable descendants survived';T16='status executable bootstrap cleanup failed'
+  }
+  foreach($Entry in $WorkflowPredicates.GetEnumerator()){if(([regex]::Matches($Workflow,[regex]::Escape($Entry.Value))).Count -lt 1){throw "Unit B $($Entry.Key) workflow predicate missing: $($Entry.Value)"}}
+  foreach($Literal in @('overwrite: false','retention-days: 14','if-no-files-found: error','include-hidden-files: false')){if(([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count -ne 2){throw "Unit B upload configuration drifted: $Literal"}}
+  foreach($Literal in @('repository: ${{ github.repository }}','run-id: ${{ steps.classify.outputs.run_id }}','github-token: ${{ github.token }}','skip-decompress: true','digest-mismatch: error')){if(([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count -ne 1){throw "Unit B download configuration drifted: $Literal"}}
+  $Status=[IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/hum-dev/src/status.rs'));foreach($Forbidden in @('"--log"','call.contains("cargo")','"rustc"','"check_all"','"workflow run"','"local-copy"','running executable and producer summary disagree')){if(-not $Status.Contains($Forbidden)){throw "Unit B status sentinel missing: $Forbidden"}}
+}
+function Invoke-Wo25UnitBFocusedEvidence { param([string]$Cargo)
+  Assert-Wo25UnitBTransportContract
+  $Selectors=@('status::tests::job_summary_binds_run_attempt_job_sha_tree_and_platform','status::tests::status_review_consumes_summaries_without_full_logs','workorder::tests::status_facts_touch_only_authenticated_mutable_regions','summary::tests::cross_platform_status_agreement_is_exact')
+  Push-Location (Join-Path $RepoRoot 'crates/hum-dev');try{foreach($Selector in $Selectors){Invoke-ExactRustTest "Work Order 25 Unit B $Selector" $Cargo $Selector};Invoke-Wo25UnitBProductionMutationEvidence -Cargo $Cargo}finally{Pop-Location}
 }
 
 function Assert-SessionASurfaceRules {
@@ -1221,6 +1261,7 @@ function Assert-SessionASurfaceRules {
 Push-Location $RepoRoot
 try {
   if ($EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo; return }
+  if ($EvidenceTier -eq 'Wo25UnitB') { Invoke-Wo25UnitBFocusedEvidence -Cargo $Cargo; return }
   Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
   $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
   $PwshApplications = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
@@ -1301,7 +1342,7 @@ try {
   foreach ($ExhaustiveDispatchArm in @(
     'if ($EvidenceTier -eq ''Exhaustive'') {',
     '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''exhaustive''',
-    'if ($EvidenceTier -notin @(''Fast'', ''Wo25UnitA'')) {',
+    'if ($EvidenceTier -notin @(''Fast'', ''Wo25UnitA'', ''Wo25UnitB'')) {',
     'throw "unsupported evidence-tier fallthrough: $EvidenceTier"',
     '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''fast'''
   )) {
@@ -2978,6 +3019,7 @@ task malformed() -> UInt {
   Invoke-ExactRustTest 'Work Order 24 H0635 catalog projection' $Cargo 'diagnostic_catalog::tests::unsupported_native_feature_catalog_projection_is_exact'
   Invoke-ExactRustTest 'Work Order 24 native CLI and authority' $Cargo 'main::tests::native_hello_world_run_is_authority_bound_and_platform_exact'
   Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo
+  Invoke-Wo25UnitBFocusedEvidence -Cargo $Cargo
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $OlderExactRustSelectorObligations = @(
     'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed',
@@ -3021,7 +3063,8 @@ task malformed() -> UInt {
     'main::tests::native_hello_world_run_is_authority_bound_and_platform_exact'
   )
   $WorkOrder25UnitAExactRustSelectors = @('commit_message::tests::canonical_rule_is_portable_and_exact', 'identity::tests::candidate_identity_binds_commit_tree_index_and_paths', 'summary::tests::evidence_summary_v1_is_canonical_and_hash_bound', 'cleanup::tests::owned_resources_close_on_every_controlled_terminal_path', 'command::tests::evidence_profiles_are_typed_and_fail_closed', 'cli::legacy_equivalence_preserves_exit_stages_and_stream_hashes')
-  $PreservedNamedExactRustSelectors = @($OlderExactRustSelectorObligations) + @($WorkOrder17ExactRustSelectors) + @($WorkOrder19ExactRustSelectors) + @($WorkOrder20UnitAExactRustSelectors) + @($WorkOrder22UnitBExactRustSelectors) + @($WorkOrder23UnitAExactRustSelectors) + @($WorkOrder24UnitAExactRustSelectors) + @($WorkOrder25UnitAExactRustSelectors)
+  $WorkOrder25UnitBExactRustSelectors = @('status::tests::job_summary_binds_run_attempt_job_sha_tree_and_platform', 'status::tests::status_review_consumes_summaries_without_full_logs', 'workorder::tests::status_facts_touch_only_authenticated_mutable_regions', 'summary::tests::cross_platform_status_agreement_is_exact')
+  $PreservedNamedExactRustSelectors = @($OlderExactRustSelectorObligations) + @($WorkOrder17ExactRustSelectors) + @($WorkOrder19ExactRustSelectors) + @($WorkOrder20UnitAExactRustSelectors) + @($WorkOrder22UnitBExactRustSelectors) + @($WorkOrder23UnitAExactRustSelectors) + @($WorkOrder24UnitAExactRustSelectors) + @($WorkOrder25UnitAExactRustSelectors) + @($WorkOrder25UnitBExactRustSelectors)
   Invoke-ExactRustSelectorLedgerMutationTests -Credits $ExactRustSelectorCredits -PreservedNamedSelectors $PreservedNamedExactRustSelectors
   foreach ($OlderSelector in $OlderExactRustSelectorObligations) {
     if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $OlderSelector }).Count -ne 1) { throw "exact Rust selector inventory lost older required selector $OlderSelector" }
@@ -3047,6 +3090,7 @@ task malformed() -> UInt {
   foreach ($WorkOrder25UnitASelector in $WorkOrder25UnitAExactRustSelectors) {
     if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit A selector $WorkOrder25UnitASelector" }
   }
+  foreach ($WorkOrder25UnitBSelector in $WorkOrder25UnitBExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit B selector $WorkOrder25UnitBSelector" } }
 
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
   if ($ApForbiddenFallbacks.Count -ne 0) { throw 'Session AP production source must not reconstruct occurrences from codes or public diagnostics' }
@@ -5729,6 +5773,15 @@ task malformed() -> UInt {
   Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
   Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'
   Invoke-RepoScript 'release readiness' 'check_release_readiness.ps1'
+
+  if (-not [string]::IsNullOrEmpty($env:HUM_EVIDENCE_RECEIPT)) {
+    $Receipt = [IO.Path]::GetFullPath($env:HUM_EVIDENCE_RECEIPT); $RunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+    if (-not $Receipt.StartsWith($RunnerTemp + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or [string]::IsNullOrEmpty($script:ExactRustSelectorLedgerSha256)) { throw 'full evidence receipt ownership or selector identity is invalid' }
+    if ($script:Wo25MutationRecords.Count -ne 7 -or [string]::Join(',',@($script:Wo25MutationRecords|ForEach-Object{$_.Substring(0,3)})) -cne 'I01,I02,I03,I04,I05,I06,I07') { throw 'full mutation ledger is incomplete or reordered' }
+    $MutationBytes=(New-Object Text.UTF8Encoding($false,$true)).GetBytes(([string]::Join("`n",$script:Wo25MutationRecords)+"`n"));$MutationSha=Get-Wo25Sha256 $MutationBytes
+    $ReceiptText = "selector_ledger_sha256=$($script:ExactRustSelectorLedgerSha256)`nselector_count=128`nmutation_ledger_sha256=$MutationSha`nmutation_count=7`nsuite_count=128`nreadiness=ir_ready=1;backend_ready=1`nhygiene_file_count=584`nclaims=passed`nrelease_version=0.0.1`n"
+    [IO.File]::WriteAllText($Receipt,$ReceiptText,(New-Object Text.UTF8Encoding($false,$true)))
+  }
 
   Write-Host 'All Hum preflight checks passed.'
 } finally {

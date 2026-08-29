@@ -27,12 +27,6 @@ mod cli {
     fn binary() -> &'static str {
         env!("CARGO_BIN_EXE_hum-dev")
     }
-    fn root() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .canonicalize()
-            .unwrap()
-    }
     fn scratch(name: &str) -> Scratch {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -118,32 +112,17 @@ mod cli {
 
     #[test]
     fn legacy_probe_environment_cannot_replace_the_canonical_status_mapping() {
-        let direct = Command::new("pwsh")
-            .current_dir(root())
-            .args([
-                "-NoLogo",
-                "-NoProfile",
-                "-File",
-                "tools/check_workorder_status_boundary.ps1",
-            ])
-            .output()
-            .unwrap();
         let actual = Command::new(binary())
             .env("HUM_DEV_LEGACY_EQUIVALENCE_PROBE", "1")
             .args(["evidence", "status"])
             .output()
             .unwrap();
-        assert!(direct.status.success());
-        assert_eq!(actual.status.code(), direct.status.code());
-        assert_eq!(actual.stdout, direct.stdout);
-        assert_eq!(actual.stderr, direct.stderr);
-        let alpha = b"Alpha claims check passed.";
-        assert!(
-            !actual
-                .stdout
-                .windows(alpha.len())
-                .any(|bytes| bytes == alpha)
-        );
+        assert_eq!(actual.status.code(), Some(2));
+        assert!(actual.stdout.is_empty());
+        let stderr = String::from_utf8(actual.stderr).unwrap();
+        assert!(stderr.contains("missing authenticated status input"));
+        assert!(!stderr.contains("check_workorder_status_boundary.ps1"));
+        assert!(!stderr.contains("Alpha claims check passed."));
     }
 
     #[test]

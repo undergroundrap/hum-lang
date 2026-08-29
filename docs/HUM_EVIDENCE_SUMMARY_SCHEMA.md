@@ -1,6 +1,6 @@
 # Hum Evidence Summary Schema
 
-Status: canonical V1 foundation for repository developer evidence.
+Status: canonical V1 full-anchor production and authenticated status consumption.
 
 ## Authority
 
@@ -123,3 +123,92 @@ owners.
 Unit A does not retire PowerShell, replace GitHub transport, implement
 change-aware reuse, reconcile crash residue, or update the machine-global
 commit hook. Those obligations remain assigned to later WO25 units.
+
+## Full-anchor producer
+
+Only a terminal-green `full` job may run `hum-dev evidence summarize --output
+<owned-path>`. The producer derives its commit, sole parent, tree, clean
+candidate state, Cargo lock hash, running executable hash, and numeric current
+job identity from repository bytes and authenticated current-run metadata. It
+does not accept a caller-supplied numeric job ID. Fast jobs never generate a
+replacement summary.
+
+The Unit B policy is `wo25.unit_b.v1`. In addition to the V1 identity fields,
+its ordered canonical object binds `parent`, `cargo_lock_sha256`,
+`dependency_closure_sha256`, `producer_executable_sha256`, `workflow`, `event`,
+`run_id`, `run_attempt`, `job_id`, `checkout_sha`, classifier mode/reason,
+anchor/transitions, selector and mutation ledger hashes/counts, suite count,
+readiness, hygiene inventory, claims, release version, duration, and the exact
+terminal stage closure. Numeric identities are positive canonical decimal
+integers without signs or leading zeroes.
+
+The closed full stage set is, in order: `classifier`, `workspace`, `selectors`,
+`mutations`, `backend`, `readiness`, `hygiene`, `claims`, and `release`.
+Overall success is invalid if one is absent, duplicated, reordered, unknown,
+skipped, red, partial, stale, or bound to another invocation. S01-S06 retain
+those failures as distinct dispositions.
+
+## Artifact contract
+
+Each platform uploads exactly one regular file named
+`hum-evidence-summary.v1.json` under:
+
+```text
+hum-evidence-summary-v1-<run_id>-<run_attempt>-<job_id>-<platform>
+```
+
+Each platform separately uploads exactly one `hum-dev` (`ubuntu`) or
+`hum-dev.exe` (`windows`) under:
+
+```text
+hum-dev-executable-transport-v1-<run_id>-<run_attempt>-<job_id>-<platform>-<sha256>
+```
+
+`platform` is exactly `ubuntu` or `windows`; the final field is lowercase
+SHA-256 over the unmodified executable. Both artifacts retain for exactly 14
+days. The executable artifact is transport only, never evidence, cache,
+release, installer, or package authority.
+
+Uploads and downloads use only the immutable action commits frozen by WO25.
+The workflow bootstrap selects by exact artifact ID, authenticates repository,
+workflow, event, anchor/tree, run, attempt, job, platform, artifact name, size,
+GitHub digest, one-entry archive shape, traversal absence, ordinary-file type,
+executable name, and embedded executable hash before process creation. Ubuntu
+sets and rechecks execute permission only after bytes authenticate. Windows
+requires no-reparse identity and post-exit process/handle quiescence.
+
+## Typed status consumer
+
+`hum-dev evidence status` owns run/job/artifact metadata queries, exact summary
+downloads, canonical parsing, field authentication, platform agreement,
+running-self cross-authentication, immutable Work Order projection, terminal
+reporting, and summary cleanup. It records the exact GitHub CLI executable,
+version, and SHA-256. PowerShell owns no summary meaning.
+
+Ubuntu and Windows must agree on every platform-neutral field, including source
+commit, parent, tree, Cargo/dependency closure, workflow/event, run/attempt,
+classifier binding, ledgers, stage set, readiness, hygiene, claims, release,
+and terminal disposition. Each platform separately binds its job, target,
+toolchain, producer executable, streams, timing, and artifact transport. The
+running executable must match its own platform summary; it is not required to
+match the other platform binary.
+
+Status consumption never downloads full logs and never invokes Cargo, rustc,
+the Hum compiler, Fast, Exhaustive, cache restore, local-copy reuse, build,
+workflow dispatch, rerun, or PowerShell semantic fallback. Missing, expired,
+duplicate, ambiguous, corrupt, mixed, red, incomplete, or cleanup-failed
+evidence rejects with its individual predicate. Consecutive recognized status
+commits may consume one still-valid exact full anchor.
+
+The bootstrap owns and closes only its executable archive/extraction resource.
+`hum-dev` separately owns and closes only its summary resources. Neither may
+delete a sibling, foreign, historical, repository, stash, archive, or remote
+artifact. GitHub owns remote expiry.
+
+## Work Order projection
+
+`hum-dev workorder status-facts` accepts an exact target, base SHA-256, status
+body, current-gate body, and output. It reconstructs and hashes the immutable
+projection before and after, writing only when those bytes agree. The command
+proposes deterministic facts; human review still owns public claims and
+authorization meaning.
