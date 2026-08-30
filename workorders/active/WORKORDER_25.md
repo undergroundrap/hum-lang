@@ -702,7 +702,7 @@ success assumptions.
 | `crates/hum-dev/src/main.rs` | 40 | 10 | portable runner entry |
 | `crates/hum-dev/src/command.rs` | 60 | 20 | explicit environment options |
 | `crates/hum-dev/src/commit_message.rs` | 100 | 30 | legacy equivalence and portable help |
-| `crates/hum-dev/src/shell.rs` | 280 | 0 | process launch, environment, and stream ownership |
+| `crates/hum-dev/src/shell.rs` | 316 | 0 | process launch, environment, and stream ownership |
 | `crates/hum-dev/tests/cli.rs` | 160 | 20 | Windows/Linux shell corruption tests |
 | `tools/check_all.ps1` | 80 | 160 | delegate migrated orchestration |
 | `tools/run_fast_evidence.ps1` | 60 | 220 | thin PS7 adapter |
@@ -712,15 +712,23 @@ success assumptions.
 | `.github/workflows/ci.yml` | 60 | 80 | invoke canonical portable path |
 | `docs/TESTING_STRATEGY.md` | 80 | 40 | supported shells and evidence ownership |
 | `CONTRIBUTING.md` | 40 | 20 | portable commit-message workflow |
-| **Unit C total** | **1,200** | **1,120** | **13 non-borrowable paths** |
+| **Unit C total** | **1,236** | **1,120** | **13 non-borrowable paths** |
 
 | Unit C category | Paths | Max + | Max - |
 | --- | ---: | ---: | ---: |
-| `hum-dev` Rust and tests | 5 | 640 | 80 |
+| `hum-dev` Rust and tests | 5 | 676 | 80 |
 | PowerShell wrappers/tests | 5 | 380 | 900 |
 | Workflow | 1 | 60 | 80 |
 | Documentation | 2 | 120 | 60 |
-| **Unit C category total** | **13** | **1,200** | **1,120** |
+| **Unit C category total** | **13** | **1,236** | **1,120** |
+
+The `shell.rs` +36 exception is solely for the proven readable implementation
+of fixed Windows system-command identity: native-system `cmd.exe` is selected
+from the OS-derived system directory and may legitimately be Windows-hard-linked
+into WinSxS. Substitutable `pwsh`, `link.exe`, `vswhere`, Git, Cargo, and other
+executables retain their stricter substitution and link rules. This increase
+grants no unrelated feature, test, documentation, workflow, or later-unit
+budget, and unused lines cannot be borrowed elsewhere.
 
 ## Unit D: change-aware execution and cleanup
 
@@ -853,7 +861,7 @@ semantic owners or no owner.
 | **Unit E category total** | **14** | **1,320** | **5,400** |
 
 The five unit tables contain 70 authorized path occurrences with aggregate
-telemetry `+10,745/-7,738`. This sum is not a cross-unit borrowing pool. Every
+telemetry `+10,781/-7,738`. This sum is not a cross-unit borrowing pool. Every
 unit and category ceiling is independently non-borrowable, and a path may be
 edited in a later unit only where it is listed again.
 
