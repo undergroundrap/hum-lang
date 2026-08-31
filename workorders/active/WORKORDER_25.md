@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; UNIT B CLOSED TO FURTHER IMPLEMENTATION; THIS EXACT UNIT B PUBLICATION-STATUS CANDIDATE AWAITS FRESH INDEPENDENT REVIEW. UNITS C-E UNAUTHORIZED.
+Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; UNIT C IMPLEMENTATION PAUSED AT AN AUTHENTICATED ORCHESTRATION-RUNTIME OWNERSHIP BOUNDARY; THIS EXACT UNIT C OWNERSHIP AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. UNITS D-E UNAUTHORIZED.
 
 WO25 Unit A remains implemented, published, status-recorded, synchronized,
 terminal-green, complete, and closed. Unit B's satisfiability amendment is
@@ -308,10 +308,11 @@ PowerShell wrapper may not decide compiler meaning or synthesize success.
 
 ## Versioned evidence summary ownership
 
-`hum-dev` and `docs/HUM_EVIDENCE_SUMMARY_SCHEMA.md` jointly own
-`hum.evidence_summary.v1`. One canonical serializer emits UTF-8 without BOM,
-LF line endings, deterministic field and collection order, and a final LF.
-The summary binds at least:
+`hum-dev` and `docs/HUM_EVIDENCE_SUMMARY_SCHEMA.md` jointly own the versioned
+`hum.evidence_summary` family. V1 is frozen historical evidence; v2 is the
+normative Unit C production and status schema. The frozen v1 canonical
+serializer emits UTF-8 without BOM, LF line endings, deterministic field and
+collection order, and a final LF. The v1 summary binds at least:
 
 - schema and policy versions plus generator identity;
 - exact commit SHA, parent where relevant, tree, candidate manifest, changed
@@ -336,7 +337,7 @@ Human prose and Work Order facts are projections from these fields. The
 summary never becomes authority for Hum semantics, does not replace source or
 typed artifacts, and cannot grant a commit, push, rerun, or optimization.
 
-`hum.evidence_summary.v1` has one normative stage-closure invariant. The
+Frozen `hum.evidence_summary.v1` has one historical stage-closure invariant. The
 selected profile and policy version determine one exact, canonically ordered
 expected-stage set. Overall success requires exact set equality and exactly
 one authenticated terminal disposition for every required stage. Every
@@ -695,32 +696,89 @@ to classify compiler semantics. `PSModulePath`, PATH, quoting, credential, and
 dubious-ownership inputs are explicit environment facts rather than ambient
 success assumptions.
 
+Production Unit C evidence requires the typed binding `--pwsh
+<absolute-path>`. The supplied executable is authenticated and launched by
+absolute identity; ambient `PATH`, profile, or cache discovery is not
+authority. Durable full-job summaries add the structured, platform-specific
+fields `orchestration_runtime`, `orchestration_version`, and
+`orchestration_executable_sha256`. For Unit C, `orchestration_runtime` is
+exactly `powershell-core`. Absolute machine-local paths remain local diagnostic
+facts and are not stored in portable summaries. The summary producer
+independently reauthenticates the explicitly selected executable and does not
+accept identity through an unauthenticated environment label.
+
+These three fields participate in canonical serialization, validation,
+summary binding, stage binding, corruption testing, and status authentication.
+Ubuntu and Windows authenticate their own orchestration identities; their
+versions and executable digests are platform-specific and need not agree.
+Mixed, missing, malformed, fabricated, all-zero, substituted, or
+cross-platform-swapped identities fail closed. `configuration_sha256` remains
+platform-neutral and unchanged, and `toolchain` remains exclusively Rust/Cargo
+identity. Status authenticates each producer's orchestration identity without
+claiming that the later status consumer executed that binary.
+
+The frozen `hum.evidence_summary.v1` schema and its fixtures remain
+byte-identical historical evidence. Unit C introduces
+`hum.evidence_summary.v2`; new full producers emit only v2, and new Unit C
+status credit requires one exact Ubuntu/Windows v2 pair. Mixed v1/v2 pairs are
+rejected. Historical v1 parsing may remain only for frozen compatibility tests
+and earns no Unit C orchestration-identity credit. V2 uses its own artifact-name
+grammar; no v1 artifact may be reinterpreted as v2.
+
+The canonical v2 summary payload filename is exactly:
+
+```text
+hum-evidence-summary.v2.json
+```
+
+Its exact artifact-name grammar is:
+
+```text
+hum-evidence-summary-v2-<run_id>-<run_attempt>-<numeric_job_id>-<platform>
+```
+
+All three numeric fields are positive canonical decimal integers with no sign
+or leading zero, and `platform` is exactly `ubuntu` or `windows`. The artifact
+contains exactly the one regular canonical v2 payload file: no extra file,
+directory, link, reparse point, traversal, or alternate filename is accepted.
+Retention remains exactly 14 days. Producer and consumer use this exact grammar,
+and v1 and v2 artifact names or payloads cannot substitute for one another. The
+separate `hum-dev` executable transport retains its existing v1 grammar and is
+not renamed by this amendment.
+
 ### Unit C exact path envelope
 
 | Path | Max + | Max - | Purpose |
 | --- | ---: | ---: | --- |
-| `crates/hum-dev/src/main.rs` | 40 | 10 | portable runner entry |
-| `crates/hum-dev/src/command.rs` | 81 | 20 | explicit environment options |
+| `crates/hum-dev/src/main.rs` | 55 | 10 | portable runner entry and explicit orchestration binding |
+| `crates/hum-dev/src/command.rs` | 105 | 20 | explicit environment and orchestration options |
 | `crates/hum-dev/src/commit_message.rs` | 100 | 30 | legacy equivalence and portable help |
 | `crates/hum-dev/src/shell.rs` | 352 | 0 | process launch, environment, and stream ownership |
-| `crates/hum-dev/tests/cli.rs` | 160 | 20 | Windows/Linux shell corruption tests |
-| `tools/check_all.ps1` | 95 | 160 | delegate migrated orchestration |
+| `crates/hum-dev/src/summary.rs` | 320 | 20 | frozen v1 compatibility and canonical v2 orchestration identity |
+| `crates/hum-dev/src/status.rs` | 160 | 20 | exact v2 pair and producer orchestration authentication |
+| `crates/hum-dev/tests/cli.rs` | 260 | 20 | Windows/Linux shell, CLI, summary, and status corruption tests |
+| `tools/check_all.ps1` | 155 | 160 | delegate migrated orchestration and bind v2 receipt identity |
 | `tools/run_fast_evidence.ps1` | 60 | 220 | thin PS7 adapter |
 | `tools/test_fast_evidence_capture.ps1` | 100 | 260 | portable equivalence tests |
 | `tools/check_workorder_status_boundary.ps1` | 60 | 100 | thin status adapter |
 | `tools/test_workorder_status_boundary.ps1` | 80 | 160 | PS7-only compatibility matrix |
 | `.github/workflows/ci.yml` | 60 | 80 | invoke canonical portable path |
 | `docs/TESTING_STRATEGY.md` | 80 | 40 | supported shells and evidence ownership |
+| `docs/HUM_EVIDENCE_SUMMARY_SCHEMA.md` | 160 | 20 | frozen v1 and normative v2 orchestration schema |
 | `CONTRIBUTING.md` | 40 | 20 | portable commit-message workflow |
-| **Unit C total** | **1,308** | **1,120** | **13 non-borrowable paths** |
+| `fixtures/evidence/job_summary_ubuntu.v2.json` | 4 | 0 | frozen canonical Ubuntu v2 summary |
+| `fixtures/evidence/job_summary_windows.v2.json` | 4 | 0 | frozen canonical Windows v2 summary |
+| `fixtures/evidence/summary_corruption_cases.v2.json` | 100 | 0 | v2 orchestration identity corruption matrix |
+| **Unit C total** | **2,255** | **1,180** | **19 non-borrowable paths** |
 
 | Unit C category | Paths | Max + | Max - |
 | --- | ---: | ---: | ---: |
-| `hum-dev` Rust and tests | 5 | 733 | 80 |
-| PowerShell wrappers/tests | 5 | 395 | 900 |
+| `hum-dev` Rust and tests | 7 | 1,352 | 120 |
+| PowerShell wrappers/tests | 5 | 455 | 900 |
 | Workflow | 1 | 60 | 80 |
-| Documentation | 2 | 120 | 60 |
-| **Unit C category total** | **13** | **1,308** | **1,120** |
+| Documentation | 3 | 280 | 80 |
+| Permanent v2 fixtures | 3 | 108 | 0 |
+| **Unit C category total** | **19** | **2,255** | **1,180** |
 
 The `shell.rs` exceptions are solely for the proven readable implementations
 of fixed Windows system-command identity and the native authenticated
@@ -749,6 +807,16 @@ resolution, authenticated rustup settings and toolchain, direct Cargo and
 and effective child Cargo identity. Unused capacity cannot be borrowed and
 grants no feature, dependency, unrelated refactor, new path, compiler behavior,
 or Unit D-E authority.
+
+The readable v2 estimate measured `summary.rs` at 252 additions, `status.rs` at
+112, schema documentation at 104, the three fixtures at 76 total, and the
+typed CLI, route, receipt, and corruption additions at 174 across already-owned
+paths. Their ceilings include bounded, path-local contingency to avoid another
+line-exact amendment cycle. The new capacity is non-borrowable and exists only
+for explicit PowerShell provenance, v2 production and compatibility parsing,
+v2 status authentication, and their load-bearing corruption evidence. It
+authorizes no compiler, language, optimization, Unit D, Unit E, unrelated
+workflow, or documentation work.
 
 ## Unit D: change-aware execution and cleanup
 
@@ -846,8 +914,8 @@ terminal required cross-platform CI for the exact migrated boundary. Historical
 diagnostics, selectors, mutations, schemas, and externally load-bearing
 evidence identities remain stable or receive an explicit versioned migration.
 
-The terminal deliverable is one ownership map in
-`hum.evidence_summary.v1` schema documentation and executable tests. Every
+The terminal deliverable is one ownership map in the then-current normative
+versioned `hum.evidence_summary` schema documentation and executable tests. Every
 gate has exactly one owner: Hum compiler producer, `hum-dev`, thin wrapper,
 workflow, GitHub artifact metadata, reviewer, or BDFL. No gate may have two
 semantic owners or no owner.
@@ -880,8 +948,9 @@ semantic owners or no owner.
 | Documentation | 2 | 200 | 140 |
 | **Unit E category total** | **14** | **1,320** | **5,400** |
 
-The five unit tables contain 70 authorized path occurrences with aggregate
-telemetry `+10,853/-7,738`. This sum is not a cross-unit borrowing pool. Every
+The five unit tables contain exactly 76 authorized path occurrences
+(`17 + 14 + 19 + 12 + 14 = 76`) with aggregate
+telemetry `+11,800/-7,798`. This sum is not a cross-unit borrowing pool. Every
 unit and category ceiling is independently non-borrowable, and a path may be
 edited in a later unit only where it is listed again.
 
@@ -997,6 +1066,9 @@ The exact performance fixtures are:
 - `fixtures/evidence/job_summary_ubuntu.v1.json`;
 - `fixtures/evidence/job_summary_windows.v1.json`;
 - `fixtures/evidence/summary_corruption_cases.v1.json`;
+- `fixtures/evidence/job_summary_ubuntu.v2.json`;
+- `fixtures/evidence/job_summary_windows.v2.json`;
+- `fixtures/evidence/summary_corruption_cases.v2.json`;
 - `fixtures/evidence/impact_map_cases.v1.json`; and
 - `fixtures/evidence/cache_key_cases.v1.json`.
 
@@ -1051,12 +1123,12 @@ owned historical residue while leaving foreign or ambiguous paths untouched.
   meaning or evidence disposition.
 - `hum-sha256` is the sole shared hash owner. Extraction must preserve every
   existing vector, API result, and caller behavior.
-- `hum.evidence_summary.v1` is owned by `hum-dev`; Hum compiler types and source
-  remain the semantic producers. Workflow and PowerShell may transport but not
-  reinterpret it.
-- V1 is additive during Units A-D. Removing or renaming a load-bearing field,
-  changing canonical bytes, or widening an enum requires a schema-version
-  decision and migration fixtures.
+- The versioned `hum.evidence_summary` family is jointly owned by `hum-dev` and
+  its schema documentation; Hum compiler types and source remain the semantic
+  producers. V1 is frozen historical evidence, and v2 is the normative Unit C
+  production and status schema. Workflow and PowerShell may transport but not
+  reinterpret either version. Every future load-bearing field change requires
+  an explicit new schema version and migration fixtures.
 - Legacy PowerShell remains authoritative at an unmigrated boundary. Typed code
   becomes authoritative only after same-candidate old/new equivalence,
   independent acceptance, an exact commit, and terminal Windows/Linux CI.
@@ -1278,23 +1350,24 @@ artifact action, artifact upload/download, archive code, or stash operation.
 
 ## Current authorization gate
 
-WO25 Unit A remains complete and closed. Unit B is implemented, independently
-accepted, published, terminal-green, and closed to further implementation. The
-sole next action is fresh independent architect-review of this exact Unit B
-publication-status candidate. The author issues no verdict.
+WO25 Units A-B remain complete and closed. Unit C implementation is paused at
+the authenticated explicit-PowerShell and durable-v2-summary ownership
+boundary. The sole next action is fresh independent architect-review of this
+exact Unit C ownership amendment. The author issues no verdict.
 
 Only an unqualified `ACCEPT` may recommend, but does not execute, a separately
 authorized local documentation commit with exact subject:
 
 ```text
-docs(workorder): record unit b publication
+docs(workorder): bind unit c orchestration identity
 ```
 
-Review acceptance alone authorizes no staging, status commit, push, CI, Fast,
-Exhaustive, implementation, historical cleanup, hook edit, or later unit.
-Unit C is next in sequence but remains unauthorized. Units D-E, successor or
-language work, package/stdlib/Nectar work, optimization, another backend,
-release/tag work, stashes, archives, and historical-artifact operations remain
-unauthorized.
+Review acceptance alone authorizes no staging, amendment commit, push, CI,
+Fast, Exhaustive, implementation, historical cleanup, hook edit, or later
+unit. Unit C may resume only after a separately authorized amendment commit;
+that later implementation remains limited to the exact 19-path envelope and
+v2 orchestration-identity contract. Units D-E, successor or language work,
+package/stdlib/Nectar work, optimization, another backend, release/tag work,
+stashes, archives, and historical-artifact operations remain unauthorized.
 
 <!-- workorder-current-authorization-gate:end -->
