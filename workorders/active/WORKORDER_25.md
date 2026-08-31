@@ -700,7 +700,7 @@ success assumptions.
 | Path | Max + | Max - | Purpose |
 | --- | ---: | ---: | --- |
 | `crates/hum-dev/src/main.rs` | 40 | 10 | portable runner entry |
-| `crates/hum-dev/src/command.rs` | 60 | 20 | explicit environment options |
+| `crates/hum-dev/src/command.rs` | 80 | 20 | explicit environment options |
 | `crates/hum-dev/src/commit_message.rs` | 100 | 30 | legacy equivalence and portable help |
 | `crates/hum-dev/src/shell.rs` | 352 | 0 | process launch, environment, and stream ownership |
 | `crates/hum-dev/tests/cli.rs` | 160 | 20 | Windows/Linux shell corruption tests |
@@ -712,15 +712,15 @@ success assumptions.
 | `.github/workflows/ci.yml` | 60 | 80 | invoke canonical portable path |
 | `docs/TESTING_STRATEGY.md` | 80 | 40 | supported shells and evidence ownership |
 | `CONTRIBUTING.md` | 40 | 20 | portable commit-message workflow |
-| **Unit C total** | **1,287** | **1,120** | **13 non-borrowable paths** |
+| **Unit C total** | **1,307** | **1,120** | **13 non-borrowable paths** |
 
 | Unit C category | Paths | Max + | Max - |
 | --- | ---: | ---: | ---: |
-| `hum-dev` Rust and tests | 5 | 712 | 80 |
+| `hum-dev` Rust and tests | 5 | 732 | 80 |
 | PowerShell wrappers/tests | 5 | 395 | 900 |
 | Workflow | 1 | 60 | 80 |
 | Documentation | 2 | 120 | 60 |
-| **Unit C category total** | **13** | **1,287** | **1,120** |
+| **Unit C category total** | **13** | **1,307** | **1,120** |
 
 The `shell.rs` exceptions are solely for the proven readable implementations
 of fixed Windows system-command identity and the native authenticated
@@ -737,6 +737,15 @@ evidence weakening, documentation expansion, or later-unit work. The
 environment, receipt, corruption, closed-child framing, and diagnostic
 precedence evidence. Neither increase is borrowable or grants unrelated
 production, feature, test, documentation, workflow, or later-unit budget.
+The current `command.rs` candidate is `+56/-3`; the smallest tested readable
+complete Rust bootstrap closure is `+71/-3`. Its 80-line ceiling leaves nine
+explicitly non-borrowable additions beyond that measured minimum to avoid
+another line-exact amendment cycle. This closure is limited to native profile
+resolution, authenticated rustup settings and toolchain, direct Cargo and
+`rustc` identities, explicit configuration roots, ordered `PATH` construction,
+and effective child Cargo identity. Unused capacity cannot be borrowed and
+grants no feature, dependency, unrelated refactor, new path, compiler behavior,
+or Unit D-E authority.
 
 ## Unit D: change-aware execution and cleanup
 
@@ -869,7 +878,7 @@ semantic owners or no owner.
 | **Unit E category total** | **14** | **1,320** | **5,400** |
 
 The five unit tables contain 70 authorized path occurrences with aggregate
-telemetry `+10,832/-7,738`. This sum is not a cross-unit borrowing pool. Every
+telemetry `+10,852/-7,738`. This sum is not a cross-unit borrowing pool. Every
 unit and category ceiling is independently non-borrowable, and a path may be
 edited in a later unit only where it is listed again.
 
