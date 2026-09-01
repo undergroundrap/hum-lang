@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; UNIT C IMPLEMENTATION PAUSED AT AN AUTHENTICATED CAPTURE-EVIDENCE BUDGET BOUNDARY; THIS EXACT UNIT C CAPTURE-BUDGET AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. UNITS D-E UNAUTHORIZED.
+Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; THE VCTIP LIFECYCLE AMENDMENT IS AUTHORED AND AWAITS FRESH INDEPENDENT REVIEW; UNIT C IMPLEMENTATION REMAINS PAUSED. IF AND ONLY IF THE AMENDMENT RECEIVES AN UNQUALIFIED ACCEPT, THE ONLY NEXT ACTION IS A SEPARATELY AUTHORIZED LOCAL WORK-ORDER-ONLY COMMIT `docs(workorder): bind unit c vctip lifecycle`. PUBLICATION, VCTIP IMPLEMENTATION, PRODUCTION SMOKE, FULL UNIT C REVIEW OR COMMIT, AND UNITS D-E REMAIN UNAUTHORIZED.
 
 WO25 Unit A remains implemented, published, status-recorded, synchronized,
 terminal-green, complete, and closed. Unit B's satisfiability amendment is
@@ -759,8 +759,8 @@ not renamed by this amendment.
 | `crates/hum-dev/tests/cli.rs` | 260 | 20 | Windows/Linux shell, CLI, summary, and status corruption tests |
 | `tools/check_all.ps1` | 155 | 160 | delegate migrated orchestration and bind v2 receipt identity |
 | `tools/check_release_readiness.ps1` | 60 | 20 | authenticate the isolated exhaustive workflow route and reject the retired direct route |
-| `tools/run_fast_evidence.ps1` | 136 | 220 | thin PS7 adapter and durable Windows Job-member identity evidence |
-| `tools/test_fast_evidence_capture.ps1` | 100 | 260 | portable equivalence tests |
+| `tools/run_fast_evidence.ps1` | 268 | 220 | thin PS7 adapter, durable Windows Job-member identity evidence, and authenticated VCTIP auxiliary lifecycle |
+| `tools/test_fast_evidence_capture.ps1` | 224 | 260 | portable equivalence and authenticated VCTIP lifecycle tests |
 | `tools/check_workorder_status_boundary.ps1` | 60 | 100 | thin status adapter |
 | `tools/test_workorder_status_boundary.ps1` | 80 | 160 | PS7-only compatibility matrix |
 | `.github/workflows/ci.yml` | 60 | 80 | invoke canonical portable path |
@@ -770,16 +770,16 @@ not renamed by this amendment.
 | `fixtures/evidence/job_summary_ubuntu.v2.json` | 4 | 0 | frozen canonical Ubuntu v2 summary |
 | `fixtures/evidence/job_summary_windows.v2.json` | 4 | 0 | frozen canonical Windows v2 summary |
 | `fixtures/evidence/summary_corruption_cases.v2.json` | 100 | 0 | v2 orchestration identity corruption matrix |
-| **Unit C total** | **2,391** | **1,200** | **20 non-borrowable paths** |
+| **Unit C total** | **2,647** | **1,200** | **20 non-borrowable paths** |
 
 | Unit C category | Paths | Max + | Max - |
 | --- | ---: | ---: | ---: |
 | `hum-dev` Rust and tests | 7 | 1,352 | 120 |
-| PowerShell wrappers/tests | 6 | 591 | 920 |
+| PowerShell wrappers/tests | 6 | 847 | 920 |
 | Workflow | 1 | 60 | 80 |
 | Documentation | 3 | 280 | 80 |
 | Permanent v2 fixtures | 3 | 108 | 0 |
-| **Unit C category total** | **20** | **2,391** | **1,200** |
+| **Unit C category total** | **20** | **2,647** | **1,200** |
 
 The `shell.rs` exceptions are solely for the proven readable implementations
 of fixed Windows system-command identity and the native authenticated
@@ -853,6 +853,53 @@ that measured `+87/-5` result fits its existing `+100/-260` ceiling. Therefore
 `tools/test_fast_evidence_capture.ps1` receives no increase. All added capacity
 is path-local and non-borrowable and grants no unrelated behavior, evidence,
 feature, documentation, workflow, or later-unit authority.
+
+One narrow exception to that timeout-and-termination lock applies only after
+the primary exits zero and both captured streams are complete and
+byte-authenticated. Windows capture then allows at most five seconds for
+natural Job quiescence. If exactly one non-primary Job member remains, it may
+qualify only as the authenticated MSVC telemetry auxiliary when its exact and
+signed original filename is `VCTIP.EXE`; its path is beneath the selected
+authenticated MSVC toolchain root; every path component and the final regular
+file satisfy the existing link, symlink, and reparse rules; its Authenticode
+signature is valid and issued by Microsoft; its signed description is exactly
+`Microsoft VC compiler and tools experience improvement data uploader`; and
+its PID/generation, path, file identity, length, SHA-256, signature, and Job
+membership remain stable through immediate pretermination reauthentication.
+The complete canonical member record must be durably flushed before the owned
+Job is terminated exactly once, and final active-process count must be zero.
+Only that complete disposition is successful, with exact capture disposition
+`completed_after_authenticated_vctip_termination` and exact descendant terminal
+record `terminated_quiescent;pretermination=authenticated_vctip_auxiliary`.
+Every other descendant shape retains the existing timeout/red behavior.
+
+Permanent controls fail closed for a wrong or unsigned publisher; wrong signed
+original filename or signed description; a path outside the authenticated MSVC
+root; a reparse point, symlink, directory, hard link, missing, or malformed
+executable; drift in PID/generation, identity, length, digest, path, signature,
+or membership; multiple VCTIP members; VCTIP plus any other member; incomplete
+or nonzero primary; incomplete streams; absent, duplicated, malformed,
+reordered, truncated, contradictory, or non-durable records; termination
+failure; nonzero final membership; global process-name termination; an
+unsupported telemetry environment variable; or a machine-specific fixed hash.
+No other auxiliary type, timeout exception, lifecycle policy, or cleanup
+authority follows.
+
+The filesystem-filename corruption is independent of the signed-original-name
+corruption. It retains a valid Microsoft signature, signed `OriginalFilename`
+exactly `VCTIP.EXE`, and every other authenticated property honestly, but gives
+the executable a filesystem basename other than exactly `VCTIP.EXE`. It must
+fail at the filesystem-filename predicate before any termination attempt or
+successful disposition earns credit.
+
+Disposable complete readable drafts measured the production capture path from
+its current `+136/-14` to `+268/-14` and the complete permanent honest and
+adversarial test path from `+87/-8` to `+224/-8`. The resulting ceiling
+increases are exactly 132 and 124 additions respectively: the test ceiling's
+previous 13 unused additions remain part of its path-local envelope rather than
+being counted twice. Both capacities are non-borrowable and exist solely for
+the authenticated VCTIP lifecycle above. Deletion ceilings, Unit C's 20-path
+count, and all unrelated semantics remain unchanged.
 
 ## Unit D: change-aware execution and cleanup
 
@@ -986,7 +1033,7 @@ semantic owners or no owner.
 
 The five unit tables contain exactly 77 authorized path occurrences
 (`17 + 14 + 20 + 12 + 14 = 77`) with aggregate
-telemetry `+11,936/-7,818`. This sum is not a cross-unit borrowing pool. Every
+telemetry `+12,192/-7,818`. This sum is not a cross-unit borrowing pool. Every
 unit and category ceiling is independently non-borrowable, and a path may be
 edited in a later unit only where it is listed again.
 
@@ -1392,26 +1439,25 @@ artifact action, artifact upload/download, archive code, or stash operation.
 
 ## Current authorization gate
 
-WO25 Units A-B remain complete and closed. Unit C implementation is paused at
-the authenticated durable Job-member capture-evidence budget boundary. The
-sole next action is fresh independent architect-review of this exact Unit C
-capture-budget amendment. The author issues no verdict.
+WO25 Units A-B remain complete and closed. The complete VCTIP lifecycle
+amendment candidate awaits fresh independent amendment review. Unit C
+implementation remains paused and unauthorized. The amendment author issues no
+verdict.
 
-Only an unqualified `ACCEPT` may recommend, but does not execute, a separately
-authorized local documentation commit with exact subject:
+If and only if the amendment receives an unqualified `ACCEPT`, its next
+separately authorized action is a local Work-Order-only commit with exact
+subject:
 
 ```text
-docs(workorder): repair unit c capture budget
+docs(workorder): bind unit c vctip lifecycle
 ```
 
-Review acceptance alone authorizes no staging, amendment commit, push, CI,
-Fast, Exhaustive, implementation, historical cleanup, hook edit, or later
-unit. Unit C may resume only after a separately authorized local amendment
-commit; that later implementation remains limited to the exact 20-path
-envelope, the v2 orchestration-identity contract, and the two exhaustive-route
-auditors above. The local documentation stack and later Unit C implementation
-remain unpublished until separately reviewed, committed, and authorized for
-one eventual publication. Units D-E, successor or language work,
+Review acceptance alone authorizes no staging or commit. Publication, VCTIP
+implementation, production smoke, complete Unit C review, the Unit C
+implementation commit, and Units D-E remain separately unauthorized. The local
+documentation stack and later Unit C implementation remain unpublished until
+their respective independent reviews, separately authorized commits, and one
+eventual separately authorized publication. Successor or language work,
 package/stdlib/Nectar work, optimization, another backend, release/tag work,
 stashes, archives, and historical-artifact operations remain unauthorized.
 
