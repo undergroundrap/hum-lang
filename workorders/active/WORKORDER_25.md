@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; THE VCTIP LIFECYCLE AMENDMENT IS AUTHORED AND AWAITS FRESH INDEPENDENT REVIEW; UNIT C IMPLEMENTATION REMAINS PAUSED. IF AND ONLY IF THE AMENDMENT RECEIVES AN UNQUALIFIED ACCEPT, THE ONLY NEXT ACTION IS A SEPARATELY AUTHORIZED LOCAL WORK-ORDER-ONLY COMMIT `docs(workorder): bind unit c vctip lifecycle`. PUBLICATION, VCTIP IMPLEMENTATION, PRODUCTION SMOKE, FULL UNIT C REVIEW OR COMMIT, AND UNITS D-E REMAIN UNAUTHORIZED.
+Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; THE VCTIP SIGNED-DESCRIPTION CORRECTION AWAITS FRESH INDEPENDENT REVIEW; UNIT C IMPLEMENTATION REMAINS PAUSED. IF AND ONLY IF THE CORRECTION RECEIVES AN UNQUALIFIED ACCEPT, THE ONLY NEXT ACTION IS A SEPARATELY AUTHORIZED LOCAL WORK-ORDER-ONLY COMMIT `docs(workorder): correct unit c vctip description`. PUBLICATION, IMPLEMENTATION, PRODUCTION SMOKE, FULL UNIT C REVIEW OR COMMIT, AND UNITS D-E REMAIN UNAUTHORIZED.
 
 WO25 Unit A remains implemented, published, status-recorded, synchronized,
 terminal-green, complete, and closed. Unit B's satisfiability amendment is
@@ -863,7 +863,7 @@ signed original filename is `VCTIP.EXE`; its path is beneath the selected
 authenticated MSVC toolchain root; every path component and the final regular
 file satisfy the existing link, symlink, and reparse rules; its Authenticode
 signature is valid and issued by Microsoft; its signed description is exactly
-`Microsoft VC compiler and tools experience improvement data uploader`; and
+`Microsoft® VC compiler and tools experience improvement data uploader`; and
 its PID/generation, path, file identity, length, SHA-256, signature, and Job
 membership remain stable through immediate pretermination reauthentication.
 The complete canonical member record must be durably flushed before the owned
@@ -884,6 +884,13 @@ failure; nonzero final membership; global process-name termination; an
 unsupported telemetry environment variable; or a machine-specific fixed hash.
 No other auxiliary type, timeout exception, lifecycle policy, or cleanup
 authority follows.
+
+The ASCII-only description with a space immediately after `Microsoft`, and
+therefore without U+00AE REGISTERED SIGN, independently fails at the signed-
+description predicate before any termination attempt or successful disposition
+can earn credit. Wrong signed description, wrong filesystem basename, and wrong
+signed `OriginalFilename` remain three independent corruption owners. Matching
+is ordinal and exact.
 
 The filesystem-filename corruption is independent of the signed-original-name
 corruption. It retains a valid Microsoft signature, signed `OriginalFilename`
@@ -1439,20 +1446,19 @@ artifact action, artifact upload/download, archive code, or stash operation.
 
 ## Current authorization gate
 
-WO25 Units A-B remain complete and closed. The complete VCTIP lifecycle
-amendment candidate awaits fresh independent amendment review. Unit C
-implementation remains paused and unauthorized. The amendment author issues no
-verdict.
+WO25 Units A-B remain complete and closed. The VCTIP signed-description
+correction awaits fresh independent review. Unit C implementation remains
+paused and unauthorized. The amendment author issues no verdict.
 
-If and only if the amendment receives an unqualified `ACCEPT`, its next
+If and only if the correction receives an unqualified `ACCEPT`, its next
 separately authorized action is a local Work-Order-only commit with exact
 subject:
 
 ```text
-docs(workorder): bind unit c vctip lifecycle
+docs(workorder): correct unit c vctip description
 ```
 
-Review acceptance alone authorizes no staging or commit. Publication, VCTIP
+Review acceptance alone authorizes no staging or commit. Publication,
 implementation, production smoke, complete Unit C review, the Unit C
 implementation commit, and Units D-E remain separately unauthorized. The local
 documentation stack and later Unit C implementation remain unpublished until
