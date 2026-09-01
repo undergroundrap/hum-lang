@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; UNIT C IMPLEMENTATION PAUSED AT AN AUTHENTICATED EXHAUSTIVE-WORKFLOW CONSUMER-OWNERSHIP BOUNDARY; THIS EXACT UNIT C CONSUMER-OWNERSHIP AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. UNITS D-E UNAUTHORIZED.
+Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; UNIT C IMPLEMENTATION PAUSED AT AN AUTHENTICATED CAPTURE-EVIDENCE BUDGET BOUNDARY; THIS EXACT UNIT C CAPTURE-BUDGET AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. UNITS D-E UNAUTHORIZED.
 
 WO25 Unit A remains implemented, published, status-recorded, synchronized,
 terminal-green, complete, and closed. Unit B's satisfiability amendment is
@@ -759,7 +759,7 @@ not renamed by this amendment.
 | `crates/hum-dev/tests/cli.rs` | 260 | 20 | Windows/Linux shell, CLI, summary, and status corruption tests |
 | `tools/check_all.ps1` | 155 | 160 | delegate migrated orchestration and bind v2 receipt identity |
 | `tools/check_release_readiness.ps1` | 60 | 20 | authenticate the isolated exhaustive workflow route and reject the retired direct route |
-| `tools/run_fast_evidence.ps1` | 60 | 220 | thin PS7 adapter |
+| `tools/run_fast_evidence.ps1` | 136 | 220 | thin PS7 adapter and durable Windows Job-member identity evidence |
 | `tools/test_fast_evidence_capture.ps1` | 100 | 260 | portable equivalence tests |
 | `tools/check_workorder_status_boundary.ps1` | 60 | 100 | thin status adapter |
 | `tools/test_workorder_status_boundary.ps1` | 80 | 160 | PS7-only compatibility matrix |
@@ -770,16 +770,16 @@ not renamed by this amendment.
 | `fixtures/evidence/job_summary_ubuntu.v2.json` | 4 | 0 | frozen canonical Ubuntu v2 summary |
 | `fixtures/evidence/job_summary_windows.v2.json` | 4 | 0 | frozen canonical Windows v2 summary |
 | `fixtures/evidence/summary_corruption_cases.v2.json` | 100 | 0 | v2 orchestration identity corruption matrix |
-| **Unit C total** | **2,315** | **1,200** | **20 non-borrowable paths** |
+| **Unit C total** | **2,391** | **1,200** | **20 non-borrowable paths** |
 
 | Unit C category | Paths | Max + | Max - |
 | --- | ---: | ---: | ---: |
 | `hum-dev` Rust and tests | 7 | 1,352 | 120 |
-| PowerShell wrappers/tests | 6 | 515 | 920 |
+| PowerShell wrappers/tests | 6 | 591 | 920 |
 | Workflow | 1 | 60 | 80 |
 | Documentation | 3 | 280 | 80 |
 | Permanent v2 fixtures | 3 | 108 | 0 |
-| **Unit C category total** | **20** | **2,315** | **1,200** |
+| **Unit C category total** | **20** | **2,391** | **1,200** |
 
 The `shell.rs` exceptions are solely for the proven readable implementations
 of fixed Windows system-command identity and the native authenticated
@@ -835,6 +835,24 @@ checker. Intentional internal mappings from typed `hum-dev` profiles to the
 remaining PowerShell evidence boundary remain legacy adapter ownership and are
 not retired workflow invocations. The sweep found no additional active
 workflow-route consumer requiring Unit C ownership.
+
+The `tools/run_fast_evidence.ps1` increase is exactly the proven 76-addition
+shortfall between its current `+60/-9` candidate and the first readable
+`+136/-9` production implementation of durable pre-termination Windows Job
+member identity evidence. That evidence enumerates members from the Job,
+binds PID-reuse-safe generation and executable image identities, rechecks
+membership and active count, flushes the complete deterministic record before
+termination, and retains it after final quiescence. It does not change
+containment, timeout, termination, Hum execution, or cleanup semantics and
+must not record command lines, credentials, environment variables, or other
+unrelated sensitive data. A disposable 68-addition measurement covered the
+complete permanent natural-quiescence, one/multiple-survivor, ordering,
+identity/count disagreement, enumeration-race, durability, final-zero,
+corruption, and cleanup controls; with the current test candidate at `+19/-5`,
+that measured `+87/-5` result fits its existing `+100/-260` ceiling. Therefore
+`tools/test_fast_evidence_capture.ps1` receives no increase. All added capacity
+is path-local and non-borrowable and grants no unrelated behavior, evidence,
+feature, documentation, workflow, or later-unit authority.
 
 ## Unit D: change-aware execution and cleanup
 
@@ -968,7 +986,7 @@ semantic owners or no owner.
 
 The five unit tables contain exactly 77 authorized path occurrences
 (`17 + 14 + 20 + 12 + 14 = 77`) with aggregate
-telemetry `+11,860/-7,818`. This sum is not a cross-unit borrowing pool. Every
+telemetry `+11,936/-7,818`. This sum is not a cross-unit borrowing pool. Every
 unit and category ceiling is independently non-borrowable, and a path may be
 edited in a later unit only where it is listed again.
 
@@ -1375,15 +1393,15 @@ artifact action, artifact upload/download, archive code, or stash operation.
 ## Current authorization gate
 
 WO25 Units A-B remain complete and closed. Unit C implementation is paused at
-the authenticated exhaustive-workflow consumer-ownership boundary. The sole
-next action is fresh independent architect-review of this exact Unit C
-consumer-ownership amendment. The author issues no verdict.
+the authenticated durable Job-member capture-evidence budget boundary. The
+sole next action is fresh independent architect-review of this exact Unit C
+capture-budget amendment. The author issues no verdict.
 
 Only an unqualified `ACCEPT` may recommend, but does not execute, a separately
 authorized local documentation commit with exact subject:
 
 ```text
-docs(workorder): bind unit c workflow consumers
+docs(workorder): repair unit c capture budget
 ```
 
 Review acceptance alone authorizes no staging, amendment commit, push, CI,
