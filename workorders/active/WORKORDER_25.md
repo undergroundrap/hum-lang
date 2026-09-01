@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; UNIT C IMPLEMENTATION PAUSED AT AN AUTHENTICATED ORCHESTRATION-RUNTIME OWNERSHIP BOUNDARY; THIS EXACT UNIT C OWNERSHIP AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. UNITS D-E UNAUTHORIZED.
+Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; UNIT C IMPLEMENTATION PAUSED AT AN AUTHENTICATED EXHAUSTIVE-WORKFLOW CONSUMER-OWNERSHIP BOUNDARY; THIS EXACT UNIT C CONSUMER-OWNERSHIP AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. UNITS D-E UNAUTHORIZED.
 
 WO25 Unit A remains implemented, published, status-recorded, synchronized,
 terminal-green, complete, and closed. Unit B's satisfiability amendment is
@@ -758,6 +758,7 @@ not renamed by this amendment.
 | `crates/hum-dev/src/status.rs` | 160 | 20 | exact v2 pair and producer orchestration authentication |
 | `crates/hum-dev/tests/cli.rs` | 260 | 20 | Windows/Linux shell, CLI, summary, and status corruption tests |
 | `tools/check_all.ps1` | 155 | 160 | delegate migrated orchestration and bind v2 receipt identity |
+| `tools/check_release_readiness.ps1` | 60 | 20 | authenticate the isolated exhaustive workflow route and reject the retired direct route |
 | `tools/run_fast_evidence.ps1` | 60 | 220 | thin PS7 adapter |
 | `tools/test_fast_evidence_capture.ps1` | 100 | 260 | portable equivalence tests |
 | `tools/check_workorder_status_boundary.ps1` | 60 | 100 | thin status adapter |
@@ -769,16 +770,16 @@ not renamed by this amendment.
 | `fixtures/evidence/job_summary_ubuntu.v2.json` | 4 | 0 | frozen canonical Ubuntu v2 summary |
 | `fixtures/evidence/job_summary_windows.v2.json` | 4 | 0 | frozen canonical Windows v2 summary |
 | `fixtures/evidence/summary_corruption_cases.v2.json` | 100 | 0 | v2 orchestration identity corruption matrix |
-| **Unit C total** | **2,255** | **1,180** | **19 non-borrowable paths** |
+| **Unit C total** | **2,315** | **1,200** | **20 non-borrowable paths** |
 
 | Unit C category | Paths | Max + | Max - |
 | --- | ---: | ---: | ---: |
 | `hum-dev` Rust and tests | 7 | 1,352 | 120 |
-| PowerShell wrappers/tests | 5 | 455 | 900 |
+| PowerShell wrappers/tests | 6 | 515 | 920 |
 | Workflow | 1 | 60 | 80 |
 | Documentation | 3 | 280 | 80 |
 | Permanent v2 fixtures | 3 | 108 | 0 |
-| **Unit C category total** | **19** | **2,255** | **1,180** |
+| **Unit C category total** | **20** | **2,315** | **1,200** |
 
 The `shell.rs` exceptions are solely for the proven readable implementations
 of fixed Windows system-command identity and the native authenticated
@@ -817,6 +818,23 @@ for explicit PowerShell provenance, v2 production and compatibility parsing,
 v2 status authentication, and their load-bearing corruption evidence. It
 authorizes no compiler, language, optimization, Unit D, Unit E, unrelated
 workflow, or documentation work.
+
+A complete active-repository consumer sweep found exactly two stale structural
+auditors of the exhaustive workflow route. The already-owned
+`tools/check_all.ps1` audit and the newly owned
+`tools/check_release_readiness.ps1` audit must be corrected together to require
+exactly the authenticated isolated invocation `hum-dev evidence exhaustive
+--pwsh $Pwsh` and reject the retired direct workflow invocation
+`./tools/check_all.ps1 -EvidenceTier Exhaustive`. The release-readiness audit's
+readable measured envelope is `+60/-20`; it is path-local, non-borrowable, and
+authorizes only exact-route ownership plus load-bearing removal, duplication,
+substitution, malformed-route, and retired-direct-route corruptions. The known
+release-readiness failure remains expected until that later implementation
+correction and may not be hidden by a compatibility comment or a weakened
+checker. Intentional internal mappings from typed `hum-dev` profiles to the
+remaining PowerShell evidence boundary remain legacy adapter ownership and are
+not retired workflow invocations. The sweep found no additional active
+workflow-route consumer requiring Unit C ownership.
 
 ## Unit D: change-aware execution and cleanup
 
@@ -948,9 +966,9 @@ semantic owners or no owner.
 | Documentation | 2 | 200 | 140 |
 | **Unit E category total** | **14** | **1,320** | **5,400** |
 
-The five unit tables contain exactly 76 authorized path occurrences
-(`17 + 14 + 19 + 12 + 14 = 76`) with aggregate
-telemetry `+11,800/-7,798`. This sum is not a cross-unit borrowing pool. Every
+The five unit tables contain exactly 77 authorized path occurrences
+(`17 + 14 + 20 + 12 + 14 = 77`) with aggregate
+telemetry `+11,860/-7,818`. This sum is not a cross-unit borrowing pool. Every
 unit and category ceiling is independently non-borrowable, and a path may be
 edited in a later unit only where it is listed again.
 
@@ -1195,6 +1213,12 @@ requirements only; they are not authorized during this planning package.
   Ubuntu PowerShell 7 legacy-equivalence matrices. The new path itself supports
   only PowerShell 7. PATH, `PSModulePath`, quoting, missing-shell, invalid UTF-8,
   credential, dubious-ownership, and prelaunch-repair cases remain distinct.
+  Both exhaustive workflow-route auditors require exactly one authenticated
+  isolated `hum-dev evidence exhaustive --pwsh $Pwsh` route and independently
+  reject removal, duplication, substitution, malformed routing, and the retired
+  direct `check_all.ps1 -EvidenceTier Exhaustive` workflow route. Intentional
+  internal typed-profile mappings to the remaining PowerShell boundary remain
+  unchanged.
   One reviewer-adjudicated Fast is allowed after the matrices pass.
 - Unit D proves selectors 14-16 and I09-I11 over every impact case, every
   K01-K12 cache-key dimension, each controlled cleanup disposition, authenticated
@@ -1351,22 +1375,25 @@ artifact action, artifact upload/download, archive code, or stash operation.
 ## Current authorization gate
 
 WO25 Units A-B remain complete and closed. Unit C implementation is paused at
-the authenticated explicit-PowerShell and durable-v2-summary ownership
-boundary. The sole next action is fresh independent architect-review of this
-exact Unit C ownership amendment. The author issues no verdict.
+the authenticated exhaustive-workflow consumer-ownership boundary. The sole
+next action is fresh independent architect-review of this exact Unit C
+consumer-ownership amendment. The author issues no verdict.
 
 Only an unqualified `ACCEPT` may recommend, but does not execute, a separately
 authorized local documentation commit with exact subject:
 
 ```text
-docs(workorder): bind unit c orchestration identity
+docs(workorder): bind unit c workflow consumers
 ```
 
 Review acceptance alone authorizes no staging, amendment commit, push, CI,
 Fast, Exhaustive, implementation, historical cleanup, hook edit, or later
-unit. Unit C may resume only after a separately authorized amendment commit;
-that later implementation remains limited to the exact 19-path envelope and
-v2 orchestration-identity contract. Units D-E, successor or language work,
+unit. Unit C may resume only after a separately authorized local amendment
+commit; that later implementation remains limited to the exact 20-path
+envelope, the v2 orchestration-identity contract, and the two exhaustive-route
+auditors above. The local documentation stack and later Unit C implementation
+remain unpublished until separately reviewed, committed, and authorized for
+one eventual publication. Units D-E, successor or language work,
 package/stdlib/Nectar work, optimization, another backend, release/tag work,
 stashes, archives, and historical-artifact operations remain unauthorized.
 
