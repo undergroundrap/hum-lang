@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$script:HumHostIsWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 $script:HumSuccessMarker = 'All Hum preflight checks passed.'
 $script:HumCaptureFiles = @(
   'case_name.txt',
@@ -28,7 +29,7 @@ $script:HumCaptureFiles = @(
   'success_marker_count.txt'
 )
 
-if ($env:OS -eq 'Windows_NT' -and -not ('HumFastJobNative' -as [type])) {
+if (-not ('HumFastJobNative' -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -201,6 +202,8 @@ public static class HumFastJobNative {
     ref SECURITY_ATTRIBUTES attributes, UInt32 creationDisposition,
     UInt32 flagsAndAttributes, IntPtr templateFile);
 
+  [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GetFileInformationByHandle(SafeFileHandle file, [Out] byte[] information);
+  [DllImport("libc", SetLastError = true)] private static extern Int32 stat(string path, [Out] byte[] information);
   [DllImport("kernel32.dll", SetLastError = true)]
   [return: MarshalAs(UnmanagedType.Bool)]
   private static extern bool InitializeProcThreadAttributeList(
@@ -235,6 +238,15 @@ public static class HumFastJobNative {
     }
   }
 
+  public static UInt64[] GetFileIdentity(string path, bool windows) { byte[] information = new byte[windows ? 52 : 144];
+    if (windows) {
+      using (FileStream file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
+        if (!GetFileInformationByHandle(file.SafeFileHandle, information)) throw LastError();
+      }
+    } else if (stat(path, information) != 0) { throw LastError(); }
+    UInt64 volume = windows ? BitConverter.ToUInt32(information, 28) : BitConverter.ToUInt64(information, 0), index = windows ? ((UInt64)BitConverter.ToUInt32(information, 44) << 32) | BitConverter.ToUInt32(information, 48) : BitConverter.ToUInt64(information, 8);
+    return new UInt64[] { volume, index, windows ? BitConverter.ToUInt32(information, 40) : BitConverter.ToUInt64(information, 16) };
+  }
   public static IntPtr CreateConfiguredJob() {
     IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
     if (job == IntPtr.Zero) throw LastError();
@@ -380,6 +392,21 @@ public static class HumFastJobNative {
       Marshal.FreeHGlobal(memory);
     }
   }
+  public static UInt64[] ProcessIds(IntPtr job) {
+    const Int32 capacity = 4096;
+    Int32 size = 8 + (capacity * IntPtr.Size);
+    IntPtr memory = Marshal.AllocHGlobal(size);
+    try {
+      UInt32 returned;
+      if (!QueryInformationJobObject(job, 3, memory, (UInt32)size, out returned)) throw LastError();
+      UInt32 assigned = (UInt32)Marshal.ReadInt32(memory, 0);
+      UInt32 count = (UInt32)Marshal.ReadInt32(memory, 4);
+      if (assigned > capacity || count > assigned) throw new InvalidOperationException("Job process list overflow");
+      UInt64[] ids = new UInt64[count];
+      for (Int32 index = 0; index < count; index++) ids[index] = (UInt64)Marshal.ReadIntPtr(memory, 8 + (index * IntPtr.Size)).ToInt64();
+      return ids;
+    } finally { Marshal.FreeHGlobal(memory); }
+  }
 
   public static bool KillJob(IntPtr job) {
     return TerminateJobObject(job, 57005);
@@ -473,16 +500,131 @@ function ConvertFrom-HumCaptureFlag {
   $Value -ceq '1'
 }
 
+function ConvertTo-HumDescendantPathToken {
+  param([string] $Path)
+  [Convert]::ToBase64String((New-Object Text.UTF8Encoding($false, $true)).GetBytes($Path)).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+}
+function Get-HumActiveDescendantRecord {
+  param([IntPtr] $JobHandle, [UInt64] $PrimaryPid)
+  $First = @([HumFastJobNative]::ProcessIds($JobHandle) | Sort-Object)
+  if ($First.Count -ne (@($First | Select-Object -Unique)).Count) { throw 'descendant_evidence: duplicate Job process identity' }
+  $Members = foreach ($PidValue in $First) {
+    try {
+      $Process = Get-Process -Id ([int] $PidValue) -ErrorAction Stop
+      $Created = [UInt64]$Process.StartTime.ToUniversalTime().Ticks
+      $Image = $Process.Path
+      if ([string]::IsNullOrWhiteSpace($Image) -or $(if ($script:HumHostIsWindows) { -not [IO.Path]::IsPathRooted($Image) -or [IO.Path]::GetFullPath($Image) -cne $Image } else { -not $Image.StartsWith('/') })) { throw 'image path unavailable' }
+      $Item = Get-Item -LiteralPath $Image -Force -ErrorAction Stop
+      if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'image is not an ordinary file' }
+      $Identity = Get-HumFileIdentity $Item.FullName
+      [pscustomobject]@{ Pid = [UInt64]$PidValue; Created = $Created; Primary = [int]([UInt64]$PidValue -eq $PrimaryPid); Bytes = $Identity.Bytes; Sha256 = $Identity.Sha256; Path = ConvertTo-HumDescendantPathToken $Item.FullName }
+    } catch { throw "descendant_evidence: incomplete active Job identity acquisition for PID ${PidValue}: $($_.Exception.Message)" }
+  }
+  $Second = @([HumFastJobNative]::ProcessIds($JobHandle) | Sort-Object)
+  $Active = [UInt64][HumFastJobNative]::ActiveProcessCount($JobHandle)
+  if ($Active -eq 0 -and $Second.Count -eq 0) { return 'pretermination=quiescent_race' }
+  if ($Active -ne $Second.Count -or ($First -join ',') -cne ($Second -join ',')) { throw 'descendant_evidence: active Job membership changed during identity acquisition' }
+  $Encoded = @($Members | ForEach-Object { "$($_.Pid),$($_.Created),$($_.Primary),$($_.Bytes),$($_.Sha256),$($_.Path)" }) -join '|'
+  "pretermination=members;active=$Active;member=$Encoded"
+}
+function Assert-HumVctipPath {
+  param([string] $Path, [string] $ToolchainRoot)
+  $Full = [IO.Path]::GetFullPath($Path); $Root = [IO.Path]::GetFullPath($ToolchainRoot).TrimEnd('\')
+  if (-not $Full.StartsWith($Root + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'vctip_auxiliary: path outside authenticated MSVC root' }
+  $Current = [IO.Path]::GetPathRoot($Full)
+  foreach ($Part in $Full.Substring($Current.Length).Split('\')) {
+    $Current = Join-Path $Current $Part; $Item = Get-Item -LiteralPath $Current -Force -ErrorAction Stop
+    if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+        ($Current -cne $Full -and -not $Item.PSIsContainer) -or
+        ($Current -ceq $Full -and $Item.PSIsContainer)) { throw 'vctip_auxiliary: path component is not ordinary' }
+  }
+  $Full
+}
+function Assert-HumVctipFacts {
+  param([pscustomobject] $Facts)
+  if ($Facts.Active -ne 1 -or $Facts.Primary -ne 0) { throw 'vctip_auxiliary: expected exactly one non-primary Job member' }
+  if ($Facts.Basename -cne 'VCTIP.EXE') { throw 'vctip_auxiliary: filesystem filename mismatch' }
+  if ($Facts.OriginalFilename -cne 'VCTIP.EXE') { throw 'vctip_auxiliary: signed original filename mismatch' }
+  $ExpectedDescription = 'Microsoft' + [char]0x00ae + ' VC compiler and tools experience improvement data uploader'
+  if ($Facts.Description -cne $ExpectedDescription) { throw 'vctip_auxiliary: signed description mismatch' }
+  if ($Facts.SignatureStatus -cne 'Valid' -or $Facts.Publisher -cne 'Microsoft Corporation') { throw 'vctip_auxiliary: Microsoft signature invalid' }
+  if ($Facts.Links -ne 1) { throw 'vctip_auxiliary: executable is hard linked' }
+  if ($Facts.Pid -le 0 -or $Facts.Generation -le 0 -or $Facts.Bytes -le 0 -or
+      $Facts.Identity -cnotmatch '^[0-9a-f]{16}:[0-9a-f]{16}$' -or
+      $Facts.Sha256 -cnotmatch '^[0-9a-f]{64}$' -or $Facts.PathToken -cnotmatch '^[A-Za-z0-9_-]+$' -or
+      $Facts.Certificate -cnotmatch '^[0-9A-F]{40}$') { throw 'vctip_auxiliary: identity record malformed' }
+}
+function Get-HumVctipFacts {
+  param([IntPtr] $JobHandle, [UInt64] $PrimaryPid, [string] $ToolchainRoot)
+  $Pids = @([HumFastJobNative]::ProcessIds($JobHandle) | Sort-Object)
+  if ($Pids.Count -ne 1 -or $Pids[0] -eq $PrimaryPid) { throw 'vctip_auxiliary: expected exactly one non-primary Job member' }
+  $Process = Get-Process -Id ([int]$Pids[0]) -ErrorAction Stop
+  $Path = Assert-HumVctipPath $Process.Path $ToolchainRoot; $Item = Get-Item -LiteralPath $Path -Force
+  $Native = [HumFastJobNative]::GetFileIdentity($Path, $true); $Signature = Get-AuthenticodeSignature -LiteralPath $Path
+  $Version = [Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
+  $Publisher = if ($null -eq $Signature.SignerCertificate) { '' } else { $Signature.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) }
+  $Certificate = if ($null -eq $Signature.SignerCertificate) { '' } else { $Signature.SignerCertificate.Thumbprint }
+  $Facts = [pscustomobject][ordered]@{
+    Active = 1; Pid = [UInt64]$Pids[0]; Generation = [UInt64]$Process.StartTime.ToUniversalTime().Ticks
+    Primary = 0; Basename = $Item.Name; OriginalFilename = $Version.OriginalFilename
+    Description = $Version.FileDescription; SignatureStatus = [string]$Signature.Status
+    Publisher = $Publisher; Certificate = $Certificate; Identity = ('{0:x16}:{1:x16}' -f $Native[0], $Native[1])
+    Links = [UInt64]$Native[2]; Bytes = [UInt64]$Item.Length
+    Sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    PathToken = ConvertTo-HumDescendantPathToken $Path
+  }
+  Assert-HumVctipFacts $Facts; $Facts
+}
+function ConvertTo-HumVctipRecord {
+  param([pscustomobject] $Facts)
+  "authenticated_vctip_auxiliary;pid=$($Facts.Pid);generation=$($Facts.Generation);identity=$($Facts.Identity);bytes=$($Facts.Bytes);sha256=$($Facts.Sha256);certificate=$($Facts.Certificate);path=$($Facts.PathToken)"
+}
+function Complete-HumAuthenticatedVctip {
+  param([object] $State, [object] $NativeProcess, [IntPtr] $JobHandle, [string] $CaptureDirectory, [string] $ToolchainRoot)
+  if (-not $State.PrimaryExited -or $State.ExitCode -ne 0 -or -not $State.StdoutCompleted -or -not $State.StderrCompleted) { throw 'vctip_auxiliary: primary or streams incomplete' }
+  $Before = Get-HumVctipFacts $JobHandle ([UInt64]$NativeProcess.ProcessId) $ToolchainRoot
+  $Record = ConvertTo-HumVctipRecord $Before
+  Set-HumDurableText (Join-Path $CaptureDirectory 'final_descendant_tree.txt') ("pretermination_pending;" + $Record)
+  Set-HumDurableText (Join-Path $CaptureDirectory 'termination_result.txt') $Record
+  $After = Get-HumVctipFacts $JobHandle ([UInt64]$NativeProcess.ProcessId) $ToolchainRoot
+  if ((ConvertTo-HumVctipRecord $After) -cne $Record) { throw 'vctip_auxiliary: identity drift before termination' }
+  $State.TerminationCount = 1; Set-HumCaptureFlag $CaptureDirectory 'termination_requested.txt' $true
+  Set-HumDurableText (Join-Path $CaptureDirectory 'termination_count.txt') '1'; Set-HumDurableText (Join-Path $CaptureDirectory 'kill_attempt_count.txt') '1'
+  Set-HumDurableText (Join-Path $CaptureDirectory 'termination_disposition.txt') 'authenticated_vctip_requested'
+  if (-not [HumFastJobNative]::KillJob($JobHandle)) { throw 'vctip_auxiliary: Job termination failed' }
+  $State.TerminationResult = $Record; $Record
+}
+function Assert-HumFinalDescendantTree {
+  param([string] $Value)
+  if ($Value -cmatch '^(quiescent|suspended_unassigned_terminated|no_process_created|unconfirmed)$') { return }
+  if ($Value -ceq 'terminated_quiescent;pretermination=authenticated_vctip_auxiliary') { return }
+  if ($Value -ceq 'terminated_quiescent;pretermination=quiescent_race') { return }
+  if ($Value -cnotmatch '^terminated_quiescent;pretermination=members;active=([1-9][0-9]*);member=(.+)$') { throw 'final descendant tree malformed' }
+  $Active = [UInt64]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+  $Last = [UInt64]0; $Count = 0
+  foreach ($Member in @($Matches[2] -split '\|')) {
+    if ($Member -cnotmatch '^([1-9][0-9]*),([1-9][0-9]*),([01]),([1-9][0-9]*),([0-9a-f]{64}),([A-Za-z0-9_-]+)$') { throw 'final descendant member malformed' }
+    $PidValue = [UInt64]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+    if ($PidValue -le $Last) { throw 'final descendant members duplicated or reordered' }
+    $Token = $Matches[6]; $Padding = '=' * ((4 - ($Token.Length % 4)) % 4)
+    try { $Path = (New-Object Text.UTF8Encoding($false, $true)).GetString([Convert]::FromBase64String(($Token.Replace('-', '+').Replace('_', '/') + $Padding))) } catch { throw 'final descendant image identity malformed' }
+    if ($(if ($script:HumHostIsWindows) { -not [IO.Path]::IsPathRooted($Path) -or [IO.Path]::GetFullPath($Path) -cne $Path } else { -not $Path.StartsWith('/') }) -or (ConvertTo-HumDescendantPathToken $Path) -cne $Token) { throw 'final descendant image identity malformed' }
+    $Last = $PidValue; $Count++
+  }
+  if ($Count -ne $Active) { throw 'final descendant identity count disagrees with Job active count' }
+}
+
 function Get-HumTerminalFacts {
   param([byte[]] $StdoutBytes)
-  $Encoding = New-Object System.Text.UTF8Encoding($false, $true)
+  $Hex = [BitConverter]::ToString($StdoutBytes)
   $Lines = @(
-    [regex]::Split($Encoding.GetString($StdoutBytes), "\r\n|\n|\r") |
+    [regex]::Split($Hex, '0D-0A|0A|0D') | ForEach-Object { $_.Trim('-') } |
       Where-Object { $_.Length -ne 0 }
   )
+  if ($Lines.Count -ne 0 -and $Lines[-1] -cnotmatch '^(?:[0-7][0-9A-F])(?:-(?:[0-7][0-9A-F]))*$') { throw 'terminal stdout line is not ASCII' }
   [pscustomobject]@{
-    Terminal = if ($Lines.Count -eq 0) { '' } else { $Lines[$Lines.Count - 1] }
-    MarkerCount = @($Lines | Where-Object { $_ -ceq $script:HumSuccessMarker }).Count
+    Terminal = if ($Lines.Count -eq 0) { '' } else { -join @($Lines[-1].Split('-') | ForEach-Object { [char][Convert]::ToByte($_, 16) }) }
+    MarkerCount = @($Lines | Where-Object { $_ -ceq [BitConverter]::ToString([Text.Encoding]::ASCII.GetBytes($script:HumSuccessMarker)) }).Count
   }
 }
 
@@ -565,6 +707,7 @@ function Read-HumCaptureRecord {
   $TerminationCount = ConvertFrom-HumUnsignedInteger (Read-HumScalar $CaptureDirectory 'termination_count.txt') 'termination_count'
   $KillCount = ConvertFrom-HumUnsignedInteger (Read-HumScalar $CaptureDirectory 'kill_attempt_count.txt') 'kill_attempt_count'
   $FinalTree = Read-HumScalar $CaptureDirectory 'final_descendant_tree.txt'
+  Assert-HumFinalDescendantTree $FinalTree
   $CompletionCount = ConvertFrom-HumUnsignedInteger (Read-HumScalar $CaptureDirectory 'completion_count.txt') 'completion_count'
   $MarkerCount = ConvertFrom-HumUnsignedInteger (Read-HumScalar $CaptureDirectory 'success_marker_count.txt') 'success_marker_count'
   $LaunchErrorBytes = (Get-HumFileIdentity (Join-Path $CaptureDirectory 'launch_error.bin')).Bytes
@@ -614,18 +757,22 @@ function Read-HumCaptureRecord {
       'unassigned_primary_terminated'
     } else { 'job_terminated_quiescent' }
     $ExpectedTimeoutTree = if ($Kind -ceq 'windows_job' -and -not $Assigned) {
-      'suspended_unassigned_terminated'
-    } else { 'terminated_quiescent' }
+      '^suspended_unassigned_terminated$'
+    } else { '^terminated_quiescent;pretermination=(?:quiescent_race|members;active=[1-9][0-9]*;member=.+)$' }
     if ($DeadlineDisposition -cne 'deadline_expired' -or -not $TerminationRequested -or
         $TerminationDisposition -cne 'tree_termination_confirmed' -or
         $TerminationResult -cne $ExpectedTimeoutResult -or
-        $FinalTree -cne $ExpectedTimeoutTree) {
+        $FinalTree -cnotmatch $ExpectedTimeoutTree) {
       throw 'timeout containment record invalid'
     }
   } elseif ($Resumed -and $CaptureErrorBytes -eq 0) {
-    if ($DeadlineDisposition -cne 'completed_before_deadline' -or $TerminationRequested -or
-        $TerminationDisposition -cne 'not_requested' -or
-        $TerminationResult -cne 'not_requested' -or $FinalTree -cne 'quiescent') {
+    $Ordinary = $DeadlineDisposition -ceq 'completed_before_deadline' -and -not $TerminationRequested -and
+      $TerminationDisposition -ceq 'not_requested' -and $TerminationResult -ceq 'not_requested' -and $FinalTree -ceq 'quiescent'
+    $Vctip = $DeadlineDisposition -ceq 'completed_after_authenticated_vctip_termination' -and $TerminationRequested -and
+      $TerminationDisposition -ceq 'authenticated_vctip_termination_confirmed' -and
+      $TerminationResult -cmatch '^authenticated_vctip_auxiliary;pid=[1-9][0-9]*;generation=[1-9][0-9]*;identity=[0-9a-f]{16}:[0-9a-f]{16};bytes=[1-9][0-9]*;sha256=[0-9a-f]{64};certificate=[0-9A-F]{40};path=[A-Za-z0-9_-]+$' -and
+      $FinalTree -ceq 'terminated_quiescent;pretermination=authenticated_vctip_auxiliary' -and $TerminationCount -eq 1
+    if (-not $Ordinary -and -not $Vctip) {
       throw 'ordinary completion containment record invalid'
     }
   }
@@ -784,6 +931,13 @@ function Request-HumCaptureTermination {
     [string] $Reason
   )
   if ($State.TerminationCount -ne 0) { throw 'termination requested more than once' }
+  $EvidenceError = $null
+  if ($Reason -ceq 'deadline' -and $WindowsPlatform -and $State.Assigned -and [HumFastJobNative]::ActiveProcessCount($JobHandle) -ne 0) {
+    try {
+      $State.Pretermination = Get-HumActiveDescendantRecord $JobHandle ([UInt64]$NativeProcess.ProcessId)
+      Set-HumDurableText (Join-Path $CaptureDirectory 'final_descendant_tree.txt') ("pretermination_pending;" + $State.Pretermination)
+    } catch { $EvidenceError = $_.Exception }
+  }
   $State.TerminationCount = 1
   Set-HumCaptureFlag $CaptureDirectory 'termination_requested.txt' $true
   Set-HumDurableText (Join-Path $CaptureDirectory 'termination_count.txt') '1'
@@ -803,6 +957,7 @@ function Request-HumCaptureTermination {
   }
   $State.TerminationResult = if ($Succeeded) { "${Reason}_requested" } else { "${Reason}_request_failed" }
   Set-HumDurableText (Join-Path $CaptureDirectory 'termination_result.txt') $State.TerminationResult
+  if ($null -ne $EvidenceError) { throw $EvidenceError }
   $Succeeded
 }
 
@@ -857,12 +1012,14 @@ function Invoke-HumBinaryCapture {
     ExitCode = $null
     TerminationCount = 0
     TerminationResult = 'not_requested'
+    Pretermination = ''
   }
   $TimedOut = $false
   $DeadlineDisposition = 'prelaunch_failure'
   $TerminationDisposition = 'not_launched'
   $FinalTree = 'no_process_created'
   $CaptureError = ''
+  $VctipGraceDeadline = $null
 
   try {
     if ($WindowsPlatform) {
@@ -934,6 +1091,26 @@ function Invoke-HumBinaryCapture {
         $FinalTree = 'quiescent'
         break
       }
+      if ($WindowsPlatform -and $State.Assigned -and $State.PrimaryExited -and $State.ExitCode -eq 0 -and
+          $State.StdoutCompleted -and $State.StderrCompleted -and -not $State.JobQuiescent) {
+        if ($null -eq $VctipGraceDeadline) { $VctipGraceDeadline = $Timer.ElapsedTicks + (5 * $Frequency) }
+        if ($Timer.ElapsedTicks -ge $VctipGraceDeadline) {
+          $Root = [Environment]::GetEnvironmentVariable('VCToolsInstallDir')
+          if ([string]::IsNullOrWhiteSpace($Root) -or -not [IO.Path]::IsPathRooted($Root) -or [IO.Path]::GetFullPath($Root) -cne $Root) { throw 'vctip_auxiliary: authenticated MSVC root unavailable' }
+          $null = Complete-HumAuthenticatedVctip $State $NativeProcess $JobHandle $CaptureDirectory $Root
+          $TerminationDeadline = $Timer.ElapsedTicks + $GraceTicks
+          while ($Timer.ElapsedTicks -lt $TerminationDeadline) {
+            Update-HumCaptureObservation $State $WindowsPlatform $NativeProcess $ManagedProcess $JobHandle $StdoutTask $StderrTask $CaptureDirectory
+            if ($State.JobQuiescent) { break }
+            Start-Sleep -Milliseconds (Get-HumRemainingMilliseconds $Timer $TerminationDeadline)
+          }
+          if (-not $State.JobQuiescent -or $State.FinalActive -ne 0) { throw 'vctip_auxiliary: Job termination did not reach final zero' }
+          $DeadlineDisposition = 'completed_after_authenticated_vctip_termination'
+          $TerminationDisposition = 'authenticated_vctip_termination_confirmed'
+          $FinalTree = 'terminated_quiescent;pretermination=authenticated_vctip_auxiliary'
+          break
+        }
+      }
       $Remaining = Get-HumRemainingMilliseconds $Timer $DeadlineTicks
       if ($Remaining -eq 0) { break }
       if ($WindowsPlatform -and -not $State.PrimaryExited) {
@@ -941,7 +1118,8 @@ function Invoke-HumBinaryCapture {
       } else { Start-Sleep -Milliseconds $Remaining }
     }
 
-    if ($DeadlineDisposition -ne 'completed_before_deadline') {
+    if ($DeadlineDisposition -ne 'completed_before_deadline' -and
+        $DeadlineDisposition -ne 'completed_after_authenticated_vctip_termination') {
       $TimedOut = $true
       $DeadlineDisposition = 'deadline_expired'
       Set-HumCaptureFlag $CaptureDirectory 'timed_out.txt' $true
@@ -960,7 +1138,7 @@ function Invoke-HumBinaryCapture {
       if ($State.PrimaryExited -and $State.StdoutCompleted -and $State.StderrCompleted -and $State.JobQuiescent) {
         $TerminationDisposition = 'tree_termination_confirmed'
         $State.TerminationResult = 'job_terminated_quiescent'
-        $FinalTree = 'terminated_quiescent'
+        $FinalTree = if ($State.Pretermination) { 'terminated_quiescent;' + $State.Pretermination } else { 'terminated_quiescent;pretermination=quiescent_race' }
       } else {
         $TerminationDisposition = 'tree_termination_failed'
         $State.TerminationResult = 'job_termination_unconfirmed'
@@ -999,7 +1177,7 @@ function Invoke-HumBinaryCapture {
       if ($State.PrimaryExited -and $State.StdoutCompleted -and $State.StderrCompleted -and $State.JobQuiescent) {
         $TerminationDisposition = 'tree_termination_confirmed'
         $State.TerminationResult = if ($State.Assigned) { 'job_terminated_quiescent' } else { 'unassigned_primary_terminated' }
-        $FinalTree = if ($State.Assigned) { 'terminated_quiescent' } else { 'suspended_unassigned_terminated' }
+        $FinalTree = if ($State.Assigned) { if ($State.Pretermination) { 'terminated_quiescent;' + $State.Pretermination } else { 'terminated_quiescent;pretermination=quiescent_race' } } else { 'suspended_unassigned_terminated' }
       } else {
         $TerminationDisposition = 'tree_termination_failed'
         $State.TerminationResult = 'setup_termination_unconfirmed'
@@ -1130,18 +1308,90 @@ function Remove-HumCaptureAfterAuthentication {
     throw "capture cleanup failed: $Resolved"
   }
 }
+function Invoke-HumContainedRustNativeCapture {
+  param([string] $Label, [string] $Cargo, [string[]] $Arguments)
+  $Root = Join-Path ([IO.Path]::GetTempPath()) ('hum-contained-rust-' + [Guid]::NewGuid().ToString('N'))
+  $Capture = Join-Path $Root 'capture'; [void] [IO.Directory]::CreateDirectory($Root); $Authenticated = $false
+  try {
+    $Result = Invoke-HumBinaryCapture $Cargo $Arguments (Get-Location).Path $Capture 120 -CaseName ($Label.ToLowerInvariant() -replace '[^a-z0-9_-]', '-')
+    $Result = Assert-HumCaptureComplete $Result
+    $Authenticated = $true
+    $Encoding = New-Object Text.UTF8Encoding($false, $true)
+    $Text = $Encoding.GetString([IO.File]::ReadAllBytes($Result.StdoutPath)) +
+      $Encoding.GetString([IO.File]::ReadAllBytes($Result.StderrPath))
+    [pscustomobject] @{ Output = @([regex]::Split($Text, '\r\n|\n|\r')); ExitCode = $Result.ExitCode }
+  } finally {
+    if ($Authenticated) {
+      Remove-HumCaptureAfterAuthentication $Capture
+      Remove-Item -LiteralPath $Root -Force
+      if ([IO.Directory]::Exists($Root)) { throw 'contained Rust capture cleanup failed' }
+    }
+  }
+}
+function Invoke-HumContainedExactRustTest {
+  param([string] $Label, [string] $Cargo, [string] $Selector)
+  Write-Host "==> $Label"
+  Assert-ExactRustSelectorSyntax $Selector
+  $List = Invoke-HumContainedRustNativeCapture "$Label-list" $Cargo @('test', $Selector, '--', '--exact', '--list')
+  if ($List.ExitCode -ne 0) { $List.Output | ForEach-Object { Write-Host $_ }; throw "$Label could not list '$Selector'; cargo exited $($List.ExitCode)" }
+  $Escaped = [regex]::Escape($Selector); $Listed = @($List.Output | Where-Object { $_ -match ': test$' }); $Exact = @($Listed | Where-Object { $_ -match "^${Escaped}: test$" })
+  if ($Listed.Count -ne 1 -or $Exact.Count -ne 1) { throw "$Label must resolve '$Selector' to exactly one test before execution" }
+  $Run = Invoke-HumContainedRustNativeCapture "$Label-run" $Cargo @('test', $Selector, '--', '--exact')
+  $Run.Output | ForEach-Object { Write-Host $_ }
+  if ($Run.ExitCode -ne 0) { throw "$Label failed with exit code $($Run.ExitCode)" }
+  Assert-ExactRustSelectorEvidence $Selector $List.Output $Run.Output
+  $script:ExactRustSelectorCredits.Add($Selector)
+}
 
+function Get-HumExecutableIdentity {
+  param([string] $Path, [switch] $AllowHardLinks)
+  $Full = [IO.Path]::GetFullPath($Path); $Item = Get-Item -LiteralPath $Full -Force -ErrorAction Stop
+  if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "isolated executable is not an ordinary non-reparse file: $Full" }
+  $Native = [HumFastJobNative]::GetFileIdentity($Full, $script:HumHostIsWindows)
+  if ($Native[2] -ne 1 -and -not $AllowHardLinks) { throw "isolated executable is not one ordinary non-linked file: $Full" }
+  if (-not $script:HumHostIsWindows -and ([IO.File]::GetUnixFileMode($Full) -band ([IO.UnixFileMode]::UserExecute -bor [IO.UnixFileMode]::GroupExecute -bor [IO.UnixFileMode]::OtherExecute)) -eq 0) { throw "isolated executable mode is not executable: $Full" }
+  [pscustomobject] @{ Path = $Full; FileIdentity = ('{0:x16}:{1:x16}' -f $Native[0], $Native[1]); Links = $Native[2]; Bytes = $Item.Length; Sha256 = (Get-FileHash -LiteralPath $Full -Algorithm SHA256).Hash.ToLowerInvariant() }
+}
+function Assert-HumIsolatedExecutable {
+  param([pscustomobject] $Record, [switch] $RequireSource)
+  $Comparison = if ($script:HumHostIsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+  $Candidate = [IO.Path]::GetFullPath($Record.Directory); $Target = [IO.Path]::GetFullPath($Record.TargetRoot); if ($Candidate.Equals($Target, $Comparison) -or $Candidate.StartsWith($Target + [IO.Path]::DirectorySeparatorChar, $Comparison)) { throw 'target-tree directory identity' }
+  $Directory = Get-Item -LiteralPath $Record.Directory -Force -ErrorAction Stop; $LinkType = $Directory.PSObject.Properties['LinkType']
+  if (-not $Directory.PSIsContainer -or ($Directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -or ($null -ne $LinkType -and -not [string]::IsNullOrEmpty([string] $LinkType.Value))) { throw 'isolated execution directory identity failed' }
+  $Entries = @(Get-ChildItem -LiteralPath $Record.Directory -Force -ErrorAction Stop); if ($Entries.Count -ne 1 -or [IO.Path]::GetFullPath($Entries[0].FullName) -cne $Record.Executable) { throw 'isolated execution directory shape failed' }
+  if ($RequireSource) { $Source = Get-HumExecutableIdentity $Record.Source -AllowHardLinks; if ($Source.FileIdentity -cne $Record.SourceFileIdentity -or $Source.Bytes -ne $Record.Bytes -or $Source.Sha256 -cne $Record.Sha256) { throw 'canonical executable identity changed during transport' } }
+  $Copy = Get-HumExecutableIdentity $Record.Executable -AllowHardLinks
+  if ($Copy.FileIdentity -ceq $Record.SourceFileIdentity) { throw 'isolated executable aliases canonical source' }
+  if ($Copy.Links -ne 1) { throw 'isolated executable is not one ordinary non-linked file' }
+  if ($Copy.FileIdentity -cne $Record.ExecutableFileIdentity -or $Copy.Bytes -ne $Record.Bytes -or $Copy.Sha256 -cne $Record.Sha256) { throw 'isolated executable byte identity failed' }
+}
+function New-HumIsolatedExecutable {
+  param([string] $Source, [string] $ScratchRoot, [string] $CargoTargetRoot)
+  $Target = (Get-Item -LiteralPath ([IO.Path]::GetFullPath($CargoTargetRoot)) -Force -ErrorAction Stop).FullName; $Comparison = if ($script:HumHostIsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+  $Expected = Join-Path $Target $(if ($script:HumHostIsWindows) { 'debug\hum-dev.exe' } else { 'debug/hum-dev' }); if (-not [IO.Path]::GetFullPath($Source).Equals($Expected, $Comparison)) { throw 'canonical Cargo executable path identity failed' }
+  $SourceIdentity = Get-HumExecutableIdentity $Expected -AllowHardLinks; $Directory = Join-Path (Get-Item -LiteralPath ([IO.Path]::GetFullPath($ScratchRoot)) -Force -ErrorAction Stop).FullName ('hum-dev-exec-' + [Guid]::NewGuid().ToString('N'))
+  if ($Directory.Equals($Target, $Comparison) -or $Directory.StartsWith($Target + [IO.Path]::DirectorySeparatorChar, $Comparison)) { throw 'target-tree directory identity' }; if ([IO.Directory]::Exists($Directory) -or [IO.File]::Exists($Directory)) { throw 'isolated execution directory already exists' }
+  [void] [IO.Directory]::CreateDirectory($Directory); $Executable = Join-Path $Directory ([IO.Path]::GetFileName($SourceIdentity.Path))
+  try { [IO.File]::Copy($SourceIdentity.Path, $Executable, $false); $After = Get-HumExecutableIdentity $SourceIdentity.Path -AllowHardLinks; if ($After.FileIdentity -cne $SourceIdentity.FileIdentity -or $After.Bytes -ne $SourceIdentity.Bytes -or $After.Sha256 -cne $SourceIdentity.Sha256) { throw 'canonical executable identity changed during transport' }; $Copy = Get-HumExecutableIdentity $Executable -AllowHardLinks; $Record = [pscustomobject] @{ Source = $SourceIdentity.Path; SourceFileIdentity = $SourceIdentity.FileIdentity; Executable = $Executable; ExecutableFileIdentity = $Copy.FileIdentity; Directory = $Directory; TargetRoot = $Target; Bytes = $SourceIdentity.Bytes; Sha256 = $SourceIdentity.Sha256 }; Assert-HumIsolatedExecutable $Record -RequireSource; $Record }
+  catch { if ([IO.File]::Exists($Executable)) { Remove-Item -LiteralPath $Executable -Force }; if ([IO.Directory]::Exists($Directory)) { Remove-Item -LiteralPath $Directory -Force }; throw }
+}
+function Remove-HumIsolatedExecutable {
+  param([pscustomobject] $Record); Assert-HumIsolatedExecutable $Record
+  Remove-Item -LiteralPath $Record.Executable -Force; Remove-Item -LiteralPath $Record.Directory -Force
+  if ([IO.File]::Exists($Record.Executable) -or [IO.Directory]::Exists($Record.Directory)) { throw 'isolated executable cleanup failed' }
+}
 if ($MyInvocation.InvocationName -ne '.') {
   $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
   if ($ScratchRoot -eq '') {
     $ScratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-fast-evidence-" + [Guid]::NewGuid().ToString('N'))
   }
-  $PowerShell = if ($env:OS -eq 'Windows_NT') {
-    "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-  } else { throw 'the fixed Fast producer requires Windows PowerShell' }
+  $PowerShellApplications = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
+  if ($PowerShellApplications.Count -ne 1) { throw "Fast producer requires exactly one PowerShell 7 application, found $($PowerShellApplications.Count)" }
+  $PowerShell = [IO.Path]::GetFullPath([string]$PowerShellApplications[0].Source)
+  if (-not [IO.File]::Exists($PowerShell) -or ([IO.File]::GetAttributes($PowerShell) -band [IO.FileAttributes]::ReparsePoint)) { throw 'Fast producer PowerShell 7 identity is not one ordinary non-reparse file' }
   Write-Output "capture_directory=$ScratchRoot"
   $Result = Invoke-HumBinaryCapture $PowerShell @(
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'tools/check_all.ps1',
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-File', 'tools/check_all.ps1',
     '-EvidenceTier', 'Fast'
   ) $RepoRoot $ScratchRoot $TimeoutSeconds -CaseName 'production-fast'
   try {

@@ -1,4 +1,8 @@
 $ErrorActionPreference = 'Stop'
+$ClassifierSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_workorder_status_boundary.ps1'))
+foreach ($RequiredGitIdentityClause in @('-CommandType Application -All','Resolve-BoundaryGitApplications','Assert-BoundaryGitIdentityFacts','[IO.Path]::IsPathFullyQualified','[IO.Path]::GetFullPath','[IO.File]::Exists','[IO.File]::GetAttributes','[IO.FileAttributes]::ReparsePoint','git_identity_invalid','safe.directory=$TrustPath','repository_trust_invalid')) {
+  if (-not $ClassifierSource.Contains($RequiredGitIdentityClause)) { throw "classifier Git identity contract drifted: $RequiredGitIdentityClause" }
+}
 Set-StrictMode -Version Latest
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -698,6 +702,26 @@ function Set-BothSnapshots {
 }
 
 function Assert-ProductionSeamIsClosed {
+  $GitApplications = @(Get-Command git -CommandType Application -All -ErrorAction Stop)
+  Assert-BoundaryTest ($GitApplications.Count -ge 2) 'effective Git identity control requires two installed applications'
+  $FirstGit = [IO.Path]::GetFullPath([string]$GitApplications[0].Source)
+  $LastGit = [IO.Path]::GetFullPath([string]$GitApplications[-1].Source)
+  Assert-BoundaryTest ((Resolve-BoundaryGitApplications $GitApplications) -ceq $FirstGit) 'effective Git identity did not select the first PATH application'
+  Assert-BoundaryTest ((Resolve-BoundaryGitApplications @($GitApplications[-1], $GitApplications[0])) -ceq $LastGit) 'swapping Git applications did not change effective identity'
+  foreach ($InvalidGit in @(
+    [pscustomobject]@{ Source = 'git.exe' },
+    [pscustomobject]@{ Source = (Join-Path $TestRoot 'missing-git.exe') },
+    [pscustomobject]@{ Source = $TestRoot }
+  )) {
+    $Rejected = $false
+    try { Resolve-BoundaryGitApplications @($InvalidGit) | Out-Null } catch { $Rejected = $_.Exception.Message -ceq 'workorder-boundary:git_identity_invalid' }
+    Assert-BoundaryTest $Rejected "invalid effective Git application was accepted: $($InvalidGit.Source)"
+  }
+  Assert-BoundaryTest ((Assert-BoundaryGitIdentityFacts $FirstGit $true ([IO.FileAttributes]::Archive)) -ceq $FirstGit) 'ordinary Git identity facts were rejected'
+  $Rejected = $false
+  try { Assert-BoundaryGitIdentityFacts $FirstGit $true ([IO.FileAttributes]::Archive -bor [IO.FileAttributes]::ReparsePoint) | Out-Null } catch { $Rejected = $_.Exception.Message -ceq 'workorder-boundary:git_identity_invalid' }
+  Assert-BoundaryTest $Rejected 'synthetic ReparsePoint Git identity facts were accepted'
+
   $Parameters = @((Get-Command $ClassifierPath).Parameters.Keys)
   foreach ($Forbidden in @(
     'Anchor', 'RunId', 'RunAttempt', 'JobId', 'Success', 'Evidence',
@@ -741,6 +765,28 @@ function Assert-ProductionSeamIsClosed {
   }
 
   $Classifier = [System.IO.File]::ReadAllText($ClassifierPath)
+  $GitIdentityOwnership = @(
+    '$Exists = [IO.File]::Exists($Path)',
+    '$Attributes = if ($Exists) { [IO.File]::GetAttributes($Path) } else { [IO.FileAttributes]0 }',
+    'return Assert-BoundaryGitIdentityFacts $Path $Exists $Attributes',
+    '[IO.FileAttributes]::ReparsePoint'
+  )
+  foreach ($Clause in $GitIdentityOwnership) {
+    Assert-BoundaryTest ([regex]::Matches($Classifier, [regex]::Escape($Clause)).Count -eq 1) "Git identity ownership clause is missing or duplicated: $Clause"
+  }
+  foreach ($Corruption in @(
+    [pscustomobject]@{ Owner = 'metadata_read'; Source = $Classifier.Replace($GitIdentityOwnership[1], '') },
+    [pscustomobject]@{ Owner = 'predicate_call'; Source = $Classifier.Replace($GitIdentityOwnership[2], 'return $Path') },
+    [pscustomobject]@{ Owner = 'reparse_rejection'; Source = $Classifier.Replace('[IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint', '[IO.FileAttributes]::Directory') }
+  )) {
+    Assert-BoundaryTest ($Corruption.Source -cne $Classifier) "Git identity $($Corruption.Owner) corruption did not initialize"
+    $Complete = $true
+    foreach ($Clause in $GitIdentityOwnership) { if ([regex]::Matches($Corruption.Source, [regex]::Escape($Clause)).Count -ne 1) { $Complete = $false } }
+    Assert-BoundaryTest (-not $Complete) "Git identity $($Corruption.Owner) corruption did not fail closed"
+  }
+  Assert-BoundaryTest ([regex]::Matches($Classifier, [regex]::Escape('safe.directory=$TrustPath')).Count -eq 2) 'command-local safe.directory must bind both Git launch paths'
+  $TrustCorruption = $Classifier.Replace('safe.directory=$TrustPath', 'safe.directory=')
+  Assert-BoundaryTest ($TrustCorruption -cne $Classifier -and [regex]::Matches($TrustCorruption, [regex]::Escape('safe.directory=$TrustPath')).Count -eq 0) 'safe.directory removal corruption did not fail closed'
   foreach ($RequiredText in @(
     '--no-replace-objects',
     'refs/replace/',

@@ -147,4 +147,29 @@ mod tests {
         );
         assert!(subject_from_message_bytes(b"docs(scope): subject\n\nbody\n").is_ok());
     }
+
+    #[test]
+    fn legacy_hook_corpus_matches_portable_rule() {
+        let corpus = include_str!("../../../fixtures/evidence/commit_message_cases.v1.txt");
+        for (line_number, line) in corpus.lines().enumerate() {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let fields = line.splitn(3, '|').collect::<Vec<_>>();
+            let bytes = decode(fields[2]);
+            let actual = if fields[0] == "subject" {
+                std::str::from_utf8(&bytes)
+                    .ok()
+                    .is_some_and(|v| validate_subject(v).is_ok())
+            } else {
+                subject_from_message_bytes(&bytes).is_ok()
+            };
+            assert_eq!(
+                actual,
+                fields[1] == "accept",
+                "frozen legacy oracle disagreement at line {}",
+                line_number + 1
+            );
+        }
+    }
 }

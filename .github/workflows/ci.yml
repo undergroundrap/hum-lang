@@ -36,6 +36,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Authenticate PowerShell 7 runtime
+        shell: pwsh
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 7) { throw 'CI orchestration requires PowerShell 7' }
+          $Applications = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
+          if ($Applications.Count -ne 1) { throw "expected one pwsh application, found $($Applications.Count)" }
+          "pwsh_path=$([IO.Path]::GetFullPath([string]$Applications[0].Source))"
+
       - name: Classify CI evidence lane
         id: classify
         shell: pwsh
@@ -103,19 +111,36 @@ jobs:
         env:
           HUM_EVIDENCE_RECEIPT: ${{ runner.temp }}/hum-full-evidence.receipt
         run: |
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+          $PwshItem = Get-Item -LiteralPath $Pwsh -Force
+          if (-not $PwshItem.PSIsContainer -and ($PwshItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) { $null = & $Pwsh --version } else { throw 'orchestration PowerShell is not an ordinary file' }
+          if ($LASTEXITCODE -ne 0) { throw 'orchestration PowerShell version failed' }
+          cargo build -p hum-dev
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:HUM_BUILD_TARGET = if ($IsWindows) { 'x86_64-pc-windows-msvc' } else { 'x86_64-unknown-linux-gnu' }
           $env:HUM_BUILD_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()
           $StartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
           $Frequency = [Diagnostics.Stopwatch]::Frequency
           $Output = Join-Path $env:RUNNER_TEMP 'hum-full-stdout.txt'
           $ErrorOutput = Join-Path $env:RUNNER_TEMP 'hum-full-stderr.txt'
-          $Process = Start-Process pwsh -NoNewWindow -Wait -PassThru `
-            -ArgumentList @('-NoLogo','-NoProfile','-File','tools/check_all.ps1','-EvidenceTier','Fast') `
-            -RedirectStandardOutput $Output -RedirectStandardError $ErrorOutput
+          $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
+          . ./tools/run_fast_evidence.ps1
+          $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+          $Process = $null
+          try {
+            $Process = Start-Process $Isolated.Executable -NoNewWindow -Wait -PassThru `
+              -ArgumentList @('evidence','full','--pwsh',('"{0}"' -f $Pwsh)) `
+              -RedirectStandardOutput $Output -RedirectStandardError $ErrorOutput
+            if ([IO.Path]::GetFullPath($Process.StartInfo.FileName) -cne $Isolated.Executable) { throw 'isolated executable launch identity drifted' }
+            $ExitCode = $Process.ExitCode
+          } finally {
+            if ($null -ne $Process) { $Process.Dispose() }
+            Remove-HumIsolatedExecutable $Isolated
+          }
           $CompletedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
           [Console]::Out.Write([IO.File]::ReadAllText($Output))
           [Console]::Error.Write([IO.File]::ReadAllText($ErrorOutput))
-          if ($Process.ExitCode -ne 0) { exit $Process.ExitCode }
+          if ($ExitCode -ne 0) { exit $ExitCode }
           "started_ticks=$StartedTicks" >> $env:GITHUB_OUTPUT
           "completed_ticks=$CompletedTicks" >> $env:GITHUB_OUTPUT
           "timer_frequency=$Frequency" >> $env:GITHUB_OUTPUT
@@ -132,7 +157,14 @@ jobs:
         if: steps.classify.outputs.mode != 'fast' && matrix.os == 'ubuntu-latest'
         continue-on-error: false
         shell: pwsh
-        run: ./tools/check_all.ps1 -EvidenceTier Exhaustive
+        run: |
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+          . ./tools/run_fast_evidence.ps1
+          $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
+          $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+          try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }
+          finally { Remove-HumIsolatedExecutable $Isolated }
+          if ($ExitCode -ne 0) { exit $ExitCode }
 
       - name: Generate evidence summary
         id: generate_evidence_summary
@@ -153,6 +185,7 @@ jobs:
           HUM_COMPLETED_TICKS: ${{ steps.full_preflight.outputs.completed_ticks }}
           HUM_TIMER_FREQUENCY: ${{ steps.full_preflight.outputs.timer_frequency }}
         run: |
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
           $env:HUM_PLATFORM = if ($IsWindows) { 'windows' } else { 'ubuntu' }
           $env:HUM_TARGET = if ($IsWindows) { 'x86_64-pc-windows-msvc' } else { 'x86_64-unknown-linux-gnu' }
           $env:HUM_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()
@@ -170,9 +203,12 @@ jobs:
           $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
           $OutputDirectory = Join-Path $env:RUNNER_TEMP 'hum-evidence-summary'
           New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
-          $Output = Join-Path $OutputDirectory 'hum-evidence-summary.v1.json'
-          $Lines = @(& $Executable evidence summarize --output $Output)
-          if ($LASTEXITCODE -ne 0 -or $Lines.Count -ne 2) { throw 'summary generation failed closed' }
+          $Output = Join-Path $OutputDirectory 'hum-evidence-summary.v2.json'
+          . ./tools/run_fast_evidence.ps1
+          $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+          try { $Lines = @(& $Isolated.Executable evidence summarize --output $Output --pwsh $Pwsh); $ExitCode = $LASTEXITCODE }
+          finally { Remove-HumIsolatedExecutable $Isolated }
+          if ($ExitCode -ne 0 -or $Lines.Count -ne 2) { throw 'summary generation failed closed' }
           $SummaryName = ($Lines | Where-Object { $_ -clike 'summary_artifact=*' }).Substring(17)
           $ExecutableName = ($Lines | Where-Object { $_ -clike 'executable_artifact=*' }).Substring(20)
           if ([string]::IsNullOrEmpty($SummaryName) -or [string]::IsNullOrEmpty($ExecutableName)) { throw 'summary artifact output shape mismatch' }

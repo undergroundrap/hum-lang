@@ -1,5 +1,24 @@
 # Hum Testing Strategy
 
+## Portable shell and hook boundary
+
+New Hum orchestration is owned by `hum-dev` and PowerShell 7. Every production
+PowerShell route requires typed `--pwsh <absolute-path>`; ambient executable
+discovery is not authority. Process launches bind that authenticated ordinary
+executable, repository-rooted script, argument vector,
+and explicit `PATH` and `PSModulePath`; malformed UTF-8, CR/LF/NUL, missing
+executables, and paths outside the repository fail before process creation.
+Commit-message semantics are owned by `hum-dev commit-message check`; shell
+utilities such as `sed`, `grep`, and `cat` have no substantive validation role.
+
+The retired Windows PowerShell 5.1 obligations were exact stdout/stderr byte
+capture, exit retention, one absolute timeout, containment-before-resume,
+descendant quiescence, and owned cleanup. The PowerShell 7 capture matrix keeps
+each obligation and runs on Windows and Ubuntu. CI authenticates the selected
+PowerShell 7 application before any evidence lane. Full producers bind its
+runtime, numeric version, and executable SHA-256 into the canonical V2 summary;
+platform-specific identities are authenticated independently.
+
 Date: 2026-07-06
 
 ## Thesis

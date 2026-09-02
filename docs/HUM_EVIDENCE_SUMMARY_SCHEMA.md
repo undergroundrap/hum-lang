@@ -1,11 +1,12 @@
 # Hum Evidence Summary Schema
 
-Status: canonical V1 full-anchor production and authenticated status consumption.
+Status: frozen V1 history and canonical V2 production/status consumption.
 
 ## Authority
 
-`hum-dev` owns the `hum.evidence_summary.v1` type, validation, canonical
-serialization, and cleanup disposition. Hum compiler producers continue to own
+`hum-dev` and this document own the versioned evidence-summary family. V1 is
+frozen historical evidence; V2 is normative for Unit C production and status
+credit. Hum compiler producers continue to own
 language meaning, typed artifacts, diagnostics, selectors, mutations, and
 readiness. PowerShell, workflow steps, GitHub artifacts, and human prose may
 transport or project a summary; they do not reinterpret it or synthesize
@@ -176,6 +177,58 @@ GitHub digest, one-entry archive shape, traversal absence, ordinary-file type,
 executable name, and embedded executable hash before process creation. Ubuntu
 sets and rechecks execute permission only after bytes authenticate. Windows
 requires no-reparse identity and post-exit process/handle quiescence.
+
+## Normative V2 orchestration identity
+
+New full producers emit `hum.evidence_summary.v2` under policy
+`wo25.unit_c.v2`. V2 preserves every V1 field and inserts exactly these fields
+after `producer_executable_sha256`:
+
+1. `orchestration_runtime`, exactly `powershell-core`;
+2. `orchestration_version`, the authenticated dotted numeric PowerShell 7
+   version;
+3. `orchestration_executable_sha256`, lowercase SHA-256 over the independently
+   reauthenticated executable.
+
+The three fields participate in canonical bytes, the summary binding, every
+stage binding, validation, parsing, corruption evidence, and status
+authentication. `configuration_sha256` remains platform-neutral, and
+`toolchain` remains exclusively the Rust/Cargo identity. Ubuntu and Windows
+authenticate their own runtime versions and executable digests; cross-platform
+equality of those two platform facts is not required. Portable summary bytes
+never store the machine-local executable path.
+
+Every PowerShell-backed production command requires typed
+`--pwsh <absolute-path>`. The producer canonicalizes and authenticates the
+ordinary non-reparse executable, hard-link policy, stable identity, bytes, and
+PowerShell 7 version, then launches that exact absolute path. Bare names,
+relative paths, `HUM_DEV_PWSH`, ambient PATH/profile/cache discovery, and later
+translation back to `pwsh` are not authority.
+
+V1 inputs remain byte-for-byte parseable as historical evidence, but a V1 or
+mixed V1/V2 pair earns no Unit C status credit. Future load-bearing fields
+require a new explicit schema version and migration fixtures; V1 and V2 are
+never reinterpreted as one another.
+
+The canonical V2 payload is exactly:
+
+```text
+hum-evidence-summary.v2.json
+```
+
+Its artifact name is exactly:
+
+```text
+hum-evidence-summary-v2-<run_id>-<run_attempt>-<numeric_job_id>-<platform>
+```
+
+Each numeric field is a positive canonical decimal integer with no sign or
+leading zero, and `platform` is exactly `ubuntu` or `windows`. The artifact
+retains for exactly 14 days and contains exactly the one regular canonical V2
+payload: no extra entry, directory, link, reparse point, traversal, or
+alternate filename is accepted. The V1/V2 payload and artifact grammars cannot
+substitute for each other. The separate `hum-dev` executable transport retains
+its existing V1 grammar unchanged.
 
 ## Typed status consumer
 

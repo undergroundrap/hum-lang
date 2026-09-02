@@ -5,7 +5,7 @@ param(
   [ValidateSet('', 'preflight', 'success', 'exit23', 'empty', 'interleaved', 'unicode',
     'early-marker', 'duplicate-marker', 'nonzero-marker', 'timeout', 'descendant',
     'descendant-long', 'descendant-short', 'inherited-parent', 'redirected-parent',
-    'earliest-parent', 'quiescent-parent')]
+    'earliest-parent', 'quiescent-parent', 'inherited-short-parent')]
   [string] $SyntheticChild = ''
 )
 
@@ -105,6 +105,12 @@ if ($SyntheticChild -ne '') {
     }
     'inherited-parent' {
       $Process = Start-SyntheticDescendant $false 'descendant-long'
+      Write-ExactAscii $Stdout "inherited_parent_pid=$PID`ninherited_descendant_pid=$($Process.Id)`ninherited_parent_stdout`n"
+      Write-ExactAscii $Stderr "inherited_parent_stderr`n"
+      [Environment]::Exit(0)
+    }
+    'inherited-short-parent' {
+      $Process = Start-SyntheticDescendant $false 'descendant-short'
       Write-ExactAscii $Stdout "inherited_parent_pid=$PID`ninherited_descendant_pid=$($Process.Id)`ninherited_parent_stdout`n"
       Write-ExactAscii $Stderr "inherited_parent_stderr`n"
       [Environment]::Exit(0)
@@ -703,6 +709,18 @@ function Assert-CaptureRejected {
   Assert-True $Rejected $Message
 }
 
+function Assert-DescendantRecordRejected {
+  param([string] $Record, [string] $Name)
+  $Rejected = $false
+  try { Assert-HumFinalDescendantTree $Record } catch { $Rejected = $true }
+  Assert-True $Rejected "descendant record corruption accepted: $Name"
+}
+
+function New-DescendantMember {
+  param([UInt64] $ProcessId, [UInt64] $Generation, [int] $Primary, [UInt64] $Bytes, [string] $Hash, [string] $PathToken)
+  "$ProcessId,$Generation,$Primary,$Bytes,$Hash,$PathToken"
+}
+
 function Assert-LaunchedCapture {
   param([object] $Capture)
   try {
@@ -728,7 +746,7 @@ function Assert-LaunchedTimeoutCapture {
     $Capture.TerminationRequested -and $Capture.TerminationCount -eq 1 -and
     $Capture.KillAttemptCount -eq 1 -and
     $Capture.TerminationDisposition -ceq 'tree_termination_confirmed' -and
-    $Capture.FinalDescendantTree -ceq 'terminated_quiescent') 'launched-timeout disposition'
+    $Capture.FinalDescendantTree -cmatch '^terminated_quiescent;pretermination=(members|quiescent_race)') 'launched-timeout disposition'
   if ($env:OS -eq 'Windows_NT') {
     Assert-WindowsContainmentLifecycle $Capture 'launched-timeout'
   }
@@ -832,6 +850,45 @@ function Assert-ContainmentWeakeningRejected {
   Assert-True (-not (Test-ContainmentProjection $Projection)) "containment weakening accepted: $Property"
 }
 
+function New-VctipFacts {
+  [pscustomobject][ordered]@{
+    Active = 1; Pid = [UInt64]101; Generation = [UInt64]638000000000000001; Primary = 0
+    Basename = 'VCTIP.EXE'; OriginalFilename = 'VCTIP.EXE'
+    Description = 'Microsoft' + [char]0x00ae + ' VC compiler and tools experience improvement data uploader'
+    SignatureStatus = 'Valid'; Publisher = 'Microsoft Corporation'; Certificate = 'A' * 40
+    Identity = '0000000000000001:0000000000000002'; Links = [UInt64]1; Bytes = [UInt64]514488
+    Sha256 = 'a' * 64; PathToken = 'QzpcVkNUSVAuRVhF'
+  }
+}
+function Assert-VctipFactRejected {
+  param([string] $Name, [string] $Property, [object] $Value, [string] $Owner)
+  $Facts = New-VctipFacts; $Facts.$Property = $Value
+  try { Assert-HumVctipFacts $Facts; throw "VCTIP corruption earned credit: $Name" }
+  catch { Assert-True ($_.Exception.Message -ceq $Owner) "VCTIP corruption owner drifted: $Name => $($_.Exception.Message)" }
+}
+function Assert-VctipFactMatrix {
+  $Honest = New-VctipFacts; Assert-HumVctipFacts $Honest
+  $Utf8 = [Text.UTF8Encoding]::new($false, $true).GetBytes($Honest.Description)
+  Assert-True (($Utf8[9..10] -join ',') -ceq '194,174') 'VCTIP description does not contain UTF-8 C2 AE'
+  foreach ($Case in @(
+    @{ Name='ascii-description'; Property='Description'; Value='Microsoft VC compiler and tools experience improvement data uploader'; Owner='vctip_auxiliary: signed description mismatch' },
+    @{ Name='wrong-description'; Property='Description'; Value=('Microsoft' + [char]0x00ae + ' VC compiler uploader'); Owner='vctip_auxiliary: signed description mismatch' },
+    @{ Name='filesystem-name'; Property='Basename'; Value='renamed.exe'; Owner='vctip_auxiliary: filesystem filename mismatch' },
+    @{ Name='original-name'; Property='OriginalFilename'; Value='renamed.exe'; Owner='vctip_auxiliary: signed original filename mismatch' },
+    @{ Name='publisher'; Property='Publisher'; Value='Contoso'; Owner='vctip_auxiliary: Microsoft signature invalid' },
+    @{ Name='signature'; Property='SignatureStatus'; Value='HashMismatch'; Owner='vctip_auxiliary: Microsoft signature invalid' },
+    @{ Name='hard-link'; Property='Links'; Value=2; Owner='vctip_auxiliary: executable is hard linked' },
+    @{ Name='multiple'; Property='Active'; Value=2; Owner='vctip_auxiliary: expected exactly one non-primary Job member' },
+    @{ Name='primary'; Property='Primary'; Value=1; Owner='vctip_auxiliary: expected exactly one non-primary Job member' },
+    @{ Name='generation'; Property='Generation'; Value=0; Owner='vctip_auxiliary: identity record malformed' },
+    @{ Name='identity'; Property='Identity'; Value='invalid'; Owner='vctip_auxiliary: identity record malformed' },
+    @{ Name='length'; Property='Bytes'; Value=0; Owner='vctip_auxiliary: identity record malformed' },
+    @{ Name='digest'; Property='Sha256'; Value=('0' * 63); Owner='vctip_auxiliary: identity record malformed' },
+    @{ Name='certificate'; Property='Certificate'; Value=('A' * 39); Owner='vctip_auxiliary: identity record malformed' },
+    @{ Name='path'; Property='PathToken'; Value='bad/path'; Owner='vctip_auxiliary: identity record malformed' }
+  )) { Assert-VctipFactRejected $Case.Name $Case.Property $Case.Value $Case.Owner }
+}
+
 function Assert-RunnerSourceContract {
   param([string] $Source)
   foreach ($Literal in @(
@@ -845,11 +902,34 @@ function Assert-RunnerSourceContract {
     'Read-HumCaptureRecord $Result.CaptureDirectory',
     "'case_name.txt'", 'Get-HumCaptureFailureDiagnostic $Retained',
     'launch_error_base64=', 'capture_error_base64=',
+    '[regex]::Split($Hex, ''0D-0A|0A|0D'')',
+    'terminal stdout line is not ASCII',
     'if ($State.TerminationCount -ne 0) { throw ''termination requested more than once'' }',
     'if ($State.PrimaryExited -and $State.StdoutCompleted -and $State.StderrCompleted -and $State.JobQuiescent)',
     '-not $JobQuiescent -or $FinalActive -ne 0',
-    '$Remaining = Get-HumRemainingMilliseconds $Timer $DeadlineTicks'
+    '$Remaining = Get-HumRemainingMilliseconds $Timer $DeadlineTicks',
+    '[HumFastJobNative]::ProcessIds($JobHandle)', 'StartTime.ToUniversalTime().Ticks',
+    'Get-HumFileIdentity $Item.FullName', '$Second = @([HumFastJobNative]::ProcessIds($JobHandle) | Sort-Object)',
+    '$Active -ne $Second.Count', 'pretermination=quiescent_race',
+    'descendant_evidence: active Job membership changed during identity acquisition',
+    '"pretermination_pending;" + $State.Pretermination',
+    'completed_after_authenticated_vctip_termination',
+    "`$DeadlineDisposition -ne 'completed_before_deadline' -and`n        `$DeadlineDisposition -ne 'completed_after_authenticated_vctip_termination'",
+    'terminated_quiescent;pretermination=authenticated_vctip_auxiliary',
+    'Get-AuthenticodeSignature -LiteralPath $Path',
+    "`$ExpectedDescription = 'Microsoft' + [char]0x00ae + ' VC compiler and tools experience improvement data uploader'",
+    '$Before = Get-HumVctipFacts', '$After = Get-HumVctipFacts',
+    "if (`$Facts.Basename -cne 'VCTIP.EXE')", "if (`$Facts.OriginalFilename -cne 'VCTIP.EXE')",
+    'if ($Facts.Description -cne $ExpectedDescription)',
+    'Set-HumDurableText (Join-Path $CaptureDirectory ''termination_result.txt'') $Record',
+    '[HumFastJobNative]::KillJob($JobHandle)'
+    'function Invoke-HumContainedRustNativeCapture'
+    'function Invoke-HumContainedExactRustTest'
+    'Invoke-HumBinaryCapture $Cargo $Arguments'
+    'Assert-HumCaptureComplete $Result'
+    'Remove-HumCaptureAfterAuthentication $Capture'
   )) { Assert-True ($Source.Contains($Literal)) "runner source contract missing: $Literal" }
+  Assert-True ([regex]::Matches($Source, 'pretermination=quiescent_race').Count -eq 4) 'descendant race ownership count'
   $Create = $Source.IndexOf('$NativeProcess = [HumFastJobNative]::CreateSuspended', [StringComparison]::Ordinal)
   $PersistCreate = $Source.IndexOf("'process_creation_succeeded.txt'", $Create, [StringComparison]::Ordinal)
   $Assign = $Source.IndexOf('[HumFastJobNative]::Assign(', $PersistCreate, [StringComparison]::Ordinal)
@@ -862,6 +942,10 @@ function Assert-RunnerSourceContract {
   Assert-True (-not $Source.Contains('.WaitForExit()')) 'unbounded WaitForExit returned'
   Assert-True (-not $Source.Contains('$StdoutTask.Wait()')) 'unbounded stream wait returned'
   Assert-True (-not $Source.Contains('$Timer.ElapsedTicks + $DeadlineTicks')) 'execution deadline can restart'
+  $VctipPersist = $Source.IndexOf("Set-HumDurableText (Join-Path `$CaptureDirectory 'termination_result.txt') `$Record", [StringComparison]::Ordinal)
+  $VctipRecheck = $Source.IndexOf('$After = Get-HumVctipFacts', $VctipPersist, [StringComparison]::Ordinal)
+  $VctipKill = $Source.IndexOf('[HumFastJobNative]::KillJob($JobHandle)', $VctipRecheck, [StringComparison]::Ordinal)
+  Assert-True ($VctipPersist -ge 0 -and $VctipPersist -lt $VctipRecheck -and $VctipRecheck -lt $VctipKill) 'VCTIP evidence/recheck/termination order'
 }
 
 function Test-RunnerSourceContract {
@@ -931,6 +1015,10 @@ $BeforeDirectory = (Get-Location).Path
 $BeforeConfig = Get-GitConfigurationIdentity
 $RunnerSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'run_fast_evidence.ps1'))
 Assert-RunnerSourceContract $RunnerSource
+Assert-VctipFactMatrix
+$DurableTree = $RunnerSource.IndexOf('Set-HumDurableText (Join-Path $CaptureDirectory ''final_descendant_tree.txt'') ("pretermination_pending;" + $State.Pretermination)', [StringComparison]::Ordinal)
+$TerminateTree = $RunnerSource.IndexOf('[HumFastJobNative]::KillJob($JobHandle)', $DurableTree, [StringComparison]::Ordinal)
+Assert-True ($DurableTree -ge 0 -and $DurableTree -lt $TerminateTree) 'descendant identities were not durable before termination'
 Assert-SourceWeakeningRejected $RunnerSource `
   'private const UInt32 CreateSuspendedFlag = 0x00000004;' `
   'private const UInt32 CreateSuspendedFlag = 0x00000000;' 'CREATE_SUSPENDED removal'
@@ -955,9 +1043,36 @@ Assert-SourceWeakeningRejected $RunnerSource `
   'if ($State.TerminationCount -ne 0) { throw ''termination requested more than once'' }' `
   '$null = $State.TerminationCount' 'double termination'
 Assert-SourceWeakeningRejected $RunnerSource `
+  "`$DeadlineDisposition -ne 'completed_before_deadline' -and`n        `$DeadlineDisposition -ne 'completed_after_authenticated_vctip_termination'" `
+  "`$DeadlineDisposition -ne 'completed_before_deadline'" 'VCTIP success fallthrough'
+Assert-SourceWeakeningRejected $RunnerSource `
+  "`$DeadlineDisposition -ne 'completed_after_authenticated_vctip_termination'" `
+  "`$DeadlineDisposition -ne 'completed_after_authenticated_vctip_cleanup'" 'VCTIP success disposition substitution'
+Assert-SourceWeakeningRejected $RunnerSource `
+  "`$DeadlineDisposition -ne 'completed_after_authenticated_vctip_termination'" `
+  "`$DeadlineDisposition -ne 'deadline_expired'" 'deadline exclusion broadening'
+Assert-SourceWeakeningRejected $RunnerSource `
   '-not $JobQuiescent -or $FinalActive -ne 0' '$false' 'descendant absence omission'
 Assert-SourceWeakeningRejected $RunnerSource `
   'Read-HumCaptureRecord $Result.CaptureDirectory' '$Result' 'in-memory fact trust'
+Assert-SourceWeakeningRejected $RunnerSource `
+  'StartTime.ToUniversalTime().Ticks' '0' 'descendant generation omission'
+Assert-SourceWeakeningRejected $RunnerSource `
+  'Get-HumFileIdentity $Item.FullName' '$null' 'descendant image omission'
+Assert-SourceWeakeningRejected $RunnerSource `
+  '$Second = @([HumFastJobNative]::ProcessIds($JobHandle) | Sort-Object)' '$Second = $First' 'descendant requery omission'
+Assert-SourceWeakeningRejected $RunnerSource `
+  '$Active -ne $Second.Count' '$false' 'descendant count agreement omission'
+Assert-SourceWeakeningRejected $RunnerSource `
+  "return 'pretermination=quiescent_race'" "return 'pretermination=members'" 'descendant race disposition substitution'
+Assert-SourceWeakeningRejected $RunnerSource `
+  "if (`$Facts.Basename -cne 'VCTIP.EXE')" "if (`$false)" 'VCTIP filesystem filename omission'
+Assert-SourceWeakeningRejected $RunnerSource `
+  "if (`$Facts.OriginalFilename -cne 'VCTIP.EXE')" "if (`$false)" 'VCTIP signed original filename omission'
+Assert-SourceWeakeningRejected $RunnerSource `
+  'if ($Facts.Description -cne $ExpectedDescription)' 'if ($false)' 'VCTIP signed description omission'
+Assert-SourceWeakeningRejected $RunnerSource `
+  '$After = Get-HumVctipFacts $JobHandle ([UInt64]$NativeProcess.ProcessId) $ToolchainRoot' '$After = $Before' 'VCTIP immediate reauthentication omission'
 Assert-True (Test-ContainmentProjection (New-ContainmentProjection)) 'honest containment projection rejected'
 Assert-ContainmentWeakeningRejected 'CreateSuspended' $false
 Assert-ContainmentWeakeningRejected 'KillOnClose' $false
@@ -969,15 +1084,25 @@ Assert-ContainmentWeakeningRejected 'SingleAbsoluteDeadline' $false
 Assert-ContainmentWeakeningRejected 'TerminationCount' 2
 Assert-ContainmentWeakeningRejected 'DescendantAbsence' $false
 Assert-ContainmentWeakeningRejected 'PersistedFacts' $false
+$MemberA = New-DescendantMember 101 638000000000000001 1 4096 ('a' * 64) 'QzpcYmluXGFwcC5leGU'
+$MemberB = New-DescendantMember 202 638000000000000002 0 8192 ('b' * 64) 'QzpcYmluXGNoaWxkLmV4ZQ'
+$One = "terminated_quiescent;pretermination=members;active=1;member=$MemberA"
+$Many = "terminated_quiescent;pretermination=members;active=2;member=$MemberA|$MemberB"
+foreach ($Record in @('quiescent', 'terminated_quiescent;pretermination=quiescent_race', $One, $Many)) { Assert-HumFinalDescendantTree $Record }
+Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=2;member=$MemberB|$MemberA" 'ordering'
+Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=2;member=$MemberA|$MemberA" 'duplicate'
+Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=3;member=$MemberA|$MemberB" 'count'
+Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=101,0,1,4096,$('a' * 64),QzpcYmluXGFwcC5leGU" 'generation'
+Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=101,638000000000000001,1,4096,$('a' * 64)," 'image'
+Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=101,638000000000000001,1,4096,$('a' * 63),QzpcYmluXGFwcC5leGU" 'image-hash'
+Assert-DescendantRecordRejected ($Many.Substring(0, $Many.Length - 1)) 'truncation'
 $CreatedPids = New-Object System.Collections.Generic.List[int]
 $ValidCaptures = New-Object System.Collections.Generic.List[object]
 
 try {
-  $Shell = if ($ShellContract -eq 'powershell') {
-    "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-  } else {
-    (Get-Command pwsh -ErrorAction Stop).Source
-  }
+  if($ShellContract -eq 'powershell'){$Shell="$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"}else{$ShellApplications=@(Get-Command pwsh -CommandType Application -All -ErrorAction Stop);Assert-True ($ShellApplications.Count -eq 1) 'capture contract requires exactly one PowerShell 7 application';$Shell=[IO.Path]::GetFullPath([string]$ShellApplications[0].Source)}
+  Assert-True ([IO.File]::Exists($Shell)) 'selected PowerShell executable is missing'
+  Assert-True (-not ([IO.File]::GetAttributes($Shell) -band [IO.FileAttributes]::ReparsePoint)) 'selected PowerShell executable is a reparse point'
   $Self = $MyInvocation.MyCommand.Path
   $BaseArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $Self)
 
@@ -1042,6 +1167,8 @@ try {
 
   $LaunchedTimeoutDeadlineSeconds = 10
   $Timeout = Assert-LaunchedTimeoutCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'timeout')) $BeforeDirectory (Join-Path $ScratchRoot 'timeout') $LaunchedTimeoutDeadlineSeconds -CaseName 'timeout') $LaunchedTimeoutDeadlineSeconds
+  Assert-True ($Timeout.FinalDescendantTree -cmatch '^terminated_quiescent;pretermination=members;active=([2-9]|[1-9][0-9]+);') 'multiple survivors were not retained deterministically'
+  Assert-HumFinalDescendantTree $Timeout.FinalDescendantTree
   $TimeoutOut = [Text.Encoding]::UTF8.GetString((Read-Bytes $Timeout.StdoutPath))
   $TimeoutErr = [Text.Encoding]::UTF8.GetString((Read-Bytes $Timeout.StderrPath))
   Assert-True ($TimeoutOut -match 'parent_alive=([0-9]+)' -and $TimeoutOut -match 'descendant_pid=([0-9]+)' -and $TimeoutOut.Contains('parent_partial_stdout')) 'timeout PID and stdout witnesses'
@@ -1054,21 +1181,24 @@ try {
   $WindowsCaptures = @()
   $SetupCaptures = @()
   if ($env:OS -eq 'Windows_NT') {
-    $ContainedDescendantDeadlineSeconds = 6
+    $ContainedDescendantDeadlineSeconds = 4
     $Inherited = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'inherited-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'inherited-parent') $ContainedDescendantDeadlineSeconds 2 -CaseName 'inherited-parent')
+    Assert-True ($Inherited.FinalDescendantTree -cmatch '^terminated_quiescent;pretermination=members;active=[1-9][0-9]*;') 'controlled survivor set was not retained'
+    Assert-HumFinalDescendantTree $Inherited.FinalDescendantTree
     Assert-WindowsContainmentLifecycle $Inherited 'inherited-pipe'
     Assert-True ($Inherited.DeadlineTicks -eq [Int64] $ContainedDescendantDeadlineSeconds * $Inherited.StopwatchFrequency) 'inherited-pipe absolute deadline'
     Assert-True ($Inherited.TimedOut -and $Inherited.DeadlineDisposition -ceq 'deadline_expired' -and
       $Inherited.TerminationRequested -and $Inherited.TerminationCount -eq 1 -and
-      $Inherited.KillAttemptCount -eq 1 -and $Inherited.FinalDescendantTree -ceq 'terminated_quiescent') 'inherited-pipe timeout disposition'
+      $Inherited.KillAttemptCount -eq 1 -and $Inherited.FinalDescendantTree -cmatch '^terminated_quiescent;pretermination=(members|quiescent_race)') 'inherited-pipe timeout disposition'
     $InheritedText = [Text.Encoding]::UTF8.GetString((Read-Bytes $Inherited.StdoutPath))
     $InheritedDescendant = Get-WitnessPid $InheritedText 'inherited_descendant_pid'
+    Assert-True ($Inherited.FinalDescendantTree -cmatch "(?:member=|\|)$InheritedDescendant,") 'controlled survivor identity was not retained'
     $InheritedExpected = [Text.Encoding]::ASCII.GetBytes("inherited_parent_pid=$($Inherited.Pid)`ninherited_descendant_pid=$InheritedDescendant`ninherited_parent_stdout`n")
     Assert-Bytes (Read-Bytes $Inherited.StdoutPath) $InheritedExpected 'inherited-pipe stdout'
     Assert-Bytes (Read-Bytes $Inherited.StderrPath) ([Text.Encoding]::ASCII.GetBytes("inherited_parent_stderr`n")) 'inherited-pipe stderr'
     Assert-True ($null -eq (Get-Process -Id $InheritedDescendant -ErrorAction SilentlyContinue)) 'inherited-pipe descendant survived'
 
-    $InheritedNatural = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'inherited-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'inherited-parent-natural') 20 2 -CaseName 'inherited-parent-natural')
+    $InheritedNatural = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'inherited-short-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'inherited-parent-natural') 20 2 -CaseName 'inherited-parent-natural')
     Assert-WindowsContainmentLifecycle $InheritedNatural 'inherited natural completion'
     Assert-True ($InheritedNatural.DeadlineTicks -eq [Int64] 20 * $InheritedNatural.StopwatchFrequency) 'inherited natural-completion deadline'
     Assert-True ($InheritedNatural.ExitCode -eq 0 -and -not $InheritedNatural.TimedOut -and
@@ -1133,7 +1263,36 @@ try {
     }
     Assert-True (-not $SetupCaptures[3].JobAssignmentSucceeded -and -not $SetupCaptures[3].ResumeAttempted) 'assignment-failure lifecycle'
     Assert-True ($SetupCaptures[4].JobAssignmentSucceeded -and $SetupCaptures[4].ResumeAttempted -and -not $SetupCaptures[4].ResumeSucceeded) 'resume-failure lifecycle'
-    $WindowsCaptures = @($Inherited, $InheritedNatural, $Redirected, $Earliest, $Quiescent)
+    $VctipProjectedPath = Copy-CaptureForMutation $Success.CaptureDirectory (Join-Path $ScratchRoot 'vctip-projected')
+    $VctipRecord = 'authenticated_vctip_auxiliary;pid=101;generation=638000000000000001;identity=0000000000000001:0000000000000002;bytes=514488;sha256=' + ('a' * 64) + ';certificate=' + ('A' * 40) + ';path=QzpcVkNUSVAuRVhF'
+    foreach ($Fact in @{
+      'deadline_disposition.txt' = 'completed_after_authenticated_vctip_termination'
+      'termination_requested.txt' = '1'; 'termination_count.txt' = '1'; 'kill_attempt_count.txt' = '1'
+      'termination_disposition.txt' = 'authenticated_vctip_termination_confirmed'
+      'termination_result.txt' = $VctipRecord
+      'final_descendant_tree.txt' = 'terminated_quiescent;pretermination=authenticated_vctip_auxiliary'
+    }.GetEnumerator()) { Set-HumDurableText (Join-Path $VctipProjectedPath $Fact.Key) $Fact.Value }
+    Rewrite-Manifest $VctipProjectedPath
+    $VctipProjected = Read-HumCaptureRecord $VctipProjectedPath
+    Assert-True ($VctipProjected.DeadlineDisposition -ceq 'completed_after_authenticated_vctip_termination' -and
+      $VctipProjected.TerminationCount -eq 1 -and $VctipProjected.FinalActiveProcessCount -eq 0) 'honest VCTIP terminal projection rejected'
+    foreach ($Mutation in @(
+      @{ Name = 'truncated'; Value = $VctipRecord.Substring(0, $VctipRecord.LastIndexOf(';path=') + 6) },
+      @{ Name = 'reordered'; Value = $VctipRecord.Replace(';pid=101;generation=', ';generation=').Replace(';identity=', ';pid=101;identity=') },
+      @{ Name = 'malformed'; Value = $VctipRecord + ';extra=true' },
+      @{ Name = 'contradictory'; Value = $VctipRecord.Replace('pid=101', 'pid=0') }
+    )) {
+      $Copy = Copy-CaptureForMutation $VctipProjectedPath (Join-Path $ScratchRoot "vctip-$($Mutation.Name)")
+      Set-HumDurableText (Join-Path $Copy 'termination_result.txt') $Mutation.Value; Rewrite-Manifest $Copy
+      Assert-CaptureRejected $Copy "VCTIP $($Mutation.Name) record accepted"
+    }
+    $DuplicateVctip = Copy-CaptureForMutation $VctipProjectedPath (Join-Path $ScratchRoot 'vctip-duplicated')
+    Set-HumDurableBytes (Join-Path $DuplicateVctip 'termination_result.txt') ([Text.Encoding]::UTF8.GetBytes("$VctipRecord`n$VctipRecord`n")); Rewrite-Manifest $DuplicateVctip
+    Assert-CaptureRejected $DuplicateVctip 'duplicated VCTIP record accepted'
+    $TerminationFailure = Copy-CaptureForMutation $VctipProjectedPath (Join-Path $ScratchRoot 'vctip-termination-failure')
+    Set-HumDurableText (Join-Path $TerminationFailure 'termination_disposition.txt') 'tree_termination_failed'; Rewrite-Manifest $TerminationFailure
+    Assert-CaptureRejected $TerminationFailure 'VCTIP termination failure accepted'
+    $WindowsCaptures = @($Inherited, $InheritedNatural, $Redirected, $Earliest, $Quiescent, $VctipProjected)
   }
 
   $MissingFact = Copy-CaptureForMutation $Success.CaptureDirectory (Join-Path $ScratchRoot 'mutation-missing')
@@ -1172,6 +1331,20 @@ try {
   Rewrite-Manifest $TerminalMismatch
   Assert-CaptureRejected $TerminalMismatch 'terminal mismatch accepted'
 
+  $OpaqueBody = Copy-CaptureForMutation $Success.CaptureDirectory (Join-Path $ScratchRoot 'mutation-opaque-body')
+  $OpaqueBytes = ([byte[]] (0x82, 0x0a, 0xe1, 0x0d, 0x0a)) + (Read-Bytes $Success.StdoutPath)
+  Set-HumDurableBytes (Join-Path $OpaqueBody 'stdout.bin') $OpaqueBytes
+  Rewrite-Manifest $OpaqueBody
+  $OpaqueRecord = Read-HumCaptureRecord $OpaqueBody
+  Assert-True ($OpaqueRecord.TerminalStdoutLine -ceq $SuccessMarker -and $OpaqueRecord.SuccessMarkerCount -eq 1) 'opaque nonterminal bytes changed terminal facts'
+  Assert-Bytes (Read-Bytes $OpaqueRecord.StdoutPath) $OpaqueBytes 'opaque stdout bytes were rewritten'
+
+  $OpaqueTerminal = Copy-CaptureForMutation $Success.CaptureDirectory (Join-Path $ScratchRoot 'mutation-opaque-terminal')
+  Set-HumDurableBytes (Join-Path $OpaqueTerminal 'stdout.bin') ((Read-Bytes $Success.StdoutPath) + [byte[]] (0x82, 0x0a))
+  Set-HumDurableBytes (Join-Path $OpaqueTerminal 'terminal_stdout_line.bin') ([byte[]] (0x82))
+  Rewrite-Manifest $OpaqueTerminal
+  Assert-CaptureRejected $OpaqueTerminal 'non-ASCII terminal line accepted'
+
   $QuiescenceMismatch = Copy-CaptureForMutation $Success.CaptureDirectory (Join-Path $ScratchRoot 'mutation-quiescence')
   Set-HumDurableText (Join-Path $QuiescenceMismatch 'job_quiescence_observed.txt') '0'
   Rewrite-Manifest $QuiescenceMismatch
@@ -1207,6 +1380,23 @@ try {
   }
 
   if ($env:OS -eq 'Windows_NT') {
+    $TreeRecord = Read-HumScalar $Inherited.CaptureDirectory 'final_descendant_tree.txt'
+    Assert-True ($TreeRecord -cmatch '^terminated_quiescent;pretermination=members;') 'retained pre-termination record missing after final zero'
+    Assert-True ((Read-HumScalar $Inherited.CaptureDirectory 'final_active_process_count.txt') -ceq '0') 'retained identities displaced final zero'
+    $TreeMatch = [regex]::Match($TreeRecord, '^terminated_quiescent;pretermination=members;active=([0-9]+);member=(.+)$')
+    $TreeMembers = $TreeMatch.Groups[2].Value
+    $DuplicatedTree = "terminated_quiescent;pretermination=members;active=$([int]$TreeMatch.Groups[1].Value + 1);member=$TreeMembers|$(($TreeMembers -split '\|')[0])"
+    foreach ($TreeMutation in @(
+      @{ Name = 'malformed'; Value = $TreeRecord + ';extra' },
+      @{ Name = 'truncated'; Value = $TreeRecord.Substring(0, $TreeRecord.Length - 1) },
+      @{ Name = 'duplicated'; Value = $DuplicatedTree },
+      @{ Name = 'reordered'; Value = $Timeout.FinalDescendantTree -replace 'member=([^|]+)\|(.+)$', 'member=$2|$1' }
+    )) {
+      $TreeCopy = Copy-CaptureForMutation $Inherited.CaptureDirectory (Join-Path $ScratchRoot "mutation-tree-$($TreeMutation.Name)")
+      Set-HumDurableText (Join-Path $TreeCopy 'final_descendant_tree.txt') $TreeMutation.Value
+      Rewrite-Manifest $TreeCopy
+      Assert-CaptureRejected $TreeCopy "descendant tree $($TreeMutation.Name) accepted"
+    }
     $TimeoutDisposition = Copy-CaptureForMutation $Inherited.CaptureDirectory (Join-Path $ScratchRoot 'mutation-timeout-disposition')
     Set-HumDurableText (Join-Path $TimeoutDisposition 'timed_out.txt') '0'
     Rewrite-Manifest $TimeoutDisposition

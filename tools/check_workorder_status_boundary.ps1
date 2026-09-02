@@ -100,12 +100,36 @@ function ConvertTo-ExactLong {
   return $Parsed
 }
 
-function Resolve-BoundaryGit {
-  $Command = Get-Command git -ErrorAction SilentlyContinue
-  if ($null -eq $Command) {
+function Assert-BoundaryGitIdentityFacts {
+  param(
+    [string] $Path,
+    [bool] $Exists,
+    [IO.FileAttributes] $Attributes
+  )
+  if (-not [IO.Path]::IsPathFullyQualified($Path) -or -not $Exists -or
+      ($Attributes -band ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint))) {
+    Throw-WorkOrderBoundaryFailure 'git_identity_invalid'
+  }
+  return $Path
+}
+
+function Resolve-BoundaryGitApplications {
+  param([object[]] $Commands)
+  if ($Commands.Count -eq 0) {
     Throw-WorkOrderBoundaryFailure 'git_unavailable'
   }
-  return $Command.Source
+  $Source = [string]$Commands[0].Source
+  if ([string]::IsNullOrEmpty($Source) -or -not [IO.Path]::IsPathFullyQualified($Source)) {
+    Throw-WorkOrderBoundaryFailure 'git_identity_invalid'
+  }
+  $Path = [IO.Path]::GetFullPath($Source)
+  $Exists = [IO.File]::Exists($Path)
+  $Attributes = if ($Exists) { [IO.File]::GetAttributes($Path) } else { [IO.FileAttributes]0 }
+  return Assert-BoundaryGitIdentityFacts $Path $Exists $Attributes
+}
+
+function Resolve-BoundaryGit {
+  return Resolve-BoundaryGitApplications @(Get-Command git -CommandType Application -All -ErrorAction SilentlyContinue)
 }
 
 function Invoke-BoundaryGit {
@@ -115,10 +139,11 @@ function Invoke-BoundaryGit {
   )
 
   $Git = Resolve-BoundaryGit
+  $TrustPath = [IO.Path]::GetFullPath($RepoPath).Replace('\', '/')
   $PreviousPreference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   try {
-    $Output = & $Git --no-replace-objects -C $RepoPath @Arguments 2>&1
+    $Output = & $Git --no-replace-objects -c "safe.directory=$TrustPath" -C $RepoPath @Arguments 2>&1
     $ExitCode = $LASTEXITCODE
   } finally {
     $ErrorActionPreference = $PreviousPreference
@@ -146,7 +171,11 @@ function Invoke-BoundaryGitBytes {
   $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
   $StartInfo.FileName = Resolve-BoundaryGit
   $StartInfo.WorkingDirectory = $RepoPath
-  $StartInfo.Arguments = (@('--no-replace-objects') + $Arguments) -join ' '
+  if (-not [IO.Path]::IsPathFullyQualified($RepoPath) -or $RepoPath.IndexOfAny(@([char]0, [char]13, [char]10, [char]34)) -ge 0) {
+    Throw-WorkOrderBoundaryFailure 'repository_trust_invalid'
+  }
+  $TrustPath = $RepoPath.Replace('\', '/')
+  $StartInfo.Arguments = (@('--no-replace-objects', '-c', "safe.directory=$TrustPath") + $Arguments) -join ' '
   $StartInfo.UseShellExecute = $false
   $StartInfo.CreateNoWindow = $true
   $StartInfo.RedirectStandardOutput = $true

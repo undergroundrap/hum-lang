@@ -1,5 +1,13 @@
 # Contributing To Hum
 
+Repository orchestration requires an explicit absolute PowerShell 7 executable.
+Pass it as `--pwsh <absolute-path>`; a bare `pwsh`, ambient PATH, profile, cache,
+or `HUM_DEV_PWSH` value is not authority. Do not rely on Windows
+PowerShell 5.1, ambient shell aliases, or Unix text utilities for commit-message
+validation. Use `hum-dev commit-message check --file <message>`; pass executable
+paths, environment, credentials, and repository trust explicitly and
+process-locally.
+
 Date: 2026-07-06
 Status: pre-alpha contributor policy
 
@@ -26,7 +34,8 @@ to resolve rather than a fork in the truth.
 Install Rust with `rustup`, open a fresh terminal, then run from the repo root:
 
 ```powershell
-.\tools\check_all.ps1
+$Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+cargo run -p hum-dev -- evidence focused --pwsh $Pwsh
 ```
 
 That is the paved-road verification command. It runs Rust checks, example checks,

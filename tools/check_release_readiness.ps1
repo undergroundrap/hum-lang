@@ -19,6 +19,62 @@ function Read-RepoText {
   return [System.IO.File]::ReadAllText($path).Trim()
 }
 
+function Get-Wo25ExhaustiveWorkflowRouteFailure {
+  param([string] $Source)
+  $cr = [char] 13; $lf = [char] 10; $normalized = $Source.Replace([string] $cr + [string] $lf, [string] $lf).Replace([string] $cr, [string] $lf)
+  $stepPattern = '(?ms)^      - name: Run exhaustive canonical-seal evidence' + $lf + '.*?(?=^      - name: |\z)'; $steps = @([regex]::Matches($normalized, $stepPattern))
+  if ($steps.Count -ne 1) { return 'step_count' }
+
+  $step = $steps[0].Value.TrimEnd([char[]] @([char] 10))
+  $arms = [ordered] @{
+    gate = "        if: steps.classify.outputs.mode != 'fast' && matrix.os == 'ubuntu-latest'"
+    outcome = '        continue-on-error: false'
+    shell = '        shell: pwsh'
+    run = '        run: |'
+    pwsh = "          `$Pwsh = Join-Path `$PSHOME `$(if (`$IsWindows) { 'pwsh.exe' } else { 'pwsh' })"
+    adapter = '          . ./tools/run_fast_evidence.ps1'
+    executable = "          `$Executable = if (`$IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }"
+    isolation = "          `$Isolated = New-HumIsolatedExecutable `$Executable `$env:RUNNER_TEMP 'target'"
+    launch = '          try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }'
+    cleanup = '          finally { Remove-HumIsolatedExecutable $Isolated }'
+    exit = '          if ($ExitCode -ne 0) { exit $ExitCode }'
+  }
+  $last = -1
+  foreach ($arm in $arms.GetEnumerator()) {
+    $hits = @([regex]::Matches($step, '(?m)^' + [regex]::Escape($arm.Value) + '$'))
+    if ($hits.Count -ne 1) { return "route_$($arm.Key)_count" }
+    $next = $step.IndexOf($arm.Value, [StringComparison]::Ordinal)
+    if ($next -le $last) { return "route_$($arm.Key)_order" }
+    $last = $next
+  }
+  $expected = (@('      - name: Run exhaustive canonical-seal evidence') + @($arms.Values)) -join $lf; if ($step -cne $expected) { return 'route_shape' }
+  if ($normalized.Contains('./tools/check_all.ps1 -EvidenceTier Exhaustive')) { return 'retired_direct_route' }
+  return $null
+}
+
+function Test-Wo25ExhaustiveWorkflowRouteCorruptions {
+  param([string] $Source)
+  $original = $Source; $cr = [char] 13; $lf = [char] 10; $normalized = $Source.Replace([string] $cr + [string] $lf, [string] $lf).Replace([string] $cr, [string] $lf); $step = [regex]::Match($normalized, '(?ms)^      - name: Run exhaustive canonical-seal evidence' + $lf + '.*?(?=^      - name: |\z)').Value
+  $cases = @(
+    [pscustomobject] @{ Name = 'removal'; Source = $Source.Replace($step, ''); Failure = 'step_count' },
+    [pscustomobject] @{ Name = 'duplication'; Source = $Source + $lf + $step; Failure = 'step_count' },
+    [pscustomobject] @{ Name = 'profile substitution'; Source = $Source.Replace('evidence exhaustive --pwsh $Pwsh', 'evidence full --pwsh $Pwsh'); Failure = 'route_launch_count' },
+    [pscustomobject] @{ Name = 'missing pwsh'; Source = $Source.Replace(' --pwsh $Pwsh', ''); Failure = 'route_launch_count' },
+    [pscustomobject] @{ Name = 'substituted pwsh'; Source = $Source.Replace('--pwsh $Pwsh', '--pwsh pwsh'); Failure = 'route_launch_count' },
+    [pscustomobject] @{ Name = 'isolation bypass'; Source = $Source.Replace('$Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP ''target''', '$Isolated = $Executable'); Failure = 'route_isolation_count' },
+    [pscustomobject] @{ Name = 'cleanup removal'; Source = $Source.Replace('finally { Remove-HumIsolatedExecutable $Isolated }', 'finally { }'); Failure = 'route_cleanup_count' },
+    [pscustomobject] @{ Name = 'cleanup reordering'; Source = $Source.Replace('try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }' + $lf + '          finally { Remove-HumIsolatedExecutable $Isolated }', 'finally { Remove-HumIsolatedExecutable $Isolated }' + $lf + '          try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }'); Failure = 'route_cleanup_order' },
+    [pscustomobject] @{ Name = 'malformed routing'; Source = $Source.Replace('evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE', 'evidence exhaustive --pwsh $Pwsh'); Failure = 'route_launch_count' },
+    [pscustomobject] @{ Name = 'retired direct route'; Source = $Source + $lf + '        run: ./tools/check_all.ps1 -EvidenceTier Exhaustive'; Failure = 'retired_direct_route' }
+  )
+  foreach ($case in $cases) {
+    if ($case.Source -ceq $Source) { throw "release-readiness exhaustive corruption was not initialized: $($case.Name)" }
+    $failure = Get-Wo25ExhaustiveWorkflowRouteFailure $case.Source
+    if ($failure -cne $case.Failure) { throw "release-readiness exhaustive $($case.Name) expected $($case.Failure), got $failure" }; Write-Host "ok - release-readiness exhaustive $($case.Name): $failure"
+  }
+  if ($Source -cne $original) { throw 'release-readiness exhaustive corruptions did not restore exact source bytes' }
+}
+
 $version = Read-RepoText 'VERSION'
 $semverPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 if (-not [regex]::IsMatch($version, $semverPattern)) {
@@ -271,11 +327,14 @@ foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_di
 }
 
 $ciWorkflow = Read-RepoText '.github/workflows/ci.yml'
-foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', 'cancel-in-progress: true', 'timeout-minutes: 60', 'actions/checkout@v7', 'actions/cache@v6', 'CARGO_HOME:', 'Cache Cargo artifacts', '.cargo-home/registry', '.cargo-home/git', 'target', 'restore-keys:', 'tools/check_all.ps1', 'Run exhaustive canonical-seal evidence', 'continue-on-error: false', '-EvidenceTier Exhaustive', 'windows-latest', 'ubuntu-latest')) {
+foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', 'cancel-in-progress: true', 'timeout-minutes: 60', 'actions/checkout@v7', 'actions/cache@v6', 'CARGO_HOME:', 'Cache Cargo artifacts', '.cargo-home/registry', '.cargo-home/git', 'target', 'restore-keys:', 'tools/check_all.ps1', 'Run exhaustive canonical-seal evidence', 'continue-on-error: false', 'windows-latest', 'ubuntu-latest')) {
   if (-not $ciWorkflow.Contains($required)) {
     Add-Failure ".github/workflows/ci.yml does not mention $required"
   }
 }
+$exhaustiveRouteFailure = Get-Wo25ExhaustiveWorkflowRouteFailure $ciWorkflow
+if ($null -ne $exhaustiveRouteFailure) { Add-Failure ".github/workflows/ci.yml exhaustive route failed: $exhaustiveRouteFailure" }
+try { Test-Wo25ExhaustiveWorkflowRouteCorruptions $ciWorkflow } catch { Add-Failure $_.Exception.Message }
 foreach ($forbidden in @('pull_request:')) {
   if ($ciWorkflow.Contains($forbidden)) {
     Add-Failure ".github/workflows/ci.yml should not contain $forbidden while private CI is guarded"
