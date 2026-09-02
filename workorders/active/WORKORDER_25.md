@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: UNITS A-B IMPLEMENTED, INDEPENDENTLY ACCEPTED, PUBLISHED, SYNCHRONIZED, AND TERMINAL-GREEN; THE VCTIP SIGNED-DESCRIPTION CORRECTION AWAITS FRESH INDEPENDENT REVIEW; UNIT C IMPLEMENTATION REMAINS PAUSED. IF AND ONLY IF THE CORRECTION RECEIVES AN UNQUALIFIED ACCEPT, THE ONLY NEXT ACTION IS A SEPARATELY AUTHORIZED LOCAL WORK-ORDER-ONLY COMMIT `docs(workorder): correct unit c vctip description`. PUBLICATION, IMPLEMENTATION, PRODUCTION SMOKE, FULL UNIT C REVIEW OR COMMIT, AND UNITS D-E REMAIN UNAUTHORIZED.
+Status: UNITS A-B ARE TERMINAL-GREEN, AND UNIT C IMPLEMENTATION IS PUBLISHED AT `3690f4db86bf6a6f8f39673844af2bf1ca304a19`; CI RUN `33575631643` IS TERMINAL-RED AT UBUNTU POWERSHELL DISCOVERY. THE FOUR-PATH RED-MAIN REPAIR REMAINS UNCOMMITTED AND PAUSED WHILE THIS DISCOVERY-AUDIT BUDGET AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. IF AND ONLY IF THE AMENDMENT RECEIVES AN UNQUALIFIED ACCEPT, THE ONLY NEXT ACTION IS A SEPARATELY AUTHORIZED LOCAL WORK-ORDER-ONLY COMMIT `docs(workorder): fund unit c discovery audit`. PUBLICATION, REPAIR RESUMPTION, CI RERUN, AND UNIT D-E WORK REMAIN UNAUTHORIZED.
 
 WO25 Unit A remains implemented, published, status-recorded, synchronized,
 terminal-green, complete, and closed. Unit B's satisfiability amendment is
@@ -760,7 +760,7 @@ not renamed by this amendment.
 | `tools/check_all.ps1` | 155 | 160 | delegate migrated orchestration and bind v2 receipt identity |
 | `tools/check_release_readiness.ps1` | 60 | 20 | authenticate the isolated exhaustive workflow route and reject the retired direct route |
 | `tools/run_fast_evidence.ps1` | 268 | 220 | thin PS7 adapter, durable Windows Job-member identity evidence, and authenticated VCTIP auxiliary lifecycle |
-| `tools/test_fast_evidence_capture.ps1` | 224 | 260 | portable equivalence and authenticated VCTIP lifecycle tests |
+| `tools/test_fast_evidence_capture.ps1` | 342 | 260 | portable equivalence, authenticated VCTIP lifecycle, and PowerShell discovery drift-audit tests |
 | `tools/check_workorder_status_boundary.ps1` | 60 | 100 | thin status adapter |
 | `tools/test_workorder_status_boundary.ps1` | 80 | 160 | PS7-only compatibility matrix |
 | `.github/workflows/ci.yml` | 60 | 80 | invoke canonical portable path |
@@ -770,16 +770,16 @@ not renamed by this amendment.
 | `fixtures/evidence/job_summary_ubuntu.v2.json` | 4 | 0 | frozen canonical Ubuntu v2 summary |
 | `fixtures/evidence/job_summary_windows.v2.json` | 4 | 0 | frozen canonical Windows v2 summary |
 | `fixtures/evidence/summary_corruption_cases.v2.json` | 100 | 0 | v2 orchestration identity corruption matrix |
-| **Unit C total** | **2,647** | **1,200** | **20 non-borrowable paths** |
+| **Unit C total** | **2,765** | **1,200** | **20 non-borrowable paths** |
 
 | Unit C category | Paths | Max + | Max - |
 | --- | ---: | ---: | ---: |
 | `hum-dev` Rust and tests | 7 | 1,352 | 120 |
-| PowerShell wrappers/tests | 6 | 847 | 920 |
+| PowerShell wrappers/tests | 6 | 965 | 920 |
 | Workflow | 1 | 60 | 80 |
 | Documentation | 3 | 280 | 80 |
 | Permanent v2 fixtures | 3 | 108 | 0 |
-| **Unit C category total** | **20** | **2,647** | **1,200** |
+| **Unit C category total** | **20** | **2,765** | **1,200** |
 
 The `shell.rs` exceptions are solely for the proven readable implementations
 of fixed Windows system-command identity and the native authenticated
@@ -853,6 +853,19 @@ that measured `+87/-5` result fits its existing `+100/-260` ceiling. Therefore
 `tools/test_fast_evidence_capture.ps1` receives no increase. All added capacity
 is path-local and non-borrowable and grants no unrelated behavior, evidence,
 feature, documentation, workflow, or later-unit authority.
+
+A later disposable complete readable measurement against the published Unit C
+base placed `tools/test_fast_evidence_capture.ps1` at `+342/-12`. The measured
+draft parsed under Windows PowerShell 5.1 and PowerShell 7 and exercised its
+honest AST owners plus the complete initialized mutation matrix. The increase
+from `+224/-260` to `+342/-260` is reserved solely for AST ownership of the
+top-level five-source validator invocation, AST assignment/dataflow ownership
+of first-effective PowerShell selection, disposable three-record executable
+behavior, and the complete discovery-drift corruption matrix. This 118-line
+increase is test-only, path-local, and non-borrowable. It cannot fund production
+behavior, another path, unrelated evidence, or Units D-E. Production runtime
+selection, explicit `--pwsh`, capture, VCTIP, classifier, summary-v2, and
+evidence-tier semantics remain unchanged.
 
 One narrow exception to that timeout-and-termination lock applies only after
 the primary exits zero and both captured streams are complete and
@@ -1040,7 +1053,7 @@ semantic owners or no owner.
 
 The five unit tables contain exactly 77 authorized path occurrences
 (`17 + 14 + 20 + 12 + 14 = 77`) with aggregate
-telemetry `+12,192/-7,818`. This sum is not a cross-unit borrowing pool. Every
+telemetry `+12,310/-7,818`. This sum is not a cross-unit borrowing pool. Every
 unit and category ceiling is independently non-borrowable, and a path may be
 edited in a later unit only where it is listed again.
 
@@ -1446,25 +1459,28 @@ artifact action, artifact upload/download, archive code, or stash operation.
 
 ## Current authorization gate
 
-WO25 Units A-B remain complete and closed. The VCTIP signed-description
-correction awaits fresh independent review. Unit C implementation remains
-paused and unauthorized. The amendment author issues no verdict.
+WO25 Units A-B remain complete and terminal-green. Unit C implementation is
+published at `3690f4db86bf6a6f8f39673844af2bf1ca304a19`; CI run
+`33575631643` is terminal-red at Ubuntu PowerShell discovery. The four-path
+red-main repair remains uncommitted and paused. This discovery-audit budget
+amendment awaits fresh independent review, and the amendment author issues no
+verdict.
 
-If and only if the correction receives an unqualified `ACCEPT`, its next
+If and only if this amendment receives an unqualified `ACCEPT`, its next
 separately authorized action is a local Work-Order-only commit with exact
 subject:
 
 ```text
-docs(workorder): correct unit c vctip description
+docs(workorder): fund unit c discovery audit
 ```
 
-Review acceptance alone authorizes no staging or commit. Publication,
-implementation, production smoke, complete Unit C review, the Unit C
-implementation commit, and Units D-E remain separately unauthorized. The local
-documentation stack and later Unit C implementation remain unpublished until
-their respective independent reviews, separately authorized commits, and one
-eventual separately authorized publication. Successor or language work,
-package/stdlib/Nectar work, optimization, another backend, release/tag work,
-stashes, archives, and historical-artifact operations remain unauthorized.
+Review acceptance alone authorizes no staging or commit. After the separately
+authorized local amendment commit, the same repair implementer may resume only
+the AST invocation-ownership and first-effective assignment/dataflow correction
+under another separate authorization. Amendment publication, repair resumption,
+production smoke, CI rerun, full Unit C review or repair commit, and Units D-E
+remain separately unauthorized. Successor or language work, package/stdlib/
+Nectar work, optimization, another backend, release/tag work, stashes, archives,
+and historical-artifact operations remain unauthorized.
 
 <!-- workorder-current-authorization-gate:end -->
