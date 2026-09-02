@@ -40,9 +40,13 @@ jobs:
         shell: pwsh
         run: |
           if ($PSVersionTable.PSVersion.Major -ne 7) { throw 'CI orchestration requires PowerShell 7' }
-          $Applications = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
-          if ($Applications.Count -ne 1) { throw "expected one pwsh application, found $($Applications.Count)" }
-          "pwsh_path=$([IO.Path]::GetFullPath([string]$Applications[0].Source))"
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+          if (-not [IO.Path]::IsPathFullyQualified($Pwsh) -or $Pwsh.IndexOfAny([char[]]@(13, 10, 0)) -ge 0) { throw 'CI orchestration PowerShell path is malformed' }
+          $Pwsh = [IO.Path]::GetFullPath($Pwsh); $Item = Get-Item -LiteralPath $Pwsh -Force
+          if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'CI orchestration PowerShell is not an ordinary file' }
+          $Comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+          if (-not $Pwsh.Equals([IO.Path]::GetFullPath((Get-Process -Id $PID).Path), $Comparison)) { throw 'CI orchestration PowerShell differs from the running host' }
+          "pwsh_path=$Pwsh"
 
       - name: Classify CI evidence lane
         id: classify

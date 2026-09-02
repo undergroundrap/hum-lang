@@ -1385,9 +1385,9 @@ if ($MyInvocation.InvocationName -ne '.') {
   if ($ScratchRoot -eq '') {
     $ScratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-fast-evidence-" + [Guid]::NewGuid().ToString('N'))
   }
-  $PowerShellApplications = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
-  if ($PowerShellApplications.Count -ne 1) { throw "Fast producer requires exactly one PowerShell 7 application, found $($PowerShellApplications.Count)" }
-  $PowerShell = [IO.Path]::GetFullPath([string]$PowerShellApplications[0].Source)
+  if ($PSVersionTable.PSVersion.Major -ne 7) { throw 'Fast producer requires the running PowerShell 7 host' }
+  $PowerShell = [IO.Path]::GetFullPath((Join-Path $PSHOME $(if ($script:HumHostIsWindows) { 'pwsh.exe' } else { 'pwsh' })))
+  if (-not $PowerShell.Equals([IO.Path]::GetFullPath((Get-Process -Id $PID).Path), $(if ($script:HumHostIsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }))) { throw 'Fast producer PowerShell differs from the running host' }
   if (-not [IO.File]::Exists($PowerShell) -or ([IO.File]::GetAttributes($PowerShell) -band [IO.FileAttributes]::ReparsePoint)) { throw 'Fast producer PowerShell 7 identity is not one ordinary non-reparse file' }
   Write-Output "capture_directory=$ScratchRoot"
   $Result = Invoke-HumBinaryCapture $PowerShell @(

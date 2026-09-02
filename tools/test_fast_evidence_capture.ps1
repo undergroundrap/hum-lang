@@ -953,6 +953,172 @@ function Test-RunnerSourceContract {
   try { Assert-RunnerSourceContract $Source; $true } catch { $false }
 }
 
+function Assert-OrderedOwner { param([string]$Source,[string]$Owner,[string[]]$Needles);$Last=-1;foreach($Needle in $Needles){$Hits=[regex]::Matches($Source,[regex]::Escape($Needle));Assert-True ($Hits.Count-eq1) "$Owner cardinality: $Needle";Assert-True ($Hits[0].Index-gt$Last) "$Owner ordering: $Needle";$Last=$Hits[0].Index} }
+function Assert-WorkflowPwshOwner { param([string]$Source);$Step=[regex]::Matches($Source,'(?ms)^      - name: Authenticate PowerShell 7 runtime\r?\n.*?(?=^      - name: |\z)');Assert-True ($Step.Count-eq1) 'workflow owner cardinality';Assert-OrderedOwner $Step[0].Value 'workflow runtime' @('PSVersion.Major -ne 7','$Pwsh = Join-Path $PSHOME','IsPathFullyQualified($Pwsh)','$Item = Get-Item -LiteralPath $Pwsh','PowerShell is not an ordinary file','(Get-Process -Id $PID).Path','"pwsh_path=$Pwsh"') }
+function Assert-RunnerPwshOwner { param([string]$Source);$Part=[regex]::Matches($Source,"(?ms)^  if \(\`$PSVersionTable.PSVersion.Major -ne 7\).*?^  \`$Result = Invoke-HumBinaryCapture \`$PowerShell");Assert-True ($Part.Count-eq1) 'Fast producer owner cardinality';Assert-OrderedOwner $Part[0].Value 'Fast producer runtime' @('PSVersion.Major -ne 7','Join-Path $PSHOME','(Get-Process -Id $PID).Path','[IO.File]::Exists($PowerShell)','Invoke-HumBinaryCapture $PowerShell') }
+function Assert-CapturePwshOwner { param([string]$Source);$Part=[regex]::Matches($Source,"(?ms)^  if\(\`$ShellContract -eq 'powershell'\).*?^  \`$Preflight = Invoke-HumBinaryCapture \`$Shell");Assert-True ($Part.Count-eq1) 'capture-test owner cardinality';Assert-OrderedOwner $Part[0].Value 'capture-test runtime' @('PSVersion.Major-eq7','Join-Path $PSHOME','(Get-Process -Id $PID).Path','[IO.File]::Exists($Shell)','GetAttributes($Shell)','Invoke-HumBinaryCapture $Shell') }
+function Get-DiscoveryAst {
+  param([string] $Source, [string] $Owner)
+  $Tokens = $null
+  $Errors = $null
+  $Ast = [Management.Automation.Language.Parser]::ParseInput($Source, [ref] $Tokens, [ref] $Errors)
+  Assert-True ($Errors.Count -eq 0) "$Owner source did not parse"
+  $Ast
+}
+
+function Get-AssignmentName {
+  param([Management.Automation.Language.AssignmentStatementAst] $Assignment)
+  if ($Assignment.Left -is [Management.Automation.Language.VariableExpressionAst]) {
+    return $Assignment.Left.VariablePath.UserPath
+  }
+  ''
+}
+
+function Assert-FirstPwshOwner {
+  param([string] $Source)
+  $Ast = Get-DiscoveryAst $Source 'first-effective'
+  $AllFunctions = @($Ast.FindAll({
+    param($Node)
+    $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+      $Node.Name -ceq 'Select-FirstApplicationSource'
+  }, $true))
+  $TopLevelFunctions = @($Ast.EndBlock.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and
+      $_.Name -ceq 'Select-FirstApplicationSource'
+  })
+  Assert-True ($AllFunctions.Count -eq 1 -and $TopLevelFunctions.Count -eq 1 -and
+      [object]::ReferenceEquals($AllFunctions[0], $TopLevelFunctions[0])) 'first-effective top-level function ownership'
+  $Canonical = $TopLevelFunctions[0].Extent.Text.Replace("`r`n", "`n").Replace("`r", "`n")
+  $Bytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($Canonical)
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  try {
+    $Digest = ([BitConverter]::ToString($Hasher.ComputeHash($Bytes))).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $Hasher.Dispose()
+  }
+  Assert-True ($Digest -ceq '673aefad81342ed9b2d4ff2070e2929d57b5a79e079756803d3624a2ecd6a3e7') 'first-effective frozen function seal'
+}
+
+function Assert-HarnessPwshOwner {
+  param([string] $Source)
+  $Ast = Get-DiscoveryAst $Source 'capture harness'
+  $Statements = @($Ast.EndBlock.Statements)
+  $Commands = @()
+  for ($Index = 0; $Index -lt $Statements.Count; $Index++) {
+    $Statement = $Statements[$Index]
+    if ($Statement -is [Management.Automation.Language.PipelineAst] -and
+        $Statement.PipelineElements.Count -eq 1 -and
+        $Statement.PipelineElements[0] -is [Management.Automation.Language.CommandAst] -and
+        $Statement.PipelineElements[0].GetCommandName() -ceq 'Assert-PwshConsumerContracts') {
+      $Commands += [pscustomobject] @{ Index = $Index; Command = $Statement.PipelineElements[0] }
+    }
+  }
+  Assert-True ($Commands.Count -eq 1) 'validator top-level invocation cardinality'
+  $Owned = $Commands[0]
+  $Expected = @('$RunnerSource','$CaptureSource','$CheckAllSource','$WorkflowSource','$ReleaseSource')
+  $Arguments = @($Owned.Command.CommandElements | Select-Object -Skip 1)
+  Assert-True ($Arguments.Count -eq 5) 'validator argument cardinality'
+  for ($Index = 0; $Index -lt $Expected.Count; $Index++) {
+    Assert-True ($Arguments[$Index] -is [Management.Automation.Language.VariableExpressionAst]) 'validator argument shape'
+    Assert-True ($Arguments[$Index].Extent.Text -ceq $Expected[$Index]) 'validator argument order'
+  }
+  $AssignmentIndexes = foreach ($Name in $Expected) {
+    $Matches = for ($Index = 0; $Index -lt $Statements.Count; $Index++) {
+      $Statement = $Statements[$Index]
+      if ($Statement -is [Management.Automation.Language.AssignmentStatementAst] -and
+          $Statement.Left.Extent.Text -ceq $Name) { $Index }
+    }
+    Assert-True (@($Matches).Count -eq 1) "validator source assignment cardinality: $Name"
+    @($Matches)[0]
+  }
+  Assert-True (($AssignmentIndexes | Measure-Object -Maximum).Maximum -lt $Owned.Index) 'validator precedes source assignments'
+  $Dependent = for ($Index = 0; $Index -lt $Statements.Count; $Index++) {
+    if ($Statements[$Index].Extent.Text.StartsWith('Assert-VctipFactMatrix',[StringComparison]::Ordinal)) { $Index }
+  }
+  Assert-True (@($Dependent).Count -eq 1 -and $Owned.Index -lt @($Dependent)[0]) 'validator execution interval'
+}
+
+function Assert-FirstPwshBehavior {
+  param([string] $Source)
+  $Ast = Get-DiscoveryAst $Source 'first-effective behavior'
+  $Function = @($Ast.FindAll({
+    param($Node)
+    $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+      $Node.Name -ceq 'Select-FirstApplicationSource'
+  }, $true))[0]
+  & {
+    Invoke-Expression $Function.Extent.Text
+    $Root = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $One = Join-Path $Root 'hum-pwsh-one'
+    $Two = Join-Path $Root 'hum-pwsh-two'
+    $Three = Join-Path $Root 'hum-pwsh-three'
+    $Records = @([pscustomobject]@{Source=$One},[pscustomobject]@{Source=$Two},[pscustomobject]@{Source=$Three})
+    Assert-True ((Select-FirstApplicationSource $Records 'three') -ceq $One) 'three-record selection'
+    Assert-True ((Select-FirstApplicationSource @($Records[1],$Records[2],$Records[0]) 'rotated') -ceq $Two) 'reordered selection'
+    Assert-True ((Select-FirstApplicationSource @($Records[0],$Records[1],$Records[1]) 'duplicate') -ceq $One) 'duplicate preservation'
+    $BadInputs = @(@(),@([pscustomobject]@{Source='relative'},$Records[1]),@([pscustomobject]@{Source="bad`npath"},$Records[1]),@([pscustomobject]@{Source=@($One,$Two)},$Records[1]))
+    foreach ($Bad in $BadInputs) {
+      $Failure = $null
+      try { $null = Select-FirstApplicationSource $Bad 'invalid first' } catch { $Failure = $_ }
+      Assert-True ($null -ne $Failure) 'invalid first candidate earned fallback credit'
+    }
+  }
+}
+
+function Assert-PwshMutationRejected {
+  param([string]$Source,[string]$Old,[string]$New,[scriptblock]$Validator,[string]$Owner,[switch]$Last,[switch]$Workflow)
+  $At = if ($Last) { $Source.LastIndexOf($Old,[StringComparison]::Ordinal) } else { $Source.IndexOf($Old,[StringComparison]::Ordinal) }
+  Assert-True ($At -ge 0) "$Owner mutation initialization"
+  $Mutated = $Source.Substring(0,$At) + $New + $Source.Substring($At+$Old.Length)
+  if (-not $Workflow) { $null = Get-DiscoveryAst $Mutated "$Owner mutation" }
+  $Failure = $null
+  try { & $Validator $Mutated } catch { $Failure = $_ }
+  Assert-True ($null -ne $Failure) "$Owner mutation earned credit"
+}
+function Assert-PwshConsumerContracts {
+  param([string]$Runner,[string]$Capture,[string]$CheckAll,[string]$Workflow,[string]$Release)
+  Assert-RunnerPwshOwner $Runner
+  Assert-CapturePwshOwner $Capture
+  Assert-FirstPwshOwner $CheckAll
+  Assert-WorkflowPwshOwner $Workflow
+  Assert-HarnessPwshOwner $Capture
+  Assert-FirstPwshBehavior $CheckAll
+  Assert-True ($Release.Contains('Join-Path `$PSHOME')) 'release audit lost authenticated current runtime'
+  $Cases = @(
+    @($Workflow,'PSVersion.Major -ne 7','PSVersion.Major -ne 6',${function:Assert-WorkflowPwshOwner},'workflow version',$false,$true),
+    @($Workflow,'$Pwsh = Join-Path $PSHOME','$Pwsh = Join-Path $env:TEMP',${function:Assert-WorkflowPwshOwner},'workflow PSHOME',$false,$true),
+    @($Workflow,'(Get-Process -Id $PID).Path','$Pwsh',${function:Assert-WorkflowPwshOwner},'workflow identity',$false,$true),
+    @($Runner,'Join-Path $PSHOME','Join-Path $env:TEMP',${function:Assert-RunnerPwshOwner},'Fast PSHOME',$false,$false),
+    @($Capture,'$Shell=[IO.Path]::GetFullPath((Join-Path $PSHOME','$Shell=[IO.Path]::GetFullPath((Join-Path $env:TEMP',${function:Assert-CapturePwshOwner},'capture PSHOME',$true,$false),
+    @($CheckAll,'@($Applications)','@($Applications | Sort-Object Source -Unique)',${function:Assert-FirstPwshOwner},'candidate deduplication',$false,$false),
+    @($CheckAll,'@($Applications)','@($Applications[1..($Applications.Count-1)]+$Applications[0])',${function:Assert-FirstPwshOwner},'candidate rotation',$false,$false),
+    @($CheckAll,'$Candidates[0].Source','$Candidates.Item(1).Source',${function:Assert-FirstPwshOwner},'candidate fallback',$false,$false),
+    @($CheckAll,'if ([string]::IsNullOrEmpty($Source) -or','if ($($Other = $Candidates.Item(1); $false) -or [string]::IsNullOrEmpty($Source) -or',${function:Assert-FirstPwshOwner},'hidden candidate Item bypass',$false,$false),
+    @($CheckAll,'return $Source','& { $Candidates.Item(0) }; return $Source',${function:Assert-FirstPwshOwner},'nested candidate Item reference',$false,$false),
+    @($CheckAll,'return $Source','if($false){$Sources.Item(0)}; return $Source',${function:Assert-FirstPwshOwner},'dead Sources Item reference',$false,$false),
+    @($CheckAll,'return $Source','& { $Candidates=@() }; return $Source',${function:Assert-FirstPwshOwner},'candidate shadowing',$false,$false),
+    @($CheckAll,'$Candidates = @($Applications)','$local:Candidates = @($Applications)',${function:Assert-FirstPwshOwner},'local Candidates',$false,$false),
+    @($CheckAll,'return $Source','$local:Candidates = @($local:Candidates[1]); return $Source',${function:Assert-FirstPwshOwner},'local Candidates reassignment',$false,$false),
+    @($CheckAll,'return $Source','$null = Get-Variable Candidates; return $Source',${function:Assert-FirstPwshOwner},'Get-Variable Candidates',$false,$false),
+    @($CheckAll,'return $Source','Set-Variable -Name Candidates -Value @(); return $Source',${function:Assert-FirstPwshOwner},'Set-Variable Candidates',$false,$false),
+    @($CheckAll,'return $Source','Set-Variable -Name Candidates -Value @((Get-Variable Candidates).Value[1]); return $Source',${function:Assert-FirstPwshOwner},'Set/Get-Variable Candidates',$false,$false),
+    @($CheckAll,'return $Source','$Source=$Candidates.Item(1).Source; return $Source',${function:Assert-FirstPwshOwner},'Source reassignment',$false,$false),
+    @($CheckAll,'return $Source','if($Source){return $Source};return $Candidates[1].Source',${function:Assert-FirstPwshOwner},'alternate return',$false,$false),
+    @($Capture,'Assert-PwshConsumerContracts','Write-Output',${function:Assert-HarnessPwshOwner},'validator removal',$true,$false),
+    @($Capture,'$RunnerSource $CaptureSource $CheckAllSource','$CaptureSource $RunnerSource $CheckAllSource',${function:Assert-HarnessPwshOwner},'argument reorder',$true,$false)
+  )
+  foreach ($Case in $Cases) {
+    Assert-PwshMutationRejected $Case[0] $Case[1] $Case[2] $Case[3] $Case[4] -Last:$Case[5] -Workflow:$Case[6]
+  }
+  $BypassOld='if ([string]::IsNullOrEmpty($Source) -or';$BypassNew='if ($($Other = $Candidates.Item(1); $false) -or [string]::IsNullOrEmpty($Source) -or';$Bypass=$CheckAll.Replace($BypassOld,$BypassNew);$Failure=$null;try{Assert-FirstPwshOwner $Bypass}catch{$Failure=$_};Assert-True ($null-ne$Failure -and $Failure.Exception.Message.Contains('frozen function seal')) 'reviewer hidden Item bypass owner';Assert-FirstPwshBehavior $Bypass;Assert-True ($CheckAll.IndexOf($BypassNew,[StringComparison]::Ordinal)-lt 0) 'honest source restoration after hidden Item bypass'
+  $CheckAst=Get-DiscoveryAst $CheckAll 'function mutation';$Definition=@($CheckAst.EndBlock.Statements|Where-Object{$_-is[Management.Automation.Language.FunctionDefinitionAst]-and$_.Name-ceq'Select-FirstApplicationSource'})[0];$Before=$CheckAll.Substring(0,$Definition.Extent.StartOffset);$After=$CheckAll.Substring($Definition.Extent.EndOffset);$FunctionMutations=@($Before+$After,$Before+$Definition.Extent.Text+"`n"+$Definition.Extent.Text+$After,$Before+"function Invoke-Nested {`n$($Definition.Extent.Text)`n}`n"+$After,$Before+$Definition.Extent.Text.Replace('Select-FirstApplicationSource','Select-SecondApplicationSource')+$After);foreach($Mutation in $FunctionMutations){$null=Get-DiscoveryAst $Mutation 'function seal mutation';$Failure=$null;try{Assert-FirstPwshOwner $Mutation}catch{$Failure=$_};Assert-True ($null-ne$Failure) 'removed, duplicated, nested, or renamed function earned seal credit'}
+  $Seal='673aefad81342ed9b2d4ff2070e2929d57b5a79e079756803d3624a2ecd6a3e7';$CorruptSeal=${function:Assert-FirstPwshOwner}.ToString().Replace($Seal,('0'*64));Assert-True ($CorruptSeal-cne${function:Assert-FirstPwshOwner}.ToString()) 'frozen digest corruption initialization';$Failure=$null;try{& ([scriptblock]::Create($CorruptSeal)) $CheckAll}catch{$Failure=$_};Assert-True ($null-ne$Failure) 'corrupted frozen digest earned credit'
+  $RealCall='Assert-PwshConsumerContracts $RunnerSource $CaptureSource $CheckAllSource $WorkflowSource $ReleaseSource';$Removed=$Capture.Substring(0,$Capture.LastIndexOf($RealCall,[StringComparison]::Ordinal))+'Write-Output $RunnerSource'+$Capture.Substring($Capture.LastIndexOf($RealCall,[StringComparison]::Ordinal)+$RealCall.Length);$Spoofs=@($Removed.Insert($Removed.IndexOf('Set-StrictMode',[StringComparison]::Ordinal),"$RealCall`n"),"$Removed`nfunction Invoke-Spoof { $RealCall }","$Removed`n'$RealCall'","$Removed`n# $RealCall","$Removed`n@'`n$RealCall`n'@","$Capture`n$RealCall")
+  foreach($Spoof in $Spoofs){$null=Get-DiscoveryAst $Spoof 'invocation spoof';$Failure=$null;try{Assert-HarnessPwshOwner $Spoof}catch{$Failure=$_};Assert-True ($null-ne$Failure) 'relocated, nested, inert, or duplicate invocation earned credit'}
+  $Failure=$null;try{Assert-WorkflowPwshOwner $Runner}catch{$Failure=$_}
+  Assert-True ($null-ne$Failure) 'cross-consumer substitution earned credit'
+}
+
 function Assert-SourceWeakeningRejected {
   param([string] $Source, [string] $Old, [string] $New, [string] $Name)
   $Mutated = $Source.Replace($Old, $New)
@@ -1015,6 +1181,11 @@ $BeforeDirectory = (Get-Location).Path
 $BeforeConfig = Get-GitConfigurationIdentity
 $RunnerSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'run_fast_evidence.ps1'))
 Assert-RunnerSourceContract $RunnerSource
+$CaptureSource = [System.IO.File]::ReadAllText($PSCommandPath); $RepositoryRoot = Split-Path $PSScriptRoot -Parent
+$CheckAllSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
+$WorkflowSource = [IO.File]::ReadAllText((Join-Path $RepositoryRoot '.github/workflows/ci.yml'))
+$ReleaseSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_release_readiness.ps1'))
+Assert-PwshConsumerContracts $RunnerSource $CaptureSource $CheckAllSource $WorkflowSource $ReleaseSource
 Assert-VctipFactMatrix
 $DurableTree = $RunnerSource.IndexOf('Set-HumDurableText (Join-Path $CaptureDirectory ''final_descendant_tree.txt'') ("pretermination_pending;" + $State.Pretermination)', [StringComparison]::Ordinal)
 $TerminateTree = $RunnerSource.IndexOf('[HumFastJobNative]::KillJob($JobHandle)', $DurableTree, [StringComparison]::Ordinal)
@@ -1100,7 +1271,7 @@ $CreatedPids = New-Object System.Collections.Generic.List[int]
 $ValidCaptures = New-Object System.Collections.Generic.List[object]
 
 try {
-  if($ShellContract -eq 'powershell'){$Shell="$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"}else{$ShellApplications=@(Get-Command pwsh -CommandType Application -All -ErrorAction Stop);Assert-True ($ShellApplications.Count -eq 1) 'capture contract requires exactly one PowerShell 7 application';$Shell=[IO.Path]::GetFullPath([string]$ShellApplications[0].Source)}
+  if($ShellContract -eq 'powershell'){$Shell="$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"}else{Assert-True ($PSVersionTable.PSVersion.Major-eq7) 'capture contract requires the running PowerShell 7 host';$Shell=[IO.Path]::GetFullPath((Join-Path $PSHOME $(if($IsWindows){'pwsh.exe'}else{'pwsh'})));Assert-True ($Shell.Equals([IO.Path]::GetFullPath((Get-Process -Id $PID).Path),$(if($IsWindows){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}))) 'capture PowerShell differs from the running host'}
   Assert-True ([IO.File]::Exists($Shell)) 'selected PowerShell executable is missing'
   Assert-True (-not ([IO.File]::GetAttributes($Shell) -band [IO.FileAttributes]::ReparsePoint)) 'selected PowerShell executable is a reparse point'
   $Self = $MyInvocation.MyCommand.Path
