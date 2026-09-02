@@ -988,7 +988,7 @@ function Assert-FirstPwshOwner {
   })
   Assert-True ($AllFunctions.Count -eq 1 -and $TopLevelFunctions.Count -eq 1 -and
       [object]::ReferenceEquals($AllFunctions[0], $TopLevelFunctions[0])) 'first-effective top-level function ownership'
-  $Canonical = $TopLevelFunctions[0].Extent.Text.Replace("`r`n", "`n").Replace("`r", "`n")
+  $Canonical = $TopLevelFunctions[0].Extent.Text.Replace(([string][char]13 + [char]10), [string][char]10)
   $Bytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($Canonical)
   $Hasher = [Security.Cryptography.SHA256]::Create()
   try {
@@ -1171,6 +1171,74 @@ if ($EnvironmentSnapshotOnly) {
   exit 0
 }
 
+function ConvertTo-TestToolchainScalar([string]$Text) {
+  if ([string]::IsNullOrEmpty($Text) -or $Text.Contains([char]0)) { throw 'toolchain identity is empty or contains NUL' }
+  $Utf8 = [Text.UTF8Encoding]::new($false, $true)
+  'utf8-base64:' + [Convert]::ToBase64String($Utf8.GetBytes($Text))
+}
+function ConvertTo-TestNativeToolchainScalar([byte[]]$Stdout,[byte[]]$Stderr,[int]$Exit,[bool]$Complete) {
+  if(-not$Complete-or$Exit-ne0-or$Stdout.Length-eq0){throw 'native toolchain capture incomplete or failed'}
+  if([Array]::IndexOf($Stdout,[byte]0)-ge0){throw 'native toolchain stdout contains NUL'}
+  $Utf8=[Text.UTF8Encoding]::new($false,$true);$null=$Utf8.GetString($Stdout)
+  [pscustomobject]@{Scalar=('utf8-base64:'+ [Convert]::ToBase64String($Stdout));Stderr=[byte[]]$Stderr}
+}
+function Assert-Rejected([scriptblock]$Action,[string]$Message) {
+  $Failure=$null;try{& $Action}catch{$Failure=$_};if($null-eq$Failure){throw $Message}
+}
+function ConvertFrom-TestToolchainScalar([string]$Scalar) {
+  if (-not $Scalar.StartsWith('utf8-base64:', [StringComparison]::Ordinal)) { throw 'toolchain scalar prefix is malformed' }
+  $Payload = $Scalar.Substring(12); $Utf8 = [Text.UTF8Encoding]::new($false, $true)
+  try { $Bytes = [Convert]::FromBase64String($Payload) } catch { throw 'toolchain scalar payload is malformed' }
+  if ([Convert]::ToBase64String($Bytes) -cne $Payload) { throw 'toolchain scalar payload is noncanonical' }
+  $Text = $Utf8.GetString($Bytes)
+  if ([string]::IsNullOrEmpty($Text) -or $Text.Contains([char]0)) { throw 'toolchain scalar text is invalid' }
+  $Text
+}
+function Assert-FullPreflightRepairContract([string]$Workflow) {
+  $Lf=[char]10;$Normalized=$Workflow.Replace("$([char]13)$Lf","$Lf")
+  $Match=[regex]::Matches($Normalized,'(?ms)^      - name: Run Hum preflight'+$Lf+'.*?(?=^      - name: )')
+  if($Match.Count-ne1){throw 'full-preflight step cardinality'};$Step=$Match[0].Value
+  $SummaryMatch=[regex]::Matches($Normalized,'(?ms)^      - name: Generate evidence summary'+$Lf+'.*?(?=^      - name: )')
+  if($SummaryMatch.Count-ne1){throw 'summary step cardinality'};$Summary=$SummaryMatch[0].Value
+  $Hasher=[Security.Cryptography.SHA256]::Create();try{$StepDigest=-join($Hasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($Step))|%{$_.ToString('x2')});$SummaryDigest=-join($Hasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($Summary))|%{$_.ToString('x2')})}finally{$Hasher.Dispose()}
+  if($StepDigest-cne'ec5e43f72fe0340d2f610be6f50d7dd83d3df6c1fc46fb4f23cf32b9ddefdebc'){throw 'full-preflight frozen closure'}
+  if($SummaryDigest-cne'9312f36e7f0ba2acbccec56575cab1ca836af9ae4b46e1e45205acc2073a2091'){throw 'summary frozen closure'}
+  $Required=@('$RustcStart.RedirectStandardOutput = $true','$RustcStart.RedirectStandardError = $true','$StdoutCopy = $RustcProcess.StandardOutput.BaseStream.CopyToAsync($ToolchainStdout)','$StderrCopy = $RustcProcess.StandardError.BaseStream.CopyToAsync($ToolchainStderr)','$RustcProcess.WaitForExit()','$StdoutCopy.GetAwaiter().GetResult()','$StderrCopy.GetAwaiter().GetResult()','$ToolchainBytes = $ToolchainStdout.ToArray()','$ToolchainStderrBytes = $ToolchainStderr.ToArray()','if ($RustcExit -ne 0 -or $ToolchainBytes.Length -eq 0)','if ([Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0)','$StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)','$ToolchainText = $StrictUtf8.GetString($ToolchainBytes)','$ToolchainPayload = [Convert]::ToBase64String($ToolchainBytes)','$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"','cargo build -p hum-dev','$Isolated = New-HumIsolatedExecutable','$Capture = Invoke-HumBinaryCapture $Isolated.Executable','$Capture = Assert-HumCaptureComplete $Capture','$CaptureAuthenticated = $true','$ExitCode = $Capture.ExitCode','"toolchain=$env:HUM_BUILD_TOOLCHAIN" >> $env:GITHUB_OUTPUT','Remove-HumCaptureAfterAuthentication $CaptureDirectory','Remove-HumIsolatedExecutable $Isolated')
+  $Last=-1;foreach($Needle in $Required){$Hits=@([regex]::Matches($Step,[regex]::Escape($Needle)));if($Hits.Count-ne1-or$Hits[0].Index-le$Last){throw "full-preflight owned dataflow: $Needle"};$Last=$Hits[0].Index}
+  foreach($Forbidden in @('$env:HUM_BUILD_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()','$Process.StartInfo.FileName','Start-Process $Isolated.Executable')){if($Step.Contains($Forbidden)){throw "full-preflight retired route: $Forbidden"}}
+  foreach($Needle in @('HUM_TOOLCHAIN: ${{ steps.full_preflight.outputs.toolchain }}','evidence summarize --output $Output --pwsh $Pwsh')){if(([regex]::Matches($Summary,[regex]::Escape($Needle))).Count-ne1){throw "summary owned dataflow: $Needle"}}
+  if($Summary.Contains('$env:HUM_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()')){throw 'summary plaintext reconstruction'}
+}
+function Assert-FullPreflightRepairEvidence([string]$Workflow) {
+  $Cr=[string][char]13;$Lf=[string][char]10
+  $Identities=@("rustc 1${Lf}release: x$Lf","rustc 1${Cr}${Lf}release: x${Cr}${Lf}","rustc 1${Lf}release: x","rustc 1${Lf}${Lf}release: x$Lf","release: x${Lf}rustc 1$Lf","rustc 2${Lf}release: x$Lf")
+  $Scalars=@($Identities|%{ConvertTo-TestToolchainScalar $_});for($Index=0;$Index-lt$Identities.Count;$Index++){Assert-True((ConvertFrom-TestToolchainScalar $Scalars[$Index])-ceq$Identities[$Index])'toolchain scalar round trip';if($Index-gt0){Assert-True($Scalars[$Index]-cne$Scalars[0])'changed toolchain identity retained canonical scalar'}}
+  Assert-True($Scalars[0]-cne$Identities[0])'encoded and plaintext toolchain identities compared equal'
+  $Utf8=[Text.UTF8Encoding]::new($false,$true);$Native=@($Identities|%{ConvertTo-TestNativeToolchainScalar ([byte[]]$Utf8.GetBytes($_)) ([byte[]](0x45,0x52,0x52)) 0 $true})
+  for($Index=0;$Index-lt$Native.Count;$Index++){Assert-True($Native[$Index].Scalar-cne$(if($Index){$Native[0].Scalar}else{''}))'byte-distinct native identities collapsed';Assert-True([Convert]::ToBase64String($Native[$Index].Stderr)-ceq'RVJS')'stderr contaminated stdout identity'}
+  foreach($Bad in @(@([byte[]]@(),[byte[]]@(),0,$true),@([byte[]](0x61,0),[byte[]]@(),0,$true),@([byte[]](0xff),[byte[]]@(),0,$true),@([byte[]](0x61),[byte[]]@(),1,$true),@([byte[]](0x61),[byte[]]@(),0,$false))){Assert-Rejected{ConvertTo-TestNativeToolchainScalar $Bad[0] $Bad[1] $Bad[2] $Bad[3]}'invalid native toolchain bytes accepted'}
+  foreach($Bad in @('', 'utf8-base64:', 'utf8-base64:***', 'wrong:cnVzdGM=')){Assert-Rejected { ConvertFrom-TestToolchainScalar $Bad } "malformed toolchain scalar accepted: $Bad"}
+  Assert-FullPreflightRepairContract $Workflow
+  $Mutations=@(
+    @('$RustcExit -ne 0','$RustcExit -eq 0'),
+    @('$ToolchainBytes.Length -eq 0','$ToolchainBytes.Length -lt 0'),
+    @('[Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0','$false'),
+    @('$StdoutCopy.GetAwaiter().GetResult()','$null = $StdoutCopy'),
+    @('$StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)','$StrictUtf8 = [Text.Encoding]::Default'),
+    @('$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"','$env:HUM_BUILD_TOOLCHAIN = $ToolchainText'),
+    @('cargo build -p hum-dev','$null = 1'),
+    @('$Capture = Invoke-HumBinaryCapture $Isolated.Executable','$Capture = Invoke-HumBinaryCapture "target/debug/hum-dev"'),
+    @('$Capture = Assert-HumCaptureComplete $Capture','$null = $Capture'),
+    @('$CaptureAuthenticated = $true','$CaptureAuthenticated = $false'),
+    @('$ExitCode = $Capture.ExitCode','$ExitCode = 0'),
+    @('Remove-HumCaptureAfterAuthentication $CaptureDirectory','$null = $CaptureDirectory'),
+    @('Remove-HumIsolatedExecutable $Isolated','$null = $Isolated')
+  )
+  foreach($Mutation in $Mutations){Assert-True ($Workflow.Contains($Mutation[0])) "workflow mutation owner missing: $($Mutation[0])";$Changed=$Workflow.Replace($Mutation[0],$Mutation[1]);Assert-True ($Changed-cne$Workflow) 'workflow mutation did not initialize';Assert-Rejected { Assert-FullPreflightRepairContract $Changed } "workflow mutation earned credit: $($Mutation[0])"}
+  foreach($Mutation in @(@('HUM_TOOLCHAIN: ${{ steps.full_preflight.outputs.toolchain }}','HUM_TOOLCHAIN: plaintext'),@('evidence summarize --output $Output --pwsh $Pwsh','evidence summarize --output $Output --pwsh pwsh'))){$Changed=$Workflow.Replace($Mutation[0],$Mutation[1]);Assert-True($Changed-cne$Workflow)'summary mutation did not initialize';Assert-Rejected{Assert-FullPreflightRepairContract $Changed}"summary mutation earned credit: $($Mutation[0])"}
+  Assert-Rejected { Assert-FullPreflightRepairContract ($Workflow.Replace('$Capture = Assert-HumCaptureComplete $Capture','$Process.StartInfo.FileName')) } 'empty StartInfo regression route earned credit'
+}
+
 if ($ScratchRoot -eq '') {
   $ScratchRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-fast-capture-test-" + [Guid]::NewGuid().ToString('N'))
 }
@@ -1186,6 +1254,7 @@ $CheckAllSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1
 $WorkflowSource = [IO.File]::ReadAllText((Join-Path $RepositoryRoot '.github/workflows/ci.yml'))
 $ReleaseSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_release_readiness.ps1'))
 Assert-PwshConsumerContracts $RunnerSource $CaptureSource $CheckAllSource $WorkflowSource $ReleaseSource
+Assert-FullPreflightRepairEvidence $WorkflowSource
 Assert-VctipFactMatrix
 $DurableTree = $RunnerSource.IndexOf('Set-HumDurableText (Join-Path $CaptureDirectory ''final_descendant_tree.txt'') ("pretermination_pending;" + $State.Pretermination)', [StringComparison]::Ordinal)
 $TerminateTree = $RunnerSource.IndexOf('[HumFastJobNative]::KillJob($JobHandle)', $DurableTree, [StringComparison]::Ordinal)

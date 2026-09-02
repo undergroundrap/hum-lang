@@ -119,43 +119,77 @@ jobs:
           $PwshItem = Get-Item -LiteralPath $Pwsh -Force
           if (-not $PwshItem.PSIsContainer -and ($PwshItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) { $null = & $Pwsh --version } else { throw 'orchestration PowerShell is not an ordinary file' }
           if ($LASTEXITCODE -ne 0) { throw 'orchestration PowerShell version failed' }
+          $env:HUM_BUILD_TARGET = if ($IsWindows) { 'x86_64-pc-windows-msvc' } else { 'x86_64-unknown-linux-gnu' }
+          $Rustc = (Get-Command rustc -CommandType Application -TotalCount 1 -ErrorAction Stop).Source
+          $RustcStart = [Diagnostics.ProcessStartInfo]::new($Rustc)
+          $RustcStart.UseShellExecute = $false
+          $RustcStart.CreateNoWindow = $true
+          $RustcStart.RedirectStandardOutput = $true
+          $RustcStart.RedirectStandardError = $true
+          $RustcStart.ArgumentList.Add('-Vv')
+          $RustcProcess = [Diagnostics.Process]::new()
+          $RustcProcess.StartInfo = $RustcStart
+          $ToolchainStdout = [IO.MemoryStream]::new()
+          $ToolchainStderr = [IO.MemoryStream]::new()
+          try {
+            if (-not $RustcProcess.Start()) { throw 'rustc verbose identity did not start' }
+            $StdoutCopy = $RustcProcess.StandardOutput.BaseStream.CopyToAsync($ToolchainStdout)
+            $StderrCopy = $RustcProcess.StandardError.BaseStream.CopyToAsync($ToolchainStderr)
+            $RustcProcess.WaitForExit()
+            $StdoutCopy.GetAwaiter().GetResult()
+            $StderrCopy.GetAwaiter().GetResult()
+            $RustcExit = $RustcProcess.ExitCode
+            $ToolchainBytes = $ToolchainStdout.ToArray()
+            $ToolchainStderrBytes = $ToolchainStderr.ToArray()
+          } finally {
+            $RustcProcess.Dispose()
+            $ToolchainStdout.Dispose()
+            $ToolchainStderr.Dispose()
+          }
+          if ($RustcExit -ne 0 -or $ToolchainBytes.Length -eq 0) { throw 'rustc verbose identity failed' }
+          if ([Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0) { throw 'rustc verbose identity contains NUL' }
+          $StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+          $ToolchainText = $StrictUtf8.GetString($ToolchainBytes)
+          $ToolchainPayload = [Convert]::ToBase64String($ToolchainBytes)
+          if ([Convert]::ToBase64String([Convert]::FromBase64String($ToolchainPayload)) -cne $ToolchainPayload) { throw 'rustc verbose identity encoding failed' }
+          $env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"
           cargo build -p hum-dev
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $env:HUM_BUILD_TARGET = if ($IsWindows) { 'x86_64-pc-windows-msvc' } else { 'x86_64-unknown-linux-gnu' }
-          $env:HUM_BUILD_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()
           $StartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
           $Frequency = [Diagnostics.Stopwatch]::Frequency
-          $Output = Join-Path $env:RUNNER_TEMP 'hum-full-stdout.txt'
-          $ErrorOutput = Join-Path $env:RUNNER_TEMP 'hum-full-stderr.txt'
+          $CaptureDirectory = Join-Path $env:RUNNER_TEMP ('hum-full-capture-' + [Guid]::NewGuid().ToString('N'))
           $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
           . ./tools/run_fast_evidence.ps1
           $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
-          $Process = $null
+          $CaptureAuthenticated = $false
           try {
-            $Process = Start-Process $Isolated.Executable -NoNewWindow -Wait -PassThru `
-              -ArgumentList @('evidence','full','--pwsh',('"{0}"' -f $Pwsh)) `
-              -RedirectStandardOutput $Output -RedirectStandardError $ErrorOutput
-            if ([IO.Path]::GetFullPath($Process.StartInfo.FileName) -cne $Isolated.Executable) { throw 'isolated executable launch identity drifted' }
-            $ExitCode = $Process.ExitCode
+            Assert-HumIsolatedExecutable $Isolated -RequireSource
+            $Capture = Invoke-HumBinaryCapture $Isolated.Executable @('evidence','full','--pwsh',$Pwsh) (Get-Location).Path $CaptureDirectory 900 -CaseName 'ci-full-preflight'
+            $Capture = Assert-HumCaptureComplete $Capture
+            $CaptureAuthenticated = $true
+            $Output = $Capture.StdoutPath
+            $ErrorOutput = $Capture.StderrPath
+            $ExitCode = $Capture.ExitCode
+            $OutputBytes = [IO.File]::ReadAllBytes($Output)
+            $ErrorBytes = [IO.File]::ReadAllBytes($ErrorOutput)
+            [Console]::OpenStandardOutput().Write($OutputBytes, 0, $OutputBytes.Length)
+            [Console]::OpenStandardError().Write($ErrorBytes, 0, $ErrorBytes.Length)
+            $CompletedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+            "started_ticks=$StartedTicks" >> $env:GITHUB_OUTPUT
+            "completed_ticks=$CompletedTicks" >> $env:GITHUB_OUTPUT
+            "timer_frequency=$Frequency" >> $env:GITHUB_OUTPUT
+            "duration_ms=$([math]::Floor(1000 * ($CompletedTicks - $StartedTicks) / $Frequency))" >> $env:GITHUB_OUTPUT
+            "stdout_sha256=$($Capture.StdoutSha256)" >> $env:GITHUB_OUTPUT
+            "stderr_sha256=$($Capture.StderrSha256)" >> $env:GITHUB_OUTPUT
+            $Sha = [Security.Cryptography.SHA256]::Create()
+            try { "event_sha256=$( -join ($Sha.ComputeHash($OutputBytes + $ErrorBytes) | ForEach-Object ToString x2) )" >> $env:GITHUB_OUTPUT } finally { $Sha.Dispose() }
+            "receipt=$env:HUM_EVIDENCE_RECEIPT" >> $env:GITHUB_OUTPUT
+            "toolchain=$env:HUM_BUILD_TOOLCHAIN" >> $env:GITHUB_OUTPUT
+            if ($ExitCode -ne 0) { exit $ExitCode }
           } finally {
-            if ($null -ne $Process) { $Process.Dispose() }
+            if ($CaptureAuthenticated) { Remove-HumCaptureAfterAuthentication $CaptureDirectory }
             Remove-HumIsolatedExecutable $Isolated
           }
-          $CompletedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
-          [Console]::Out.Write([IO.File]::ReadAllText($Output))
-          [Console]::Error.Write([IO.File]::ReadAllText($ErrorOutput))
-          if ($ExitCode -ne 0) { exit $ExitCode }
-          "started_ticks=$StartedTicks" >> $env:GITHUB_OUTPUT
-          "completed_ticks=$CompletedTicks" >> $env:GITHUB_OUTPUT
-          "timer_frequency=$Frequency" >> $env:GITHUB_OUTPUT
-          "duration_ms=$([math]::Floor(1000 * ($CompletedTicks - $StartedTicks) / $Frequency))" >> $env:GITHUB_OUTPUT
-          "stdout_sha256=$((Get-FileHash -LiteralPath $Output -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          "stderr_sha256=$((Get-FileHash -LiteralPath $ErrorOutput -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          $Combined = [IO.File]::ReadAllBytes($Output) + [IO.File]::ReadAllBytes($ErrorOutput)
-          $Sha = [Security.Cryptography.SHA256]::Create()
-          try { "event_sha256=$( -join ($Sha.ComputeHash($Combined) | ForEach-Object ToString x2) )" >> $env:GITHUB_OUTPUT } finally { $Sha.Dispose() }
-          "receipt=$env:HUM_EVIDENCE_RECEIPT" >> $env:GITHUB_OUTPUT
-          Remove-Item -LiteralPath $Output,$ErrorOutput -Force
 
       - name: Run exhaustive canonical-seal evidence
         if: steps.classify.outputs.mode != 'fast' && matrix.os == 'ubuntu-latest'
@@ -188,11 +222,11 @@ jobs:
           HUM_STARTED_TICKS: ${{ steps.full_preflight.outputs.started_ticks }}
           HUM_COMPLETED_TICKS: ${{ steps.full_preflight.outputs.completed_ticks }}
           HUM_TIMER_FREQUENCY: ${{ steps.full_preflight.outputs.timer_frequency }}
+          HUM_TOOLCHAIN: ${{ steps.full_preflight.outputs.toolchain }}
         run: |
           $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
           $env:HUM_PLATFORM = if ($IsWindows) { 'windows' } else { 'ubuntu' }
           $env:HUM_TARGET = if ($IsWindows) { 'x86_64-pc-windows-msvc' } else { 'x86_64-unknown-linux-gnu' }
-          $env:HUM_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()
           $env:HUM_GH_PATH = (Get-Command gh -CommandType Application -TotalCount 1).Source
           $env:HUM_DEPENDENCY_CLOSURE_SHA256 = (Get-FileHash Cargo.lock -Algorithm SHA256).Hash.ToLowerInvariant()
           $Compiler = if ($IsWindows) { 'target/debug/hum.exe' } else { 'target/debug/hum' }

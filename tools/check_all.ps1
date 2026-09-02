@@ -1277,60 +1277,57 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
   $Cr=[char]13;$Lf=[char]10
   $Normalized=$Workflow.Replace("$Cr$Lf","$Lf")
   if($Normalized.Contains("$Cr")){throw 'Unit B full-preflight workflow route contains a noncanonical carriage return'}
-  $ExpectedLines=@(
-    '      - name: Run Hum preflight',
-    '        id: full_preflight',
-    '        if: steps.classify.outputs.mode != ''fast''',
-    '        shell: pwsh',
-    '        env:',
-    '          HUM_EVIDENCE_RECEIPT: ${{ runner.temp }}/hum-full-evidence.receipt',
-    '        run: |',
-    '          $env:HUM_BUILD_TARGET = if ($IsWindows) { ''x86_64-pc-windows-msvc'' } else { ''x86_64-unknown-linux-gnu'' }',
-    '          $env:HUM_BUILD_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()',
-    '          $StartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()',
-    '          $Frequency = [Diagnostics.Stopwatch]::Frequency',
-    '          $Output = Join-Path $env:RUNNER_TEMP ''hum-full-stdout.txt''',
-    '          $ErrorOutput = Join-Path $env:RUNNER_TEMP ''hum-full-stderr.txt''',
-    '          $Process = Start-Process pwsh -NoNewWindow -Wait -PassThru `',
-    '            -ArgumentList @(''-NoLogo'',''-NoProfile'',''-File'',''tools/check_all.ps1'',''-EvidenceTier'',''Fast'') `',
-    '            -RedirectStandardOutput $Output -RedirectStandardError $ErrorOutput',
-    '          $CompletedTicks = [Diagnostics.Stopwatch]::GetTimestamp()',
-    '          [Console]::Out.Write([IO.File]::ReadAllText($Output))',
-    '          [Console]::Error.Write([IO.File]::ReadAllText($ErrorOutput))',
-    '          if ($Process.ExitCode -ne 0) { exit $Process.ExitCode }',
-    '          "started_ticks=$StartedTicks" >> $env:GITHUB_OUTPUT',
-    '          "completed_ticks=$CompletedTicks" >> $env:GITHUB_OUTPUT',
-    '          "timer_frequency=$Frequency" >> $env:GITHUB_OUTPUT',
-    '          "duration_ms=$([math]::Floor(1000 * ($CompletedTicks - $StartedTicks) / $Frequency))" >> $env:GITHUB_OUTPUT',
-    '          "stdout_sha256=$((Get-FileHash -LiteralPath $Output -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT',
-    '          "stderr_sha256=$((Get-FileHash -LiteralPath $ErrorOutput -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT',
-    '          $Combined = [IO.File]::ReadAllBytes($Output) + [IO.File]::ReadAllBytes($ErrorOutput)',
-    '          $Sha = [Security.Cryptography.SHA256]::Create()',
-    '          try { "event_sha256=$( -join ($Sha.ComputeHash($Combined) | ForEach-Object ToString x2) )" >> $env:GITHUB_OUTPUT } finally { $Sha.Dispose() }',
-    '          "receipt=$env:HUM_EVIDENCE_RECEIPT" >> $env:GITHUB_OUTPUT',
-    '          Remove-Item -LiteralPath $Output,$ErrorOutput -Force'
+  $Matches=[regex]::Matches($Normalized,'(?ms)^      - name: Run Hum preflight'+$Lf+'.*?(?=^      - name: )')
+  if($Matches.Count -ne 1){throw 'Unit B full-preflight workflow step cardinality drifted'}
+  $Step=$Matches[0].Value
+  $SummaryMatches=[regex]::Matches($Normalized,'(?ms)^      - name: Generate evidence summary'+$Lf+'.*?(?=^      - name: )')
+  if($SummaryMatches.Count-ne1){throw 'Unit B summary workflow step cardinality drifted'}
+  $SummaryStep=$SummaryMatches[0].Value
+  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'ec5e43f72fe0340d2f610be6f50d7dd83d3df6c1fc46fb4f23cf32b9ddefdebc'){throw 'Unit B full-preflight workflow positive closure drifted'}
+  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($SummaryStep)))-cne'9312f36e7f0ba2acbccec56575cab1ca836af9ae4b46e1e45205acc2073a2091'){throw 'Unit B summary workflow positive closure drifted'}
+  $Required=@(
+    '$RustcStart.RedirectStandardOutput = $true',
+    '$RustcStart.RedirectStandardError = $true',
+    '$StdoutCopy = $RustcProcess.StandardOutput.BaseStream.CopyToAsync($ToolchainStdout)',
+    '$StderrCopy = $RustcProcess.StandardError.BaseStream.CopyToAsync($ToolchainStderr)',
+    '$RustcProcess.WaitForExit()',
+    '$StdoutCopy.GetAwaiter().GetResult()',
+    '$StderrCopy.GetAwaiter().GetResult()',
+    '$ToolchainBytes = $ToolchainStdout.ToArray()',
+    '$ToolchainStderrBytes = $ToolchainStderr.ToArray()',
+    'if ($RustcExit -ne 0 -or $ToolchainBytes.Length -eq 0)',
+    'if ([Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0)',
+    '$StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)',
+    '$ToolchainText = $StrictUtf8.GetString($ToolchainBytes)',
+    '$ToolchainPayload = [Convert]::ToBase64String($ToolchainBytes)',
+    '[Convert]::ToBase64String([Convert]::FromBase64String($ToolchainPayload)) -cne $ToolchainPayload',
+    '$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"',
+    'cargo build -p hum-dev',
+    '$Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP ''target''',
+    'Assert-HumIsolatedExecutable $Isolated -RequireSource',
+    '$Capture = Invoke-HumBinaryCapture $Isolated.Executable @(''evidence'',''full'',''--pwsh'',$Pwsh)',
+    '$Capture = Assert-HumCaptureComplete $Capture',
+    '$OutputBytes = [IO.File]::ReadAllBytes($Output)',
+    '$ErrorBytes = [IO.File]::ReadAllBytes($ErrorOutput)',
+    'if ($ExitCode -ne 0) { exit $ExitCode }',
+    'if ($CaptureAuthenticated) { Remove-HumCaptureAfterAuthentication $CaptureDirectory }',
+    'Remove-HumIsolatedExecutable $Isolated'
   )
-  $Expected=([string]::Join("$Lf",$ExpectedLines))+"$Lf$Lf"
-  $Matches=[regex]::Matches($Normalized,'(?ms)^      - name: Run Hum preflight\n.*?(?=^      - name: )')
-  if($Matches.Count -ne 1 -or $Matches[0].Value -cne $Expected){throw 'Unit B full-preflight workflow route drifted'}
+  $Prior=-1
+  foreach($Needle in $Required){$Found=@([regex]::Matches($Step,[regex]::Escape($Needle)));if($Found.Count-ne1){throw "Unit B full-preflight workflow owned construct cardinality drifted: $Needle"};if($Found[0].Index-le$Prior){throw "Unit B full-preflight workflow owned dataflow reordered: $Needle"};$Prior=$Found[0].Index}
   $Retired='        run: ./tools/check_all.ps1 -EvidenceTier Fast'
   if($Normalized.Contains($Retired)){throw 'Unit B full-preflight workflow retained the retired direct route'}
+  foreach($Forbidden in @('$env:HUM_BUILD_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()','$Process.StartInfo.FileName','Start-Process $Isolated.Executable')){if($Step.Contains($Forbidden)){throw "Unit B full-preflight workflow retained retired route: $Forbidden"}}
+  foreach($Needle in @('HUM_TOOLCHAIN: ${{ steps.full_preflight.outputs.toolchain }}','$env:HUM_TARGET =','evidence summarize --output $Output --pwsh $Pwsh')){if(([regex]::Matches($SummaryStep,[regex]::Escape($Needle))).Count-ne1){throw "Unit B summary workflow owned construct drifted: $Needle"}}
+  if($SummaryStep.Contains('$env:HUM_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()')){throw 'Unit B summary workflow retained plaintext toolchain reconstruction'}
   if(-not $SkipCorruptionControl){
     $OriginalHash=Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Workflow))
-    $Required=@(
-      $ExpectedLines[0],$ExpectedLines[1],$ExpectedLines[2],$ExpectedLines[3],$ExpectedLines[5],$ExpectedLines[6],
-      $ExpectedLines[9],$ExpectedLines[10],$ExpectedLines[11],$ExpectedLines[12],$ExpectedLines[13],$ExpectedLines[14],$ExpectedLines[15],
-      $ExpectedLines[16],$ExpectedLines[17],$ExpectedLines[18],$ExpectedLines[19],$ExpectedLines[20],$ExpectedLines[21],$ExpectedLines[22],
-      $ExpectedLines[23],$ExpectedLines[24],$ExpectedLines[25],$ExpectedLines[26],$ExpectedLines[27],$ExpectedLines[28],$ExpectedLines[29],$ExpectedLines[30]
-    )
     foreach($Needle in $Required){
-      if(([regex]::Matches($Expected,[regex]::Escape($Needle))).Count -ne 1){throw "Unit B workflow-route corruption owner is missing or duplicate: $Needle"}
-      $CorruptExpected=$Expected.Replace($Needle,"$Needle # drift")
-      $Corrupt=$Normalized.Replace($Expected,$CorruptExpected)
+      $Corrupt=$Normalized.Remove($Matches[0].Index+$Step.IndexOf($Needle,[StringComparison]::Ordinal),$Needle.Length)
       $Failure=$null;try{Assert-Wo25UnitBFullPreflightWorkflowRoute -Workflow $Corrupt -SkipCorruptionControl}catch{$Failure=$_}
       if($null -eq $Failure -or -not $Failure.Exception.Message.StartsWith('Unit B full-preflight workflow',[StringComparison]::Ordinal)){throw "Unit B workflow-route corruption stayed green: $Needle"}
     }
-    $Duplicate=$Normalized.Replace($Expected,$Expected+$Expected)
+    $Duplicate=$Normalized.Insert($Matches[0].Index+$Matches[0].Length,$Step)
     $DuplicateFailure=$null;try{Assert-Wo25UnitBFullPreflightWorkflowRoute -Workflow $Duplicate -SkipCorruptionControl}catch{$DuplicateFailure=$_}
     if($null -eq $DuplicateFailure -or -not $DuplicateFailure.Exception.Message.StartsWith('Unit B full-preflight workflow',[StringComparison]::Ordinal)){throw 'Unit B duplicated full-preflight workflow route stayed green'}
     if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Workflow))) -cne $OriginalHash){throw 'Unit B workflow-route corruption controls did not restore exact source bytes'}
