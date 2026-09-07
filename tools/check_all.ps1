@@ -1552,7 +1552,91 @@ function Assert-Wo25UnitCV2OrchestrationContract {
     $Path=Join-Path $RepoRoot "fixtures/evidence/job_summary_$Platform.v2.json";$Bytes=[IO.File]::ReadAllBytes($Path);if($Bytes.Length-eq0-or$Bytes[-1]-ne10-or$Bytes-contains13){throw "Unit C $Platform v2 fixture framing drifted"}
     $Value=[Text.Encoding]::UTF8.GetString($Bytes)|ConvertFrom-Json;if($Value.schema-cne'hum.evidence_summary.v2'-or$Value.policy-cne'wo25.unit_c.v2'-or$Value.orchestration_runtime-cne'powershell-core'-or$Value.orchestration_version-notmatch'^7(?:\.[0-9]+)+$'-or$Value.orchestration_executable_sha256-notmatch'^[0-9a-f]{64}$'-or$Value.orchestration_executable_sha256-ceq('0'*64)){throw "Unit C $Platform v2 fixture identity drifted"}
   }
-  $Rows=@((Get-Content -Raw (Join-Path $RepoRoot 'fixtures/evidence/summary_corruption_cases.v2.json')|ConvertFrom-Json).rows);$Ids=@($Rows|ForEach-Object id);$Expected=@(1..12|ForEach-Object{'V{0:D2}'-f$_});if([string]::Join(',',$Ids)-cne[string]::Join(',',$Expected)-or(@($Ids|Sort-Object -Unique)).Count-ne12){throw 'Unit C v2 corruption matrix drifted'}
+  $ExpectedInventory = @(
+    @('V01', 'schema', 'missing', 'canonical_parser'),
+    @('V02', 'schema', 'mixed_v1_v2', 'status_pair'),
+    @('V03', 'orchestration_runtime', 'missing', 'orchestration_runtime'),
+    @('V04', 'orchestration_runtime', 'substituted', 'orchestration_runtime'),
+    @('V05', 'orchestration_version', 'malformed', 'orchestration_version'),
+    @('V06', 'orchestration_version', 'swapped_without_rebinding', 'stage_binding'),
+    @('V07', 'orchestration_executable_sha256', 'all_zero', 'orchestration_executable_sha256'),
+    @('V08', 'orchestration_executable_sha256', 'fabricated', 'stage_binding'),
+    @('V09', 'orchestration_executable_sha256', 'cross_platform_swap', 'stage_binding'),
+    @('V10', 'payload', 'v1_filename', 'transport_filename'),
+    @('V11', 'artifact', 'alternate_grammar', 'artifact_name'),
+    @('V12', 'archive', 'extra_entry', 'transport_closure'),
+    @('V13', 'selector_count', 'legacy_128_in_v2', 'summary_selector_count'),
+    @('V14', 'mutation_count', 'legacy_seven_in_v2', 'summary_mutation_count'),
+    @('V15', 'selector_count', 'unexpected_132_in_v2', 'summary_selector_count'),
+    @('V16', 'mutation_count', 'unexpected_nine_in_v2', 'summary_mutation_count')
+  )
+  $InventoryFields = @('id', 'field', 'corruption', 'owner')
+  $AssertInventory = {
+    param($Matrix)
+    if ($Matrix.schema -isnot [string] -or $Matrix.schema -cne 'hum.summary_corruption_cases.v2') {
+      throw 'Unit C v2 corruption matrix drifted: schema'
+    }
+    $Rows = @($Matrix.rows)
+    if ($Rows.Count -ne $ExpectedInventory.Count) {
+      throw 'Unit C v2 corruption matrix drifted: rows'
+    }
+    for ($Row = 0; $Row -lt $ExpectedInventory.Count; $Row++) {
+      for ($Column = 0; $Column -lt $InventoryFields.Count; $Column++) {
+        $Field = $InventoryFields[$Column]
+        $Actual = $Rows[$Row].$Field
+        if ($Actual -isnot [string] -or $Actual -cne $ExpectedInventory[$Row][$Column]) {
+          throw "Unit C v2 corruption matrix drifted: row $($Row + 1) $Field"
+        }
+      }
+    }
+  }
+  $MatrixPath = Join-Path $RepoRoot 'fixtures/evidence/summary_corruption_cases.v2.json'
+  $OriginalMatrixBytes = [IO.File]::ReadAllBytes($MatrixPath)
+  $Matrix = (New-Object Text.UTF8Encoding($false, $true)).GetString($OriginalMatrixBytes) | ConvertFrom-Json
+  & $AssertInventory $Matrix
+  $HonestJson = $Matrix | ConvertTo-Json -Depth 4 -Compress
+  $Cases = [ordered]@{
+    stale_twelve = 'rows'
+    missing = 'rows'
+    duplicate = "row $($ExpectedInventory.Count) id"
+    reordered = 'row 1 id'
+    extra = 'rows'
+    substituted = 'row 1 id'
+    wrong_schema = 'schema'
+    changed_field = 'row 1 field'
+    changed_corruption = 'row 1 corruption'
+    changed_owner = 'row 1 owner'
+  }
+  foreach ($Case in $Cases.GetEnumerator()) {
+    $Corrupt = $HonestJson | ConvertFrom-Json
+    switch ($Case.Key) {
+      'stale_twelve' { $Corrupt.rows = @($Corrupt.rows[0..11]) }
+      'missing' { $Corrupt.rows = @($Corrupt.rows[0..($Corrupt.rows.Count - 2)]) }
+      'duplicate' { $Corrupt.rows[-1] = $Corrupt.rows[0] }
+      'reordered' { $First = $Corrupt.rows[0]; $Corrupt.rows[0] = $Corrupt.rows[1]; $Corrupt.rows[1] = $First }
+      'extra' { $Corrupt.rows = @($Corrupt.rows) + @($Corrupt.rows[0]) }
+      'substituted' { $Corrupt.rows[0].id = 'V99' }
+      'wrong_schema' { $Corrupt.schema = 'hum.summary_corruption_cases.v1' }
+      'changed_field' { $Corrupt.rows[0].field = 'policy' }
+      'changed_corruption' { $Corrupt.rows[0].corruption = 'substituted' }
+      'changed_owner' { $Corrupt.rows[0].owner = 'status_pair' }
+    }
+    if (($Corrupt | ConvertTo-Json -Depth 4 -Compress) -ceq $HonestJson) {
+      throw "Unit C v2 inventory corruption did not initialize: $($Case.Key)"
+    }
+    $Failure = $null
+    try { & $AssertInventory $Corrupt } catch { $Failure = $_.Exception.Message }
+    if ($Failure -cne "Unit C v2 corruption matrix drifted: $($Case.Value)") {
+      throw "Unit C v2 inventory corruption $($Case.Key) missed its owner: $Failure"
+    }
+    Write-Host "ok - Unit C v2 inventory $($Case.Key) rejected at $($Case.Value)"
+  }
+  & $AssertInventory $Matrix
+  if (($Matrix | ConvertTo-Json -Depth 4 -Compress) -cne $HonestJson -or
+      [Convert]::ToBase64String([IO.File]::ReadAllBytes($MatrixPath)) -cne [Convert]::ToBase64String($OriginalMatrixBytes)) {
+    throw 'Unit C v2 inventory controls changed the honest fixture'
+  }
+  Write-Host 'ok - Unit C v2 inventory honest fixture and bytes preserved'
   if(([regex]::Matches($Workflow,[regex]::Escape('--pwsh'))).Count-lt3-or-not$Workflow.Contains('$PSHOME')){throw 'Unit C workflow does not bind its PowerShell host explicitly'}
   foreach($Stale in @('hum-evidence-summary.v1.json','hum-evidence-summary-v1-${{')){if($Workflow.Contains($Stale)){throw "Unit C workflow retained stale v1 summary transport: $Stale"}}
 }
