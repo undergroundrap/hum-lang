@@ -1398,6 +1398,15 @@ function Assert-PreflightOuterLifecycleEvidence {
   $Setup = {
     param($Repository, $CaseRoot, $Mode, $Helpers, $Shell, $TestPath)
     $ErrorActionPreference = 'Stop'
+    # A fresh session must load its own standard commands, not inherit the
+    # parent's module state or rely on ambient module auto-discovery.
+    foreach ($Name in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Security')) {
+      $Manifest = [IO.Path]::Combine($PSHOME, 'Modules', $Name, "$Name.psd1")
+      Import-Module -Name $Manifest -ErrorAction Stop
+    }
+    if ((Get-Command Get-FileHash -ErrorAction Stop).ModuleName -cne 'Microsoft.PowerShell.Utility') { throw 'nested hashing command has the wrong standard owner' }
+    $Hash = Get-FileHash -LiteralPath (Join-Path $CaseRoot 'hash-input.bin') -Algorithm SHA256
+    if ($Hash.Hash.ToLowerInvariant() -cne 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') { throw 'nested runtime hash differs from known fixture bytes' }
     Set-Location -LiteralPath $Repository
     . (Join-Path $Repository 'tools/run_fast_evidence.ps1')
     foreach ($Definition in $Helpers) { . ([scriptblock]::Create($Definition)) }
@@ -1437,14 +1446,28 @@ function Assert-PreflightOuterLifecycleEvidence {
     }
   }
   $OldOutput = $env:GITHUB_OUTPUT
+  $OldModulePath = $env:PSModulePath
+  $OldAutoLoading = $PSModuleAutoLoadingPreference
+  $ParentModules = @((Get-Module).Path)
   try {
     foreach ($Mode in @('success','cleanup-validation','isolated-failure','primary-and-secondary','nonzero-and-secondary','reporting-failure','nonzero-reporting')) {
       $CaseRoot = Join-Path $Root $Mode; $null = [IO.Directory]::CreateDirectory($CaseRoot)
+      [IO.File]::WriteAllBytes((Join-Path $CaseRoot 'hash-input.bin'), [byte[]](0x61, 0x62, 0x63))
       $env:GITHUB_OUTPUT = if ($Mode -in @('reporting-failure','nonzero-reporting')) { $CaseRoot } else { Join-Path $CaseRoot 'github-output.txt' }
-      $PowerShell = [PowerShell]::Create()
+      $PowerShell = [PowerShell]::Create([Management.Automation.Runspaces.InitialSessionState]::CreateDefault2())
       try {
+        $MissingDependency = {
+          $PSModuleAutoLoadingPreference = 'None'
+          Get-FileHash
+        }
+        $null = $PowerShell.AddScript($MissingDependency.ToString()).Invoke()
+        Assert-True ($PowerShell.HadErrors -and $PowerShell.Streams.Error.Count -eq 1 -and
+          $PowerShell.Streams.Error[0].FullyQualifiedErrorId -ceq 'CommandNotFoundException') 'nested missing hashing dependency did not reproduce'
+        $PowerShell.Commands.Clear()
+        $PowerShell.Streams.Error.Clear()
         $null = $PowerShell.AddScript($Setup.ToString()).AddArgument($Repository).AddArgument($CaseRoot).AddArgument($Mode).AddArgument(@($Helpers)).AddArgument((Get-Process -Id $PID).Path).AddArgument($script:HumCaptureTestPath).Invoke()
         Assert-True (-not $PowerShell.HadErrors) "outer workflow setup failed: $Mode"
+        Assert-True ($PowerShell.Runspace.SessionStateProxy.GetVariable('PSModuleAutoLoadingPreference') -ceq 'None') 'nested setup silently restored ambient module discovery'
         $PowerShell.Commands.Clear()
         try { $null = $PowerShell.AddScript($Outer + [Environment]::NewLine + '$AfterExit = $true').Invoke() } catch { }
         $State = $PowerShell.Runspace.SessionStateProxy
@@ -1508,6 +1531,8 @@ function Assert-PreflightOuterLifecycleEvidence {
   }
   Assert-True (-not (Test-Path -LiteralPath $Root)) 'outer workflow scratch survived'
   Assert-True ($env:GITHUB_OUTPUT -ceq $OldOutput) 'workflow output binding did not restore'
+  Assert-True ($env:PSModulePath -ceq $OldModulePath -and $PSModuleAutoLoadingPreference -ceq $OldAutoLoading) 'nested setup changed parent module configuration'
+  Assert-True ((@((Get-Module).Path) -join '|') -ceq ($ParentModules -join '|')) 'nested setup changed parent module inventory'
 }
 
 if ($PreflightDiagnosticsOnly) {
@@ -1616,7 +1641,9 @@ try {
   $One = "terminated_quiescent;pretermination=members;active=1;member=$MemberA"
   $Many = "terminated_quiescent;pretermination=members;active=2;member=$MemberA|$MemberB"
   foreach ($Record in @('quiescent', 'terminated_quiescent;pretermination=quiescent_race', $One, $Many)) { Assert-HumFinalDescendantTree $Record }
-  $InvalidImages = @('relative/app.exe', $(if ($OriginalHostIsWindows) { [IO.Path]::Combine($PSScriptRoot, '..', 'app.exe') } else { 'C:\bin\app.exe' }))
+  $InvalidWindowsImage = 'C' + [char]58 + [char]92 + 'bin' + [char]92 + 'app.exe'
+  Assert-True ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($InvalidWindowsImage)) -ceq 'QzpcYmluXGFwcC5leGU=') 'synthetic Windows path bytes changed'
+  $InvalidImages = @('relative/app.exe', $(if ($OriginalHostIsWindows) { [IO.Path]::Combine($PSScriptRoot, '..', 'app.exe') } else { $InvalidWindowsImage }))
   foreach ($InvalidImage in $InvalidImages) {
     $InvalidMember = New-DescendantMember 101 638000000000000001 1 4096 ('a' * 64) (ConvertTo-HumDescendantPathToken $InvalidImage)
     Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=$InvalidMember" 'nonabsolute or noncanonical native path'
