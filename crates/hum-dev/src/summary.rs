@@ -135,8 +135,8 @@ impl<'a> Reader<'a> {
 pub const JOB_POLICY: &str = "wo25.unit_b.v1";
 pub const JOB_SCHEMA_V2: &str = "hum.evidence_summary.v2";
 pub const JOB_POLICY_V2: &str = "wo25.unit_c.v2";
-pub const JOB_SELECTORS: usize = 128;
-pub const JOB_MUTATIONS: usize = 7;
+const JOB_COUNTS_V1: (u64, u64) = (128, 7);
+const JOB_COUNTS_V2: (u64, u64) = (131, 8);
 const JOB_STAGES: &[&str] = &[
     "classifier",
     "workspace",
@@ -157,15 +157,19 @@ pub(crate) struct JobSummary { pub(crate) schema: String, pub(crate) generator: 
 impl JobSummary {
     pub fn validate(&self) -> Result<(), String> {
         macro_rules! require { ($condition:expr,$message:literal) => { if !($condition) { return Err($message.into()); } }; }
-        match self.schema.as_str() {
-            SCHEMA => require!(self.orchestration_runtime.is_empty() && self.orchestration_version.is_empty() && self.orchestration_executable_sha256.is_empty(), "v1 summary contains v2 orchestration identity"),
+        let (selectors, mutations) = match self.schema.as_str() {
+            SCHEMA => {
+                require!(self.orchestration_runtime.is_empty() && self.orchestration_version.is_empty() && self.orchestration_executable_sha256.is_empty(), "v1 summary contains v2 orchestration identity");
+                JOB_COUNTS_V1
+            }
             JOB_SCHEMA_V2 => {
                 require!(self.orchestration_runtime == "powershell-core", "summary orchestration runtime mismatch");
                 require!(self.orchestration_version.split('.').count() >= 2 && self.orchestration_version.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())), "summary orchestration version is malformed");
                 require!(hash_is_exact(&self.orchestration_executable_sha256) && self.orchestration_executable_sha256.bytes().any(|b| b != b'0'), "summary orchestration executable SHA-256 is malformed");
+                JOB_COUNTS_V2
             }
             _ => return Err("unknown summary schema".into()),
-        }
+        };
         require!(self.generator == concat!("hum-dev ", env!("CARGO_PKG_VERSION")), "summary generator mismatch");
         require!(oid_is_exact(&self.commit), "summary commit identity mismatch");
         require!(oid_is_exact(&self.parent), "summary parent identity mismatch");
@@ -183,7 +187,7 @@ impl JobSummary {
         require!(self.run_id > 0, "summary run ID is not positive"); require!(self.run_attempt > 0, "summary run attempt is not positive"); require!(self.job_id > 0, "summary job ID is not positive");
         for (name,value) in [("candidate manifest",&self.candidate_manifest),("Cargo lock",&self.cargo_lock_sha256),("dependency closure",&self.dependency_closure_sha256),("configuration",&self.configuration_sha256),("compiler",&self.compiler_sha256),("producer executable",&self.producer_executable_sha256),("selector ledger",&self.selector_ledger_sha256),("mutation ledger",&self.mutation_ledger_sha256),("stdout",&self.stdout_sha256),("stderr",&self.stderr_sha256),("event stream",&self.event_sha256)] { if !hash_is_exact(value) { return Err(format!("summary {name} SHA-256 identity is malformed")); } }
         for (name,value) in [("raw additions",self.raw_additions),("raw deletions",self.raw_deletions),("whitespace additions",self.whitespace_additions),("whitespace deletions",self.whitespace_deletions)] { if value != 0 { return Err(format!("clean full-anchor {name} is nonzero")); } }
-        require!(self.selector_count == JOB_SELECTORS as u64, "summary selector count mismatch"); require!(self.mutation_count == JOB_MUTATIONS as u64, "summary mutation count mismatch");
+        require!(self.selector_count == selectors, "summary selector count mismatch"); require!(self.mutation_count == mutations, "summary mutation count mismatch");
         require!(self.suite_count > 0, "summary suite count is zero"); require!(self.hygiene_file_count > 0, "summary hygiene file count is zero");
         require!(self.readiness == "ir_ready=1;backend_ready=1", "summary readiness mismatch"); require!(self.claims == "passed", "summary claims mismatch");
         require!(self.nonclaims == "no_semantic_or_publication_authority", "summary nonclaims mismatch"); require!(self.release_version == "0.0.1", "summary release version mismatch");
@@ -358,6 +362,215 @@ pub fn summarize_without_authenticated_records() -> Result<Vec<u8>, String> {
     Err("authenticated underlying selector, mutation, and stage evidence is required; Unit A cannot synthesize success".into())
 }
 
+#[cfg(test)]
+mod count_tests {
+    use super::*;
+    use std::process::Command;
+
+    fn rebind(value: &mut JobSummary) {
+        let binding = value.binding();
+        for stage in &mut value.stages {
+            stage.binding = binding.clone();
+            stage.evidence_sha256 = stage_hash(&stage.name, &binding);
+        }
+    }
+
+    #[test]
+    fn counts_are_schema_owned_not_receipt_owned() {
+        let fixtures: [&[u8]; 4] = [
+            include_bytes!("../../../fixtures/evidence/job_summary_ubuntu.v1.json"),
+            include_bytes!("../../../fixtures/evidence/job_summary_windows.v1.json"),
+            include_bytes!("../../../fixtures/evidence/job_summary_ubuntu.v2.json"),
+            include_bytes!("../../../fixtures/evidence/job_summary_windows.v2.json"),
+        ];
+        for bytes in fixtures {
+            let honest = JobSummary::parse_canonical(bytes).unwrap();
+            let expected = if honest.schema == SCHEMA {
+                (128, 7)
+            } else {
+                (131, 8)
+            };
+            assert_eq!((honest.selector_count, honest.mutation_count), expected);
+            assert_eq!(honest.canonical_bytes().unwrap(), bytes);
+            for (field, counts, error) in [
+                (
+                    "selector_count",
+                    vec![1, 127, 128, 130, 131, 132],
+                    "summary selector count mismatch",
+                ),
+                (
+                    "mutation_count",
+                    vec![1, 6, 7, 8, 9],
+                    "summary mutation count mismatch",
+                ),
+            ] {
+                for count in counts {
+                    let mut changed = honest.clone();
+                    let before = if field == "selector_count" {
+                        std::mem::replace(&mut changed.selector_count, count)
+                    } else {
+                        std::mem::replace(&mut changed.mutation_count, count)
+                    };
+                    if before == count {
+                        continue;
+                    }
+                    // Even self-consistent fabricated stage hashes cannot select the policy.
+                    rebind(&mut changed);
+                    assert_eq!(changed.validate().unwrap_err(), error);
+                    let raw = String::from_utf8(bytes.to_vec()).unwrap().replace(
+                        &format!("\"{field}\":{before}"),
+                        &format!("\"{field}\":{count}"),
+                    );
+                    assert_ne!(raw.as_bytes(), bytes);
+                    assert_eq!(
+                        JobSummary::parse_canonical(raw.as_bytes()).unwrap_err(),
+                        error
+                    );
+                }
+            }
+            let mut swapped = honest.clone();
+            if honest.schema == SCHEMA {
+                swapped.schema = JOB_SCHEMA_V2.into();
+                swapped.orchestration_runtime = "powershell-core".into();
+                swapped.orchestration_version = "7.6.4".into();
+                swapped.orchestration_executable_sha256 = "a".repeat(64);
+            } else {
+                swapped.schema = SCHEMA.into();
+                swapped.orchestration_runtime.clear();
+                swapped.orchestration_version.clear();
+                swapped.orchestration_executable_sha256.clear();
+            }
+            rebind(&mut swapped);
+            assert_eq!(
+                swapped.validate().unwrap_err(),
+                "summary selector count mismatch"
+            );
+            assert_eq!(honest.canonical_bytes().unwrap(), bytes);
+        }
+    }
+
+    #[test]
+    fn environment_producer_preserves_v2_counts() {
+        let bytes: &[u8] = if cfg!(windows) {
+            include_bytes!("../../../fixtures/evidence/job_summary_windows.v2.json")
+        } else {
+            include_bytes!("../../../fixtures/evidence/job_summary_ubuntu.v2.json")
+        };
+        let mut honest = JobSummary::parse_canonical(bytes).unwrap();
+        if let Ok(owner) = std::env::var("HUM_COUNT_PRODUCER_CHILD") {
+            let candidate = CandidateIdentity {
+                commit: honest.commit.clone(),
+                parents: vec![honest.parent.clone()],
+                tree: honest.tree.clone(),
+                head_ref: Some("refs/heads/main".into()),
+                refs: vec![],
+                index_entries: vec![],
+                paths: vec![],
+                index_clean: true,
+                worktree_clean: true,
+                untracked_clean: true,
+                raw_additions: 0,
+                raw_deletions: 0,
+                whitespace_additions: 0,
+                whitespace_deletions: 0,
+            };
+            let orchestration = PwshIdentity {
+                version: honest.orchestration_version.clone(),
+                sha256: honest.orchestration_executable_sha256.clone(),
+            };
+            let produced = JobSummary::from_environment(
+                b"controlled executable bytes",
+                honest.job_id,
+                &candidate,
+                honest.cargo_lock_sha256.clone(),
+                &orchestration,
+            );
+            if owner != "honest" {
+                assert_eq!(
+                    produced.unwrap_err(),
+                    format!("summary {owner} count mismatch")
+                );
+                return;
+            }
+            honest.candidate_manifest = candidate.binding().state_sha256;
+            honest.producer_executable_sha256 = digest_hex(b"controlled executable bytes");
+            rebind(&mut honest);
+            let produced = produced.unwrap();
+            assert_eq!(produced, honest);
+            let canonical = produced.canonical_bytes().unwrap();
+            assert_eq!(JobSummary::parse_canonical(&canonical).unwrap(), honest);
+            assert_eq!(honest.canonical_bytes().unwrap(), canonical);
+            return;
+        }
+        // Command-local environments avoid mutating the multithreaded test host.
+        for (selectors, mutations, owner) in [
+            (131, 8, "honest"),
+            (128, 7, "selector"),
+            (130, 8, "selector"),
+            (132, 8, "selector"),
+            (131, 7, "mutation"),
+            (131, 9, "mutation"),
+            (0, 8, "selector"),
+            (131, 0, "mutation"),
+        ] {
+            let mut child = Command::new(std::env::current_exe().unwrap());
+            child.args([
+                "--exact",
+                "summary::count_tests::environment_producer_preserves_v2_counts",
+                "--nocapture",
+            ]);
+            child.env("HUM_COUNT_PRODUCER_CHILD", owner);
+            macro_rules! input {
+                ($key:literal, $field:ident) => {
+                    child.env($key, honest.$field.to_string());
+                };
+            }
+            input!("HUM_STARTED_TICKS", started_ticks);
+            input!("HUM_COMPLETED_TICKS", completed_ticks);
+            input!("HUM_TIMER_FREQUENCY", timer_frequency);
+            input!("HUM_PLATFORM", platform);
+            input!("HUM_TARGET", target);
+            input!("HUM_TOOLCHAIN", toolchain);
+            input!("HUM_COMPILER_SHA256", compiler_sha256);
+            input!("HUM_DEPENDENCY_CLOSURE_SHA256", dependency_closure_sha256);
+            input!("HUM_CONFIGURATION_SHA256", configuration_sha256);
+            input!("HUM_WORKFLOW", workflow);
+            input!("GITHUB_EVENT_NAME", event);
+            input!("GITHUB_RUN_ID", run_id);
+            input!("GITHUB_RUN_ATTEMPT", run_attempt);
+            input!("GITHUB_SHA", checkout_sha);
+            input!("HUM_CLASSIFIER_MODE", classifier_mode);
+            input!("HUM_CLASSIFIER_REASON", classifier_reason);
+            input!("HUM_CLASSIFIER_ANCHOR", anchor);
+            input!("HUM_CLASSIFIER_TRANSITIONS", transitions);
+            input!("HUM_SELECTOR_LEDGER_SHA256", selector_ledger_sha256);
+            input!("HUM_MUTATION_LEDGER_SHA256", mutation_ledger_sha256);
+            input!("HUM_SUITE_COUNT", suite_count);
+            input!("HUM_READINESS", readiness);
+            input!("HUM_HYGIENE_FILE_COUNT", hygiene_file_count);
+            input!("HUM_CLAIMS", claims);
+            input!("HUM_RELEASE_VERSION", release_version);
+            input!("HUM_STDOUT_SHA256", stdout_sha256);
+            input!("HUM_STDERR_SHA256", stderr_sha256);
+            input!("HUM_EVENT_SHA256", event_sha256);
+            child.env("HUM_SELECTOR_COUNT", selectors.to_string());
+            child.env("HUM_MUTATION_COUNT", mutations.to_string());
+            let result = child.output().unwrap();
+            let stdout = String::from_utf8(result.stdout).unwrap();
+            let stderr = String::from_utf8(result.stderr).unwrap();
+            assert!(
+                result.status.success(),
+                "{selectors}/{mutations}: {stdout}; {stderr}"
+            );
+            assert!(
+                stdout.contains("1 passed; 0 failed"),
+                "producer child did not execute: {stdout}"
+            );
+            assert!(stderr.is_empty());
+        }
+    }
+}
+
 #[rustfmt::skip]
 #[cfg(test)] mod tests {
     use super::*;
@@ -370,7 +583,7 @@ pub fn summarize_without_authenticated_records() -> Result<Vec<u8>, String> {
         for corrupt in ["selectors", "mutations", "stages", "binding", "terminal"] { let mut value = sample(); match corrupt { "selectors" => value.selectors.clear(), "mutations" => value.mutations.clear(), "stages" => value.stages.clear(), "binding" => value.stages[0].binding = "foreign".into(), _ => value.terminal = "failed".into() } assert!(value.canonical_bytes().is_err(), "{corrupt} fabricated success"); }
         let mut duplicate = sample(); duplicate.stages.push(duplicate.stages[0].clone()); assert!(duplicate.canonical_bytes().is_err()); let mut changed = bytes; changed[2] ^= 1; assert!(EvidenceSummary::authenticate_canonical_input(&changed, &sample()).is_err());
     }
-    fn job(platform:&str)->JobSummary { let mut value=JobSummary{schema:JOB_SCHEMA_V2.into(),generator:"hum-dev 0.0.1".into(),commit:"a".repeat(40),parent:"b".repeat(40),tree:"c".repeat(40),candidate_manifest:"8".repeat(64),raw_additions:0,raw_deletions:0,whitespace_additions:0,whitespace_deletions:0,cargo_lock_sha256:"d".repeat(64),dependency_closure_sha256:"e".repeat(64),configuration_sha256:"9".repeat(64),platform:platform.into(),target:if platform=="ubuntu"{"x86_64-unknown-linux-gnu"}else{"x86_64-pc-windows-msvc"}.into(),toolchain:if platform=="ubuntu"{"rustc linux"}else{"rustc windows"}.into(),compiler_sha256:"0".repeat(64),producer_executable_sha256:if platform=="ubuntu"{"1"}else{"2"}.repeat(64),orchestration_runtime:"powershell-core".into(),orchestration_version:if platform=="ubuntu"{"7.4.7"}else{"7.6.4"}.into(),orchestration_executable_sha256:if platform=="ubuntu"{"a"}else{"b"}.repeat(64),profile:"full".into(),workflow:"ci".into(),event:"push".into(),run_id:71,run_attempt:2,job_id:if platform=="ubuntu"{81}else{82},checkout_sha:"a".repeat(40),classifier_mode:"full".into(),classifier_reason:"no_status_transition".into(),anchor:String::new(),transitions:String::new(),selector_ledger_sha256:"3".repeat(64),selector_count:128,mutation_ledger_sha256:"4".repeat(64),mutation_count:7,suite_count:200,readiness:"ir_ready=1;backend_ready=1".into(),hygiene_file_count:584,claims:"passed".into(),nonclaims:"no_semantic_or_publication_authority".into(),release_version:"0.0.1".into(),expected_stages:JOB_STAGES.iter().map(|v|(*v).into()).collect(),stages:Vec::new(),terminal:"success".into(),exit:0,started_ticks:100,completed_ticks:1100,timer_frequency:1000,duration_ms:1000,stdout_sha256:"5".repeat(64),stderr_sha256:"6".repeat(64),event_sha256:"7".repeat(64),cleanup:"closed".into()};let binding=value.binding();value.stages=JOB_STAGES.iter().map(|name|StageRecord{name:(*name).into(),disposition:StageDisposition::Passed,skip_reason:None,skip_predicate:None,binding:binding.clone(),evidence_sha256:stage_hash(name,&binding)}).collect();value }
+    fn job(platform:&str)->JobSummary { let mut value=JobSummary{schema:JOB_SCHEMA_V2.into(),generator:"hum-dev 0.0.1".into(),commit:"a".repeat(40),parent:"b".repeat(40),tree:"c".repeat(40),candidate_manifest:"8".repeat(64),raw_additions:0,raw_deletions:0,whitespace_additions:0,whitespace_deletions:0,cargo_lock_sha256:"d".repeat(64),dependency_closure_sha256:"e".repeat(64),configuration_sha256:"9".repeat(64),platform:platform.into(),target:if platform=="ubuntu"{"x86_64-unknown-linux-gnu"}else{"x86_64-pc-windows-msvc"}.into(),toolchain:if platform=="ubuntu"{"rustc linux"}else{"rustc windows"}.into(),compiler_sha256:"0".repeat(64),producer_executable_sha256:if platform=="ubuntu"{"1"}else{"2"}.repeat(64),orchestration_runtime:"powershell-core".into(),orchestration_version:if platform=="ubuntu"{"7.4.7"}else{"7.6.4"}.into(),orchestration_executable_sha256:if platform=="ubuntu"{"a"}else{"b"}.repeat(64),profile:"full".into(),workflow:"ci".into(),event:"push".into(),run_id:71,run_attempt:2,job_id:if platform=="ubuntu"{81}else{82},checkout_sha:"a".repeat(40),classifier_mode:"full".into(),classifier_reason:"no_status_transition".into(),anchor:String::new(),transitions:String::new(),selector_ledger_sha256:"3".repeat(64),selector_count:131,mutation_ledger_sha256:"4".repeat(64),mutation_count:8,suite_count:200,readiness:"ir_ready=1;backend_ready=1".into(),hygiene_file_count:584,claims:"passed".into(),nonclaims:"no_semantic_or_publication_authority".into(),release_version:"0.0.1".into(),expected_stages:JOB_STAGES.iter().map(|v|(*v).into()).collect(),stages:Vec::new(),terminal:"success".into(),exit:0,started_ticks:100,completed_ticks:1100,timer_frequency:1000,duration_ms:1000,stdout_sha256:"5".repeat(64),stderr_sha256:"6".repeat(64),event_sha256:"7".repeat(64),cleanup:"closed".into()};let binding=value.binding();value.stages=JOB_STAGES.iter().map(|name|StageRecord{name:(*name).into(),disposition:StageDisposition::Passed,skip_reason:None,skip_predicate:None,binding:binding.clone(),evidence_sha256:stage_hash(name,&binding)}).collect();value }
     #[test] fn cross_platform_status_agreement_is_exact(){
         let ubuntu=job("ubuntu");let windows=job("windows");authenticate_platform_pair(&ubuntu,&windows).unwrap();
         for field in ["generator","commit","parent","tree","candidate","accounting","lock","closure","configuration","platform","target","toolchain","compiler","producer","profile","workflow","event","run","attempt","job","checkout","classifier","selector_order","selector_hash","selector_count","mutation_order","mutation_hash","suite","readiness","hygiene","claims","nonclaims","release","expected_stages","terminal","timing","stdout","stderr","event_stream","cleanup"]{
@@ -382,6 +595,6 @@ pub fn summarize_without_authenticated_records() -> Result<Vec<u8>, String> {
         let bytes=ubuntu.canonical_bytes().unwrap();assert_eq!(JobSummary::parse_canonical(&bytes).unwrap(),ubuntu);let mut schema=bytes.clone();schema[11]=b'X';assert!(JobSummary::parse_canonical(&schema).is_err());let policy=String::from_utf8(bytes.clone()).unwrap().replace(JOB_POLICY_V2,"wo25.unit_x.v2");assert!(JobSummary::parse_canonical(policy.as_bytes()).is_err());let mut trailing=bytes;trailing.push(b'x');assert!(JobSummary::parse_canonical(&trailing).is_err());
         let v1u=include_bytes!("../../../fixtures/evidence/job_summary_ubuntu.v1.json");let v1w=include_bytes!("../../../fixtures/evidence/job_summary_windows.v1.json");let fixture_ubuntu=JobSummary::parse_canonical(v1u).unwrap();let fixture_windows=JobSummary::parse_canonical(v1w).unwrap();authenticate_platform_pair(&fixture_ubuntu,&fixture_windows).unwrap();assert_eq!(fixture_ubuntu.canonical_bytes().unwrap(),v1u);assert_eq!(fixture_windows.canonical_bytes().unwrap(),v1w);assert_eq!(fixture_ubuntu.artifact_name(),"hum-evidence-summary-v1-71-2-81-ubuntu");assert_eq!(fixture_windows.executable_artifact_name(),format!("hum-dev-executable-transport-v1-71-2-82-windows-{}","2".repeat(64)));
         let v2u=JobSummary::parse_canonical(include_bytes!("../../../fixtures/evidence/job_summary_ubuntu.v2.json")).unwrap();let v2w=JobSummary::parse_canonical(include_bytes!("../../../fixtures/evidence/job_summary_windows.v2.json")).unwrap();authenticate_platform_pair(&v2u,&v2w).unwrap();assert_eq!(v2u.artifact_name(),"hum-evidence-summary-v2-71-2-81-ubuntu");assert_eq!(v2w.artifact_name(),"hum-evidence-summary-v2-71-2-82-windows");assert!(authenticate_platform_pair(&fixture_ubuntu,&v2w).unwrap_err().contains("mixed v1/v2"));for field in ["runtime","version","zero","fabricated"]{let mut changed=v2w.clone();match field{"runtime"=>changed.orchestration_runtime="powershell".into(),"version"=>changed.orchestration_version="7.x".into(),"zero"=>changed.orchestration_executable_sha256="0".repeat(64),_=>changed.orchestration_executable_sha256="c".repeat(64)}assert!(changed.validate().is_err(),"{field} orchestration corruption authenticated");}
-        let matrix=include_str!("../../../fixtures/evidence/summary_corruption_cases.v1.json");for id in (1..=6).map(|n|format!("S{n:02}")).chain((1..=43).map(|n|format!("J{n:02}"))).chain((1..=16).map(|n|format!("T{n:02}"))){assert_eq!(matrix.matches(&format!("\"id\":\"{id}\"")).count(),1,"missing or duplicate corruption {id}");}let v2matrix=include_str!("../../../fixtures/evidence/summary_corruption_cases.v2.json");for id in (1..=12).map(|n|format!("V{n:02}")){assert_eq!(v2matrix.matches(&format!("\"id\":\"{id}\"")).count(),1,"missing or duplicate v2 corruption {id}");}
+        let matrix=include_str!("../../../fixtures/evidence/summary_corruption_cases.v1.json");for id in (1..=6).map(|n|format!("S{n:02}")).chain((1..=43).map(|n|format!("J{n:02}"))).chain((1..=16).map(|n|format!("T{n:02}"))){assert_eq!(matrix.matches(&format!("\"id\":\"{id}\"")).count(),1,"missing or duplicate corruption {id}");}let v2matrix=include_str!("../../../fixtures/evidence/summary_corruption_cases.v2.json");for id in (1..=16).map(|n|format!("V{n:02}")){assert_eq!(v2matrix.matches(&format!("\"id\":\"{id}\"")).count(),1,"missing or duplicate v2 corruption {id}");}
     }
 }

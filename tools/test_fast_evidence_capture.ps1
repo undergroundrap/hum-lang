@@ -1455,6 +1455,7 @@ function Assert-PreflightOuterLifecycleEvidence {
       [IO.File]::WriteAllBytes((Join-Path $CaseRoot 'hash-input.bin'), [byte[]](0x61, 0x62, 0x63))
       $env:GITHUB_OUTPUT = if ($Mode -in @('reporting-failure','nonzero-reporting')) { $CaseRoot } else { Join-Path $CaseRoot 'github-output.txt' }
       $PowerShell = [PowerShell]::Create([Management.Automation.Runspaces.InitialSessionState]::CreateDefault2())
+      $CaseFailure = $null
       try {
         $MissingDependency = {
           $PSModuleAutoLoadingPreference = 'None'
@@ -1505,27 +1506,38 @@ function Assert-PreflightOuterLifecycleEvidence {
         if ($null -eq $ChildPid -and [IO.File]::Exists((Join-Path $Directory 'pid.txt'))) { $ChildPid = [int][IO.File]::ReadAllText((Join-Path $Directory 'pid.txt')) }
         Assert-True ($null -ne $ChildPid -and $null -eq (Get-Process -Id $ChildPid -ErrorAction SilentlyContinue)) "outer workflow child survived: $Mode"
         Write-Host "ok - actual outer preflight lifecycle $Mode"
+      } catch {
+        $CaseFailure = $_
+        throw
       } finally {
         try {
-          $State = $PowerShell.Runspace.SessionStateProxy
-          $Removed = $State.GetVariable('RemovedRecordBytes')
-          if ($null -ne $Removed) {
-            $Directory = $State.GetVariable('CaptureDirectory')
-            [IO.File]::WriteAllBytes((Join-Path $Directory 'completed_utc.txt'), $Removed)
-            $null = Read-HumCaptureRecord $Directory
-          }
-          $Record = $State.GetVariable('Isolated')
-          if ($null -ne $Record -and (Test-Path -LiteralPath $Record.Directory)) {
-            $Extra = Join-Path $Record.Directory 'controlled-extra.txt'
-            if (Test-Path -LiteralPath $Extra) { Remove-Item -LiteralPath $Extra }
-            Remove-HumIsolatedExecutable $Record
-          }
+          # Fixture restoration uses the same initialized session as creation.
+          # The caller need not have the runtime's hashing module loaded.
+          $PowerShell.Commands.Clear()
+          $PowerShell.Streams.Error.Clear()
+          $null = $PowerShell.AddScript({
+            if ($null -ne $RemovedRecordBytes) {
+              [IO.File]::WriteAllBytes((Join-Path $CaptureDirectory 'completed_utc.txt'), $RemovedRecordBytes)
+              $null = Read-HumCaptureRecord $CaptureDirectory
+            }
+            if ($null -ne $Isolated -and (Test-Path -LiteralPath $Isolated.Directory)) {
+              $Extra = Join-Path $Isolated.Directory 'controlled-extra.txt'
+              if (Test-Path -LiteralPath $Extra) { Remove-Item -LiteralPath $Extra }
+              & $NativeIsolatedCleanup $Isolated
+            }
+          }.ToString()).Invoke()
+          if ($PowerShell.HadErrors) { throw $PowerShell.Streams.Error[0] }
+        } catch {
+          if ($null -eq $CaseFailure) { throw }
+          Write-Warning "Secondary fixture cleanup failure: $_; stack=$($_.ScriptStackTrace)"
         } finally { $PowerShell.Dispose() }
       }
     }
     Assert-True ([Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($Workflow)) -ceq $Before) 'outer workflow source did not restore'
   } finally {
     $env:GITHUB_OUTPUT = $OldOutput
+    # Opening a PS7 runspace can populate the process-wide module path.
+    $env:PSModulePath = $OldModulePath
     if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($Root)) -cne $Temp) { throw 'outer workflow cleanup escaped owned root' }
     Remove-Item -LiteralPath $Root -Recurse -Force
   }
@@ -1535,11 +1547,64 @@ function Assert-PreflightOuterLifecycleEvidence {
   Assert-True ((@((Get-Module).Path) -join '|') -ceq ($ParentModules -join '|')) 'nested setup changed parent module inventory'
 }
 
+function Assert-PreflightParentCleanupDependencies {
+  param([string] $Workflow)
+  $BeforeModules = @((Get-Module).Path) -join '|'
+  $BeforeModulePath = $env:PSModulePath
+  $BeforeAutoLoading = $PSModuleAutoLoadingPreference
+  $Definitions = @('Assert-True','Read-Bytes','Assert-Bytes','Get-DiscoveryAst','Assert-PreflightOuterLifecycleEvidence') | ForEach-Object {
+    'function ' + $_ + ' {' + (Get-Item -LiteralPath "Function:$_").Definition + '}'
+  }
+  $Session = [PowerShell]::Create([Management.Automation.Runspaces.InitialSessionState]::CreateDefault2())
+  try {
+    $null = $Session.AddScript({
+      param($Workflow, $Definitions, $TestPath)
+      $ErrorActionPreference = 'Stop'
+      $OldPath = $env:PSModulePath
+      try {
+        foreach ($Name in @('Microsoft.PowerShell.Management','Microsoft.PowerShell.Utility','Microsoft.PowerShell.Security')) {
+          Import-Module ([IO.Path]::Combine($PSHOME,'Modules',$Name,"$Name.psd1")) -ErrorAction Stop
+        }
+        $script:HumCaptureTestPath = $TestPath
+        . (Join-Path (Split-Path $TestPath) 'run_fast_evidence.ps1')
+        foreach ($Definition in $Definitions) { . ([scriptblock]::Create($Definition)) }
+        # Exclude only the runtime's hash export, keeping real reporting usable.
+        # No replacement hash implementation or throwing hash stub is installed.
+        $PSModuleAutoLoadingPreference = 'None'
+        $env:PSModulePath = ''
+        $Utility = Get-Module Microsoft.PowerShell.Utility
+        $Cmdlets = @($Utility.ExportedCmdlets.Keys | Where-Object { $_ -cne 'Get-FileHash' })
+        $Functions = @($Utility.ExportedFunctions.Keys | Where-Object { $_ -cne 'Get-FileHash' })
+        if ($Functions.Count -eq 0) { $Functions = @('NoFixtureFunctionExport') }
+        Remove-Module Microsoft.PowerShell.Utility -Force
+        Import-Module ([IO.Path]::Combine($PSHOME,'Modules','Microsoft.PowerShell.Utility','Microsoft.PowerShell.Utility.psd1')) -Cmdlet $Cmdlets -Function $Functions -ErrorAction Stop
+        foreach ($Phase in @('before','after')) {
+          $Failure = $null
+          try { Get-FileHash } catch { $Failure = $_ }
+          Assert-True ($null -ne $Failure -and $Failure.FullyQualifiedErrorId -ceq 'CommandNotFoundException') "parent hash unexpectedly available: $Phase"
+          if ($Phase -eq 'before') { Assert-PreflightOuterLifecycleEvidence $Workflow }
+        }
+      } finally { $env:PSModulePath = $OldPath }
+    }.ToString()).AddArgument($Workflow).AddArgument(@($Definitions)).AddArgument($script:HumCaptureTestPath).Invoke()
+    if ($Session.HadErrors) {
+      $Failure = $Session.Streams.Error[0]
+      throw "parent dependency lifecycle failed: $Failure; stack=$($Failure.ScriptStackTrace)"
+    }
+  } finally {
+    $Session.Dispose()
+    $env:PSModulePath = $BeforeModulePath
+  }
+  Assert-True ($env:PSModulePath -ceq $BeforeModulePath -and $PSModuleAutoLoadingPreference -ceq $BeforeAutoLoading) 'parent dependency probe changed module configuration'
+  Assert-True ((@((Get-Module).Path) -join '|') -ceq $BeforeModules) 'parent dependency probe changed module inventory'
+  Write-Host 'ok - complete lifecycle with parent hashing unavailable and module discovery disabled'
+}
+
 if ($PreflightDiagnosticsOnly) {
   $Workflow = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot -Parent) '.github/workflows/ci.yml'))
   Assert-FullPreflightRepairEvidence $Workflow
   Assert-PreflightDiagnosticEvidence $Workflow
   Assert-PreflightOuterLifecycleEvidence $Workflow
+  Assert-PreflightParentCleanupDependencies $Workflow
   Write-Host 'Focused preflight diagnostics passed.'
   exit 0
 }
@@ -1562,6 +1627,7 @@ Assert-PwshConsumerContracts $RunnerSource $CaptureSource $CheckAllSource $Workf
 Assert-FullPreflightRepairEvidence $WorkflowSource
 Assert-PreflightDiagnosticEvidence $WorkflowSource
 Assert-PreflightOuterLifecycleEvidence $WorkflowSource
+Assert-PreflightParentCleanupDependencies $WorkflowSource
 Assert-VctipFactMatrix
 $DurableTree = $RunnerSource.IndexOf('Set-HumDurableText (Join-Path $CaptureDirectory ''final_descendant_tree.txt'') ("pretermination_pending;" + $State.Pretermination)', [StringComparison]::Ordinal)
 $TerminateTree = $RunnerSource.IndexOf('[HumFastJobNative]::KillJob($JobHandle)', $DurableTree, [StringComparison]::Ordinal)
