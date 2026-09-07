@@ -507,6 +507,73 @@ function Test-ExactBytesEqual {
   $true
 }
 
+function Get-EnvironmentChangedKeys {
+  param([byte[]] $Before, [byte[]] $After)
+  $Utf8 = New-Object Text.UTF8Encoding($false, $true)
+  $Left = @($Utf8.GetString($Before).Split([char]0) | Where-Object { $_ -cne '' })
+  $Right = @($Utf8.GetString($After).Split([char]0) | Where-Object { $_ -cne '' })
+  $Names = New-Object 'System.Collections.Generic.SortedSet[string]' ([StringComparer]::Ordinal)
+  foreach ($Entry in @($Left + $Right)) { $null = $Names.Add($Entry.Substring(0, $Entry.IndexOf('=', 1))) }
+  foreach ($Name in $Names) {
+    $Prefix = $Name + '='
+    $Old = @($Left | Where-Object { $_.StartsWith($Prefix, [StringComparison]::Ordinal) })
+    $New = @($Right | Where-Object { $_.StartsWith($Prefix, [StringComparison]::Ordinal) })
+    if (($Old -join [char]0) -cne ($New -join [char]0)) {
+      [pscustomobject]@{ Key = $Name; Change = $(if ($Old.Count -eq 0) { 'added' } elseif ($New.Count -eq 0) { 'removed' } else { 'changed' }) }
+    }
+  }
+}
+
+function Get-TestModulePathState {
+  $Comparison = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+  $Names = @([Environment]::GetEnvironmentVariables('Process').Keys | Where-Object { [string]::Equals($_, 'PSModulePath', $Comparison) })
+  Assert-True ($Names.Count -le 1) 'module path has ambiguous key identity'
+  [pscustomobject]@{ Name = $(if ($Names.Count) { [string]$Names[0] } else { $null }); Value = $env:PSModulePath }
+}
+
+function Restore-TestModulePathState {
+  param($State)
+  # Removing the owned key first lets the native setter restore its exact name.
+  # The PS5.1 environment provider otherwise retains the recreated uppercase key.
+  [Environment]::SetEnvironmentVariable('PSModulePath', [Management.Automation.Language.NullString]::Value, 'Process')
+  if ($null -ne $State.Name) { [Environment]::SetEnvironmentVariable($State.Name, $State.Value, 'Process') }
+}
+
+function Assert-TestModulePathRestoration {
+  $Original = Get-TestModulePathState
+  $Before = Get-ProcessEnvironmentSnapshot
+  try {
+    $Names = @('PSModulePath')
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { $Names += 'PSMODULEPATH' }
+    foreach ($Name in $Names) {
+      Restore-TestModulePathState ([pscustomobject]@{ Name = $Name; Value = 'owned module path fixture' })
+      $State = Get-TestModulePathState
+      $Honest = Get-ProcessEnvironmentSnapshot
+      $env:PSModulePath = ''
+      $Session = [PowerShell]::Create([Management.Automation.Runspaces.InitialSessionState]::CreateDefault2())
+      try {
+        $null = $Session.AddScript('1').Invoke()
+        Assert-True (-not $Session.HadErrors) 'module path runspace initialization failed'
+      } finally { $Session.Dispose() }
+      $env:PSModulePath = $State.Value
+      $Recreated = Get-ProcessEnvironmentSnapshot
+      if ($PSVersionTable.PSVersion.Major -eq 5 -and $Name -ceq 'PSModulePath') {
+        Assert-True (-not (Test-ExactBytesEqual $Honest.Bytes $Recreated.Bytes)) 'old module restoration did not reproduce key drift'
+        $Changes = @(Get-EnvironmentChangedKeys $Honest.Bytes $Recreated.Bytes)
+        Assert-True ($Changes.Count -eq 2 -and $Changes[0].Key -ceq 'PSMODULEPATH' -and $Changes[0].Change -ceq 'added' -and $Changes[1].Key -ceq 'PSModulePath' -and $Changes[1].Change -ceq 'removed') 'module drift diagnostics lost exact key identity'
+      }
+      Restore-TestModulePathState $State
+      Assert-True (Test-ExactBytesEqual $Honest.Bytes (Get-ProcessEnvironmentSnapshot).Bytes) 'module key and value restoration failed'
+    }
+    Restore-TestModulePathState ([pscustomobject]@{ Name = $null; Value = $null })
+    $Absent = Get-TestModulePathState
+    $env:PSModulePath = 'owned module path fixture'
+    Restore-TestModulePathState $Absent
+    Assert-True ($null -eq (Get-TestModulePathState).Name) 'absent module key was fabricated'
+  } finally { Restore-TestModulePathState $Original }
+  Assert-True (Test-ExactBytesEqual $Before.Bytes (Get-ProcessEnvironmentSnapshot).Bytes) 'module restoration probe changed parent environment'
+}
+
 function New-EnvironmentProbe {
   param(
     [char[]] $Characters,
@@ -1291,6 +1358,35 @@ function Assert-PreflightDiagnosticEvidence {
     Assert-True ($Owner.Count -eq 1 -and $Owner[0].Parent -eq $Ast.EndBlock) "workflow diagnostic function owner: $Name"
     . ([scriptblock]::Create($Owner[0].Extent.Text))
   }
+  $NativeSave = ${function:Save-HumPreflightDiagnostics}
+  $Reported = [Collections.Generic.List[object]]::new()
+  $ReportingFailures = [Collections.Generic.List[object]]::new()
+  function Save-HumPreflightDiagnostics {
+    param([string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $Reason)
+    # Production reporting contains per-child PID, timing and digest facts.
+    # Consume those fixture reports here, not in the caller's stable stdout.
+    try { foreach ($Record in @(& $NativeSave $CaptureDirectory $DiagnosticDirectory $Reason 3>&1 6>&1)) {
+      if ($Record -is [Management.Automation.WarningRecord]) {
+        Assert-True ($Record.Message -ceq 'Preflight diagnostic retention failed: preflight diagnostic directory already exists') 'unexpected fixture retention warning'
+      } else {
+        Assert-True ($Record -is [Management.Automation.InformationRecord]) 'unexpected fixture reporting output'
+        $Text = $Record.MessageData.ToString()
+        if ($Text.StartsWith('unaccepted_capture_file=', [StringComparison]::Ordinal)) {
+          $Name = $Text.Substring(24).Split(';')[0]
+          Assert-True ($Name -cin (@($script:HumCaptureFiles) + 'manifest.txt')) 'fixture report named an unowned file'
+          $Identity = Get-HumFileIdentity (Join-Path $DiagnosticDirectory $Name)
+          Assert-True ($Text -ceq "unaccepted_capture_file=$Name;bytes=$($Identity.Bytes);sha256=$($Identity.Sha256)") 'fixture file report differs from retained bytes'
+        } elseif ($Text.StartsWith('unaccepted_capture_record=', [StringComparison]::Ordinal)) {
+          $Name = $Text.Substring(26).Split(';')[0]
+          Assert-True ($Name -cin @('exit.txt','deadline_disposition.txt','termination_disposition.txt','final_active_process_count.txt','capture_error.bin','launch_error.bin')) 'fixture scalar report named an unowned file'
+          Assert-True ($Text -ceq "unaccepted_capture_record=$Name;base64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $DiagnosticDirectory $Name))))") 'fixture scalar report differs from retained bytes'
+        } else {
+          Assert-True ($Text -ceq 'Preflight failed: retaining unaccepted diagnostics, not success evidence.' -or $Text -ceq 'unaccepted_capture_missing=directory' -or $Text -ceq 'unaccepted_capture_missing=completed_utc.txt') 'unexpected fixture diagnostic message'
+        }
+      }
+      $Reported.Add($Record)
+    } } catch { $ReportingFailures.Add($_); throw }
+  }
   $TempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
   $Root = Join-Path $TempRoot ('hum-preflight-diagnostic-test-' + [Guid]::NewGuid().ToString('N'))
   Assert-True (-not (Test-Path -LiteralPath $Root)) 'diagnostic test root already exists'
@@ -1347,7 +1443,7 @@ function Assert-PreflightDiagnosticEvidence {
         if ($null -ne $Failure) { Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'failure.txt')).Contains($Failure.Exception.Message)) 'original failure lost during retention' }
       }
       if ($null -ne $Result -and $null -ne $Result.Pid) { Assert-True ($null -eq (Get-Process -Id $Result.Pid -ErrorAction SilentlyContinue)) 'diagnostic child survived' }
-      Write-Host "ok - preflight diagnostic $Mode"
+      Write-Output "ok - preflight diagnostic $Mode"
     }
     $Missing = Join-Path $Root 'absent-capture'
     $Diagnostics = Join-Path $Root 'missing-diagnostics'
@@ -1365,7 +1461,10 @@ function Assert-PreflightDiagnosticEvidence {
     Save-HumPreflightDiagnostics (Split-Path $Foreign) (Join-Path $Root 'allowlist-diagnostics') 'controlled allowlist probe'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Root 'allowlist-diagnostics/unrelated.txt'))) 'unrelated file collected'
     Assert-True ([Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($Workflow)) -ceq $BeforeWorkflow) 'workflow bytes changed during diagnostics controls'
-    Write-Host 'ok - missing capture, allowlist, original failure, and byte restoration'
+    Assert-True ($ReportingFailures.Count -eq 0) 'fixture reporting validation failed'
+    Assert-True (@($Reported | Where-Object { $_ -is [Management.Automation.InformationRecord] }).Count -gt 0) 'fixture diagnostic reports were not consumed'
+    Assert-True (@($Reported | Where-Object { $_ -is [Management.Automation.WarningRecord] }).Count -eq 1) 'controlled retention warning was not retained exactly once'
+    Write-Output 'ok - missing capture, allowlist, original failure, and byte restoration'
   } finally {
     Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture
     if (Test-Path -LiteralPath $Root) {
@@ -1390,6 +1489,13 @@ function Assert-PreflightOuterLifecycleEvidence {
   $Start = @($Ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$CaptureAuthenticated' })
   Assert-True ($Start.Count -eq 1) 'outer workflow start cardinality'
   $Outer = $Body.Substring($Start[0].Extent.StartOffset)
+  # Route only the workflow's two report sinks into owned byte streams. The
+  # production capture, reads, writes, exceptions and cleanup still execute.
+  foreach ($Stream in @('Output', 'Error')) {
+    $Sink = "[Console]::OpenStandard$Stream()"
+    Assert-True (([regex]::Matches($Outer, [regex]::Escape($Sink))).Count -eq 1) "outer reporting sink owner: $Stream"
+    $Outer = $Outer.Replace($Sink, ('$Fixture' + $Stream))
+  }
   $Before = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($Workflow))
   $Temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
   $Root = Join-Path $Temp ('hum-preflight-outer-test-' + [Guid]::NewGuid().ToString('N'))
@@ -1398,6 +1504,8 @@ function Assert-PreflightOuterLifecycleEvidence {
   $Setup = {
     param($Repository, $CaseRoot, $Mode, $Helpers, $Shell, $TestPath)
     $ErrorActionPreference = 'Stop'
+    $FixtureOutput = [IO.MemoryStream]::new()
+    $FixtureError = [IO.MemoryStream]::new()
     # A fresh session must load its own standard commands, not inherit the
     # parent's module state or rely on ambient module auto-discovery.
     foreach ($Name in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Security')) {
@@ -1472,6 +1580,10 @@ function Assert-PreflightOuterLifecycleEvidence {
         $PowerShell.Commands.Clear()
         try { $null = $PowerShell.AddScript($Outer + [Environment]::NewLine + '$AfterExit = $true').Invoke() } catch { }
         $State = $PowerShell.Runspace.SessionStateProxy
+        $ExpectedOutput = if ($Mode -eq 'primary-and-secondary') { '' } elseif ($Mode -in @('nonzero-and-secondary','nonzero-reporting')) { "EXIT23_STDOUT`n" } else { "CAPTURE_STDOUT`nAll Hum preflight checks passed.`n" }
+        $ExpectedError = if ($Mode -eq 'primary-and-secondary') { '' } elseif ($Mode -in @('nonzero-and-secondary','nonzero-reporting')) { "EXIT23_STDERR`n" } else { "CAPTURE_STDERR`n" }
+        Assert-Bytes ($State.GetVariable('FixtureOutput').ToArray()) ([Text.Encoding]::ASCII.GetBytes($ExpectedOutput)) "owned workflow stdout: $Mode"
+        Assert-Bytes ($State.GetVariable('FixtureError').ToArray()) ([Text.Encoding]::ASCII.GetBytes($ExpectedError)) "owned workflow stderr: $Mode"
         $Failure = $State.GetVariable('PreflightFailure'); $Exit = $State.GetVariable('ExitCode')
         $Directory = $State.GetVariable('CaptureDirectory'); $Diagnostics = $State.GetVariable('DiagnosticDirectory')
         $Isolated = $State.GetVariable('Isolated'); $Warnings = @($PowerShell.Streams.Warning | ForEach-Object Message) -join '|'
@@ -1505,7 +1617,7 @@ function Assert-PreflightOuterLifecycleEvidence {
         $ChildPid = $State.GetVariable('Capture').Pid
         if ($null -eq $ChildPid -and [IO.File]::Exists((Join-Path $Directory 'pid.txt'))) { $ChildPid = [int][IO.File]::ReadAllText((Join-Path $Directory 'pid.txt')) }
         Assert-True ($null -ne $ChildPid -and $null -eq (Get-Process -Id $ChildPid -ErrorAction SilentlyContinue)) "outer workflow child survived: $Mode"
-        Write-Host "ok - actual outer preflight lifecycle $Mode"
+        Write-Output "ok - actual outer preflight lifecycle $Mode"
       } catch {
         $CaseFailure = $_
         throw
@@ -1530,7 +1642,13 @@ function Assert-PreflightOuterLifecycleEvidence {
         } catch {
           if ($null -eq $CaseFailure) { throw }
           Write-Warning "Secondary fixture cleanup failure: $_; stack=$($_.ScriptStackTrace)"
-        } finally { $PowerShell.Dispose() }
+        } finally {
+          foreach ($Name in @('FixtureOutput','FixtureError')) {
+            $Stream = $PowerShell.Runspace.SessionStateProxy.GetVariable($Name)
+            if ($null -ne $Stream) { $Stream.Dispose() }
+          }
+          $PowerShell.Dispose()
+        }
       }
     }
     Assert-True ([Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($Workflow)) -ceq $Before) 'outer workflow source did not restore'
@@ -1551,6 +1669,7 @@ function Assert-PreflightParentCleanupDependencies {
   param([string] $Workflow)
   $BeforeModules = @((Get-Module).Path) -join '|'
   $BeforeModulePath = $env:PSModulePath
+  $BeforeModulePathState = Get-TestModulePathState
   $BeforeAutoLoading = $PSModuleAutoLoadingPreference
   $Definitions = @('Assert-True','Read-Bytes','Assert-Bytes','Get-DiscoveryAst','Assert-PreflightOuterLifecycleEvidence') | ForEach-Object {
     'function ' + $_ + ' {' + (Get-Item -LiteralPath "Function:$_").Definition + '}'
@@ -1592,20 +1711,21 @@ function Assert-PreflightParentCleanupDependencies {
     }
   } finally {
     $Session.Dispose()
-    $env:PSModulePath = $BeforeModulePath
+    Restore-TestModulePathState $BeforeModulePathState
   }
   Assert-True ($env:PSModulePath -ceq $BeforeModulePath -and $PSModuleAutoLoadingPreference -ceq $BeforeAutoLoading) 'parent dependency probe changed module configuration'
   Assert-True ((@((Get-Module).Path) -join '|') -ceq $BeforeModules) 'parent dependency probe changed module inventory'
-  Write-Host 'ok - complete lifecycle with parent hashing unavailable and module discovery disabled'
+  Write-Output 'ok - complete lifecycle with parent hashing unavailable and module discovery disabled'
 }
 
 if ($PreflightDiagnosticsOnly) {
+  Assert-TestModulePathRestoration
   $Workflow = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot -Parent) '.github/workflows/ci.yml'))
   Assert-FullPreflightRepairEvidence $Workflow
   Assert-PreflightDiagnosticEvidence $Workflow
   Assert-PreflightOuterLifecycleEvidence $Workflow
   Assert-PreflightParentCleanupDependencies $Workflow
-  Write-Host 'Focused preflight diagnostics passed.'
+  Write-Output 'Focused preflight diagnostics passed.'
   exit 0
 }
 
@@ -1614,6 +1734,7 @@ if ($ScratchRoot -eq '') {
 }
 Assert-True (-not (Test-Path -LiteralPath $ScratchRoot)) 'scratch root must be absent before test'
 Assert-EnvironmentSnapshotContract
+Assert-TestModulePathRestoration
 $BeforeEnvironment = Get-ProcessEnvironmentSnapshot
 $BeforeDirectory = (Get-Location).Path
 $BeforeConfig = Get-GitConfigurationIdentity
@@ -2056,7 +2177,7 @@ try {
 Assert-True (-not (Test-Path -LiteralPath $ScratchRoot)) 'scratch root cleanup'
 Assert-True ((Get-Location).Path -eq $BeforeDirectory) 'current directory changed'
 $AfterEnvironment = Get-ProcessEnvironmentSnapshot
-Assert-True (Test-ExactBytesEqual $BeforeEnvironment.Bytes $AfterEnvironment.Bytes) 'parent environment changed'
+Assert-True (Test-ExactBytesEqual $BeforeEnvironment.Bytes $AfterEnvironment.Bytes) ('parent environment changed; keys=' + (ConvertTo-Json -Compress -InputObject @(Get-EnvironmentChangedKeys $BeforeEnvironment.Bytes $AfterEnvironment.Bytes)))
 $AfterConfig = Get-GitConfigurationIdentity
 Assert-True ($AfterConfig -eq $BeforeConfig) 'local/global/system Git configuration changed'
 Write-Output "Fast evidence capture tests passed for $ShellContract."
