@@ -1283,7 +1283,10 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
   $SummaryMatches=[regex]::Matches($Normalized,'(?ms)^      - name: Generate evidence summary'+$Lf+'.*?(?=^      - name: )')
   if($SummaryMatches.Count-ne1){throw 'Unit B summary workflow step cardinality drifted'}
   $SummaryStep=$SummaryMatches[0].Value
-  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'ec5e43f72fe0340d2f610be6f50d7dd83d3df6c1fc46fb4f23cf32b9ddefdebc'){throw 'Unit B full-preflight workflow positive closure drifted'}
+  $UploadMatches=[regex]::Matches($Normalized,'(?ms)^      - name: Upload failed preflight diagnostics'+$Lf+'.*?(?=^      - name: )')
+  if($UploadMatches.Count-ne1-or$UploadMatches[0].Index-ne($Matches[0].Index+$Matches[0].Length)){throw 'Unit B failure-diagnostics upload ownership drifted'}
+  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($UploadMatches[0].Value)))-cne'2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa'){throw 'Unit B failure-diagnostics upload positive closure drifted'}
+  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'e9a2b9c13fb7953f329404d0eaac97fd72748b7ca74cc6026260628fb6297d28'){throw 'Unit B full-preflight workflow positive closure drifted'}
   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($SummaryStep)))-cne'9312f36e7f0ba2acbccec56575cab1ca836af9ae4b46e1e45205acc2073a2091'){throw 'Unit B summary workflow positive closure drifted'}
   $Required=@(
     '$RustcStart.RedirectStandardOutput = $true',
@@ -1304,14 +1307,18 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
     '$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"',
     'cargo build -p hum-dev',
     '$Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP ''target''',
-    'Assert-HumIsolatedExecutable $Isolated -RequireSource',
-    '$Capture = Invoke-HumBinaryCapture $Isolated.Executable @(''evidence'',''full'',''--pwsh'',$Pwsh)',
+    '$Capture = Invoke-HumBinaryCapture $Executable $Arguments $WorkingDirectory $CaptureDirectory $DeadlineSeconds',
     '$Capture = Assert-HumCaptureComplete $Capture',
+    'try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason }',
+    'Assert-HumIsolatedExecutable $Isolated -RequireSource',
+    '$Capture = Invoke-HumPreflightCapture $Isolated.Executable @(''evidence'',''full'',''--pwsh'',$Pwsh)',
     '$OutputBytes = [IO.File]::ReadAllBytes($Output)',
     '$ErrorBytes = [IO.File]::ReadAllBytes($ErrorOutput)',
-    'if ($ExitCode -ne 0) { exit $ExitCode }',
-    'if ($CaptureAuthenticated) { Remove-HumCaptureAfterAuthentication $CaptureDirectory }',
-    'Remove-HumIsolatedExecutable $Isolated'
+    'Remove-HumIsolatedExecutable $Isolated',
+    'Remove-HumCaptureAfterAuthentication $CaptureDirectory',
+    'Final preflight diagnostic retention also failed:',
+    'if ($null -ne $PreflightFailure) { throw $PreflightFailure }',
+    'if ($ExitCode -ne 0) { exit $ExitCode }'
   )
   $Prior=-1
   foreach($Needle in $Required){$Found=@([regex]::Matches($Step,[regex]::Escape($Needle)));if($Found.Count-ne1){throw "Unit B full-preflight workflow owned construct cardinality drifted: $Needle"};if($Found[0].Index-le$Prior){throw "Unit B full-preflight workflow owned dataflow reordered: $Needle"};$Prior=$Found[0].Index}
@@ -1330,6 +1337,11 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
     $Duplicate=$Normalized.Insert($Matches[0].Index+$Matches[0].Length,$Step)
     $DuplicateFailure=$null;try{Assert-Wo25UnitBFullPreflightWorkflowRoute -Workflow $Duplicate -SkipCorruptionControl}catch{$DuplicateFailure=$_}
     if($null -eq $DuplicateFailure -or -not $DuplicateFailure.Exception.Message.StartsWith('Unit B full-preflight workflow',[StringComparison]::Ordinal)){throw 'Unit B duplicated full-preflight workflow route stayed green'}
+    foreach($Line in @($UploadMatches[0].Value.Split($Lf)|Where-Object{-not[string]::IsNullOrWhiteSpace($_)})){
+      $Corrupt=$Normalized.Remove($UploadMatches[0].Index+$UploadMatches[0].Value.IndexOf($Line,[StringComparison]::Ordinal),$Line.Length)
+      $Failure=$null;try{Assert-Wo25UnitBFullPreflightWorkflowRoute $Corrupt -SkipCorruptionControl}catch{$Failure=$_}
+      if($null-eq$Failure){throw "Unit B failure-diagnostics upload weakening accepted: $Line"}
+    }
     if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Workflow))) -cne $OriginalHash){throw 'Unit B workflow-route corruption controls did not restore exact source bytes'}
     Write-Host "ok - Unit B full-preflight workflow route and $($Required.Count + 1) corruptions authenticated"
   }
@@ -1408,7 +1420,7 @@ function Assert-Wo25UnitBTransportContract {
     T01='actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a';T02='actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c';T03='hum-dev-executable-transport-v1-';T04='artifact_id=$($Fields[0])';T05='status executable GitHub digest mismatch';T06='status executable byte hash mismatch';T07='status executable raw-archive entry count mismatch';T08='status executable archive traversal mismatch';T09='status executable archive entry is not regular';T10='status executable artifact cardinality mismatch';T11='if ($Match.Count -ne 1)';T12='$Fields[3] -cne ''false''';T14='status executable bit missing';T15='status executable descendants survived';T16='status executable bootstrap cleanup failed'
   }
   foreach($Entry in $WorkflowPredicates.GetEnumerator()){if(([regex]::Matches($Workflow,[regex]::Escape($Entry.Value))).Count -lt 1){throw "Unit B $($Entry.Key) workflow predicate missing: $($Entry.Value)"}}
-  foreach($Literal in @('overwrite: false','retention-days: 14','if-no-files-found: error','include-hidden-files: false')){if(([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count -ne 2){throw "Unit B upload configuration drifted: $Literal"}}
+  foreach($Literal in @('overwrite: false','retention-days: 14','if-no-files-found: error','include-hidden-files: false')){if(([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count -ne 3){throw "Unit B upload configuration drifted: $Literal"}}
   foreach($Literal in @('repository: ${{ github.repository }}','run-id: ${{ steps.classify.outputs.run_id }}','github-token: ${{ github.token }}','skip-decompress: true','digest-mismatch: error')){if(([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count -ne 1){throw "Unit B download configuration drifted: $Literal"}}
   $Status=[IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/hum-dev/src/status.rs'));foreach($Forbidden in @('"--log"','call.contains("cargo")','"rustc"','"check_all"','"workflow run"','"local-copy"','running executable and producer summary disagree')){if(-not $Status.Contains($Forbidden)){throw "Unit B status sentinel missing: $Forbidden"}}
 }

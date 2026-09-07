@@ -158,14 +158,66 @@ jobs:
           $StartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
           $Frequency = [Diagnostics.Stopwatch]::Frequency
           $CaptureDirectory = Join-Path $env:RUNNER_TEMP ('hum-full-capture-' + [Guid]::NewGuid().ToString('N'))
+          $DiagnosticDirectory = Join-Path $env:RUNNER_TEMP ('hum-preflight-diagnostics-' + [Guid]::NewGuid().ToString('N'))
+          "failure_capture=$DiagnosticDirectory" >> $env:GITHUB_OUTPUT
           $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
           . ./tools/run_fast_evidence.ps1
           $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+          function Save-HumPreflightDiagnostics {
+            param([string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $Reason)
+            try {
+              if (Test-Path -LiteralPath $DiagnosticDirectory) { throw 'preflight diagnostic directory already exists' }
+              $null = [IO.Directory]::CreateDirectory($DiagnosticDirectory)
+              Set-HumDurableText (Join-Path $DiagnosticDirectory 'diagnostic_status.txt') 'unaccepted_diagnostics;not_success_evidence;capture_may_be_partial'
+              Set-HumDurableText (Join-Path $DiagnosticDirectory 'failure.txt') $Reason
+              Write-Host 'Preflight failed: retaining unaccepted diagnostics, not success evidence.'
+              if (Test-Path -LiteralPath $CaptureDirectory) {
+                $Root = Get-Item -LiteralPath $CaptureDirectory -Force
+                if (-not $Root.PSIsContainer -or ($Root.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'preflight diagnostic capture root is not an ordinary directory' }
+                foreach ($Name in @($script:HumCaptureFiles) + 'manifest.txt') {
+                  $Source = Join-Path $CaptureDirectory $Name
+                  if (-not (Test-Path -LiteralPath $Source)) { Write-Host "unaccepted_capture_missing=$Name"; continue }
+                  try {
+                    $Item = Get-Item -LiteralPath $Source -Force
+                    if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'capture entry is not an ordinary file' }
+                    $Before = Get-HumFileIdentity $Source
+                    $Destination = Join-Path $DiagnosticDirectory $Name
+                    [IO.File]::Copy($Source, $Destination, $false)
+                    $After = Get-HumFileIdentity $Destination
+                    if ($Before.Bytes -ne $After.Bytes -or $Before.Sha256 -cne $After.Sha256) { throw 'diagnostic copy identity differs' }
+                    Write-Host "unaccepted_capture_file=$Name;bytes=$($After.Bytes);sha256=$($After.Sha256)"
+                    if ($Name -in @('exit.txt','deadline_disposition.txt','termination_disposition.txt','final_active_process_count.txt','capture_error.bin','launch_error.bin')) {
+                      Write-Host "unaccepted_capture_record=$Name;base64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes($Destination)))"
+                    }
+                  } catch { Write-Warning "unaccepted capture entry unavailable: $Name; $($_.Exception.Message)" -WarningAction Continue }
+                }
+              } else { Write-Host 'unaccepted_capture_missing=directory' }
+            } catch { Write-Warning "Preflight diagnostic retention failed: $($_.Exception.Message)" -WarningAction Continue }
+          }
+          function Invoke-HumPreflightCapture {
+            param([string] $Executable, [string[]] $Arguments, [string] $WorkingDirectory,
+              [string] $CaptureDirectory, [string] $DiagnosticDirectory, [int] $DeadlineSeconds)
+            $Capture = $null
+            $Failure = $null
+            try {
+              $Capture = Invoke-HumBinaryCapture $Executable $Arguments $WorkingDirectory $CaptureDirectory $DeadlineSeconds -CaseName 'ci-full-preflight'
+              $Capture = Assert-HumCaptureComplete $Capture
+            } catch { $Failure = $_ }
+            if ($null -ne $Failure -or $Capture.ExitCode -ne 0 -or $Capture.TimedOut) {
+              $Reason = if ($null -ne $Failure) { $Failure.ToString() } else { "child_exit=$($Capture.ExitCode);timed_out=$($Capture.TimedOut)" }
+              try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason }
+              catch { Write-Warning "Preflight diagnostic retention also failed: $($_.Exception.Message)" -WarningAction Continue }
+            }
+            if ($null -ne $Failure) { throw $Failure }
+            if ($Capture.TimedOut -and $Capture.ExitCode -eq 0) { throw 'preflight capture exceeded its deadline despite zero primary exit' }
+            $Capture
+          }
           $CaptureAuthenticated = $false
+          $PreflightFailure = $null
+          $ExitCode = 1
           try {
             Assert-HumIsolatedExecutable $Isolated -RequireSource
-            $Capture = Invoke-HumBinaryCapture $Isolated.Executable @('evidence','full','--pwsh',$Pwsh) (Get-Location).Path $CaptureDirectory 900 -CaseName 'ci-full-preflight'
-            $Capture = Assert-HumCaptureComplete $Capture
+            $Capture = Invoke-HumPreflightCapture $Isolated.Executable @('evidence','full','--pwsh',$Pwsh) (Get-Location).Path $CaptureDirectory $DiagnosticDirectory 3000
             $CaptureAuthenticated = $true
             $Output = $Capture.StdoutPath
             $ErrorOutput = $Capture.StderrPath
@@ -185,11 +237,45 @@ jobs:
             try { "event_sha256=$( -join ($Sha.ComputeHash($OutputBytes + $ErrorBytes) | ForEach-Object ToString x2) )" >> $env:GITHUB_OUTPUT } finally { $Sha.Dispose() }
             "receipt=$env:HUM_EVIDENCE_RECEIPT" >> $env:GITHUB_OUTPUT
             "toolchain=$env:HUM_BUILD_TOOLCHAIN" >> $env:GITHUB_OUTPUT
-            if ($ExitCode -ne 0) { exit $ExitCode }
+          } catch {
+            if ($CaptureAuthenticated -and $ExitCode -ne 0) { Write-Warning "Preflight reporting also failed: $($_.Exception.Message)" -WarningAction Continue }
+            else { $PreflightFailure = $_ }
           } finally {
-            if ($CaptureAuthenticated) { Remove-HumCaptureAfterAuthentication $CaptureDirectory }
-            Remove-HumIsolatedExecutable $Isolated
+            try {
+              try { Remove-HumIsolatedExecutable $Isolated } catch {
+                if ($null -eq $PreflightFailure -and $ExitCode -eq 0) { $PreflightFailure = $_ }
+                else { Write-Warning "Isolated executable cleanup also failed: $($_.Exception.Message)" -WarningAction Continue }
+              }
+              try {
+                if ($null -eq $PreflightFailure -and $CaptureAuthenticated -and $ExitCode -eq 0 -and -not $Capture.TimedOut) { Remove-HumCaptureAfterAuthentication $CaptureDirectory }
+              } catch {
+                if ($null -eq $PreflightFailure -and $ExitCode -eq 0) { $PreflightFailure = $_ }
+                else { Write-Warning "Preflight cleanup also failed: $($_.Exception.Message)" -WarningAction Continue }
+              }
+            } finally {
+              if ($null -ne $PreflightFailure -or $ExitCode -ne 0) {
+                try {
+                  if (-not (Test-Path -LiteralPath $DiagnosticDirectory)) {
+                    $Reason = if ($null -ne $PreflightFailure) { $PreflightFailure.ToString() } else { "child_exit=$ExitCode" }
+                    Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason
+                  }
+                } catch { Write-Warning "Final preflight diagnostic retention also failed: $($_.Exception.Message)" -WarningAction Continue }
+              }
+            }
           }
+          if ($null -ne $PreflightFailure) { throw $PreflightFailure }
+          if ($ExitCode -ne 0) { exit $ExitCode }
+
+      - name: Upload failed preflight diagnostics
+        if: failure() && steps.full_preflight.outcome == 'failure' && steps.full_preflight.outputs.failure_capture != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-preflight-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}
+          path: ${{ steps.full_preflight.outputs.failure_capture }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
 
       - name: Run exhaustive canonical-seal evidence
         if: steps.classify.outputs.mode != 'fast' && matrix.os == 'ubuntu-latest'
