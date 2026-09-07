@@ -7,14 +7,15 @@ mod status;
 mod summary;
 mod workorder;
 
-use std::ffi::OsString;
 use std::{
     ffi::OsStr,
     fs,
     io::{self, Write},
     path::Path,
-    process::{Command as ProcessCommand, ExitCode, Output},
+    process::{ExitCode, Output},
 };
+#[cfg(windows)]
+use std::{ffi::OsString, process::Command as ProcessCommand};
 
 use cleanup::OwnedResource;
 use command::{Command, EvidenceProfile, MessageInput, legacy_invocation};
@@ -27,6 +28,7 @@ fn fail(message: impl std::fmt::Display) -> ExitCode {
     ExitCode::from(2)
 }
 
+#[cfg(windows)]
 #[rustfmt::skip]
 fn clean_stdout(program: &shell::ExecutableBinding, args: &[&str], env: &[(&str, OsString)]) -> Result<String, String> {
     program.reauthenticate()?; let label = program.predicate();

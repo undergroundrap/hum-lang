@@ -1,11 +1,12 @@
-use std::{
-    ffi::OsStr,
-    path::{Path, PathBuf},
-};
-
 #[cfg(windows)]
-use crate::shell::{ExecutableBinding, fixed_system_command, known_folder, same_ordinary_file};
-use crate::shell::{ShellEnvironment, ordinary_file};
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+
+use crate::shell::ShellEnvironment;
+#[cfg(windows)]
+use crate::shell::{
+    ExecutableBinding, fixed_system_command, known_folder, ordinary_file, same_ordinary_file,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvidenceProfile {
@@ -104,7 +105,9 @@ pub fn legacy_invocation(profile: EvidenceProfile) -> LegacyInvocation {
 
 #[rustfmt::skip]
 pub(crate) fn production_environment(repository: &Path) -> Result<ShellEnvironment, String> {
-    let mut env = ShellEnvironment::from_process(repository)?;
+    let env = ShellEnvironment::from_process(repository)?;
+    #[cfg(windows)]
+    let mut env = env;
     #[cfg(windows)]
     {
         const TOOLS: &str = "INCLUDE,LIB,LIBPATH,VCINSTALLDIR,VCToolsInstallDir,VSCMD_ARG_HOST_ARCH,VSCMD_ARG_TGT_ARCH,WindowsSdkDir,WindowsSDKVersion,PATH";
