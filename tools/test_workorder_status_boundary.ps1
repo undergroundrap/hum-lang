@@ -703,11 +703,28 @@ function Set-BothSnapshots {
 
 function Assert-ProductionSeamIsClosed {
   $GitApplications = @(Get-Command git -CommandType Application -All -ErrorAction Stop)
-  Assert-BoundaryTest ($GitApplications.Count -ge 2) 'effective Git identity control requires two installed applications'
+  Assert-BoundaryTest ($GitApplications.Count -ge 1) 'effective Git identity control requires an installed application'
   $FirstGit = [IO.Path]::GetFullPath([string]$GitApplications[0].Source)
-  $LastGit = [IO.Path]::GetFullPath([string]$GitApplications[-1].Source)
   Assert-BoundaryTest ((Resolve-BoundaryGitApplications $GitApplications) -ceq $FirstGit) 'effective Git identity did not select the first PATH application'
-  Assert-BoundaryTest ((Resolve-BoundaryGitApplications @($GitApplications[-1], $GitApplications[0])) -ceq $LastGit) 'swapping Git applications did not change effective identity'
+  $SyntheticGit = @(
+    [pscustomobject]@{ Source = $FirstGit },
+    [pscustomobject]@{ Source = [IO.Path]::GetFullPath($ClassifierPath) }
+  )
+  Assert-BoundaryTest ((Resolve-BoundaryGitApplications $SyntheticGit) -ceq $SyntheticGit[0].Source) 'synthetic Git applications did not select the first identity'
+  Assert-BoundaryTest ((Resolve-BoundaryGitApplications @($SyntheticGit[1], $SyntheticGit[0])) -ceq $SyntheticGit[1].Source) 'swapping synthetic Git applications did not change effective identity'
+  Assert-BoundaryTest ((Resolve-BoundaryGitApplications @($SyntheticGit[0], $SyntheticGit[0], $SyntheticGit[1])) -ceq $SyntheticGit[0].Source) 'duplicate synthetic Git applications changed effective identity'
+  foreach ($InvalidGit in @(
+    [pscustomobject]@{ Source = 'git.exe' },
+    [pscustomobject]@{ Source = (Join-Path $TestRoot 'missing-git.exe') },
+    [pscustomobject]@{ Source = $TestRoot }
+  )) {
+    $Rejected = $false
+    try { Resolve-BoundaryGitApplications @($InvalidGit, $SyntheticGit[0]) | Out-Null } catch { $Rejected = $_.Exception.Message -ceq 'workorder-boundary:git_identity_invalid' }
+    Assert-BoundaryTest $Rejected "invalid first Git application was rescued by a later candidate: $($InvalidGit.Source)"
+  }
+  $Rejected = $false
+  try { Resolve-BoundaryGitApplications @() | Out-Null } catch { $Rejected = $_.Exception.Message -ceq 'workorder-boundary:git_unavailable' }
+  Assert-BoundaryTest $Rejected 'empty synthetic Git application list was accepted'
   foreach ($InvalidGit in @(
     [pscustomobject]@{ Source = 'git.exe' },
     [pscustomobject]@{ Source = (Join-Path $TestRoot 'missing-git.exe') },

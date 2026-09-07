@@ -1324,18 +1324,31 @@ Assert-ContainmentWeakeningRejected 'SingleAbsoluteDeadline' $false
 Assert-ContainmentWeakeningRejected 'TerminationCount' 2
 Assert-ContainmentWeakeningRejected 'DescendantAbsence' $false
 Assert-ContainmentWeakeningRejected 'PersistedFacts' $false
-$MemberA = New-DescendantMember 101 638000000000000001 1 4096 ('a' * 64) 'QzpcYmluXGFwcC5leGU'
-$MemberB = New-DescendantMember 202 638000000000000002 0 8192 ('b' * 64) 'QzpcYmluXGNoaWxkLmV4ZQ'
-$One = "terminated_quiescent;pretermination=members;active=1;member=$MemberA"
-$Many = "terminated_quiescent;pretermination=members;active=2;member=$MemberA|$MemberB"
-foreach ($Record in @('quiescent', 'terminated_quiescent;pretermination=quiescent_race', $One, $Many)) { Assert-HumFinalDescendantTree $Record }
-Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=2;member=$MemberB|$MemberA" 'ordering'
-Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=2;member=$MemberA|$MemberA" 'duplicate'
-Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=3;member=$MemberA|$MemberB" 'count'
-Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=101,0,1,4096,$('a' * 64),QzpcYmluXGFwcC5leGU" 'generation'
-Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=101,638000000000000001,1,4096,$('a' * 64)," 'image'
-Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=101,638000000000000001,1,4096,$('a' * 63),QzpcYmluXGFwcC5leGU" 'image-hash'
-Assert-DescendantRecordRejected ($Many.Substring(0, $Many.Length - 1)) 'truncation'
+$OriginalHostIsWindows = $script:HumHostIsWindows
+try {
+  Assert-True ($OriginalHostIsWindows -eq ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT)) 'descendant validator platform differs from the native host'
+  $FirstImage = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'app.exe'))
+  $SecondImage = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'child.exe'))
+  $MemberA = New-DescendantMember 101 638000000000000001 1 4096 ('a' * 64) (ConvertTo-HumDescendantPathToken $FirstImage)
+  $MemberB = New-DescendantMember 202 638000000000000002 0 8192 ('b' * 64) (ConvertTo-HumDescendantPathToken $SecondImage)
+  $One = "terminated_quiescent;pretermination=members;active=1;member=$MemberA"
+  $Many = "terminated_quiescent;pretermination=members;active=2;member=$MemberA|$MemberB"
+  foreach ($Record in @('quiescent', 'terminated_quiescent;pretermination=quiescent_race', $One, $Many)) { Assert-HumFinalDescendantTree $Record }
+  $InvalidImages = @('relative/app.exe', $(if ($OriginalHostIsWindows) { [IO.Path]::Combine($PSScriptRoot, '..', 'app.exe') } else { 'C:\bin\app.exe' }))
+  foreach ($InvalidImage in $InvalidImages) {
+    $InvalidMember = New-DescendantMember 101 638000000000000001 1 4096 ('a' * 64) (ConvertTo-HumDescendantPathToken $InvalidImage)
+    Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=$InvalidMember" 'nonabsolute or noncanonical native path'
+  }
+  Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=2;member=$MemberB|$MemberA" 'ordering'
+  Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=2;member=$MemberA|$MemberA" 'duplicate'
+  Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=3;member=$MemberA|$MemberB" 'count'
+  Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=101,0,1,4096,$('a' * 64),$(ConvertTo-HumDescendantPathToken $FirstImage)" 'generation'
+  Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=101,638000000000000001,1,4096,$('a' * 64)," 'image'
+  Assert-DescendantRecordRejected "terminated_quiescent;pretermination=members;active=1;member=101,638000000000000001,1,4096,$('a' * 63),$(ConvertTo-HumDescendantPathToken $FirstImage)" 'image-hash'
+  Assert-DescendantRecordRejected ($Many.Substring(0, $Many.Length - 1)) 'truncation'
+} finally {
+  $script:HumHostIsWindows = $OriginalHostIsWindows
+}
 $CreatedPids = New-Object System.Collections.Generic.List[int]
 $ValidCaptures = New-Object System.Collections.Generic.List[object]
 
