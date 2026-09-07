@@ -155,8 +155,14 @@ impl ExecutableBinding {
     pub(crate) fn reauthenticate(&self) -> Result<(), String> {
         ordinary_file(&self.path, self.predicate)?; let identity = stable_file_identity(&self.path)?; let bytes = fs::read(&self.path).map_err(|e| format!("{}: {e}", self.predicate))?;
         if bytes.len() != self.length { return Err(format!("{}: size changed before launch", self.predicate)); } else if identity != self.identity || stable_file_identity(&self.path)? != identity { return Err(format!("{}: file identity changed before launch", self.predicate)); } else if hum_sha256::digest_hex(&bytes) != self.sha256 { return Err(format!("{}: digest changed before launch", self.predicate)); } Ok(()) }
-    pub(crate) fn path(&self) -> &Path { &self.path } pub(crate) fn predicate(&self) -> &str { self.predicate } pub(crate) fn sha256(&self) -> &str { &self.sha256 } pub(crate) fn command(&self) -> Result<Command,String> { self.reauthenticate()?; Ok(Command::new(&self.path)) }
+    #[cfg(windows)]
+    pub(crate) fn path(&self) -> &Path { &self.path }
+    #[cfg(windows)]
+    pub(crate) fn predicate(&self) -> &str { self.predicate }
+    pub(crate) fn sha256(&self) -> &str { &self.sha256 }
+    pub(crate) fn command(&self) -> Result<Command,String> { self.reauthenticate()?; Ok(Command::new(&self.path)) }
 }
+#[cfg(any(windows, test))]
 pub(crate) fn same_ordinary_file(left: &Path, right: &Path) -> Result<bool, String> {
     ordinary_file(left, "windows_linker")?;
     ordinary_file(right, "windows_linker")?;
@@ -181,6 +187,7 @@ pub(crate) fn stable_file_identity(path: &Path) -> Result<String, String> {
     }
 }
 
+#[cfg(any(windows, test))]
 fn ordinary_windows_attributes(attributes: u32, links: u32) -> bool {
     attributes & 0x400 == 0 && links == 1
 }
