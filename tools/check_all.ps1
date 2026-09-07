@@ -1498,7 +1498,41 @@ function Assert-Wo25UnitCIsolationContract {
     if([IO.Directory]::Exists($HardRoot)-or[IO.File]::Exists($HardSource)-or[IO.File]::Exists($HardLink)){throw 'Unit C hard-link fixture preexisted'};[void][IO.Directory]::CreateDirectory($HardRoot);$Parent=Get-Item -LiteralPath $HardRoot -Force;if(-not$Parent.PSIsContainer-or($Parent.Attributes-band[IO.FileAttributes]::ReparsePoint)-or[IO.Path]::GetPathRoot($HardSource)-cne[IO.Path]::GetPathRoot($HardLink)){throw 'Unit C hard-link fixture parent identity failed'}
     [IO.File]::Copy($Record.Executable,$HardSource,$false);$null=New-Item -ItemType HardLink -Path $HardLink -Target $HardSource -ErrorAction Stop;$A=Get-Item -LiteralPath $HardSource -Force;$B=Get-Item -LiteralPath $HardLink -Force;if($A.PSIsContainer-or$B.PSIsContainer-or($A.Attributes-band[IO.FileAttributes]::ReparsePoint)-or($B.Attributes-band[IO.FileAttributes]::ReparsePoint)-or$A.LinkType-cne'HardLink'-or$B.LinkType-cne'HardLink'-or$A.Length-ne$B.Length-or(Get-FileHash $HardSource -Algorithm SHA256).Hash-cne(Get-FileHash $HardLink -Algorithm SHA256).Hash){throw 'Unit C genuine hard-link identity failed'}
     &$Reject 'noncanonical_hard_link_source' '*canonical Cargo executable path identity failed*' {New-HumIsolatedExecutable $HardLink $HardRoot (Join-Path $RepoRoot 'target')};Remove-Item -LiteralPath $Record.Executable -Force;$null=New-Item -ItemType HardLink -Path $Record.Executable -Target $HardSource -ErrorAction Stop;&$Reject 'hard_link_destination' '*ordinary non-linked file*' {Assert-HumIsolatedExecutable $Record};Remove-Item -LiteralPath $Record.Executable -Force
-    $null=New-Item -ItemType HardLink -Path $Record.Executable -Target $Record.Source -ErrorAction Stop;&$Reject 'source_alias_destination' '*aliases canonical source*' {Assert-HumIsolatedExecutable $Record};Remove-Item -LiteralPath $Record.Executable -Force;[IO.File]::Copy($Record.Source,$Record.Executable,$false);$Record.ExecutableFileIdentity=(Get-HumExecutableIdentity $Record.Executable).FileIdentity
+    $AliasRecord = $null
+    $SourceBefore = Get-HumExecutableIdentity $Record.Source -AllowHardLinks
+    try {
+      $SourceFilesystemRoot = [IO.Directory]::GetParent($Record.TargetRoot).FullName
+      $AliasRecord = New-HumIsolatedExecutable $Record.Source $SourceFilesystemRoot $Record.TargetRoot
+      $AliasCopy = Get-HumExecutableIdentity $AliasRecord.Executable
+      if (($AliasCopy.FileIdentity.Split(':'))[0] -cne ($SourceBefore.FileIdentity.Split(':'))[0]) {
+        throw 'Unit C source-alias fixture must share the canonical source filesystem'
+      }
+      Remove-Item -LiteralPath $AliasRecord.Executable -Force
+      $null = New-Item -ItemType HardLink -Path $AliasRecord.Executable -Target $Record.Source -ErrorAction Stop
+      $Alias = Get-HumExecutableIdentity $AliasRecord.Executable -AllowHardLinks
+      $LinkedSource = Get-HumExecutableIdentity $Record.Source -AllowHardLinks
+      if ($Alias.FileIdentity -cne $SourceBefore.FileIdentity -or $LinkedSource.FileIdentity -cne $Alias.FileIdentity -or
+          $Alias.Links -ne ($SourceBefore.Links + 1) -or $LinkedSource.Links -ne $Alias.Links -or
+          $Alias.Bytes -ne $SourceBefore.Bytes -or $Alias.Sha256 -cne $SourceBefore.Sha256) {
+        throw 'Unit C source-alias fixture is not a genuine unchanged canonical hard link'
+      }
+      &$Reject 'source_alias_destination' '*aliases canonical source*' { Assert-HumIsolatedExecutable $AliasRecord }
+    } finally {
+      if ($null -ne $AliasRecord) {
+        if ([IO.File]::Exists($AliasRecord.Executable)) { Remove-Item -LiteralPath $AliasRecord.Executable -Force }
+        if ([IO.Directory]::Exists($AliasRecord.Directory)) { Remove-Item -LiteralPath $AliasRecord.Directory -Force }
+        if ([IO.File]::Exists($AliasRecord.Executable) -or [IO.Directory]::Exists($AliasRecord.Directory)) {
+          throw 'Unit C source-alias fixture cleanup failed'
+        }
+      }
+      $SourceAfter = Get-HumExecutableIdentity $Record.Source -AllowHardLinks
+      if ($SourceAfter.FileIdentity -cne $SourceBefore.FileIdentity -or $SourceAfter.Links -ne $SourceBefore.Links -or
+          $SourceAfter.Bytes -ne $SourceBefore.Bytes -or $SourceAfter.Sha256 -cne $SourceBefore.Sha256) {
+        throw 'Unit C canonical source changed during source-alias fixture'
+      }
+    }
+    Write-Host 'ok - same-filesystem canonical hard-link alias rejected and removed; source identity and bytes preserved'
+    [IO.File]::Copy($Record.Source,$Record.Executable,$false);$Record.ExecutableFileIdentity=(Get-HumExecutableIdentity $Record.Executable).FileIdentity
     $Reparse='($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)';if(-not$Launcher.Contains($Reparse)-or$Launcher.Replace($Reparse,'').Contains($Reparse)){throw 'Unit C isolated destination reparse ownership drifted'}
     $TreeCases=[ordered]@{exact=$Record.TargetRoot;direct=(Join-Path $Record.TargetRoot 'direct');deep=(Join-Path $Record.TargetRoot 'direct/deep')};if($script:HumHostIsWindows){$TreeCases.case_variant=$Record.TargetRoot.ToUpperInvariant()};foreach($Case in $TreeCases.GetEnumerator()){$Wrong=[pscustomobject]@{Source=$Record.Source;Executable=$Record.Source;Directory=$Case.Value;TargetRoot=$Record.TargetRoot;Bytes=$Record.Bytes;Sha256=$Record.Sha256};$Failure=$null;try{Assert-HumIsolatedExecutable $Wrong}catch{$Failure=$_.Exception.Message};if($Failure-cne'target-tree directory identity'){throw "Unit C target-tree $($Case.Key) disposition drifted: $Failure"}}
     $Wrong.Directory=$Record.TargetRoot+'-outside';$Failure=$null;try{Assert-HumIsolatedExecutable $Wrong}catch{$Failure=$_.Exception.Message};if($Failure-ceq'target-tree directory identity'){throw 'Unit C prefix-similar outside directory was classified inside target'}
