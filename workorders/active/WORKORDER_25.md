@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 <!-- hum-active-workorder:v1 -->
-Status: UNITS A-B ARE TERMINAL-GREEN, AND UNIT C IMPLEMENTATION IS PUBLISHED AT `3690f4db86bf6a6f8f39673844af2bf1ca304a19`; CI RUN `33575631643` IS TERMINAL-RED AT UBUNTU POWERSHELL DISCOVERY. THE FOUR-PATH RED-MAIN REPAIR REMAINS UNCOMMITTED AND PAUSED WHILE THIS DISCOVERY-AUDIT BUDGET AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. IF AND ONLY IF THE AMENDMENT RECEIVES AN UNQUALIFIED ACCEPT, THE ONLY NEXT ACTION IS A SEPARATELY AUTHORIZED LOCAL WORK-ORDER-ONLY COMMIT `docs(workorder): fund unit c discovery audit`. PUBLICATION, REPAIR RESUMPTION, CI RERUN, AND UNIT D-E WORK REMAIN UNAUTHORIZED.
+Status: HISTORICAL BRANCH SNAPSHOT; SEE THE DATED BDFL RULING IN THE CURRENT AUTHORIZATION GATE BELOW. UNITS A-B ARE TERMINAL-GREEN, AND UNIT C IMPLEMENTATION IS PUBLISHED AT `3690f4db86bf6a6f8f39673844af2bf1ca304a19`; CI RUN `33575631643` IS TERMINAL-RED AT UBUNTU POWERSHELL DISCOVERY. THE FOUR-PATH RED-MAIN REPAIR REMAINS UNCOMMITTED AND PAUSED WHILE THIS DISCOVERY-AUDIT BUDGET AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. IF AND ONLY IF THE AMENDMENT RECEIVES AN UNQUALIFIED ACCEPT, THE ONLY NEXT ACTION IS A SEPARATELY AUTHORIZED LOCAL WORK-ORDER-ONLY COMMIT `docs(workorder): fund unit c discovery audit`. PUBLICATION, REPAIR RESUMPTION, CI RERUN, AND UNIT D-E WORK REMAIN UNAUTHORIZED.
 
 WO25 Unit A remains implemented, published, status-recorded, synchronized,
 terminal-green, complete, and closed. Unit B's satisfiability amendment is
@@ -1459,6 +1459,12 @@ artifact action, artifact upload/download, archive code, or stash operation.
 
 ## Current authorization gate
 
+### Historical branch gate snapshot
+
+The following pre-existing gate is retained as historical branch state, not
+current authorization. The dated ruling below records only the isolated
+exception; it does not reconcile later tooling history or change unit requirements.
+
 WO25 Units A-B remain complete and terminal-green. Unit C implementation is
 published at `3690f4db86bf6a6f8f39673844af2bf1ca304a19`; CI run
 `33575631643` is terminal-red at Ubuntu PowerShell discovery. The four-path
@@ -1482,5 +1488,34 @@ production smoke, CI rerun, full Unit C review or repair commit, and Units D-E
 remain separately unauthorized. Successor or language work, package/stdlib/
 Nectar work, optimization, another backend, release/tag work, stashes, archives,
 and historical-artifact operations remain unauthorized.
+
+### BDFL ruling recorded 2026-09-19: isolated word-count exception
+
+Ocean separately authorized the isolated word-count increment outside WO25's
+normal sequence, limited to:
+
+- `examples/probes/word_count.hum`;
+- directly affected tests in `src/run.rs`; and
+- demonstrated-pattern guidance in `docs/LANGUAGE_REFERENCE.md`.
+
+This specific BDFL exception preserved technical validation, independent
+review, and separately authorized commit and publication. It was not an
+ordinary WO25 implementation session and granted no general language-development
+authority, CI waiver, I09 resumption, or Unit D completion.
+
+Independent review accepted the three-file increment. Commit
+`29f922d5e31b94df7edce5762fa3378d3e818a6d`, parent
+`f437abdad7e2b2ad725e3342fd3d7e3d8b4e4300`, contains that change.
+Draft PR #2 publishes it on `feat/reusable-word-count` separately from the
+unfinished tooling work.
+Main integration and remote Windows/Ubuntu validation remain outstanding;
+absent branch/PR checks are not CI success. No CI-performance improvement or
+full Unit D acceptance is established. I09 remains incomplete.
+
+This documentation-only record remains unstaged for fresh independent document
+review. It changes authorization meaning and receives neither the routine
+status-only review shortcut nor automatic fast-CI eligibility. No commit,
+push, PR mutation, main integration, CI, or further implementation is authorized
+by this record. Historical records and all unit requirements remain unchanged.
 
 <!-- workorder-current-authorization-gate:end -->
