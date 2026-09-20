@@ -6371,6 +6371,74 @@ task fail_now() -> Result Int, MathError {
     }
 
     #[test]
+    fn word_count_uses_input_list_and_target() {
+        const PATH: &str = "examples/probes/word_count.hum";
+        const SOURCE: &str = include_str!("../examples/probes/word_count.hum");
+        let program = fixture_program(PATH, SOURCE);
+        let literal = run_program(&program, Some("count_hum_literal"), &[]);
+        assert_eq!(literal.outcome, RunOutcome::Success("2".to_string()));
+        assert!(literal.diagnostics.is_empty(), "{:#?}", literal.diagnostics);
+
+        for (label, words, wanted, expected) in [
+            ("empty", "[]", "hum", 0),
+            ("absent", r#"["lang", "agent"]"#, "hum", 0),
+            ("repeated", r#"["hum", "lang", "hum"]"#, "hum", 2),
+            ("alternate target", r#"["hum", "lang", "hum"]"#, "lang", 1),
+            ("case-sensitive mismatch", r#"["Hum", "HUM"]"#, "hum", 0),
+        ] {
+            // Exercise source-level calls, not a second counting implementation
+            // or an assumption about command-line List Text serialization.
+            let source = format!(
+                "{SOURCE}\n\ntask word_count_case() -> UInt {{\n  why:\n    exercise the reusable example\n\n  does:\n    return count_word({words}, \"{wanted}\")\n}}\n"
+            );
+            let program = fixture_program(PATH, &source);
+            let report = run_program(&program, Some("word_count_case"), &[]);
+            assert_eq!(
+                report.outcome,
+                RunOutcome::Success(expected.to_string()),
+                "{label}"
+            );
+            assert!(
+                report.diagnostics.is_empty(),
+                "{label}: {:#?}",
+                report.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn word_count_contract_rejects_wrong_implementation() {
+        const PATH: &str = "examples/probes/word_count.hum";
+        const SOURCE: &str = include_str!("../examples/probes/word_count.hum");
+        const INCREMENT: &str = "set count = count + 1";
+        assert_eq!(SOURCE.matches(INCREMENT).count(), 1);
+        let source = SOURCE.replacen(INCREMENT, "set count = count + 2", 1);
+        let program = fixture_program(PATH, &source);
+        let report = run_program(&program, Some("count_hum_literal"), &[]);
+        assert_eq!(report.outcome, RunOutcome::ContractViolation);
+        assert_eq!(report.diagnostics.len(), 1, "{:#?}", report.diagnostics);
+        let diagnostic = &report.diagnostics[0];
+        assert_eq!(diagnostic.code, DiagnosticCode::ENSURES_CONTRACT_VIOLATION);
+        assert_eq!(diagnostic.severity, Severity::Error);
+        assert_eq!(
+            diagnostic.message,
+            "task `count_word` did not satisfy ensures: result == list_count(words, wanted)"
+        );
+        let contract_line = SOURCE
+            .lines()
+            .position(|line| line.trim() == "result == list_count(words, wanted)")
+            .expect("helper postcondition")
+            + 1;
+        assert_eq!(
+            diagnostic.span,
+            Some(crate::diagnostic::Span::new(PATH, contract_line, 5))
+        );
+        assert!(diagnostic.help.as_deref().is_some_and(|help| {
+            help.contains("task blame") && help.contains("Fix the task body")
+        }));
+    }
+
+    #[test]
     fn builder_list_len_and_exact_content_contracts_are_checked() {
         let program = fixture_program(
             "examples/probes/list_builder.hum",

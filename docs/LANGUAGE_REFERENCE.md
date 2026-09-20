@@ -646,6 +646,29 @@ It does not absorb filler words, aliases, synonyms, or broad paraphrases.
 `hum test-skeletons` prints Hum `test` blocks for unlinked obligations. It does
 not execute code or write files.
 
+### A Small Reusable Program
+
+[The word-count probe](../examples/probes/word_count.hum) separates a reusable
+`count_word(words: List Text, wanted: Text) -> UInt` task from the fixed-input
+`count_hum_literal` entry. Its signature is the interface; this pure example
+needs no custom data type or capability layer. The helper iterates over the
+borrowed input and checks `result == list_count(words, wanted)` on return.
+Matching is exact and case-sensitive; `list_count` remains contract-only and
+does not replace the counting body.
+
+For a small pure probe, module, reusable tasks, composition entry, and linked
+test declarations form a useful reading order, not a new enforced layout rule
+for all Hum programs. Preserve explicit app/capability structure when a program
+actually needs it. The helper's `cost:` section declares intent; it does not
+prove complexity or measure performance.
+
+`hum run examples/probes/word_count.hum --entry count_hum_literal` exercises the
+literal composition and returns `2`. The compiler's Rust tests execute this
+same example with empty, absent, repeated, alternate-target, and case-sensitive
+inputs. An in-memory increment-by-two corruption must fail at the helper's
+postcondition with H0703. The source `test`/`covers:` declarations describe
+coverage; graph links and `hum test-skeletons` do not execute those declarations.
+
 ## Evidence Obligations
 
 Milestone 0 generates task `evidence_obligations` from meaningful lines in:

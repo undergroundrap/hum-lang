@@ -1,11 +1,11 @@
 module examples.probes.word_count
 
-task count_hum_literal() -> UInt {
+task count_word(words: List Text, wanted: Text) -> UInt {
   why:
-    probe a tiny CLI-shaped word count over a literal text list
+    count exact matches without changing the input words
 
   ensures:
-    result == list_count(["hum", "lang", "hum", "agent"], "hum")
+    result == list_count(words, wanted)
 
   cost:
     time: O(words)
@@ -13,16 +13,37 @@ task count_hum_literal() -> UInt {
     check: warn
 
   does:
-    let words: List Text = ["hum", "lang", "hum", "agent"]
     change count: UInt = 0
 
     for each word in words {
-      if word == "hum" {
+      if word == wanted {
         set count = count + 1
       }
     }
 
     return count
+}
+
+task count_hum_literal() -> UInt {
+  why:
+    demonstrate reusable counting with a fixed input
+
+  ensures:
+    result == list_count(["hum", "lang", "hum", "agent"], "hum")
+
+  does:
+    return count_word(["hum", "lang", "hum", "agent"], "hum")
+}
+
+test count_word counts exact matches unit {
+  why:
+    name the reusable counting contract as a test obligation
+
+  covers:
+    count_word ensures result == list_count(words, wanted)
+
+  does:
+    expect count_word(["hum", "lang", "hum"], "hum") returns 2
 }
 
 test count_hum_literal counts matching words unit {
