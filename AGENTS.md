@@ -237,8 +237,9 @@ a same-named green badge is insufficient. A GitHub App restriction does not
 identify one exclusive workflow. Missing or ambiguous execution blocks
 approval. PRs execute unprivileged with read permissions only.
 
-Normal integration additionally requires the latest scheduled Full result
-on main to be successful on both platforms and no more than 30 hours old.
+Normal integration additionally requires the latest scheduled or manually
+dispatched (workflow_dispatch) Full result on main to be successful on both
+platforms and no more than 30 hours old.
 Verify this again immediately before owner-authorized publication; a green PR
 check is not automatically revoked when health expires. Auto-merge stays off.
 Missing, stale, failed, cancelled, or incomplete health blocks normal

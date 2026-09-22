@@ -104,7 +104,7 @@ jobs:
                   # The owner may separately authorize this coverage-increasing label.
                   if ($env:HUM_FULL_REQUESTED -ceq 'true') { $InnerProfile = 'full' }
                   if ($InnerProfile -cne 'full') {
-                    $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?event=schedule&branch=main&per_page=1"
+                    $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?branch=main&per_page=10"
                     if ($LASTEXITCODE -ne 0) { throw 'integration health metadata unavailable' }
                     $Runs = @(($Json | ConvertFrom-Json).workflow_runs)
                     $Health = Assert-HumIntegrationHealth $Runs ([datetimeoffset]::UtcNow) $env:GITHUB_REPOSITORY

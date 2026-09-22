@@ -139,7 +139,7 @@ jobs:
                     $Selection = Get-HumCiPushSelection (Get-Location).Path $env:HUM_CI_BASE_SHA $env:HUM_CI_HEAD_SHA
                     "base=$($Selection.Base);head=$($Selection.Head);tree=$($Selection.Tree);reason=$($Selection.Reason);run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
                     if ($Selection.Profile -cne 'full') {
-                      $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?event=schedule&branch=main&per_page=1"
+                      $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?branch=main&per_page=10"
                       if ($LASTEXITCODE -ne 0) { throw 'integration health metadata unavailable' }
                       $Health = Assert-HumIntegrationHealth @(($Json | ConvertFrom-Json).workflow_runs) ([datetimeoffset]::UtcNow) $env:GITHUB_REPOSITORY
                       $JobJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/actions/runs/$($Health.id)/attempts/$($Health.run_attempt)/jobs?per_page=100"
