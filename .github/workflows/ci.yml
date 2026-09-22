@@ -119,6 +119,10 @@ jobs:
                 $ErrorActionPreference = 'Continue'
                 $Policy = git show "$($env:HUM_CI_BASE_SHA):tools/check_ci_policy.ps1" 2>$null
                 $PolicyExit = $LASTEXITCODE
+                # A failed probe must not leak its exit code: GitHub fails the
+                # step when $LASTEXITCODE is non-zero at the end, even though
+                # the bootstrap path below handles this case explicitly.
+                $global:LASTEXITCODE = 0
               } finally { $ErrorActionPreference = $SavedPreference }
               if ($PolicyExit -eq 0) {
                 $PolicyPath = Join-Path $env:RUNNER_TEMP ('hum-accepted-push-policy-' + [Guid]::NewGuid().ToString('N') + '.ps1')
