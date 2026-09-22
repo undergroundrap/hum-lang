@@ -1,7 +1,8 @@
 # 0024: State the Performance North Star and Its Implications
 
 Date: 2026-09-22
-Status: proposed 2026-09-22. BDFL rules and merges.
+Status: accepted 2026-09-22. BDFL ruling (relayed 2026-09-22): accepted with
+the verification-speed addition below (Claude's review addressed).
 
 ## Context
 
@@ -50,6 +51,15 @@ The north star is adopted as stated above, with the following implications.
   mechanism for naming it.
 - **Deterministic execution.** Performance in this class is meaningless
   without specified, deterministic semantics.
+- **Fast verification feedback.** Check and CI time is a performance budget
+  too -- and for agents it is the tighter one. An agent's loop speed is
+  bounded by how fast Hum can tell it that it is wrong. A language that is
+  fast at runtime but slow to check is not the best language for agents.
+  Honest note: today's ~40-minute CI wall-clock is process cost (the
+  fixture re-execution model the validation-cost discipline already
+  names), not compiler speed. This goal constrains the compiler's check
+  path and the harness design going forward; it does not retroactively
+  bill the prototype.
 
 ### What it does not commit us to
 
@@ -105,5 +115,4 @@ this record:
 - The "not bolt-on-able" record (backlog item 6) is unaffected; this
   strengthens it -- the performance clause is part of what a bolt-on
   cannot supply.
-- This record is proposed. If the BDFL rejects or amends the north star,
-  the ledger entries stand as facts about past decisions regardless.
+- The ledger entries stand as facts about past decisions.
