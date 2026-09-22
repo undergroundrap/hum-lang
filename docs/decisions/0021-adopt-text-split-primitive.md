@@ -1,9 +1,8 @@
 # 0021: Adopt text_split As The Text Tokenization Primitive
 
 Date: 2026-09-22
-Status: proposed. This record authorizes no implementation. It fixes the
-semantic choice so that the Work Order implementing it cannot adopt the wrong
-shape.
+Status: accepted 2026-09-22. BDFL ruling on the review at 5c44b91 (all 8 review
+items addressed). This record authorizes implementation under Work Order 27.
 
 ## Context
 
