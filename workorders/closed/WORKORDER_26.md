@@ -1,9 +1,32 @@
 # Hum Work Order 26: wordfreq — the first real program
 
 Date: 2026-09-22
-<!-- hum-active-workorder:v1 -->
-Status: ACTIVE. Supersedes WO25 as the active Work Order; WO25's formal closure
-record remains pending in the CI lane and is not part of this Work Order.
+Status: CLOSED 2026-09-22 with STOP. Superseded by WO27 (text_split primitive and wordfreq).
+
+## Closure record
+
+WO26's single authorized session ended with the STOP outcome its own
+acceptance criteria defined: the program could not be written honestly from
+the existing surface, so the session stopped and reported instead of
+inventing surface.
+
+The blocking finding: word tokenization (Text -> List Text) is not
+expressible in Milestone 0 Hum. `slice_until(text, sep)` returns the head
+before the separator with no remainder operation; there is no text length,
+indexing, containment test, concatenation, or text iteration. A natural
+splitter formulation type-checks but returns `["hum", "hum"]` for
+`"hum lang hum"` — the first word twice, because "the rest of the text"
+cannot be named. The existing `word_count.hum` probe never splits text; it
+counts a pre-split list literal.
+
+This falsified the `notes/three_program_sequence.md` assumption that the
+program could define its own splitting. The BDFL decision (via Claude,
+2026-09-22): implement `text_split(text: Text, sep: Text) -> List Text` as a
+scoped language increment per decision record 0021, then write wordfreq on
+top. That work is WO27's mission, not this Work Order's.
+
+No program commit was made under WO26. The friction ledger was not started;
+its first entry (this finding) is carried into WO27's ledger.
 
 ## Mission and present authorization
 
