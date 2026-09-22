@@ -61,3 +61,6 @@ try { Test-HumBootstrapProbe '0000000000000000000000000000000000000000' | Out-Nu
 Assert-Bootstrap $Threw 'unreadable base throws (fail-closed)'
 
 Write-Host "Bootstrap regression passed ($Count assertions)."
+# Case 3's expected-failure probe leaves a non-zero $LASTEXITCODE by design.
+# Reset it so Invoke-RepoScript does not fail the hygiene group on success.
+$global:LASTEXITCODE = 0
