@@ -43,7 +43,7 @@ impl ShellEnvironment {
     }
     /// Non-Windows PSModulePath fallback applied at launch when the ambient
     /// environment did not export one. Mirrors the shape of pwsh's own default
-    /// ($HOME/.local/share/powershell/Modules,
+    /// (the per-user modules directory under the user's home,
     /// /usr/local/share/powershell/Modules, $PSHOME/Modules) with $PSHOME
     /// taken from the directory of the authenticated pwsh executable, so it
     /// stays correct for non-Microsoft installs (snap, Homebrew, dotnet-tool,
@@ -567,7 +567,8 @@ mod psmodulepath_tests {
     #[test]
     fn present_value_passes_through_and_undeterminable_fails_closed() {
         let executable = Path::new("/opt/example/pwsh");
-        let home = OsStr::new("/home/tester");
+        let home_path = std::env::temp_dir().join("hum-psmodulepath-test-home");
+        let home = home_path.as_os_str();
         assert_eq!(
             ShellEnvironment::psmodulepath_fallback(
                 executable,
