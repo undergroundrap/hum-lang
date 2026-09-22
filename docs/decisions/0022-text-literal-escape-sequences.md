@@ -1,9 +1,9 @@
 # 0022: Escape Sequences In Text Literals
 
 Date: 2026-09-22
-Status: proposed. This record authorizes no implementation. It fixes the
-semantic choice so that the Work Order implementing it cannot adopt the wrong
-shape.
+Status: accepted 2026-09-22. BDFL ruling on the review at 6cda589 (0022 sound;
+three fixes folded into the text in the acceptance commit, no further review
+round; verified at PR time).
 
 ## Context
 
@@ -50,13 +50,24 @@ Adopt option A: text literals support the escapes `\n`, `\t`, `\\`, and
   `\\` decodes to a single backslash. `\"` decodes to a double quote.
 - Any other backslash sequence (for example `\r`, `\0`, `\u`) is a
   **checker error** at parse time, not a silent literal. The language does
-  not guess what an unknown escape means.
+  not guess what an unknown escape means. The diagnostic's span marks the bad
+  escape itself (the backslash and its following character), not the whole
+  literal.
 - A trailing backslash at the end of the literal (before the closing quote)
   is a checker error (unterminated escape).
 - Escapes are decoded when the literal is built into the canonical AST.
   Today `canonical_expression_build` in `src/parser.rs` strips the quotes and
-  takes the inner text verbatim; the decode happens exactly there, so every
-  consumer of `CanonicalExpressionKind::TextLiteral` sees the decoded value.
+  takes the inner text verbatim; the decode happens exactly there — one decode
+  point — so every consumer of `CanonicalExpressionKind::TextLiteral` sees the
+  decoded value.
+- Quote-scanner agreement (normative): the parser has several quote-aware
+  scanners (the literal scanners, `split_top_level_ranges_quoted`, the
+  unterminated-literal detector). Some already treat `\"` as "don't end the
+  literal here" while taking the value verbatim. After this decision every
+  quote-aware scanner must agree on where a literal ends: an escaped quote
+  never terminates the literal, in any scanner. A fixture must cover
+  `f("a\"b, c", d)` — the escaped quote inside the argument list must not
+  split the arguments.
 
 ### Evidence impact (normative)
 
@@ -79,6 +90,13 @@ in CI. The implementing Work Order must run it.
   typed error, a trailing backslash failing at check time, and a literal with
   no escapes decoding exactly as before (no behavior change for existing
   programs).
+- Emitter escaping (normative): decoded text can now contain real control
+  characters, and it flows into the JSON and canonical outputs (the
+  `push_str`-style emitters in `backend_contract`, `capabilities`,
+  `core_contract`, and the other contract emitters). Every emitter must
+  escape control characters — a real newline in a value must come out as
+  `\n` in JSON, never as a raw line break. A fixture through `hum evidence`
+  or `hum graph` using a `\n` literal proves the round trip.
 - `docs/LANGUAGE_REFERENCE.md` gains the escape table;
   `docs/DIAGNOSTICS.md` gains the unknown-escape error code.
 - This decision does not authorize the implementation; the Work Order does.

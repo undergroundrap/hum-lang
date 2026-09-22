@@ -90,16 +90,18 @@ No other new builtins, no other syntax changes.
 ## Deliverables
 
 1. `text_split` implementation + probes + fixtures.
-1b. `text_split` is Part 1a; Part 1b is the 0022 escape implementation +
-   fixtures (each escape decodes, unknown escapes and trailing backslash fail
-   at check time, no-escape literals unchanged).
-2. `examples/tools/wordfreq.hum` — the program.
-3. Its `test` blocks — positive, boundary, misuse cases.
-4. `docs/research/wordfreq-friction-ledger.md` — the classified friction ledger.
-5. `docs/LANGUAGE_REFERENCE.md` entry for `text_split` (signature, matching
-   rule, edge cases, ownership and cost).
-6. `docs/DIAGNOSTICS.md` entry for the `SepEmpty` error code.
-7. Falsified-assumption record in `docs/research/hum-improvement-backlog-2026-09-22.md`
+2. Part 1b deliverable: the 0022 escape implementation + fixtures (each
+   escape decodes; unknown escapes and trailing backslash fail at check
+   time; no-escape literals unchanged; quote-scanner agreement fixture;
+   emitter-escaping fixture through `hum evidence` or `hum graph`).
+3. `examples/tools/wordfreq.hum` — the program.
+4. Its `test` blocks — positive, boundary, misuse cases.
+5. `docs/research/wordfreq-friction-ledger.md` — the classified friction ledger.
+6. `docs/LANGUAGE_REFERENCE.md` entries for `text_split` (signature, matching
+   rule, edge cases, ownership and cost) and for the 0022 escape table.
+7. `docs/DIAGNOSTICS.md` entries for the `SepEmpty` error code and the
+   unknown-escape error code.
+8. Falsified-assumption record in `docs/research/hum-improvement-backlog-2026-09-22.md`
    (the `three_program_sequence` note lives in the research package, not the
    repo; the repo-side record goes in the backlog snapshot).
 
@@ -108,7 +110,7 @@ No other new builtins, no other syntax changes.
 Issued when the BDFL merges the PR carrying this Work Order. (Claude holds no
 issuing authority; the decision and the Work Order take effect on merge.)
 
-Execute the two-part mission above, in order:
+Execute the three-part mission above, in order:
 
 - Gate 0: decision records 0021 and 0022 are both accepted — the BDFL's ruling
   recorded in each decision file — before any Part 1 code is written. Part 1
