@@ -1721,13 +1721,16 @@ function Invoke-HumLanguageProgramChecks {
 }
 
 function Invoke-HumCaptureSmoke {
+  param([string] $ToolsDir = $PSScriptRoot)
   # The capture group runs the evidence-capture script in profile-smoke mode.
   # -ProfileSmokeOnly is bound as a literal switch on the real script: a
   # [string[]] splat like @('-ProfileSmokeOnly') would bind positionally into
   # the script's $ShellContract ValidateSet and fail on every host.
+  # $ToolsDir defaults to this script's directory in production; the policy
+  # regression passes it explicitly so the real body can execute in tests.
   Write-Host '==> short capture caller smoke'
   $global:LASTEXITCODE = 0
-  & (Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1') -ProfileSmokeOnly
+  & (Join-Path $ToolsDir 'test_fast_evidence_capture.ps1') -ProfileSmokeOnly
   if ($LASTEXITCODE -ne 0) {
     throw "short capture caller smoke failed with exit code $LASTEXITCODE"
   }

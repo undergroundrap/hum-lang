@@ -361,6 +361,14 @@ $CapSwitch = @($CapCalls[0].CommandElements | Where-Object { $_ -is [Management.
 Assert-Policy ($CapSwitch.Count -eq 1) 'capture smoke binds literal -ProfileSmokeOnly switch'
 $CapSplat = @($CapCalls[0].CommandElements | Where-Object { $_ -is [Management.Automation.Language.VariableExpressionAst] -and $_.Splatted })
 Assert-Policy ($CapSplat.Count -eq 0) 'capture smoke has no string-array splat on the call path'
+# Real-path regression: execute the actual Invoke-HumCaptureSmoke body against
+# the real capture script. The AST checks above only guard the source shape;
+# this exercises the exact binding path that failed under the old splat.
+. (Import-PolicyTestFunction $Source 'Invoke-HumCaptureSmoke')
+$global:LASTEXITCODE = 0
+Invoke-HumCaptureSmoke -ToolsDir (Join-Path $Root 'tools')
+Assert-Policy ($LASTEXITCODE -eq 0) 'real capture smoke executes with exit 0'
+function Invoke-HumCaptureSmoke { $script:Observed.Add('capture') }
 $RepoRoot=$Root
 $OldReceipt=[Environment]::GetEnvironmentVariable('HUM_EVIDENCE_RECEIPT','Process')
 try {
