@@ -464,4 +464,30 @@ foreach ($Step in @('Generate evidence summary','Upload evidence summary','Uploa
   $Block=[regex]::Match($Ci,'(?ms)^      - name: '+[regex]::Escape($Step)+'\n.*?(?=^      - name: |\z)').Value
   Assert-Policy ($Block.Contains("if: steps.classify.outputs.mode == 'full' && github.event_name == 'push'")) 'push-only anchor contract'
 }
+# Regression: the ci.yml push classify step must reset $LASTEXITCODE after the
+# accepted-policy probe. A failed git show (bootstrap: base without the policy)
+# leaves a non-zero native exit code; GitHub fails the step when $LASTEXITCODE
+# is non-zero at step end even though the bootstrap branch handles the case
+# explicitly. This extracts the real probe block from ci.yml and executes it
+# against a policy-less base, asserting exit 0 and the bootstrap path.
+$ClassifyStep=[regex]::Match($Ci,'(?ms)^      - name: Classify CI evidence lane\n.*?(?=^      - name: |\z)').Value
+Assert-Policy ($ClassifyStep.Length -gt 0) 'classify step found in ci.yml'
+$ProbeStart=$ClassifyStep.IndexOf('$SavedPreference = $ErrorActionPreference')
+$ProbeEndMarker="} else { Write-Host 'Accepted pre-push policy unavailable: Full bootstrap required.' }"
+$ProbeEnd=$ClassifyStep.IndexOf($ProbeEndMarker)
+Assert-Policy (($ProbeStart -ge 0) -and ($ProbeEnd -gt $ProbeStart)) 'classify probe block located in ci.yml'
+$ProbeBlock=$ClassifyStep.Substring($ProbeStart,$ProbeEnd-$ProbeStart+$ProbeEndMarker.Length)
+Assert-Policy ($ProbeBlock -match '\$global:LASTEXITCODE = 0') 'classify probe resets LASTEXITCODE after capture'
+$OldProbeBase=[Environment]::GetEnvironmentVariable('HUM_CI_BASE_SHA','Process')
+Push-Location $Root
+try {
+  [Environment]::SetEnvironmentVariable('HUM_CI_BASE_SHA','3cd2e8c0d3abdaf7786d710c39891409128cb17e','Process')
+  $global:LASTEXITCODE=0
+  & ([scriptblock]::Create($ProbeBlock+"`n`$script:ProbePolicyExit = `$PolicyExit"))
+  Assert-Policy ($script:ProbePolicyExit -ne 0) 'classify probe takes bootstrap path on policy-less base'
+  Assert-Policy ($LASTEXITCODE -eq 0) 'classify probe leaves LASTEXITCODE 0 (no leak)'
+} finally {
+  [Environment]::SetEnvironmentVariable('HUM_CI_BASE_SHA',$OldProbeBase,'Process')
+  Pop-Location
+}
 Write-Output "CI policy focused controls passed: $Count assertions; no Full execution credit."
