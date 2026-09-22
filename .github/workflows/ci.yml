@@ -1,6 +1,17 @@
 name: ci
 
 on:
+  workflow_call:
+    inputs:
+      profile:
+        required: true
+        type: string
+      integration:
+        required: true
+        type: string
+      tree:
+        required: true
+        type: string
   workflow_dispatch:
   push:
     branches:
@@ -16,8 +27,8 @@ env:
   CARGO_HOME: ${{ github.workspace }}/.cargo-home
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.profile || 'push' }}-executor
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   preflight:
@@ -35,8 +46,26 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.integration || github.sha }}
+
+      - name: Verify integration identity
+        id: integration_identity
+        shell: pwsh
+        env:
+          HUM_EXPECTED_SHA: ${{ inputs.integration || github.sha }}
+          HUM_EXPECTED_TREE: ${{ inputs.tree }}
+          HUM_SELECTED_PROFILE: ${{ inputs.profile || 'full' }}
+        run: |
+          if ($env:HUM_SELECTED_PROFILE -cnotin @('language','runtime','compiler','full')) { throw 'invalid fixed profile' }
+          $Actual = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $Actual -cne $env:HUM_EXPECTED_SHA) { throw 'integration checkout mismatch' }
+          $Tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0 -or ($env:HUM_EXPECTED_TREE -and $Tree -cne $env:HUM_EXPECTED_TREE)) { throw 'integration tree mismatch' }
+          "profile=$env:HUM_SELECTED_PROFILE;integration=$Actual;tree=$Tree;run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Authenticate PowerShell 7 runtime
+        id: pwsh_identity
         shell: pwsh
         run: |
           if ($PSVersionTable.PSVersion.Major -ne 7) { throw 'CI orchestration requires PowerShell 7' }
@@ -59,6 +88,7 @@ jobs:
           HUM_CI_EVENT_REF: ${{ github.ref }}
           HUM_CI_BASE_SHA: ${{ github.event.before }}
           HUM_CI_HEAD_SHA: ${{ github.sha }}
+          HUM_SELECTED_PROFILE: ${{ inputs.profile || 'full' }}
         run: |
           $Mode = 'full'
           $Result = $null
@@ -77,6 +107,45 @@ jobs:
           } catch {
             Write-Warning "CI evidence classifier failed closed: $($_.Exception.Message)"
           }
+          if ($env:HUM_CI_EVENT_NAME -ne 'push') { $Mode = 'full' }
+          $SelectedProfile = $env:HUM_SELECTED_PROFILE
+          if ($env:HUM_CI_EVENT_NAME -ceq 'push' -and $env:HUM_CI_EVENT_REF -ceq 'refs/heads/main' -and $Mode -cne 'fast') {
+            $SelectedProfile = 'full'
+            if ($env:HUM_CI_BASE_SHA -cmatch '\A[0-9a-f]{40}\z' -and $env:HUM_CI_BASE_SHA -cne ('0' * 40)) {
+              # The pre-push accepted revision owns the complete range decision.
+              # Never fall back to the candidate's registry or last-commit diff.
+              $SavedPreference = $ErrorActionPreference
+              try {
+                $ErrorActionPreference = 'Continue'
+                $Policy = git show "$($env:HUM_CI_BASE_SHA):tools/check_ci_policy.ps1" 2>$null
+                $PolicyExit = $LASTEXITCODE
+              } finally { $ErrorActionPreference = $SavedPreference }
+              if ($PolicyExit -eq 0) {
+                $PolicyPath = Join-Path $env:RUNNER_TEMP ('hum-accepted-push-policy-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+                try {
+                  [IO.File]::WriteAllText($PolicyPath, ($Policy -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+                  . $PolicyPath
+                  if (Get-Command Get-HumCiPushSelection -CommandType Function -ErrorAction SilentlyContinue) {
+                    $Selection = Get-HumCiPushSelection (Get-Location).Path $env:HUM_CI_BASE_SHA $env:HUM_CI_HEAD_SHA
+                    $SelectedProfile = $Selection.Profile
+                    "base=$($Selection.Base);head=$($Selection.Head);tree=$($Selection.Tree);reason=$($Selection.Reason);run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
+                    if ($SelectedProfile -cne 'full') {
+                      $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?event=schedule&branch=main&per_page=1"
+                      if ($LASTEXITCODE -ne 0) { throw 'integration health metadata unavailable' }
+                      $Health = Assert-HumIntegrationHealth @(($Json | ConvertFrom-Json).workflow_runs) ([datetimeoffset]::UtcNow) $env:GITHUB_REPOSITORY
+                      $JobJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/actions/runs/$($Health.id)/attempts/$($Health.run_attempt)/jobs?per_page=100"
+                      if ($LASTEXITCODE -ne 0) { throw 'integration job metadata unavailable' }
+                      Assert-HumIntegrationJobs @(($JobJson | ConvertFrom-Json) | ForEach-Object { $_.jobs }) $Health
+                      "health_run=$($Health.id);health_attempt=$($Health.run_attempt);health_sha=$($Health.head_sha)" >> $env:GITHUB_STEP_SUMMARY
+                    }
+                  }
+                } finally { if (Test-Path -LiteralPath $PolicyPath) { Remove-Item -LiteralPath $PolicyPath -Force } }
+              } else { Write-Host 'Accepted pre-push policy unavailable: Full bootstrap required.' }
+            }
+          }
+          if ($SelectedProfile -cnotin @('language','runtime','compiler','full')) { throw 'invalid accepted profile selection' }
+          if ($SelectedProfile -cne 'full') { $Mode = 'normal' }
+          "profile=$SelectedProfile" >> $env:GITHUB_OUTPUT
           "mode=$Mode" >> $env:GITHUB_OUTPUT
           if ($Mode -ceq 'fast') {
             "reason=$($Result.Reason)" >> $env:GITHUB_OUTPUT
@@ -108,9 +177,60 @@ jobs:
           rustup default stable
           rustup component add rustfmt clippy
 
+      - name: Run fixed validation profile
+        id: normal_profile
+        if: steps.classify.outputs.mode == 'normal'
+        shell: pwsh
+        env:
+          HUM_SELECTED_PROFILE: ${{ steps.classify.outputs.profile }}
+        run: |
+          if ($env:HUM_SELECTED_PROFILE -cnotin @('language','runtime','compiler')) { throw 'normal profile admission failed' }
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+          cargo build -p hum-dev
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          . ./tools/run_fast_evidence.ps1
+          $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
+          $Directory = Join-Path $env:RUNNER_TEMP ('hum-normal-profile-' + [Guid]::NewGuid().ToString('N'))
+          $Isolated = $null
+          $Failure = $null
+          $Capture = $null
+          try {
+            $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+            "capture=$Directory" >> $env:GITHUB_OUTPUT
+            Assert-HumIsolatedExecutable $Isolated -RequireSource
+            $Capture = Invoke-HumBinaryCapture $Isolated.Executable @('evidence',$env:HUM_SELECTED_PROFILE,'--pwsh',$Pwsh) (Get-Location).Path $Directory 3000 -CaseName 'ci-normal-profile'
+            $Capture = Assert-HumCaptureComplete $Capture
+            [Console]::Out.Write([IO.File]::ReadAllText($Capture.StdoutPath))
+            [Console]::Error.Write([IO.File]::ReadAllText($Capture.StderrPath))
+            if ($Capture.ExitCode -ne 0 -or $Capture.TimedOut) { throw "normal profile failed: exit=$($Capture.ExitCode);timeout=$($Capture.TimedOut)" }
+            $Label = [Globalization.CultureInfo]::InvariantCulture.TextInfo.ToTitleCase($env:HUM_SELECTED_PROFILE)
+            if ($Capture.TerminalStdoutLine -cne "Hum $Label validation passed (not Full acceptance)." -or $Capture.SuccessMarkerCount -ne 0) { throw 'normal profile terminal evidence differs' }
+          } catch { $Failure = $_ } finally {
+            try { if ($null -ne $Isolated) { Remove-HumIsolatedExecutable $Isolated } } catch {
+              if ($null -eq $Failure) { $Failure = $_ } else { $Failure.Exception.Data['executable_cleanup'] = $_ }
+            }
+            try {
+              if ($null -eq $Failure) { Remove-HumCaptureAfterAuthentication $Directory }
+            } catch {
+              if ($null -eq $Failure) { $Failure = $_ } else { $Failure.Exception.Data['capture_cleanup'] = $_ }
+            }
+          }
+          if ($null -ne $Failure) { throw $Failure }
+
+      - name: Upload failed normal diagnostics
+        if: failure() && steps.normal_profile.outputs.capture != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-normal-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}
+          path: ${{ steps.normal_profile.outputs.capture }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
       - name: Run Hum preflight
         id: full_preflight
-        if: steps.classify.outputs.mode != 'fast'
+        if: steps.classify.outputs.mode == 'full'
         shell: pwsh
         env:
           HUM_EVIDENCE_RECEIPT: ${{ runner.temp }}/hum-full-evidence.receipt
@@ -278,7 +398,8 @@ jobs:
           overwrite: false
 
       - name: Run exhaustive canonical-seal evidence
-        if: steps.classify.outputs.mode != 'fast' && matrix.os == 'ubuntu-latest'
+        id: exhaustive
+        if: (steps.classify.outputs.mode == 'full' || steps.classify.outputs.mode == 'normal') && matrix.os == 'ubuntu-latest'
         continue-on-error: false
         shell: pwsh
         run: |
@@ -292,7 +413,7 @@ jobs:
 
       - name: Generate evidence summary
         id: generate_evidence_summary
-        if: steps.classify.outputs.mode != 'fast'
+        if: steps.classify.outputs.mode == 'full' && github.event_name == 'push'
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -343,7 +464,7 @@ jobs:
 
       - name: Upload evidence summary
         id: upload_evidence_summary
-        if: steps.classify.outputs.mode != 'fast'
+        if: steps.classify.outputs.mode == 'full' && github.event_name == 'push'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ steps.generate_evidence_summary.outputs.summary_name }}
@@ -355,7 +476,7 @@ jobs:
 
       - name: Upload hum-dev executable
         id: upload_hum_dev_executable
-        if: steps.classify.outputs.mode != 'fast'
+        if: steps.classify.outputs.mode == 'full' && github.event_name == 'push'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ steps.generate_evidence_summary.outputs.executable_name }}
@@ -366,7 +487,8 @@ jobs:
           overwrite: false
 
       - name: Close full evidence transport
-        if: always() && steps.classify.outputs.mode != 'fast'
+        id: close_full_transport
+        if: always() && steps.classify.outputs.mode == 'full'
         shell: pwsh
         run: |
           foreach ($Owned in @('${{ steps.full_preflight.outputs.receipt }}', (Join-Path $env:RUNNER_TEMP 'hum-evidence-summary'))) {
@@ -514,3 +636,32 @@ jobs:
           ./tools/check_text_hygiene.ps1
           ./tools/check_public_readiness.ps1
           ./tools/check_release_readiness.ps1
+      - name: Confirm selected work completion
+        if: always()
+        shell: pwsh
+        env:
+          HUM_COMPLETED_STEPS: ${{ toJSON(steps) }}
+          HUM_SELECTED_MODE: ${{ steps.classify.outputs.mode }}
+          HUM_SELECTED_PROFILE: ${{ steps.classify.outputs.profile }}
+          HUM_MATRIX_OS: ${{ matrix.os }}
+        run: |
+          $Steps = $env:HUM_COMPLETED_STEPS | ConvertFrom-Json
+          $Mode = $env:HUM_SELECTED_MODE
+          $Profile = $env:HUM_SELECTED_PROFILE
+          if ($env:HUM_MATRIX_OS -cnotin @('windows-latest','ubuntu-latest')) { throw 'unknown required platform' }
+          if ($Profile -cnotin @('language','runtime','compiler','full')) { throw 'unknown required profile' }
+          $Required = @('integration_identity','pwsh_identity','classify')
+          if ($Mode -ceq 'normal' -and $Profile -cne 'full') {
+            $Required += 'normal_profile'
+            if ($env:HUM_MATRIX_OS -ceq 'ubuntu-latest') { $Required += 'exhaustive' }
+          } elseif ($Mode -ceq 'full' -and $Profile -ceq 'full') {
+            $Required += @('full_preflight','close_full_transport')
+            if ($env:HUM_MATRIX_OS -ceq 'ubuntu-latest') { $Required += 'exhaustive' }
+            if ($env:GITHUB_EVENT_NAME -ceq 'push') { $Required += @('generate_evidence_summary','upload_evidence_summary','upload_hum_dev_executable') }
+          } elseif ($Mode -ceq 'fast' -and $Profile -ceq 'full' -and $env:GITHUB_EVENT_NAME -ceq 'push') {
+            $Required += @('start_status_review_and_resolve_hum_dev','download_hum_dev_executable','authenticate_and_run_status_only_evidence')
+          } else { throw 'selected mode/profile/event disagree' }
+          foreach ($Name in $Required) {
+            if ($Steps.$Name.outcome -cne 'success' -or $Steps.$Name.conclusion -cne 'success') { throw "required execution incomplete: $Name" }
+          }
+          Write-Host "Explicit selected-step completion: $env:HUM_MATRIX_OS / $Profile / $Mode"

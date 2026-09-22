@@ -1518,4 +1518,56 @@ status-only review shortcut nor automatic fast-CI eligibility. No commit,
 push, PR mutation, main integration, CI, or further implementation is authorized
 by this record. Historical records and all unit requirements remain unchanged.
 
+### BDFL ruling recorded 2026-09-20: fixed validation profiles
+
+Ocean separately authorized an isolated fixed-profile implementation from
+the published word-count baseline, outside unfinished Unit D. The envelope
+is exactly: `.github/workflows/ci.yml`, `.github/workflows/validation.yml`,
+`crates/hum-dev/src/{command,main}.rs`, `crates/hum-dev/tests/cli.rs`,
+`tools/{check_all,check_ci_policy,test_ci_policy,test_fast_evidence_capture,test_workorder_status_boundary,check_release_readiness}.ps1`,
+`AGENTS.md`, `docs/TESTING_STRATEGY.md`,
+`docs/HUM_EVIDENCE_SUMMARY_SCHEMA.md`, and this Work Order (15 paths).
+No unpublished Unit D implementation or build output is imported.
+
+The approved first version uses maintainer-reviewed trust: independent review
+and owner-authorized integration protect validation definitions; automated
+checks enforce them without independently attesting to hostile PR changes.
+This explicitly supersedes the proposed automatic tamper-resistance
+requirement, not required execution or Full review of policy changes.
+No privileged custom-check publisher, new App, credentials or general
+attestation framework is authorized.
+
+The finite Language/Runtime/Compiler and existing Full profiles, two-platform
+PR gate, accepted-base routing, exact integration/run provenance, 30-hour
+scheduled integration health and publication-time recheck are specified in
+Testing Strategy. Auto-merge stays off. A separately authorized successful
+two-platform Full rollout/repair candidate can bootstrap or recover health
+without circular nightly dependence or invented scheduled evidence.
+Normal results cannot satisfy the existing push-only full-summary contract.
+Infrastructure interactions outside normal selected work may first be
+detected after merge; Ocean accepted this reduced-frequency coverage tradeoff.
+
+The subsequent 2026-09-20 BDFL correction ruling requires a closed accepted
+ownership registry and Git file-kind-aware selection. New/unmapped paths,
+additions/deletions, rename sides, mode changes, symlinks, gitlinks and
+ambiguous history require Full. Compiler must consume the existing complete
+compiler CLI/corpus/projection/source-audit bodies, shared with Full without
+changing their order; normal Ubuntu CI retains the exhaustive seal check.
+Ordinary main pushes are classified across the complete actual push range by
+pre-push accepted policy, not unconditionally Full and not last-commit-only.
+This supersedes the initial main-push rollout limitation. Infrastructure,
+unknown impact, nightly and exact-release validation remain Full. Preserve
+status-only authentication, integration health and the push-only Full anchor
+contract; normal evidence is not Full credit. The existing fifteen-path scope
+and separate two-platform Full rollout/activation gates are unchanged.
+
+This session authorizes implementation and proportional focused checks only.
+It leaves changes unstaged for fresh independent review. Full/native rollout,
+performance measurements, commit, publication, required-check settings and
+activation remain separate gates. It grants no Full campaign, I09 resumption,
+Unit D acceptance, PS5.1 retirement, historical reconstruction, or CI-speedup
+claim. Preserve both earlier worktrees, their indexes and retained disclosures.
+The older gate and word-count record above remain historical; this is not an
+omnibus reconciliation of their status.
+
 <!-- workorder-current-authorization-gate:end -->

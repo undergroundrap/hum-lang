@@ -2,6 +2,16 @@
 
 Status: frozen V1 history and canonical V2 production/status consumption.
 
+Fixed-profile clarification (2026-09-20): Language/Runtime/Compiler CI is
+normal validation, not a full-summary producer, including classified ordinary
+main pushes. PR, schedule and manual
+profile evaluations do not emit compatible push-only V2 summaries or anchors,
+even when they execute Full checks. Only the existing eligible push path may
+generate/upload summary and executable anchor artifacts. Its event, candidate,
+receipt and platform validators are unchanged. Workflow execution metadata
+used for integration health is not a new summary schema or reusable Full
+result. No historical fixture is rewritten by this policy.
+
 ## Authority
 
 `hum-dev` and this document own the versioned evidence-summary family. V1 is

@@ -182,6 +182,28 @@ mod cli {
     }
 
     #[test]
+    fn normal_profiles_reject_unbound_or_narrowed_execution() {
+        for profile in ["language", "runtime", "compiler"] {
+            for arguments in [
+                vec!["evidence", profile],
+                vec!["evidence", profile, "--pwsh", "relative-pwsh"],
+                vec!["evidence", profile, "--skip", "tests"],
+            ] {
+                let output = Command::new(binary()).args(&arguments).output().unwrap();
+                assert_eq!(output.status.code(), Some(2));
+                assert!(output.stdout.is_empty());
+                let error = String::from_utf8(output.stderr).unwrap();
+                assert!(
+                    error.contains("explicit --pwsh binding is required")
+                        || error.contains("explicit absolute --pwsh path is required")
+                        || error.starts_with("hum-dev: usage:"),
+                    "{error}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn legacy_probe_environment_cannot_replace_the_canonical_status_mapping() {
         let actual = Command::new(binary())
             .env("HUM_DEV_LEGACY_EQUIVALENCE_PROBE", "1")
@@ -198,6 +220,7 @@ mod cli {
 
     #[test]
     fn preflight_repairs_stop_before_state_changing_launch() {
+        normal_profiles_reject_unbound_or_narrowed_execution();
         let missing = scratch("missing-message");
         let output = Command::new(binary())
             .args(["commit-message", "check", "--file"])
@@ -235,7 +258,7 @@ mod cli {
             .unwrap();
         assert_eq!(help.status.code(), Some(2));
         assert!(help.stdout.is_empty());
-        assert_eq!(help.stderr, b"hum-dev: usage: hum-dev evidence <focused|full|exhaustive> --pwsh ABSOLUTE_PATH | evidence status | evidence summarize --output PATH --pwsh ABSOLUTE_PATH | commit-message check <--subject TEXT|--file PATH> | candidate identity [--repository PATH] | cleanup verify | workorder status-facts --input PATH --base-sha256 HASH --status-body-file PATH --gate-body-file PATH --output PATH\n");
+        assert_eq!(help.stderr, b"hum-dev: usage: hum-dev evidence <language|runtime|compiler|focused|full|exhaustive> --pwsh ABSOLUTE_PATH | evidence status | evidence summarize --output PATH --pwsh ABSOLUTE_PATH | commit-message check <--subject TEXT|--file PATH> | candidate identity [--repository PATH] | cleanup verify | workorder status-facts --input PATH --base-sha256 HASH --status-body-file PATH --gate-body-file PATH --output PATH\n");
     }
 
     #[test]

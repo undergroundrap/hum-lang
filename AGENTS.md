@@ -210,8 +210,8 @@ commit SHA. It does
 not require dual-shell runs, actor transcripts, complete ledgers, process
 accounting, or content manifests unless acceptance depends on those facts.
 
-The full `tools/check_all.ps1` preflight normally belongs to required
-post-publication CI. Run it locally when validation tooling or CI
+The full `tools/check_all.ps1` preflight belongs to the Full profile.
+Run it locally when validation tooling or CI
 classification changes, when parser/checker/runtime impact cannot be bounded,
 for a release or tag candidate, when the active Work Order explicitly assigns
 that risk, or when the BDFL directly requires it. The 14,226-pair Exhaustive
@@ -219,6 +219,47 @@ producer is required only when its parser, matrix, selector, environment,
 output contract, or execution path materially changes, or for a release. Run
 it once per exact candidate unless a platform-specific reason requires
 another producer.
+
+### Fixed validation profiles (BDFL ruling, 2026-09-20)
+
+The separately authorized profile increment does not complete WO25 Unit D.
+After separately authorized rollout and required-check activation, ordinary
+PRs require Windows and Ubuntu Language, Runtime, or Compiler validation as
+selected by the accepted base's finite dependency table. Infrastructure,
+policy, workflow, mixed infrastructure, and unknown impact require Full on
+both platforms before integration. Groups and routing ownership are in
+`docs/TESTING_STRATEGY.md`; focused results are never Full credit.
+
+Independent review and owner-authorized integration, not automatic workflow
+attestation, protect validation definitions. Review the definitions and
+actual execution at the exact head/base/integration tree and run/attempt;
+a same-named green badge is insufficient. A GitHub App restriction does not
+identify one exclusive workflow. Missing or ambiguous execution blocks
+approval. PRs execute unprivileged with read permissions only.
+
+Normal integration additionally requires the latest scheduled Full result
+on main to be successful on both platforms and no more than 30 hours old.
+Verify this again immediately before owner-authorized publication; a green PR
+check is not automatically revoked when health expires. Auto-merge stays off.
+Missing, stale, failed, cancelled, or incomplete health blocks normal
+integration. Separately authorized current-candidate two-platform Full
+validation can bootstrap rollout or repair unhealthy integration without
+circular nightly dependence; it does not fabricate a scheduled result.
+Release validation remains Full on the exact release candidate.
+
+Ordinary main pushes select their normal profile from the complete actual
+push range using pre-push accepted policy. Policy, infrastructure, unknown
+ownership, file-kind changes or ambiguous history require Full. The registry
+is closed: new names cannot gain cheaper admission from filename patterns.
+Preserve the authenticated status-only exception and fresh health check;
+normal pushes earn no Full anchor. Normal Ubuntu CI includes exhaustive
+canonical-seal checks. Full rollout remains separately authorized.
+
+This reduced-frequency coverage tradeoff can detect otherwise-unaffected
+infrastructure interactions after merge. No failed test is waived, no PS5.1
+obligation is retired, and no I09 retry is authorized. Publication, settings
+activation, bootstrap/recovery execution and release remain separate owner
+decisions. The 5-10-minute feedback goal is unmeasured.
 
 A correction is implementer-inline when all of these are true:
 

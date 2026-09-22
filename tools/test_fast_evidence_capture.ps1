@@ -3,6 +3,7 @@ param(
   [string] $ScratchRoot = '',
   [switch] $EnvironmentSnapshotOnly,
   [switch] $PreflightDiagnosticsOnly,
+  [switch] $ProfileSmokeOnly,
   [ValidateSet('', 'preflight', 'success', 'exit23', 'empty', 'interleaved', 'unicode',
     'early-marker', 'duplicate-marker', 'nonzero-marker', 'timeout', 'descendant',
     'descendant-long', 'descendant-short', 'inherited-parent', 'redirected-parent',
@@ -1291,8 +1292,8 @@ function Assert-FullPreflightRepairContract([string]$Workflow) {
   $UploadHasher=[Security.Cryptography.SHA256]::Create();try{$UploadDigest=-join($UploadHasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($UploadMatch[0].Value))|%{$_.ToString('x2')})}finally{$UploadHasher.Dispose()}
   if($UploadDigest-cne'2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa'){throw 'failure-diagnostics upload frozen closure'}
   $Hasher=[Security.Cryptography.SHA256]::Create();try{$StepDigest=-join($Hasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($Step))|%{$_.ToString('x2')});$SummaryDigest=-join($Hasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($Summary))|%{$_.ToString('x2')})}finally{$Hasher.Dispose()}
-  if($StepDigest-cne'e9a2b9c13fb7953f329404d0eaac97fd72748b7ca74cc6026260628fb6297d28'){throw 'full-preflight frozen closure'}
-  if($SummaryDigest-cne'9312f36e7f0ba2acbccec56575cab1ca836af9ae4b46e1e45205acc2073a2091'){throw 'summary frozen closure'}
+  if($StepDigest-cne'20b346c44d2e2840c035710ee726e5538043602fc497730161951e7ce59eabea'){throw 'full-preflight frozen closure'}
+  if($SummaryDigest-cne'e4ae140917b9706da4e9a6444dd7fce000b89f1fa6479a500b02ad64ea6a258e'){throw 'summary frozen closure'}
   $Required=@('$RustcStart.RedirectStandardOutput = $true','$RustcStart.RedirectStandardError = $true','$StdoutCopy = $RustcProcess.StandardOutput.BaseStream.CopyToAsync($ToolchainStdout)','$StderrCopy = $RustcProcess.StandardError.BaseStream.CopyToAsync($ToolchainStderr)','$RustcProcess.WaitForExit()','$StdoutCopy.GetAwaiter().GetResult()','$StderrCopy.GetAwaiter().GetResult()','$ToolchainBytes = $ToolchainStdout.ToArray()','$ToolchainStderrBytes = $ToolchainStderr.ToArray()','if ($RustcExit -ne 0 -or $ToolchainBytes.Length -eq 0)','if ([Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0)','$StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)','$ToolchainText = $StrictUtf8.GetString($ToolchainBytes)','$ToolchainPayload = [Convert]::ToBase64String($ToolchainBytes)','$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"','cargo build -p hum-dev','$Isolated = New-HumIsolatedExecutable','$Capture = Invoke-HumBinaryCapture $Executable $Arguments $WorkingDirectory $CaptureDirectory $DeadlineSeconds','$Capture = Assert-HumCaptureComplete $Capture','try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason }','$Capture = Invoke-HumPreflightCapture $Isolated.Executable','$CaptureAuthenticated = $true','$ExitCode = $Capture.ExitCode','"toolchain=$env:HUM_BUILD_TOOLCHAIN" >> $env:GITHUB_OUTPUT','Remove-HumIsolatedExecutable $Isolated','Remove-HumCaptureAfterAuthentication $CaptureDirectory','Final preflight diagnostic retention also failed:')
   $Last=-1;foreach($Needle in $Required){$Hits=@([regex]::Matches($Step,[regex]::Escape($Needle)));if($Hits.Count-ne1-or$Hits[0].Index-le$Last){throw "full-preflight owned dataflow: $Needle"};$Last=$Hits[0].Index}
   foreach($Forbidden in @('$env:HUM_BUILD_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()','$Process.StartInfo.FileName','Start-Process $Isolated.Executable')){if($Step.Contains($Forbidden)){throw "full-preflight retired route: $Forbidden"}}
@@ -1716,6 +1717,46 @@ function Assert-PreflightParentCleanupDependencies {
   Assert-True ($env:PSModulePath -ceq $BeforeModulePath -and $PSModuleAutoLoadingPreference -ceq $BeforeAutoLoading) 'parent dependency probe changed module configuration'
   Assert-True ((@((Get-Module).Path) -join '|') -ceq $BeforeModules) 'parent dependency probe changed module inventory'
   Write-Output 'ok - complete lifecycle with parent hashing unavailable and module discovery disabled'
+}
+
+if ($ProfileSmokeOnly) {
+  $Before = Get-ProcessEnvironmentSnapshot
+  $DirectoryBefore = (Get-Location).Path
+  $Shell = (Get-Process -Id $PID).Path
+  $Self = $script:HumCaptureTestPath
+  $Captures = New-Object 'System.Collections.Generic.List[string]'
+  $Failure = $null
+  try {
+    foreach ($Case in @('preflight', 'exit23')) {
+      $Directory = Join-Path ([IO.Path]::GetTempPath()) ('hum-profile-smoke-' + [Guid]::NewGuid().ToString('N'))
+      $Result = Invoke-HumBinaryCapture $Shell @('-NoLogo','-NoProfile','-NonInteractive','-File',$Self,'-SyntheticChild',$Case) $DirectoryBefore $Directory 15 -CaseName "profile-$Case"
+      $Result = Assert-HumCaptureComplete $Result
+      $Captures.Add($Directory)
+      $ExpectedExit = if ($Case -ceq 'preflight') { 0 } else { 23 }
+      Assert-True ($Result.ExitCode -eq $ExpectedExit -and -not $Result.TimedOut) 'profile smoke exit/deadline'
+      Assert-True ($Result.FinalActiveProcessCount -eq 0) 'profile smoke owned quiescence'
+      if ($Case -ceq 'preflight') { Assert-True ($Result.StderrBytes -eq 0) 'profile smoke empty stderr' }
+    }
+  } catch { $Failure = $_ } finally {
+    foreach ($Directory in $Captures) {
+      if ($null -ne $Failure) {
+        $Failure.Exception.Data["unaccepted-diagnostics:$Directory"] = $Directory
+        continue
+      }
+      try { Remove-HumCaptureAfterAuthentication $Directory } catch {
+        if ($null -eq $Failure) { $Failure = $_ } else { $Failure.Exception.Data["cleanup:$Directory"] = $_ }
+      }
+    }
+    try {
+      Assert-True ((Get-Location).Path -ceq $DirectoryBefore) 'profile smoke directory restoration'
+      Assert-True (Test-ExactBytesEqual $Before.Bytes (Get-ProcessEnvironmentSnapshot).Bytes) 'profile smoke environment restoration'
+    } catch {
+      if ($null -eq $Failure) { $Failure = $_ } else { $Failure.Exception.Data['restoration'] = $_ }
+    }
+  }
+  if ($null -ne $Failure) { throw $Failure }
+  Write-Output 'Short profile capture smoke passed; no complete harness credit.'
+  return
 }
 
 if ($PreflightDiagnosticsOnly) {

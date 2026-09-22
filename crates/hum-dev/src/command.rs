@@ -10,6 +10,9 @@ use crate::shell::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvidenceProfile {
+    Language,
+    Runtime,
+    Compiler,
     Focused,
     Status,
     Full,
@@ -19,6 +22,9 @@ pub enum EvidenceProfile {
 impl EvidenceProfile {
     pub fn name(self) -> &'static str {
         match self {
+            Self::Language => "language",
+            Self::Runtime => "runtime",
+            Self::Compiler => "compiler",
             Self::Focused => "focused",
             Self::Status => "status",
             Self::Full => "full",
@@ -27,6 +33,9 @@ impl EvidenceProfile {
     }
     pub(crate) fn parse(value: &str) -> Result<Self, String> {
         match value {
+            "language" => Ok(Self::Language),
+            "runtime" => Ok(Self::Runtime),
+            "compiler" => Ok(Self::Compiler),
             "focused" => Ok(Self::Focused),
             "status" => Ok(Self::Status),
             "full" => Ok(Self::Full),
@@ -81,7 +90,7 @@ impl Command {
                 Ok(Self::CandidateIdentity(path.into())),
             [group, action] if group == "cleanup" && action == "verify" => Ok(Self::CleanupVerify),
             [group, action, input_flag, input, base_flag, base_sha256, status_flag, status_body, gate_flag, gate_body, output_flag, output] if group == "workorder" && action == "status-facts" && input_flag == "--input" && base_flag == "--base-sha256" && status_flag == "--status-body-file" && gate_flag == "--gate-body-file" && output_flag == "--output" => Ok(Self::WorkOrderStatusFacts { input: input.into(), base_sha256: base_sha256.clone(), status_body: status_body.into(), gate_body: gate_body.into(), output: output.into() }),
-            _ => Err("usage: hum-dev evidence <focused|full|exhaustive> --pwsh ABSOLUTE_PATH | evidence status | evidence summarize --output PATH --pwsh ABSOLUTE_PATH | commit-message check <--subject TEXT|--file PATH> | candidate identity [--repository PATH] | cleanup verify | workorder status-facts --input PATH --base-sha256 HASH --status-body-file PATH --gate-body-file PATH --output PATH".into()),
+            _ => Err("usage: hum-dev evidence <language|runtime|compiler|focused|full|exhaustive> --pwsh ABSOLUTE_PATH | evidence status | evidence summarize --output PATH --pwsh ABSOLUTE_PATH | commit-message check <--subject TEXT|--file PATH> | candidate identity [--repository PATH] | cleanup verify | workorder status-facts --input PATH --base-sha256 HASH --status-body-file PATH --gate-body-file PATH --output PATH".into()),
         }
     }
 }
@@ -96,6 +105,9 @@ pub struct LegacyInvocation {
 #[rustfmt::skip]
 pub fn legacy_invocation(profile: EvidenceProfile) -> LegacyInvocation {
     match profile {
+        EvidenceProfile::Language => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Language"] },
+        EvidenceProfile::Runtime => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Runtime"] },
+        EvidenceProfile::Compiler => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Compiler"] },
         EvidenceProfile::Focused => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Wo25UnitC"] },
         EvidenceProfile::Full => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Fast"] },
         EvidenceProfile::Exhaustive => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Exhaustive"] },
@@ -185,6 +197,9 @@ mod tests {
     #[test]
     fn evidence_profiles_are_typed_and_fail_closed() {
         for (name, expected) in [
+            ("language", EvidenceProfile::Language),
+            ("runtime", EvidenceProfile::Runtime),
+            ("compiler", EvidenceProfile::Compiler),
             ("focused", EvidenceProfile::Focused),
             ("status", EvidenceProfile::Status),
             ("full", EvidenceProfile::Full),
@@ -209,6 +224,24 @@ mod tests {
             );
         }
         for (profile, executable, script, arguments) in [
+            (
+                EvidenceProfile::Language,
+                "pwsh",
+                "tools/check_all.ps1",
+                &["-EvidenceTier", "Language"][..],
+            ),
+            (
+                EvidenceProfile::Runtime,
+                "pwsh",
+                "tools/check_all.ps1",
+                &["-EvidenceTier", "Runtime"][..],
+            ),
+            (
+                EvidenceProfile::Compiler,
+                "pwsh",
+                "tools/check_all.ps1",
+                &["-EvidenceTier", "Compiler"][..],
+            ),
             (
                 EvidenceProfile::Focused,
                 "pwsh",
@@ -252,5 +285,17 @@ mod tests {
             ])
             .is_err()
         );
+        for name in ["language", "runtime", "compiler"] {
+            let profile = EvidenceProfile::parse(name).unwrap();
+            assert_eq!(profile.name(), name);
+            assert_eq!(
+                Command::parse(["evidence", name, "--pwsh", "owned-path"].map(str::to_owned)),
+                Ok(Command::EvidenceBound(profile, "owned-path".into()))
+            );
+            assert!(
+                Command::parse(["evidence", name, "--skip", "anything"].map(str::to_owned))
+                    .is_err()
+            );
+        }
     }
 }
