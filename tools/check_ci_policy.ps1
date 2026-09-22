@@ -470,9 +470,10 @@ function Get-HumCiPushSelection([string] $Root, [string] $Before, [string] $Head
 }
 
 function Assert-HumIntegrationHealth([object[]] $Runs, [datetimeoffset] $Now, [string] $Repository) {
-  # Latest scheduled run owns health: never search backward past a failure.
-  $Candidates = @($Runs | Where-Object { $_.event -ceq 'schedule' -and $_.path -ceq '.github/workflows/validation.yml' } | Sort-Object { [datetimeoffset]$_.created_at } -Descending)
-  if ($Candidates.Count -eq 0) { throw 'ci_health: scheduled integration result is missing; Full bootstrap/recovery is required' }
+  # Latest scheduled or dispatched run owns health: never search backward past a failure.
+  # Dispatch always runs Full (only pull_request classifies), so it mints the same evidence.
+  $Candidates = @($Runs | Where-Object { $_.event -cin @('schedule','workflow_dispatch') -and $_.path -ceq '.github/workflows/validation.yml' } | Sort-Object { [datetimeoffset]$_.created_at } -Descending)
+  if ($Candidates.Count -eq 0) { throw 'ci_health: scheduled or dispatched integration result is missing; Full bootstrap/recovery is required' }
   $Run = $Candidates[0]
   if ($Run.repository.full_name -cne $Repository -or $Run.head_branch -cne 'main' -or
       $Run.status -cne 'completed' -or $Run.conclusion -cne 'success' -or
