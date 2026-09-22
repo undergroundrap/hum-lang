@@ -128,12 +128,17 @@ jobs:
                 $PolicyPath = Join-Path $env:RUNNER_TEMP ('hum-accepted-push-policy-' + [Guid]::NewGuid().ToString('N') + '.ps1')
                 try {
                   [IO.File]::WriteAllText($PolicyPath, ($Policy -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
-                  . $PolicyPath
-                  if (Get-Command Get-HumCiPushSelection -CommandType Function -ErrorAction SilentlyContinue) {
+                  # The policy script opens with a param() block ($Mode defaults to
+                  # 'Library'). Dot-sourcing it in the step scope would overwrite the
+                  # step's $Mode, so the policy and everything that consumes it run
+                  # in a child scope; only the selected profile crosses the boundary.
+                  $SelectedProfile = & {
+                    . $PolicyPath
+                    $HasPushSelection = Get-Command Get-HumCiPushSelection -CommandType Function -ErrorAction SilentlyContinue
+                    if (-not $HasPushSelection) { return 'full' }
                     $Selection = Get-HumCiPushSelection (Get-Location).Path $env:HUM_CI_BASE_SHA $env:HUM_CI_HEAD_SHA
-                    $SelectedProfile = $Selection.Profile
                     "base=$($Selection.Base);head=$($Selection.Head);tree=$($Selection.Tree);reason=$($Selection.Reason);run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
-                    if ($SelectedProfile -cne 'full') {
+                    if ($Selection.Profile -cne 'full') {
                       $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?event=schedule&branch=main&per_page=1"
                       if ($LASTEXITCODE -ne 0) { throw 'integration health metadata unavailable' }
                       $Health = Assert-HumIntegrationHealth @(($Json | ConvertFrom-Json).workflow_runs) ([datetimeoffset]::UtcNow) $env:GITHUB_REPOSITORY
@@ -142,6 +147,7 @@ jobs:
                       Assert-HumIntegrationJobs @(($JobJson | ConvertFrom-Json) | ForEach-Object { $_.jobs }) $Health
                       "health_run=$($Health.id);health_attempt=$($Health.run_attempt);health_sha=$($Health.head_sha)" >> $env:GITHUB_STEP_SUMMARY
                     }
+                    $Selection.Profile
                   }
                 } finally { if (Test-Path -LiteralPath $PolicyPath) { Remove-Item -LiteralPath $PolicyPath -Force } }
               } else { Write-Host 'Accepted pre-push policy unavailable: Full bootstrap required.' }

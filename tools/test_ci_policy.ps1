@@ -458,7 +458,8 @@ Assert-Wo25EvidenceTierDispatcherContract $Source -SkipStaleControl
 Assert-Wo25UnitBFullPreflightWorkflowRoute $Ci
 Assert-Policy ($null -eq (Get-Wo25ExhaustiveWorkflowRouteFailure $Ci)) 'Full exhaustive route unchanged'
 Assert-Policy ($Workflow.Contains('if: always()') -and $Workflow.Contains('needs: [plan, evaluate]')) 'aggregate runs after failure'
-Assert-Policy ($Workflow.Contains('git show "$($env:HUM_BASE):tools/check_ci_policy.ps1"')) 'accepted-base policy selection'
+Assert-Policy ($Workflow.Contains('git show "$($AcceptedBase):tools/check_ci_policy.ps1"')) 'accepted-base policy selection'
+Assert-Policy ($Workflow -notmatch 'git show "\$\(\$env:HUM_BASE\):tools/check_ci_policy\.ps1"') 'stale event base never feeds the policy read'
 Assert-Policy ($Workflow -notmatch '(?m)^\s*(checks|statuses|id-token):\s*write\s*$' -and $Workflow -notmatch 'pull_request_target:') 'no privileged publisher'
 foreach ($Step in @('Generate evidence summary','Upload evidence summary','Upload hum-dev executable')) {
   $Block=[regex]::Match($Ci,'(?ms)^      - name: '+[regex]::Escape($Step)+'\n.*?(?=^      - name: |\z)').Value
@@ -489,5 +490,156 @@ try {
 } finally {
   [Environment]::SetEnvironmentVariable('HUM_CI_BASE_SHA',$OldProbeBase,'Process')
   Pop-Location
+}
+# Regression: the ci.yml classify step dot-sourced the accepted policy script,
+# whose param() block ($Mode defaults to 'Library') overwrote the step's $Mode.
+# The completion check then saw HUM_SELECTED_MODE=Library and threw, failing
+# every main push once the base contained the policy. The fix loads the policy
+# in a child scope. This extracts the real policy-load block from ci.yml and
+# executes it against a policy-bearing base, asserting the step's $Mode is not
+# clobbered. Fails on the pre-fix ci.yml.
+$LoadStart=$ClassifyStep.IndexOf('$PolicyPath = Join-Path $env:RUNNER_TEMP')
+$LoadEndMarker="} else { Write-Host 'Accepted pre-push policy unavailable: Full bootstrap required.' }"
+$LoadEnd=$ClassifyStep.IndexOf($LoadEndMarker)
+Assert-Policy (($LoadStart -ge 0) -and ($LoadEnd -gt $LoadStart)) 'classify policy-load block located in ci.yml'
+$LoadBlock=$ClassifyStep.Substring($LoadStart,$LoadEnd-$LoadStart).TrimEnd()
+Assert-Policy ($LoadBlock -match '(?s)& \{\s*\. \$PolicyPath') 'classify policy loads in a child scope'
+$ScopeFixture=[IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('hum-ci-scope-'+[Guid]::NewGuid().ToString('N'))))
+if(Test-Path -LiteralPath $ScopeFixture){throw 'ci_policy_test: fixture collision'}
+[IO.Directory]::CreateDirectory($ScopeFixture)|Out-Null
+$ScopeIdentity=@('-c','user.name=HumPolicyFixture','-c','user.email=fixture@example.invalid')
+$OldScopeEnv=@{}
+$ScopeSummary=$null
+try {
+  $null=Read-HumCiGit $ScopeFixture @('init','-q','-b','main')
+  [IO.Directory]::CreateDirectory((Join-Path $ScopeFixture 'tools'))|Out-Null
+  [IO.File]::Copy((Join-Path $PSScriptRoot 'check_ci_policy.ps1'),(Join-Path $ScopeFixture 'tools/check_ci_policy.ps1'))
+  [IO.File]::WriteAllText((Join-Path $ScopeFixture 'tools/run_fast_evidence.ps1'),"base`n")
+  $null=Read-HumCiGit $ScopeFixture @('add','--','tools/check_ci_policy.ps1','tools/run_fast_evidence.ps1')
+  $ScopeTreeA=(Read-HumCiGit $ScopeFixture @('write-tree')).Trim()
+  $ScopeBase=(Read-HumCiGit $ScopeFixture ($ScopeIdentity+@('commit-tree',$ScopeTreeA,'-m','policy-base'))).Trim()
+  [IO.File]::WriteAllText((Join-Path $ScopeFixture 'tools/run_fast_evidence.ps1'),"changed`n")
+  $null=Read-HumCiGit $ScopeFixture @('add','--','tools/run_fast_evidence.ps1')
+  $ScopeTreeB=(Read-HumCiGit $ScopeFixture @('write-tree')).Trim()
+  $ScopeHead=(Read-HumCiGit $ScopeFixture ($ScopeIdentity+@('commit-tree',$ScopeTreeB,'-p',$ScopeBase,'-m','push-head'))).Trim()
+  $null=Read-HumCiGit $ScopeFixture @('update-ref','HEAD',$ScopeHead)
+  $null=Read-HumCiGit $ScopeFixture @('checkout','-q','--detach',$ScopeHead)
+  foreach ($Name in @('HUM_CI_BASE_SHA','HUM_CI_HEAD_SHA','RUNNER_TEMP','GITHUB_STEP_SUMMARY','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT')) {
+    $OldScopeEnv[$Name]=[Environment]::GetEnvironmentVariable($Name,'Process')
+  }
+  [Environment]::SetEnvironmentVariable('HUM_CI_BASE_SHA',$ScopeBase,'Process')
+  [Environment]::SetEnvironmentVariable('HUM_CI_HEAD_SHA',$ScopeHead,'Process')
+  [Environment]::SetEnvironmentVariable('RUNNER_TEMP',[IO.Path]::GetTempPath(),'Process')
+  $ScopeSummary=Join-Path ([IO.Path]::GetTempPath()) ('hum-ci-scope-summary-'+[Guid]::NewGuid().ToString('N')+'.md')
+  [Environment]::SetEnvironmentVariable('GITHUB_STEP_SUMMARY',$ScopeSummary,'Process')
+  [Environment]::SetEnvironmentVariable('GITHUB_RUN_ID','0','Process')
+  [Environment]::SetEnvironmentVariable('GITHUB_RUN_ATTEMPT','1','Process')
+  Push-Location $ScopeFixture
+  try {
+    $Mode='full'
+    $SelectedProfile='full'
+    $Policy=git -C $ScopeFixture show "$($ScopeBase):tools/check_ci_policy.ps1" 2>$null
+    Assert-Policy ($LASTEXITCODE -eq 0) 'scope fixture policy readable'
+    & ([scriptblock]::Create($LoadBlock+"`n`$script:ScopeModeAfter = `$Mode`n`$script:ScopeProfileAfter = `$SelectedProfile"))
+    Assert-Policy ($script:ScopeModeAfter -ceq 'full') 'classify policy load leaves step $Mode at full (not Library)'
+    Assert-Policy ($script:ScopeProfileAfter -ceq 'full') 'classify push selection completes as full'
+    Assert-Policy ($LASTEXITCODE -eq 0) 'classify policy load leaves LASTEXITCODE 0'
+  } finally { Pop-Location }
+} finally {
+  foreach ($Entry in $OldScopeEnv.GetEnumerator()) { [Environment]::SetEnvironmentVariable($Entry.Key,$Entry.Value,'Process') }
+  if (Test-Path -LiteralPath $ScopeFixture) { Remove-Item -LiteralPath $ScopeFixture -Recurse -Force }
+  if ($ScopeSummary -and (Test-Path -LiteralPath $ScopeSummary)) { Remove-Item -LiteralPath $ScopeSummary -Force }
+}
+# Regression: validation.yml's plan step compared the test merge commit's parents
+# against the event's pull_request.base.sha, which goes stale when the target
+# branch moves after GitHub builds the merge commit. Every PR open across a
+# merge then failed with 'integration parents differ', and re-running could not
+# help. The fix derives the accepted base from the merge commit's first parent,
+# verifies the second parent is the event head and the base is on the target
+# branch. This extracts the real plan block from validation.yml and executes it
+# with a stale event base behind the merge commit's first parent, asserting it
+# passes and reports the verified base. Fails on the pre-fix validation.yml.
+$PlanStepAt=$Workflow.IndexOf('      - name: Select accepted-policy route')
+Assert-Policy ($PlanStepAt -ge 0) 'plan step found in validation.yml'
+$PlanRunMarker="`n        run: |`n"
+$PlanRunAt=$Workflow.IndexOf($PlanRunMarker,$PlanStepAt)
+Assert-Policy ($PlanRunAt -ge 0) 'plan run block found in validation.yml'
+$PlanBodyAt=$PlanRunAt+$PlanRunMarker.Length
+$PlanLines=$Workflow.Substring($PlanBodyAt) -split "`n"
+$PlanBody=@()
+foreach ($PlanLine in $PlanLines) {
+  if ($PlanLine -match '^          (.*)$') { $PlanBody+=$Matches[1] }
+  elseif ($PlanLine -eq '') { $PlanBody+='' }
+  else { break }
+}
+$PlanBlock=$PlanBody -join "`n"
+Assert-Policy ($PlanBlock -match 'ParentIds\[1\]') 'plan derives the accepted base from the merge commit'
+$PlanFixture=[IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('hum-ci-plan-'+[Guid]::NewGuid().ToString('N'))))
+$PlanRemote="$PlanFixture-remote.git"
+if((Test-Path -LiteralPath $PlanFixture) -or (Test-Path -LiteralPath $PlanRemote)){throw 'ci_policy_test: fixture collision'}
+[IO.Directory]::CreateDirectory($PlanFixture)|Out-Null
+$PlanIdentity=@('-c','user.name=HumPolicyFixture','-c','user.email=fixture@example.invalid')
+$OldPlanEnv=@{}
+$PlanOutput=$null
+$PlanSummary=$null
+try {
+  $null=Read-HumCiGit $PlanFixture @('init','-q','-b','main')
+  [IO.Directory]::CreateDirectory((Join-Path $PlanFixture 'tools'))|Out-Null
+  [IO.File]::Copy((Join-Path $PSScriptRoot 'check_ci_policy.ps1'),(Join-Path $PlanFixture 'tools/check_ci_policy.ps1'))
+  [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/run_fast_evidence.ps1'),"base`n")
+  $null=Read-HumCiGit $PlanFixture @('add','--','tools/check_ci_policy.ps1','tools/run_fast_evidence.ps1')
+  $PlanTreeA=(Read-HumCiGit $PlanFixture @('write-tree')).Trim()
+  # A is the stale event base: the main tip the PR was opened against.
+  $PlanStaleBase=(Read-HumCiGit $PlanFixture ($PlanIdentity+@('commit-tree',$PlanTreeA,'-m','stale-base'))).Trim()
+  [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/run_fast_evidence.ps1'),"main tip`n")
+  $null=Read-HumCiGit $PlanFixture @('add','--','tools/run_fast_evidence.ps1')
+  $PlanTreeB=(Read-HumCiGit $PlanFixture @('write-tree')).Trim()
+  # B is the current main tip: the merge commit's first parent.
+  $PlanTip=(Read-HumCiGit $PlanFixture ($PlanIdentity+@('commit-tree',$PlanTreeB,'-p',$PlanStaleBase,'-m','main-tip'))).Trim()
+  $null=Read-HumCiGit $PlanFixture @('update-ref','refs/heads/main',$PlanTip)
+  $null=Read-HumCiGit $PlanFixture @('init','--bare','-q',$PlanRemote)
+  $null=Read-HumCiGit $PlanFixture @('remote','add','origin',$PlanRemote)
+  $null=Read-HumCiGit $PlanFixture @('push','-q','origin','main')
+  # H is the PR head, branched from the stale base.
+  $null=Read-HumCiGit $PlanFixture @('read-tree',$PlanTreeA)
+  [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/run_fast_evidence.ps1'),"pr change`n")
+  $null=Read-HumCiGit $PlanFixture @('add','--','tools/run_fast_evidence.ps1')
+  $PlanTreeH=(Read-HumCiGit $PlanFixture @('write-tree')).Trim()
+  $PlanHead=(Read-HumCiGit $PlanFixture ($PlanIdentity+@('commit-tree',$PlanTreeH,'-p',$PlanStaleBase,'-m','pr-head'))).Trim()
+  # M is GitHub's test merge commit, built on the current main tip.
+  $PlanMerge=(Read-HumCiGit $PlanFixture ($PlanIdentity+@('commit-tree',$PlanTreeH,'-p',$PlanTip,'-p',$PlanHead,'-m','integration'))).Trim()
+  $null=Read-HumCiGit $PlanFixture @('checkout','-q','--detach',$PlanMerge)
+  foreach ($Name in @('HUM_EVENT','HUM_BASE','HUM_BASE_REF','HUM_HEAD','HUM_INTEGRATION','HUM_FULL_REQUESTED','RUNNER_TEMP','GITHUB_OUTPUT','GITHUB_STEP_SUMMARY','GITHUB_REPOSITORY','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT')) {
+    $OldPlanEnv[$Name]=[Environment]::GetEnvironmentVariable($Name,'Process')
+  }
+  [Environment]::SetEnvironmentVariable('HUM_EVENT','pull_request','Process')
+  [Environment]::SetEnvironmentVariable('HUM_BASE',$PlanStaleBase,'Process')
+  [Environment]::SetEnvironmentVariable('HUM_BASE_REF','main','Process')
+  [Environment]::SetEnvironmentVariable('HUM_HEAD',$PlanHead,'Process')
+  [Environment]::SetEnvironmentVariable('HUM_INTEGRATION',$PlanMerge,'Process')
+  [Environment]::SetEnvironmentVariable('HUM_FULL_REQUESTED','false','Process')
+  [Environment]::SetEnvironmentVariable('RUNNER_TEMP',[IO.Path]::GetTempPath(),'Process')
+  $PlanOutput=Join-Path ([IO.Path]::GetTempPath()) ('hum-ci-plan-output-'+[Guid]::NewGuid().ToString('N')+'.txt')
+  $PlanSummary=Join-Path ([IO.Path]::GetTempPath()) ('hum-ci-plan-summary-'+[Guid]::NewGuid().ToString('N')+'.md')
+  [Environment]::SetEnvironmentVariable('GITHUB_OUTPUT',$PlanOutput,'Process')
+  [Environment]::SetEnvironmentVariable('GITHUB_STEP_SUMMARY',$PlanSummary,'Process')
+  [Environment]::SetEnvironmentVariable('GITHUB_REPOSITORY','owner/repo','Process')
+  [Environment]::SetEnvironmentVariable('GITHUB_RUN_ID','0','Process')
+  [Environment]::SetEnvironmentVariable('GITHUB_RUN_ATTEMPT','1','Process')
+  Push-Location $PlanFixture
+  try {
+    $PlanError=$null
+    try { & ([scriptblock]::Create($PlanBlock)) } catch { $PlanError=$_.Exception.Message }
+    Assert-Policy ($null -eq $PlanError) "plan block passes with a stale event base (error: $PlanError)"
+    $PlanOutLines=@(Get-Content -LiteralPath $PlanOutput)
+    Assert-Policy ($PlanOutLines -contains "base=$PlanTip") 'plan reports the verified base, not the stale event base'
+    Assert-Policy ($PlanOutLines -contains 'profile=full') 'plan selects full for the fixture change'
+  } finally { Pop-Location }
+} finally {
+  foreach ($Entry in $OldPlanEnv.GetEnumerator()) { [Environment]::SetEnvironmentVariable($Entry.Key,$Entry.Value,'Process') }
+  if (Test-Path -LiteralPath $PlanFixture) { Remove-Item -LiteralPath $PlanFixture -Recurse -Force }
+  if (Test-Path -LiteralPath $PlanRemote) { Remove-Item -LiteralPath $PlanRemote -Recurse -Force }
+  if ($PlanOutput -and (Test-Path -LiteralPath $PlanOutput)) { Remove-Item -LiteralPath $PlanOutput -Force }
+  if ($PlanSummary -and (Test-Path -LiteralPath $PlanSummary)) { Remove-Item -LiteralPath $PlanSummary -Force }
 }
 Write-Output "CI policy focused controls passed: $Count assertions; no Full execution credit."
