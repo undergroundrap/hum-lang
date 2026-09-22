@@ -1,0 +1,140 @@
+name: validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      profile: ${{ steps.select.outputs.profile }}
+      base: ${{ steps.select.outputs.base }}
+      head: ${{ steps.select.outputs.head }}
+      integration: ${{ steps.select.outputs.integration }}
+      tree: ${{ steps.select.outputs.tree }}
+      run: ${{ steps.select.outputs.run }}
+      attempt: ${{ steps.select.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select accepted-policy route
+        id: select
+        shell: pwsh
+        env:
+          HUM_EVENT: ${{ github.event_name }}
+          HUM_BASE: ${{ github.event.pull_request.base.sha }}
+          HUM_HEAD: ${{ github.event.pull_request.head.sha }}
+          HUM_INTEGRATION: ${{ github.sha }}
+          HUM_FULL_REQUESTED: ${{ contains(github.event.pull_request.labels.*.name, 'hum-full-validation') }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ShaPattern = '\A[0-9a-f]{40}\z'
+          if ($env:HUM_INTEGRATION -cnotmatch $ShaPattern) { throw 'integration SHA is malformed' }
+          $Tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0 -or $Tree -cnotmatch $ShaPattern) { throw 'integration tree is unavailable' }
+          $Actual = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $Actual -cne $env:HUM_INTEGRATION) { throw 'checkout differs from event integration' }
+          $Profile = 'full'
+          if ($env:HUM_EVENT -ceq 'pull_request') {
+            if ($env:HUM_BASE -cnotmatch $ShaPattern -or $env:HUM_HEAD -cnotmatch $ShaPattern) { throw 'PR identity is malformed' }
+            $Parents = git rev-list --parents -n 1 $env:HUM_INTEGRATION
+            if ($LASTEXITCODE -ne 0 -or $Parents -cne "$env:HUM_INTEGRATION $env:HUM_BASE $env:HUM_HEAD") { throw 'integration parents differ' }
+            # Only the accepted base selects a cheaper route. No proposed-script fallback.
+            $Policy = git show "$($env:HUM_BASE):tools/check_ci_policy.ps1" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              $PolicyPath = Join-Path $env:RUNNER_TEMP ('hum-accepted-policy-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+              try {
+                [IO.File]::WriteAllText($PolicyPath, ($Policy -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+                . $PolicyPath
+                $Selection = Get-HumCiSelection (Get-Location).Path $env:HUM_BASE $env:HUM_HEAD $env:HUM_INTEGRATION
+                $Profile = $Selection.Profile
+                # The owner may separately authorize this coverage-increasing label.
+                if ($env:HUM_FULL_REQUESTED -ceq 'true') { $Profile = 'full' }
+                if ($Selection.Tree -cne $Tree) { throw 'selection tree disagreement' }
+                if ($Profile -cne 'full') {
+                  $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?event=schedule&branch=main&per_page=1"
+                  if ($LASTEXITCODE -ne 0) { throw 'integration health metadata unavailable' }
+                  $Runs = @(($Json | ConvertFrom-Json).workflow_runs)
+                  $Health = Assert-HumIntegrationHealth $Runs ([datetimeoffset]::UtcNow) $env:GITHUB_REPOSITORY
+                  $JobJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/actions/runs/$($Health.id)/attempts/$($Health.run_attempt)/jobs?per_page=100"
+                  if ($LASTEXITCODE -ne 0) { throw 'integration job metadata unavailable' }
+                  $Jobs = @(($JobJson | ConvertFrom-Json) | ForEach-Object { $_.jobs })
+                  Assert-HumIntegrationJobs $Jobs $Health
+                  "health_run=$($Health.id);health_attempt=$($Health.run_attempt);health_sha=$($Health.head_sha)" >> $env:GITHUB_STEP_SUMMARY
+                }
+              } finally { if (Test-Path -LiteralPath $PolicyPath) { Remove-Item -LiteralPath $PolicyPath -Force } }
+            } else {
+              # Bootstrap is Full, not a fabricated nightly or proposed-policy decision.
+              Write-Host 'Accepted base has no profile policy: Full bootstrap evaluation required.'
+            }
+          } elseif ($env:HUM_EVENT -cnotin @('schedule','workflow_dispatch')) { throw 'unsupported validation event' }
+          "profile=$Profile" >> $env:GITHUB_OUTPUT
+          "base=$env:HUM_BASE" >> $env:GITHUB_OUTPUT
+          "head=$env:HUM_HEAD" >> $env:GITHUB_OUTPUT
+          "integration=$env:HUM_INTEGRATION" >> $env:GITHUB_OUTPUT
+          "tree=$Tree" >> $env:GITHUB_OUTPUT
+          "run=$env:GITHUB_RUN_ID" >> $env:GITHUB_OUTPUT
+          "attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_OUTPUT
+          "profile=$Profile;base=$env:HUM_BASE;head=$env:HUM_HEAD;integration=$env:HUM_INTEGRATION;tree=$Tree;run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
+
+  evaluate:
+    needs: plan
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      profile: ${{ needs.plan.outputs.profile }}
+      integration: ${{ needs.plan.outputs.integration }}
+      tree: ${{ needs.plan.outputs.tree }}
+
+  required:
+    name: Hum required validation
+    if: always()
+    needs: [plan, evaluate]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require explicit success
+        shell: pwsh
+        env:
+          HUM_CI_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          $Needs = $env:HUM_CI_NEEDS | ConvertFrom-Json
+          if ((($Needs.PSObject.Properties.Name | Sort-Object) -join ',') -cne 'evaluate,plan') { throw 'missing or unexpected required work' }
+          foreach ($Name in @('plan','evaluate')) {
+            if ($Needs.$Name.result -cne 'success') { throw "required work did not succeed: $Name" }
+          }
+          if ($Needs.plan.outputs.profile -cnotin @('language','runtime','compiler','full')) { throw 'missing selected profile' }
+          foreach ($Name in @('integration','tree')) {
+            if ($Needs.plan.outputs.$Name -cnotmatch '\A[0-9a-f]{40}\z') { throw "missing provenance: $Name" }
+          }
+          if ($Needs.plan.outputs.integration -cne $env:GITHUB_SHA -or
+              $Needs.plan.outputs.run -cne $env:GITHUB_RUN_ID -or
+              $Needs.plan.outputs.attempt -cne $env:GITHUB_RUN_ATTEMPT -or
+              $Needs.plan.outputs.run -cnotmatch '\A[1-9][0-9]*\z' -or
+              $Needs.plan.outputs.attempt -cnotmatch '\A[1-9][0-9]*\z') { throw 'stale run/attempt/integration provenance' }
+          if ($env:GITHUB_EVENT_NAME -ceq 'pull_request') {
+            foreach ($Name in @('base','head')) {
+              if ($Needs.plan.outputs.$Name -cnotmatch '\A[0-9a-f]{40}\z') { throw "missing PR provenance: $Name" }
+            }
+          }
+          Write-Host 'Selected work succeeded. Review definitions and exact run before owner-authorized integration; this badge is not attestation.'

@@ -27,7 +27,7 @@ function Get-Wo25ExhaustiveWorkflowRouteFailure {
 
   $step = $steps[0].Value.TrimEnd([char[]] @([char] 10))
   $arms = [ordered] @{
-    gate = "        if: steps.classify.outputs.mode != 'fast' && matrix.os == 'ubuntu-latest'"
+    gate = "        if: (steps.classify.outputs.mode == 'full' || steps.classify.outputs.mode == 'normal') && matrix.os == 'ubuntu-latest'"
     outcome = '        continue-on-error: false'
     shell = '        shell: pwsh'
     run = '        run: |'
@@ -47,7 +47,7 @@ function Get-Wo25ExhaustiveWorkflowRouteFailure {
     if ($next -le $last) { return "route_$($arm.Key)_order" }
     $last = $next
   }
-  $expected = (@('      - name: Run exhaustive canonical-seal evidence') + @($arms.Values)) -join $lf; if ($step -cne $expected) { return 'route_shape' }
+  $expected = (@('      - name: Run exhaustive canonical-seal evidence','        id: exhaustive') + @($arms.Values)) -join $lf; if ($step -cne $expected) { return 'route_shape' }
   if ($normalized.Contains('./tools/check_all.ps1 -EvidenceTier Exhaustive')) { return 'retired_direct_route' }
   return $null
 }
@@ -327,7 +327,7 @@ foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_di
 }
 
 $ciWorkflow = Read-RepoText '.github/workflows/ci.yml'
-foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', 'cancel-in-progress: true', 'timeout-minutes: 60', 'actions/checkout@v7', 'actions/cache@v6', 'CARGO_HOME:', 'Cache Cargo artifacts', '.cargo-home/registry', '.cargo-home/git', 'target', 'restore-keys:', 'tools/check_all.ps1', 'Run exhaustive canonical-seal evidence', 'continue-on-error: false', 'windows-latest', 'ubuntu-latest')) {
+foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', "cancel-in-progress: `${{ github.event_name == 'pull_request' }}", 'timeout-minutes: 60', 'actions/checkout@v7', 'actions/cache@v6', 'CARGO_HOME:', 'Cache Cargo artifacts', '.cargo-home/registry', '.cargo-home/git', 'target', 'restore-keys:', 'tools/check_all.ps1', 'Run exhaustive canonical-seal evidence', 'continue-on-error: false', 'windows-latest', 'ubuntu-latest')) {
   if (-not $ciWorkflow.Contains($required)) {
     Add-Failure ".github/workflows/ci.yml does not mention $required"
   }

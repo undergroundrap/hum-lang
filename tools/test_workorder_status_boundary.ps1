@@ -755,7 +755,7 @@ function Assert-ProductionSeamIsClosed {
   foreach ($RequiredText in @(
     'contents: read',
     'actions: read',
-    'cancel-in-progress: true',
+    'cancel-in-progress: ${{ github.event_name == ''pull_request'' }}',
     'fetch-depth: 0',
     'preflight (${{ matrix.os }})',
     'windows-latest',

@@ -1,5 +1,5 @@
 param(
-  [ValidateSet('Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation')]
+  [ValidateSet('Language', 'Runtime', 'Compiler', 'Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation')]
   [string] $EvidenceTier = 'Fast'
 )
 
@@ -71,7 +71,7 @@ if ($EvidenceTier -eq 'Exhaustive') {
   return
 }
 
-if ($EvidenceTier -notin @('Fast', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation')) {
+if ($EvidenceTier -notin @('Language', 'Runtime', 'Compiler', 'Fast', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation')) {
   throw "unsupported evidence-tier fallthrough: $EvidenceTier"
 }
 
@@ -505,12 +505,13 @@ function Invoke-ExactRustSelectorLedgerMutationTests {
 function Invoke-RepoScript {
   param(
     [string] $Label,
-    [string] $RelativePath
+    [string] $RelativePath,
+    [string[]] $Arguments = @()
   )
 
   Write-Host "==> $Label"
   $global:LASTEXITCODE = 0
-  & (Join-Path $PSScriptRoot $RelativePath)
+  & (Join-Path $PSScriptRoot $RelativePath) @Arguments
   if ($LASTEXITCODE -ne 0) {
     throw "$Label failed with exit code $LASTEXITCODE"
   }
@@ -1177,9 +1178,9 @@ function Invoke-Wo25UnitAProductionMutationEvidence { param([string] $Cargo)
 function Get-Wo25ExhaustiveWorkflowRouteFailure { param([string] $Source)
   $Cr=[char]13;$Lf=[char]10;$Normalized=$Source.Replace([string]$Cr+[string]$Lf,[string]$Lf).Replace([string]$Cr,[string]$Lf);$StepPattern='(?ms)^      - name: Run exhaustive canonical-seal evidence'+$Lf+'.*?(?=^      - name: |\z)';$Steps=@([regex]::Matches($Normalized,$StepPattern))
   if($Steps.Count-ne1){return 'step_count'};$Step=$Steps[0].Value.TrimEnd([char[]]@([char]10))
-  $Arms=[ordered]@{gate="        if: steps.classify.outputs.mode != 'fast' && matrix.os == 'ubuntu-latest'";outcome='        continue-on-error: false';shell='        shell: pwsh';run='        run: |';pwsh="          `$Pwsh = Join-Path `$PSHOME `$(if (`$IsWindows) { 'pwsh.exe' } else { 'pwsh' })";adapter='          . ./tools/run_fast_evidence.ps1';executable="          `$Executable = if (`$IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }";isolation="          `$Isolated = New-HumIsolatedExecutable `$Executable `$env:RUNNER_TEMP 'target'";launch='          try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }';cleanup='          finally { Remove-HumIsolatedExecutable $Isolated }';exit='          if ($ExitCode -ne 0) { exit $ExitCode }'}
+  $Arms=[ordered]@{gate="        if: (steps.classify.outputs.mode == 'full' || steps.classify.outputs.mode == 'normal') && matrix.os == 'ubuntu-latest'";outcome='        continue-on-error: false';shell='        shell: pwsh';run='        run: |';pwsh="          `$Pwsh = Join-Path `$PSHOME `$(if (`$IsWindows) { 'pwsh.exe' } else { 'pwsh' })";adapter='          . ./tools/run_fast_evidence.ps1';executable="          `$Executable = if (`$IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }";isolation="          `$Isolated = New-HumIsolatedExecutable `$Executable `$env:RUNNER_TEMP 'target'";launch='          try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }';cleanup='          finally { Remove-HumIsolatedExecutable $Isolated }';exit='          if ($ExitCode -ne 0) { exit $ExitCode }'}
   $Last=-1;foreach($Arm in $Arms.GetEnumerator()){$Hits=@([regex]::Matches($Step,'(?m)^'+[regex]::Escape($Arm.Value)+'$'));if($Hits.Count-ne1){return "route_$($Arm.Key)_count"};$Next=$Step.IndexOf($Arm.Value,[StringComparison]::Ordinal);if($Next-le$Last){return "route_$($Arm.Key)_order"};$Last=$Next}
-  $Expected=(@('      - name: Run exhaustive canonical-seal evidence')+@($Arms.Values))-join$Lf;if($Step-cne$Expected){return 'route_shape'};if($Normalized.Contains('./tools/check_all.ps1 -EvidenceTier Exhaustive')){return 'retired_direct_route'};return $null
+  $Expected=(@('      - name: Run exhaustive canonical-seal evidence','        id: exhaustive')+@($Arms.Values))-join$Lf;if($Step-cne$Expected){return 'route_shape'};if($Normalized.Contains('./tools/check_all.ps1 -EvidenceTier Exhaustive')){return 'retired_direct_route'};return $null
 }
 function Assert-Wo25EvidenceTierDispatcherContract { param([string] $Source, [switch] $SkipStaleControl)
   $Dollar = [char] 36
@@ -1190,7 +1191,7 @@ function Assert-Wo25EvidenceTierDispatcherContract { param([string] $Source, [sw
     while (($Offset = $Text.IndexOf($Needle, $Offset, [System.StringComparison]::Ordinal)) -ge 0) { $Total++; $Offset += $Needle.Length }
     $Total
   }
-  $Validate = '[Validate' + 'Set(' + "'Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation'" + ')]'; $Exhaustive = 'if (' + $Dollar + "EvidenceTier -eq 'Exhaustive') {"; $Dispatch = 'if (' + $Dollar + 'EvidenceTier -notin @(' + "'Fast', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation'" + ')) {'
+  $Validate = '[Validate' + 'Set(' + "'Language', 'Runtime', 'Compiler', 'Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation'" + ')]'; $Exhaustive = 'if (' + $Dollar + "EvidenceTier -eq 'Exhaustive') {"; $Dispatch = 'if (' + $Dollar + 'EvidenceTier -notin @(' + "'Language', 'Runtime', 'Compiler', 'Fast', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation'" + ')) {'
   $BoundaryScript = 'test_workorder_' + 'status_boundary.ps1'; $FailClosed = 'throw "unsupported evidence-tier fallthrough: ' + $Dollar + 'EvidenceTier"'; $Wo25Return = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitBReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitB') { Invoke-Wo25UnitBFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitCReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $ToolchainInit='Initialize-Wo25'+'WindowsToolchain';$UnitCMutationCall='Invoke-Wo25UnitC'+'MutationEvidence -Cargo '+$Dollar+'Cargo';$Wo25UnitCMutationReturn='if ('+$Dollar+"EvidenceTier -eq 'Wo25UnitCMutation') { $ToolchainInit; Reset-ExactRustSelectorCredits; $UnitCMutationCall; return }";$UnitCFullOrder="  Invoke-Wo25UnitCFocusedEvidence -Cargo $($Dollar)Cargo`n  $UnitCMutationCall"; $FastStart = "Invoke-RepoScript 'Work Order status-boundary classifier tests' '$BoundaryScript'"
   $Audit = "'" + $Dispatch.Replace("'", "''") + "',"; $StaleDispatch = 'if (' + $Dollar + "EvidenceTier -ne 'Fast') {"; $StaleAudit = "'" + $StaleDispatch.Replace("'", "''") + "',"
   $Required = @($Validate, $Exhaustive, ($Dollar + "env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'"), "  return`n}`n`n$Dispatch", "$Dispatch`n  $FailClosed`n}", "  $Wo25Return`n  $Wo25UnitBReturn`n  $Wo25UnitCReturn`n  $Wo25UnitCMutationReturn",$UnitCFullOrder, $FastStart, $Audit, ("Write-" + "Host 'All Hum preflight checks passed.'"))
@@ -1286,8 +1287,8 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
   $UploadMatches=[regex]::Matches($Normalized,'(?ms)^      - name: Upload failed preflight diagnostics'+$Lf+'.*?(?=^      - name: )')
   if($UploadMatches.Count-ne1-or$UploadMatches[0].Index-ne($Matches[0].Index+$Matches[0].Length)){throw 'Unit B failure-diagnostics upload ownership drifted'}
   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($UploadMatches[0].Value)))-cne'2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa'){throw 'Unit B failure-diagnostics upload positive closure drifted'}
-  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'e9a2b9c13fb7953f329404d0eaac97fd72748b7ca74cc6026260628fb6297d28'){throw 'Unit B full-preflight workflow positive closure drifted'}
-  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($SummaryStep)))-cne'9312f36e7f0ba2acbccec56575cab1ca836af9ae4b46e1e45205acc2073a2091'){throw 'Unit B summary workflow positive closure drifted'}
+  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'20b346c44d2e2840c035710ee726e5538043602fc497730161951e7ce59eabea'){throw 'Unit B full-preflight workflow positive closure drifted'}
+  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($SummaryStep)))-cne'e4ae140917b9706da4e9a6444dd7fce000b89f1fa6479a500b02ad64ea6a258e'){throw 'Unit B summary workflow positive closure drifted'}
   $Required=@(
     '$RustcStart.RedirectStandardOutput = $true',
     '$RustcStart.RedirectStandardError = $true',
@@ -1464,7 +1465,7 @@ function Invoke-Wo25UnitCFocusedEvidence { param([string]$Cargo)
   Initialize-Wo25WindowsToolchain;$Source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'));Assert-Wo25EvidenceTierDispatcherContract -Source $Source
   Assert-Wo25UnitCV2OrchestrationContract
   Assert-Wo25UnitCIsolationContract
-  $MutationCall='  Invoke-Wo25UnitCMutation'+'Evidence -Cargo $Cargo';$MutationCount='mutation_'+'count=8';$HygieneCount='hygiene_'+'file_count=585'
+  $MutationCall='  Invoke-Wo25UnitCMutation'+'Evidence -Cargo $Cargo';$MutationCount='mutation_'+'count=8';$HygieneCount='hygiene_'+'file_count=591'
   foreach($Required in @($MutationCall,$MutationCount,$HygieneCount)){if(([regex]::Matches($Source,[regex]::Escape($Required))).Count -ne 1){throw "Work Order 25 Unit C integrated evidence drifted: $Required"};$Corrupt=$Source.Replace($Required,'');if(([regex]::Matches($Corrupt,[regex]::Escape($Required))).Count -ne 0){throw "Work Order 25 Unit C corruption did not initialize: $Required"}}
   foreach($Stale in @(('mutation_'+'count=7'),('hygiene_'+'file_count=584'))){if($Source.Contains($Stale)){throw "Work Order 25 Unit C retained stale integrated evidence: $Stale"}}
   $Honest=@(Get-Wo25ExpectedMutationReceiptRecords);Assert-Wo25MutationReceiptRecords $Honest;$Zero='0'*64;$Wrong='1'*64
@@ -1685,215 +1686,83 @@ function Assert-SessionASurfaceRules {
   }
 }
 
-Push-Location $RepoRoot
-try {
-  if ($EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo; return }
-  if ($EvidenceTier -eq 'Wo25UnitB') { Invoke-Wo25UnitBFocusedEvidence -Cargo $Cargo; return }
-  if ($EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo; return }
-  if ($EvidenceTier -eq 'Wo25UnitCMutation') { Initialize-Wo25WindowsToolchain; Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo; return }
-  Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
-  $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
-  $PwshApplications = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
-  $Pwsh = Select-FirstApplicationSource $PwshApplications 'outer pwsh selection'
-  $UbuntuPwshResolutionCommand = '$a=@(Get-Command pwsh -CommandType Application -All -ErrorAction Stop);if($a.Count -eq 0){exit 86};$s=[string]($a[0].Source);if([string]::IsNullOrEmpty($s)-or $s.IndexOfAny([char[]]@(13,10,0)) -ge 0){exit 87};[Console]::Out.Write($s)'
-  $UbuntuPwshResolutionEncoded = ConvertTo-UbuntuPwshResolutionEncodedCommand $UbuntuPwshResolutionCommand
-  $UbuntuPwshResolutionArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $UbuntuPwshResolutionEncoded)
-  Assert-UbuntuPwshResolutionArguments $UbuntuPwshResolutionArguments $UbuntuPwshResolutionEncoded
-  Invoke-UbuntuPwshResolutionSelfTests $UbuntuPwshResolutionCommand $UbuntuPwshResolutionEncoded
-  if ($env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_OS -eq 'Linux') {
-    $Workspace = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE -ErrorAction Stop).Path
-    $CurrentRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
-    if (-not [string]::Equals($Workspace, $CurrentRoot, [System.StringComparison]::Ordinal)) {
-      throw "Ubuntu capture workspace differs from repository root: $Workspace != $CurrentRoot"
+function Invoke-HumCoreCheck {
+  param([string] $Group, [string] $Cargo)
+  switch -CaseSensitive ($Group) {
+    'format' { Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check') }
+    'check' { Invoke-Native 'cargo check --all-targets' $Cargo @('check', '--all-targets') }
+    'tests' { Invoke-Native 'cargo test' $Cargo @('test') }
+    'clippy' { Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings', '-D', 'clippy::undocumented_unsafe_blocks') }
+    'build' { Invoke-Native 'cargo build' $Cargo @('build') }
+    'hygiene' {
+      Invoke-RepoScript 'fixed validation policy controls' 'test_ci_policy.ps1'
+      Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
+      Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'
+      Invoke-RepoScript 'release readiness' 'check_release_readiness.ps1'
     }
-    $ChildPwsh = Read-NativeChannelsWithExit 'Ubuntu fresh-child pwsh resolution' $Pwsh $UbuntuPwshResolutionArguments
-    $null = Assert-UbuntuPwshResolutionCapture $ChildPwsh $Pwsh
-    $UbuntuScratch = Join-Path $env:RUNNER_TEMP "hum-fast-capture-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-ubuntu"
-    Invoke-Native 'Fast evidence capture tests (Ubuntu pwsh checkpoint)' $Pwsh @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', './tools/test_fast_evidence_capture.ps1', '-ShellContract', 'pwsh', '-ScratchRoot', $UbuntuScratch)
+    default { throw 'ci_profile: unknown core group' }
+  }
+}
+
+function Invoke-HumLanguageProgramChecks {
+  param([string] $Hum)
+  Invoke-Native 'hum check examples' $Hum @('check', 'examples')
+  foreach ($Route in @('resolve', 'graph')) {
+    $Arguments = if ($Route -ceq 'resolve') { @($Route, '--format', 'json', 'examples/probes/word_count.hum') } else { @($Route, 'examples/probes/word_count.hum') }
+    $Text = Read-NativeOutput "word-count $Route" $Hum $Arguments
+    Assert-Json "word-count $Route" $Text
+  }
+  $Skeleton = Read-NativeChannelsWithExit 'word-count linked obligations' $Hum @('test-skeletons', 'examples/probes/word_count.hum')
+  if ($Skeleton.ExitCode -ne 0 -or $Skeleton.Stdout.Length -ne 0 -or $Skeleton.Stderr -cne "no unlinked test obligations`n") { throw 'ci_profile: word-count coverage declaration drifted (not execution credit)' }
+  $Result = Read-NativeChannelsWithExit 'word-count explicit entry' $Hum @('run', 'examples/probes/word_count.hum', '--entry', 'count_hum_literal')
+  if ($Result.ExitCode -ne 0 -or $Result.Stderr.Length -ne 0 -or $Result.Stdout.TrimEnd([char[]]@(10,13)) -cne '2') {
+    throw 'ci_profile: word-count explicit entry must return 2 with empty stderr'
+  }
+}
+
+function Invoke-HumFixedProfile {
+  param([string] $Profile, [string] $Cargo)
+  if ($Profile -cnotin @('Language','Runtime','Compiler')) { throw 'ci_profile: invalid fixed profile' }
+  if (-not [string]::IsNullOrEmpty($env:HUM_EVIDENCE_RECEIPT)) { throw 'ci_profile: normal validation cannot produce a Full receipt' }
+  $Groups = @('capture','format','check','tests','clippy','build')
+  if ($Profile -ceq 'Compiler') {
+    # These shared bodies include Language and Runtime consumers, privacy,
+    # compiler mutations, exact selectors, source audits, and the whole corpus.
+    $Groups += @('compiler-front','compiler-corpus')
   } else {
-    $CaptureScratchBase = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-fast-capture-" + [Guid]::NewGuid().ToString('N'))
-    Invoke-Native 'Fast evidence capture tests (pwsh)' $Pwsh @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $CaptureTest, '-ShellContract', 'pwsh', '-ScratchRoot', "$CaptureScratchBase-pwsh")
+    $Groups += 'language-programs'
+    if ($Profile -ceq 'Runtime') { $Groups += 'runtime-programs' }
   }
-  $CheckAllSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
-  foreach ($UbuntuCaptureArm in @(
-    ('(Resolve-Path -LiteralPath $env:' + 'GITHUB_WORKSPACE -ErrorAction Stop).Path'),
-    ('$Pwsh $UbuntuPwshResolution' + 'Arguments'),
-    "hum-fast-capture-`$env:GITHUB_RUN_ID-`$env:GITHUB_RUN_ATTEMPT-ubuntu",
-    "'-File', './tools/test_fast_evidence_capture.ps1', '-ShellContract', 'pwsh', '-ScratchRoot', `$UbuntuScratch"
-  )) {
-    if ([regex]::Matches($CheckAllSource, [regex]::Escape($UbuntuCaptureArm)).Count -ne 1) { throw "Ubuntu capture checkpoint drifted: $UbuntuCaptureArm" }
-  }
-  if ($CheckAllSource.Contains('$UbuntuScratch-' + 'pwsh')) { throw 'Ubuntu capture checkpoint must not append -pwsh' }
-  $CheckAllTokens = $null
-  $CheckAllParseErrors = $null
-  $CheckAllAst = [System.Management.Automation.Language.Parser]::ParseInput($CheckAllSource, [ref] $CheckAllTokens, [ref] $CheckAllParseErrors)
-  Assert-Wo25UnitBMutationSelectorContract -Source $CheckAllSource
-  $MutationFunctions = @($CheckAllAst.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq 'Invoke-Wo22BackendPredicateMutationEvidence' }, $true))
-  if ($CheckAllParseErrors.Count -ne 0 -or $MutationFunctions.Count -ne 1) { throw 'Work Order 22 mutation runner syntax or identity drifted' }
-  $MutationCommands = @($MutationFunctions[0].Body.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.CommandAst] }, $true))
-  $GuardedMutationCalls = @($MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustTest' })
-  $BypassMutationCalls = @($MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustNativeCapture' })
-  if ($GuardedMutationCalls.Count -ne 1 -or $GuardedMutationCalls[0].Extent.Text -cne 'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector' -or $BypassMutationCalls.Count -ne 0) { throw 'Work Order 22 mutation selector must use the one guarded exact-selector route' }
-  $Wo24MutationFunctions = @($CheckAllAst.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq 'Invoke-Wo24UnitAProductionMutationEvidence' }, $true))
-  if ($Wo24MutationFunctions.Count -ne 1) { throw 'Work Order 24 mutation runner identity drifted' }
-  $Wo24MutationCommands = @($Wo24MutationFunctions[0].Body.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.CommandAst] }, $true))
-  $Wo24GuardedMutationCalls = @($Wo24MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustTest' })
-  $Wo24BypassMutationCalls = @($Wo24MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustNativeCapture' })
-  $Wo24ExpectedGuardedCalls = @(
-    'Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector',
-    'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector',
-    'Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector'
-  )
-  if ($Wo24GuardedMutationCalls.Count -ne 3 -or $Wo24BypassMutationCalls.Count -ne 0) { throw 'Work Order 24 mutation evidence must use exactly three guarded selector routes and zero native-capture bypasses' }
-  foreach ($ExpectedGuardedCall in $Wo24ExpectedGuardedCalls) {
-    if (@($Wo24GuardedMutationCalls | Where-Object { $_.Extent.Text -ceq $ExpectedGuardedCall }).Count -ne 1) { throw "Work Order 24 guarded selector route drifted: $ExpectedGuardedCall" }
-  }
-  $ExactFlag = '--' + 'exact'
-  if ($CheckAllSource.Contains($ExactFlag)) { throw 'exact Rust tests must use the guarded selector helper' }
-  $CiSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'))
-  Assert-Wo25UnitBFullPreflightWorkflowRoute -Workflow $CiSource
-  if ($CheckAllSource.IndexOf('Fast evidence capture tests (Ubuntu pwsh checkpoint)', [System.StringComparison]::Ordinal) -ge $CheckAllSource.IndexOf('Invoke-ExactRustSelectorSelfTests', [System.StringComparison]::Ordinal)) {
-    throw 'Ubuntu capture checkpoint must precede compiler selectors'
-  }
-  if ([regex]::Matches($CiSource, [regex]::Escape('timeout-minutes: 60')).Count -ne 1) {
-    throw 'canonical-seal CI timeout headroom drifted'
-  }
-  function Test-Wo25ExhaustiveWorkflowRouteCorruptions { param([string]$CiSource,[string]$RepoRoot);$Cr=[char]13;$Lf=[char]10;$Normalized=$CiSource.Replace([string]$Cr+[string]$Lf,[string]$Lf).Replace([string]$Cr,[string]$Lf);$ExhaustiveStep=[regex]::Match($Normalized,'(?ms)^      - name: Run exhaustive canonical-seal evidence'+$Lf+'.*?(?=^      - name: |\z)').Value;$ExhaustiveCases=@([pscustomobject]@{Name='honest';Source=$CiSource;Failure=$null},[pscustomobject]@{Name='removal';Source=$CiSource.Replace($ExhaustiveStep,'');Failure='step_count'},[pscustomobject]@{Name='duplication';Source=$CiSource+$Lf+$ExhaustiveStep;Failure='step_count'},[pscustomobject]@{Name='profile substitution';Source=$CiSource.Replace('evidence exhaustive --pwsh $Pwsh','evidence full --pwsh $Pwsh');Failure='route_launch_count'},[pscustomobject]@{Name='missing pwsh';Source=$CiSource.Replace(' --pwsh $Pwsh','');Failure='route_launch_count'},[pscustomobject]@{Name='substituted pwsh';Source=$CiSource.Replace('--pwsh $Pwsh','--pwsh pwsh');Failure='route_launch_count'},[pscustomobject]@{Name='isolation bypass';Source=$CiSource.Replace('$Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP ''target''','$Isolated = $Executable');Failure='route_isolation_count'},[pscustomobject]@{Name='cleanup removal';Source=$CiSource.Replace('finally { Remove-HumIsolatedExecutable $Isolated }','finally { }');Failure='route_cleanup_count'},[pscustomobject]@{Name='cleanup reordering';Source=$CiSource.Replace('try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }'+$Lf+'          finally { Remove-HumIsolatedExecutable $Isolated }','finally { Remove-HumIsolatedExecutable $Isolated }'+$Lf+'          try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }');Failure='route_cleanup_order'},[pscustomobject]@{Name='malformed routing';Source=$CiSource.Replace('evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE','evidence exhaustive --pwsh $Pwsh');Failure='route_launch_count'},[pscustomobject]@{Name='retired direct route';Source=$CiSource+$Lf+'        run: ./tools/check_all.ps1 -EvidenceTier Exhaustive';Failure='retired_direct_route'})
-    foreach($Case in $ExhaustiveCases){if($Case.Name-cne'honest'-and$Case.Source-ceq$CiSource){throw "canonical-seal exhaustive corruption was not initialized: $($Case.Name)"};$Failure=Get-Wo25ExhaustiveWorkflowRouteFailure $Case.Source;if($Failure-cne$Case.Failure){throw "canonical-seal exhaustive $($Case.Name) expected $($Case.Failure), got $Failure"};Write-Host "ok - canonical-seal exhaustive $($Case.Name): $Failure"}
-    if($CiSource-cne[IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'))){throw 'canonical-seal exhaustive workflow corruptions did not restore exact source bytes'}};Test-Wo25ExhaustiveWorkflowRouteCorruptions $CiSource $RepoRoot
-  foreach ($ExhaustiveDispatchArm in @(
-    'if ($EvidenceTier -eq ''Exhaustive'') {',
-    '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''exhaustive''',
-    'if ($EvidenceTier -notin @(''Fast'', ''Wo25UnitA'', ''Wo25UnitB'', ''Wo25UnitC'', ''Wo25UnitCMutation'')) {',
-    'throw "unsupported evidence-tier fallthrough: $EvidenceTier"',
-    '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''fast'''
-  )) {
-    $ExhaustiveDispatchPattern = '(?m)^\s*' + [regex]::Escape($ExhaustiveDispatchArm) + '\s*$'
-    if ([regex]::Matches($CheckAllSource, $ExhaustiveDispatchPattern).Count -ne 1) {
-      throw "canonical-seal evidence-tier dispatch drifted: $ExhaustiveDispatchArm"
+  $Groups += 'hygiene'
+  $Omitted = 'complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt'
+  if ($Profile -cne 'Compiler') { $Omitted += ',compiler-front,compiler-corpus' }
+  Write-Host "profile=$Profile;selected=$($Groups -join ',');omitted=$Omitted;credit=normal-only"
+  $Hum = Join-Path $RepoRoot $(if ($env:OS -ceq 'Windows_NT') { 'target/debug/hum.exe' } else { 'target/debug/hum' })
+  $CheckAllSource = [IO.File]::ReadAllText((Join-Path $RepoRoot 'tools/check_all.ps1'))
+  $ParserSource = [IO.File]::ReadAllText((Join-Path $RepoRoot 'src/parser.rs'))
+  foreach ($Group in $Groups) {
+    $Clock = [Diagnostics.Stopwatch]::StartNew()
+    $Passed = $false
+    try {
+      switch -CaseSensitive ($Group) {
+        'capture' { Invoke-RepoScript 'short capture caller smoke' 'test_fast_evidence_capture.ps1' @('-ProfileSmokeOnly') }
+        'language-programs' { Invoke-HumLanguageProgramChecks $Hum }
+        'runtime-programs' { . Invoke-HumRuntimeProgramChecks $Cargo $Hum }
+        'compiler-front' { . Invoke-HumCompilerFrontChecks $Cargo $Hum }
+        'compiler-corpus' { . Invoke-HumCompilerCorpusChecks $Cargo $Hum }
+        default { Invoke-HumCoreCheck $Group $Cargo }
+      }
+      $Passed = $true
+    } finally {
+      $Clock.Stop()
+      Write-Host "profile_group=$Group;passed=$Passed;elapsed_ms=$($Clock.ElapsedMilliseconds)"
     }
   }
-  $ParserSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/parser.rs'))
-  foreach ($ExhaustiveHarnessArm in @(
-    'fn exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero()',
-    'assert_eq!(f1.pair_rejections, 630);',
-    'assert_eq!(f2.cumulative_pair_rejections, 4_950);',
-    'assert_eq!(f3.cumulative_pair_rejections, 8_646);',
-    'assert_eq!(630 + 4_950 + 8_646, 14_226);'
-  )) {
-    if ([regex]::Matches($ParserSource, [regex]::Escape($ExhaustiveHarnessArm)).Count -ne 1) {
-      throw "canonical-seal exhaustive selector/count pin drifted: $ExhaustiveHarnessArm"
-    }
-  }
-  Invoke-ExactRustSelectorSelfTests $Cargo
-  Reset-ExactRustSelectorCredits
-  Invoke-Native 'cargo fmt --check' $Cargo @('fmt', '--check')
-  Invoke-Native 'cargo test' $Cargo @('test')
-  Invoke-ExactRustTest 'canonical diagnostic registry/projection test' $Cargo 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid'
-  Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality')
-  Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff')
-  Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings', '-D', 'clippy::undocumented_unsafe_blocks')
-  Invoke-Native 'Windows drive locality adapter clippy' $Cargo @('clippy', '-p', 'windows-drive-locality', '--all-targets', '--', '-D', 'warnings')
-  Invoke-Native 'cargo build' $Cargo @('build')
+  Write-Host "Hum $Profile validation passed (not Full acceptance)."
+}
 
-  $MainSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/main.rs'))
-  if (-not $MainSource.StartsWith('#![deny(unsafe_code)]')) { throw 'main crate must deny unsafe code outside reviewed local boundaries' }
-  Invoke-Wo22UnsafeBoundaryCompilerEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
-  $LocalitySource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/windows-drive-locality/src/lib.rs'))
-  if (-not $LocalitySource.Contains('#![deny(unsafe_op_in_unsafe_fn)]')) { throw 'Session AC locality adapter must deny unsafe_op_in_unsafe_fn' }
-  foreach ($Symbol in @('GetDriveTypeW', 'QueryDosDeviceW', 'CreateFileW', 'DeviceIoControl', 'GetStorageDependencyInformation', 'CloseHandle')) {
-    if ([regex]::Matches($LocalitySource, "\b$Symbol\s*\(").Count -ne 2) { throw "Session AC locality adapter foreign-symbol allowlist drifted for $Symbol" }
-  }
-  $Ioctls = @([regex]::Matches($LocalitySource, '\bIOCTL_[A-Z0-9_]+\b') | ForEach-Object { $_.Value } | Sort-Object -Unique)
-  if ($Ioctls.Count -ne 2 -or $Ioctls[0] -ne 'IOCTL_STORAGE_QUERY_PROPERTY' -or $Ioctls[1] -ne 'IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS') { throw 'Session AC locality adapter IOCTL allowlist drifted' }
-  if ([regex]::Matches($LocalitySource, '\bunsafe\s*\{').Count -ne 6 -or [regex]::Matches($LocalitySource, 'unsafe\s+extern').Count -ne 2) { throw 'Session AC locality adapter unsafe-block inventory drifted' }
-  foreach ($Forbidden in @('std::fs', 'File::open', 'OpenOptions', 'canonicalize(', 'metadata(', 'read_to_', 'std::process', 'std::env', 'Command::', 'RegOpenKey', 'WMI', 'CoCreateInstance', 'SetupDi', 'LoadLibrary', 'GetProcAddress', 'WinHttp', 'WinSock', 'VendorIdOffset', 'ProductIdOffset')) {
-    if ($LocalitySource.Contains($Forbidden)) { throw "Session AC locality adapter contains forbidden host surface: $Forbidden" }
-  }
-
-  $HumName = if ($env:OS -eq 'Windows_NT') { 'hum.exe' } else { 'hum' }
-  $Hum = Join-Path (Join-Path (Join-Path $RepoRoot 'target') 'debug') $HumName
-
-  Write-Host '==> Work Order 22 Unit B backend-probe CLI contract'
-  $BackendProbePath = 'examples/core/minimal_add.hum'
-  $BackendProbeHuman = Read-NativeChannelsWithExit 'Work Order 22 Unit B human GO probe' $Hum @('backend-probe', '--format', 'human', $BackendProbePath)
-  if ($BackendProbeHuman.ExitCode -ne 0 -or $BackendProbeHuman.Stderr.Length -ne 0 -or
-      -not $BackendProbeHuman.Stdout.StartsWith("schema=hum.backend_probe.v0`ndecision=GO`nir_ready=1`nbackend_ready=1`n") -or
-      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=B[0-9]{2} decision=GO ').Count -ne 15 -or
-      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^probe left=').Count -ne 6 -or
-      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=B01 ').Count -ne 1 -or
-      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=B15 ').Count -ne 1) {
-    throw 'Work Order 22 Unit B human GO report or channel contract drifted'
-  }
-  $BackendProbeRows = @([regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=(B[0-9]{2}) ') | ForEach-Object { $_.Groups[1].Value })
-  $ExpectedBackendProbeRows = 1..15 | ForEach-Object { 'B{0:D2}' -f $_ }
-  if (($BackendProbeRows -join ',') -cne ($ExpectedBackendProbeRows -join ',')) { throw 'Work Order 22 Unit B runtime rows are missing, duplicate, or reordered' }
-  $BackendProbeJson = Read-NativeChannelsWithExit 'Work Order 22 Unit B JSON GO probe' $Hum @('backend-probe', '--format=json', $BackendProbePath)
-  if ($BackendProbeJson.ExitCode -ne 0 -or $BackendProbeJson.Stderr.Length -ne 0) { throw 'Work Order 22 Unit B JSON GO channel contract drifted' }
-  Assert-Json 'Work Order 22 Unit B backend-probe JSON' $BackendProbeJson.Stdout
-  $BackendProbeObject = $BackendProbeJson.Stdout | ConvertFrom-Json
-  if ($BackendProbeObject.schema -cne 'hum.backend_probe.v0' -or $BackendProbeObject.decision -cne 'GO' -or
-      $BackendProbeObject.ir_ready -ne 1 -or $BackendProbeObject.backend_ready -ne 1 -or
-      @($BackendProbeObject.rows).Count -ne 15 -or @($BackendProbeObject.probes).Count -ne 6 -or
-      @($BackendProbeObject.rows | Where-Object { $_.decision -ceq 'GO' }).Count -ne 15) {
-    throw 'Work Order 22 Unit B JSON semantic report drifted'
-  }
-  foreach ($BackendProbeMisuseArguments in @(
-    @('backend-probe'),
-    @('backend-probe', 'README.md'),
-    @('backend-probe', '--format=textmate', $BackendProbePath),
-    @('backend-probe', $BackendProbePath, $BackendProbePath)
-  )) {
-    $BackendProbeMisuse = Read-NativeChannelsWithExit 'Work Order 22 Unit B invocation misuse' $Hum $BackendProbeMisuseArguments
-    if ($BackendProbeMisuse.ExitCode -ne 2 -or $BackendProbeMisuse.Stdout.Length -ne 0 -or $BackendProbeMisuse.Stderr.Length -eq 0) { throw 'Work Order 22 Unit B invocation misuse contract drifted' }
-  }
-
-  Write-Host '==> Increment 10A canonical syntax and string-aware scope matrix'
-  foreach ($EvidenceTest in @(
-    'parser::tests::string_braces_and_escaped_quotes_do_not_close_items',
-    'parser::tests::quote_escape_and_brace_direction_sabotage_changes_scope_facts',
-    'parser::tests::retained_block_relationship_corruption_fails_closed',
-    'parser::tests::genuine_unclosed_item_still_owns_h0004',
-    'parser::tests::canonical_expression_tree_is_left_associative_and_precedence_aware',
-    'parser::tests::canonical_expression_corruption_fails_closed',
-    'parser::tests::non_ascii_unsupported_expression_is_utf8_safe',
-    'parser::tests::signed_int_is_one_structural_literal_node',
-    'core_body::tests::retained_parser_facts_survive_section_text_sabotage',
-    'core_body::tests::retained_parser_fact_mutation_is_observable',
-    'core_body::tests::parser_owned_core_kinds_preserve_established_preview_pairs'
-  )) {
-    Invoke-ExactRustTest "Increment 10A evidence $EvidenceTest" $Cargo $EvidenceTest
-  }
-  Invoke-ExactRustTest 'Increment 10B.1a.1.1 source/owner matrix: 7 fields, 21 pairs, named sabotage' $Cargo 'parser::tests::source_owner_authority_kernel_is_complete_and_load_bearing'
-  Invoke-ExactRustTest 'canonical-seal seeded pair-tier sampler: deterministic, nonzero, and every field covered' $Cargo 'parser::tests::canonical_seal_pair_tiers_are_deterministic_nonzero_and_field_covering'
-  Invoke-ExactRustTest 'Replacement F1 fast matrix: 36 fields, 216 singles, 256 seeded pairs of 630, all named sabotage' $Cargo 'parser::tests::occurrence_authority_and_common_node_topology_are_complete_and_load_bearing'
-  Invoke-ExactRustTest 'Replacement F2 fast matrix: 64 fields, 384 singles, 256 seeded cumulative pairs of 4950, all named sabotage' $Cargo 'parser::tests::successful_canonical_expression_payloads_are_complete_and_load_bearing'
-  Invoke-ExactRustTest 'Replacement F3 fast matrix: 32 fields, 192 singles, 256 seeded cumulative pairs of 8646, all named sabotage' $Cargo 'parser::tests::parser_completion_and_statement_relationships_are_complete_and_load_bearing'
-  Invoke-ExactRustTest 'Replacement F4 private Core boundary: 132 fields, 8646 pairs, retained authority, substitution and transport corruption' $Cargo 'parser::tests::complete_canonical_seal_reaches_private_core_and_rejects_transport_corruption'
-  Invoke-ExactRustTest 'Replacement F4 real load_program and private Core inventory path' $Cargo 'tests::replacement_f4_complete_inventory_uses_real_load_and_private_core'
-  Invoke-ExactRustTest `
-    'Replacement F4 compiler-sealed validated body grammar construction' `
-    $Cargo `
-    'core_body::tests::validated_body_grammar_construction_is_compiler_sealed'
-  Invoke-ExactRustTest 'Work Order 17 exact operation-bound checked type producer' $Cargo 'type_check::tests::canonical_minimal_add_type_authority_is_operation_bound'
-  Invoke-ExactRustTest 'Work Order 17 exact Core operation type ownership' $Cargo 'core_lower::tests::canonical_minimal_add_type_authority_is_owned_by_exact_operation'
-  Invoke-ExactRustTest 'Work Order 17 verified access is withheld after corruption' $Cargo 'core_verify::tests::canonical_minimal_add_type_verification_withholds_invalid_access'
-  Invoke-ExactRustTest 'Work Order 17 full type consumes only verified canonical type' $Cargo 'full_type_check::tests::minimal_add_consumes_only_verified_canonical_type'
-  Invoke-ExactRustTest 'Work Order 19 exact full-type backend handoff' $Cargo 'full_type_check::tests::minimal_add_backend_fact_handoff_is_exact_and_borrowed'
-  Invoke-ExactRustTest 'Work Order 19 exact effect and ownership authority' $Cargo 'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned'
-  Invoke-ExactRustTest 'Work Order 19 checked-empty resource and profile authority' $Cargo 'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty'
-  Invoke-ExactRustTest 'Work Order 22 Unit A live verified readiness transition' $Cargo 'ir_readiness::tests::canonical_minimal_add_is_ir_ready_only_after_live_verification'
-  Invoke-ExactRustTest 'Work Order 20 Unit A private SHA-256 boundary matrix' $Cargo 'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact'
-  Invoke-ExactRustTest 'Work Order 20 Unit A canonical backend-input bytes' $Cargo 'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
-  Invoke-ExactRustTest 'Work Order 22 Unit A corruption matrix' $Cargo 'ir_verify::tests::canonical_minimal_add_artifact_corruption_matrix_is_complete'
-  Invoke-ExactRustTest 'Work Order 22 Unit A sealed capability boundary' $Cargo 'ir_verify::tests::verified_backend_input_is_sealed_typed_and_lifetime_bound'
-  Invoke-ExactRustTest 'Work Order 22 Unit B verified checked-add CLIF' $Cargo 'backend_cranelift::tests::verified_minimal_add_emits_checked_cranelift_ir'
-  Invoke-ExactRustTest 'Work Order 22 Unit B exact JIT probe matrix' $Cargo 'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact'
-  Invoke-ExactRustTest 'Work Order 22 Unit B complete load-bearing row matrix' $Cargo 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
-  Invoke-ExactRustTest 'Work Order 22 Unit B explicit unsupported targets' $Cargo 'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
-  Invoke-Wo22BackendPredicateMutationEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
-  Invoke-Wo23UnitAProductionMutationEvidence $Cargo
-  Invoke-Wo24UnitAProductionMutationEvidence $Cargo
+function Invoke-HumRuntimeProgramChecks {
+  param([string] $Cargo, [string] $Hum)
   Write-Host '==> Work Order 23 Unit A integer-sign CLI and corpus contract'
   foreach ($Case in @(
     [pscustomobject] @{ Value = '-7'; Output = 'negative' },
@@ -2230,6 +2099,361 @@ try {
   if ([regex]::Matches($Wo20CapabilityDoc, '(?m)^- `backend_input`: `hum\.backend_input\.v0`$').Count -ne 1 -or [regex]::Matches($Wo20CapabilityDoc, '(?m)^- `hum backend-input <file>`$').Count -ne 1) { throw 'Work Order 20 capability catalog producer entries drifted' }
   if ([regex]::Matches($Wo20LanguageDoc, '(?m)^hum backend-input <file>$').Count -ne 1 -or [regex]::Matches($Wo20LanguageDoc, '(?m)^cargo run -- backend-input examples/core/minimal_add\.hum$').Count -ne 1) { throw 'Work Order 20 language-reference command/bootstrap parity drifted' }
   if ([regex]::Matches($Wo20Readme, '(?m)^cargo run -- backend-input examples/core/minimal_add\.hum$').Count -ne 1 -or -not $Wo20Readme.Contains('docs/HUM_BACKEND_INPUT_SCHEMA.md')) { throw 'Work Order 20 README producer parity drifted' }
+}
+
+function Invoke-HumCompilerPrivacyChecks {
+  param([string] $Cargo)
+  Write-Host '==> Replacement F4 compiler-enforced validated body construction proof'
+  Invoke-Native 'Replacement F4 normal compiler check before construction proof' $Cargo @('check', '--all-targets')
+  $F4PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_validated_body_grammar_construction'
+    $F4CompileFailure = Read-NativeOutputWithExit 'Replacement F4 forbidden construction compiler proof' $Cargo @('check', '--all-targets')
+  } finally {
+    if ($null -eq $F4PriorRustFlags) {
+      Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
+    } else {
+      $env:RUSTFLAGS = $F4PriorRustFlags
+    }
+  }
+  if ($F4CompileFailure.ExitCode -ne 101) { throw "Replacement F4 forbidden construction compiler proof must exit 101, found $($F4CompileFailure.ExitCode)" }
+  foreach ($F4CompileFunction in @(
+    'body_grammar_report_foreign_literal_must_not_compile',
+    'canonical_body_grammar_report_foreign_literal_must_not_compile',
+    'canonical_body_statement_foreign_literal_must_not_compile',
+    'validated_body_grammar_permit_from_raw_section_must_not_compile'
+  )) {
+    if (-not $F4CompileFailure.Output.Contains($F4CompileFunction)) { throw "Replacement F4 forbidden construction compiler proof did not identify $F4CompileFunction" }
+  }
+  foreach ($F4PrivateType in @('BodyGrammarReport', 'CanonicalBodyGrammarReport', 'CanonicalBodyStatement')) {
+    if (-not $F4CompileFailure.Output.Contains("cannot construct ``$F4PrivateType`` with struct literal syntax due to private fields")) { throw "Replacement F4 compiler proof did not reject foreign $F4PrivateType construction through Rust privacy" }
+  }
+  if (-not $F4CompileFailure.Output.Contains('error[E0308]') -or -not $F4CompileFailure.Output.Contains("expected ``ValidatedCoreSection<'_>``") -or -not $F4CompileFailure.Output.Contains("found ``&Section``")) { throw 'Replacement F4 compiler proof did not reject raw Section substitution for the validated capability' }
+  if ([regex]::IsMatch($F4CompileFailure.Output, 'error\[E(?:0412|0422|0432|0433)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw 'Replacement F4 forbidden construction proof failed for an unrelated symbol, cfg, import, or syntax reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $F4PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Replacement F4 compiler proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Replacement F4 normal compiler check after construction proof' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 17 lifetime-bound verified canonical type proof'
+  Invoke-Native 'Work Order 17 normal compiler check before lifetime proof' $Cargo @('check', '--all-targets')
+  $Wo17PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_canonical_minimal_add_type_escape'
+    $Wo17CompileFailure = Read-NativeOutputWithExit 'Work Order 17 forbidden verified-type escape proof' $Cargo @('check', '--all-targets')
+  } finally {
+    if ($null -eq $Wo17PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo17PriorRustFlags }
+  }
+  if ($Wo17CompileFailure.ExitCode -ne 101) { throw "Work Order 17 lifetime proof must exit 101, found $($Wo17CompileFailure.ExitCode)" }
+  foreach ($Wo17CompileFunction in @(
+    'verified_canonical_minimal_add_access_cannot_outlive_verify_artifact',
+    'verified_canonical_minimal_add_result_cannot_be_collected',
+    'verified_canonical_minimal_add_result_cannot_become_static',
+    'core_verify_full_type_report_access_cannot_escape',
+    'core_verify_diagnostic_occurrence_access_cannot_escape'
+  )) {
+    if (-not $Wo17CompileFailure.Output.Contains($Wo17CompileFunction)) { throw "Work Order 17 lifetime proof did not identify $Wo17CompileFunction" }
+  }
+  if (-not [regex]::IsMatch($Wo17CompileFailure.Output, 'lifetime may not live long enough|error\[E05(?:15|21)\]')) { throw 'Work Order 17 lifetime proof did not fail for a borrow-check lifetime reason' }
+  if ([regex]::IsMatch($Wo17CompileFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|private (?:struct|field|function)')) { throw 'Work Order 17 lifetime proof failed for an unrelated privacy, symbol, cfg, or import reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo17PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 17 lifetime proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 17 normal compiler check after lifetime proof' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 19 combined backend-facts lifetime and wrapper-privacy proof'
+  Invoke-Native 'Work Order 19 normal compiler check before combined proof' $Cargo @('check', '--all-targets')
+  $Wo19PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_canonical_minimal_add_backend_facts_escape'
+    $Wo19CompileFailure = Read-NativeOutputWithExit 'Work Order 19 forbidden backend facts escape and wrapper construction proof' $Cargo @('check', '--all-targets')
+  } finally {
+    if ($null -eq $Wo19PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo19PriorRustFlags }
+  }
+  if ($Wo19CompileFailure.ExitCode -ne 101) { throw "Work Order 19 combined proof must exit 101, found $($Wo19CompileFailure.ExitCode)" }
+  if (-not $Wo19CompileFailure.Output.Contains('no `CanonicalMinimalAddBackendFactsAccess` in `backend_input`') -or -not $Wo19CompileFailure.Output.Contains('cannot find function `with_canonical_minimal_add_backend_facts`') -or -not $Wo19CompileFailure.Output.Contains('cannot find function `issue_assembled`')) { throw 'Work Order 19 proof did not establish removal of every retired backend-facts authority route' }
+  foreach ($Wo19PrivateWrapper in @(
+    'VerifiedMinimalAddFullType',
+    'VerifiedMinimalAddEffect',
+    'VerifiedMinimalAddOwnership',
+    'VerifiedMinimalAddResource',
+    'VerifiedMinimalAddProfile'
+  )) {
+    if (-not $Wo19CompileFailure.Output.Contains("tuple struct constructor ``$Wo19PrivateWrapper`` is private")) { throw "Work Order 19 combined proof did not reject sibling construction of $Wo19PrivateWrapper" }
+  }
+  if ([regex]::Matches($Wo19CompileFailure.Output, 'error\[E0603\]: tuple struct constructor `VerifiedMinimalAdd(?:FullType|Effect|Ownership|Resource|Profile)` is private').Count -ne 5) { throw 'Work Order 19 combined proof must contain exactly five wrapper-constructor privacy failures' }
+  if ([regex]::IsMatch($Wo19CompileFailure.Output, 'error\[E0382\]|error\[E(?:0412|0422|0433)\]|unexpected `cfg`|cannot find (?:type|struct|module)|expected item, found')) { throw 'Work Order 19 combined proof failed for an unrelated move, symbol, cfg, import, or syntax reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo19PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 19 combined proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 19 normal compiler check after combined proof' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 22 source-bound VerifiedBackendInput authority proof'
+  Invoke-Native 'Work Order 22 normal compiler check before authority proof' $Cargo @('check', '--all-targets')
+  $Wo22PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_construction'
+    $Wo22ConstructionFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden capability/request construction proof' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo22PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22PriorRustFlags }
+  }
+  if ($Wo22ConstructionFailure.ExitCode -ne 101 -or [regex]::Matches($Wo22ConstructionFailure.Output, 'error\[E0451\]').Count -ne 2) { throw 'Work Order 22 private capability/request construction proof must produce exactly two E0451 failures' }
+  foreach ($Wo22PrivateFields in @(
+    'fields `projection` and `_artifact` of struct `VerifiedBackendInput` are private',
+    'fields `expected`, `observed` and `program_identity` of struct `LiveIdentityRequest` are private'
+  )) {
+    if (-not $Wo22ConstructionFailure.Output.Contains($Wo22PrivateFields)) { throw "Work Order 22 construction proof lost: $Wo22PrivateFields" }
+  }
+  if ([regex]::IsMatch($Wo22ConstructionFailure.Output, 'unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 22 construction proof failed for an unrelated cfg, import, symbol, or syntax reason' }
+  $Wo22PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_authority'
+    $Wo22AuthorityFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden production authority substitutions' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo22PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22PriorRustFlags }
+  }
+  if ($Wo22AuthorityFailure.ExitCode -ne 101) { throw "Work Order 22 authority proof must exit 101, found $($Wo22AuthorityFailure.ExitCode)" }
+  foreach ($Wo22AuthorityEvidence in @(
+    'struct `CanonicalMinimalAddBackendFacts` is private',
+    'field `projection` of struct `VerifiedBackendInput` is private',
+    'the trait bound `VerifiedBackendInput<''_>: From<&[u8]>` is not satisfied',
+    'found `CanonicalBackendInputArtifact`',
+    'found `IrVerifyReport`',
+    'found `&[u8]`',
+    'expected `&mut LiveIdentityRequest<''_>`, found `&mut ()`',
+    'borrowed data escapes outside of closure'
+  )) {
+    if (-not $Wo22AuthorityFailure.Output.Contains($Wo22AuthorityEvidence)) { throw "Work Order 22 source-bound authority proof lost: $Wo22AuthorityEvidence" }
+  }
+  if ([regex]::Matches($Wo22AuthorityFailure.Output, 'error\[E0308\]').Count -ne 4 -or -not $Wo22AuthorityFailure.Output.Contains('error[E0521]')) { throw 'Work Order 22 substitution/lifetime compiler evidence count drifted' }
+  if ([regex]::IsMatch($Wo22AuthorityFailure.Output, 'unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 22 authority proof failed for an unrelated cfg, import, symbol, or syntax reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo22PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 authority proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 22 normal compiler check after authority proof' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 22 Unit B verified-only adapter compile proofs'
+  $Wo22UnitBPriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_backend_adapter_raw_inputs'
+    $Wo22UnitBRawFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B raw-input rejection proof' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo22UnitBPriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22UnitBPriorRustFlags }
+  }
+  if ($Wo22UnitBRawFailure.ExitCode -ne 101 -or [regex]::Matches($Wo22UnitBRawFailure.Output, 'error\[E0308\]').Count -ne 3) { throw 'Work Order 22 Unit B raw inputs must produce exactly three type mismatches' }
+  foreach ($Wo22UnitBRawType in @('found reference `&Vec<u8>`', 'found reference `&Program`', 'found reference `&(i64, i64)`')) {
+    if (-not $Wo22UnitBRawFailure.Output.Contains($Wo22UnitBRawType)) { throw "Work Order 22 Unit B verified-only proof lost: $Wo22UnitBRawType" }
+  }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo22UnitBPriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 Unit B raw-input proof did not restore RUSTFLAGS' }
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_backend_fault_seam_in_production'
+    $Wo22UnitBFaultFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B production fault-seam absence proof' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo22UnitBPriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22UnitBPriorRustFlags }
+  }
+  if ($Wo22UnitBFaultFailure.ExitCode -ne 101 -or [regex]::Matches($Wo22UnitBFaultFailure.Output, 'error\[E0433\]').Count -ne 1 -or -not $Wo22UnitBFaultFailure.Output.Contains('could not find `BackendProbeFault` in `super`')) { throw 'Work Order 22 Unit B test fault seam must be absent in production' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo22UnitBPriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 Unit B fault-seam proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 22 Unit B normal compiler check after compile proofs' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 23 VerifiedIntegerSignBackendInput compiler-owned authority proof'
+  $Wo23PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_construction'
+    $Wo23ConstructionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability construction proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_lifetime'
+    $Wo23LifetimeFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability lifetime escape proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_substitution'
+    $Wo23SubstitutionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability substitution proof' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo23PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo23PriorRustFlags }
+  }
+  if ($Wo23ConstructionFailure.ExitCode -ne 101 -or
+      [regex]::Matches($Wo23ConstructionFailure.Output, 'error\[E0451\]').Count -ne 1 -or
+      -not $Wo23ConstructionFailure.Output.Contains('fields `projection` and `_artifact` of struct `VerifiedIntegerSignBackendInput` are private') -or
+      -not $Wo23ConstructionFailure.Output.Contains('projection: None.unwrap()')) { throw 'Work Order 23 integer-sign construction proof lost its field-privacy diagnostic or primary span' }
+  if ($Wo23LifetimeFailure.ExitCode -ne 101 -or
+      -not [regex]::IsMatch($Wo23LifetimeFailure.Output, 'lifetime may not live long enough|borrowed data escapes outside of closure|error\[E0521\]') -or
+      -not $Wo23LifetimeFailure.Output.Contains('|capability| capability') -or
+      -not $Wo23LifetimeFailure.Output.Contains('return type of closure is VerifiedIntegerSignBackendInput')) { throw 'Work Order 23 integer-sign lifetime proof lost its callback-owned escape diagnostic or primary span' }
+  if ($Wo23SubstitutionFailure.ExitCode -ne 101 -or
+      [regex]::Matches($Wo23SubstitutionFailure.Output, 'error\[E0308\]').Count -ne 2 -or
+      -not $Wo23SubstitutionFailure.Output.Contains('found reference `&[u8]`') -or
+      -not $Wo23SubstitutionFailure.Output.Contains('found reference `&VerifiedBackendInput') -or
+      [regex]::Matches($Wo23SubstitutionFailure.Output, 'execute_integer_sign').Count -lt 4) { throw 'Work Order 23 integer-sign substitution proof lost its two backend-consumer type diagnostics or primary spans' }
+  foreach ($Wo23AuthorityFailure in @($Wo23ConstructionFailure, $Wo23LifetimeFailure, $Wo23SubstitutionFailure)) {
+    if ([regex]::IsMatch($Wo23AuthorityFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 23 integer-sign authority proof failed for an unrelated symbol, cfg, import, or syntax reason' }
+  }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo23PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 23 integer-sign authority proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 23 normal compiler check after authority proof' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 24 VerifiedConstantTextBackendInput compiler-owned authority proof'
+  $Wo24PriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_constant_text_backend_input_construction'
+    $Wo24ConstructionFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden constant-Text capability construction proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_constant_text_backend_input_lifetime'
+    $Wo24LifetimeFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden constant-Text capability lifetime escape proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_cross_substitution'
+    $Wo24SubstitutionFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden verified-capability cross-substitution proof' $Cargo @('check', '--bin', 'hum')
+  } finally {
+    if ($null -eq $Wo24PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo24PriorRustFlags }
+  }
+  if ($Wo24ConstructionFailure.ExitCode -ne 101 -or
+      [regex]::Matches($Wo24ConstructionFailure.Output, 'error\[E0451\]').Count -ne 1 -or
+      -not $Wo24ConstructionFailure.Output.Contains('fields `projection` and `_artifact` of struct `VerifiedConstantTextBackendInput` are private') -or
+      -not $Wo24ConstructionFailure.Output.Contains('type `VerifiedConstantTextProjection` is private') -or
+      -not $Wo24ConstructionFailure.Output.Contains('projection: None.unwrap()')) { throw 'Work Order 24 constant-Text construction proof lost its private authority state or primary span' }
+  if ($Wo24LifetimeFailure.ExitCode -ne 101 -or
+      -not $Wo24LifetimeFailure.Output.Contains('lifetime may not live long enough') -or
+      -not $Wo24LifetimeFailure.Output.Contains('|capability| capability') -or
+      -not $Wo24LifetimeFailure.Output.Contains('return type of closure is VerifiedConstantTextBackendInput')) { throw 'Work Order 24 constant-Text lifetime proof lost its callback-owned escape diagnostic or primary span' }
+  if ($Wo24SubstitutionFailure.ExitCode -ne 101 -or
+      [regex]::Matches($Wo24SubstitutionFailure.Output, 'error\[E0308\]').Count -ne 2 -or
+      -not $Wo24SubstitutionFailure.Output.Contains('expected reference `&VerifiedConstantTextBackendInput') -or
+      -not $Wo24SubstitutionFailure.Output.Contains('found reference `&VerifiedIntegerSignBackendInput') -or
+      -not $Wo24SubstitutionFailure.Output.Contains('expected reference `&VerifiedIntegerSignBackendInput') -or
+      -not $Wo24SubstitutionFailure.Output.Contains('found reference `&VerifiedConstantTextBackendInput') -or
+      [regex]::Matches($Wo24SubstitutionFailure.Output, 'execute_(?:constant_text|integer_sign)').Count -lt 4) { throw 'Work Order 24 capability substitution proof lost its two E0308 owner diagnostics or primary spans' }
+  foreach ($Wo24AuthorityFailure in @($Wo24ConstructionFailure, $Wo24LifetimeFailure, $Wo24SubstitutionFailure)) {
+    if ([regex]::IsMatch($Wo24AuthorityFailure.Output, 'unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 24 constant-Text authority proof failed for an unrelated cfg, import, symbol, or syntax reason' }
+  }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo24PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 24 constant-Text authority proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 24 normal compiler check after authority proof' $Cargo @('check', '--all-targets')
+
+  Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'
+  $Wo17OutcomePriorRustFlags = $env:RUSTFLAGS
+  try {
+    $env:RUSTFLAGS = '--cfg hum_compile_fail_canonical_minimal_add_type_outcome_foreign_issue'
+    $Wo17OutcomeFailure = Read-NativeOutputWithExit 'Work Order 17 foreign outcome issuance compiler proof' $Cargo @('check', '--all-targets')
+  } finally {
+    if ($null -eq $Wo17OutcomePriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo17OutcomePriorRustFlags }
+  }
+  if ($Wo17OutcomeFailure.ExitCode -ne 101) { throw "Work Order 17 foreign outcome issuance proof must exit 101, found $($Wo17OutcomeFailure.ExitCode)" }
+  if (-not $Wo17OutcomeFailure.Output.Contains('canonical_minimal_add_type_outcome_foreign_issue_must_not_compile') -or -not $Wo17OutcomeFailure.Output.Contains('error[E0624]') -or -not $Wo17OutcomeFailure.Output.Contains('associated function `non_target` is private')) { throw 'Work Order 17 foreign outcome issuance proof did not fail at the private sole-producer constructor' }
+  if ([regex]::IsMatch($Wo17OutcomeFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw 'Work Order 17 foreign outcome issuance proof failed for an unrelated symbol, cfg, import, privacy-type, or syntax reason' }
+  if (-not [string]::Equals($env:RUSTFLAGS, $Wo17OutcomePriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 17 foreign outcome issuance proof did not restore RUSTFLAGS' }
+  Invoke-Native 'Work Order 17 normal compiler check after sole-producer proof' $Cargo @('check', '--all-targets')
+}
+
+function Invoke-HumUseAfterMoveRuntimeCheck {
+  param([string] $Hum)
+  $RunSessionJUseAfterMove = Read-NativeOutputWithExit 'run Session J use-after-move misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_j_use_after_move_fail.hum', '--entry', 'use_after_move')
+  if ($RunSessionJUseAfterMove.ExitCode -ne 2) { throw "Session J use-after-move run expected exit 2, got $($RunSessionJUseAfterMove.ExitCode)" }
+  if (-not $RunSessionJUseAfterMove.Output.Contains('H0801')) { throw "Session J use-after-move run expected H0801, got $($RunSessionJUseAfterMove.Output)" }
+  $RunSessionJUseAfterMoveExpected = @(
+    'fixtures/ownership_check/session_j_use_after_move_fail.hum:18:5: error[H0801]: value `value` was used after it was moved',
+    '  help: Fix task `use_after_move`: `value` moved at fixtures/ownership_check/session_j_use_after_move_fail.hum:17:5; use it before that move or create a fresh owned value.',
+    'runtime trap: H0801 use after move'
+  ) -join "`n"
+  if ($RunSessionJUseAfterMove.Output.Replace(([string][char]13 + [string][char]10), [string][char]10).TrimEnd() -ne $RunSessionJUseAfterMoveExpected) { throw 'Session J H0801 runtime bytes changed' }
+  if (-not $RunSessionJUseAfterMove.Output.Contains('help:')) { throw "Session J use-after-move run expected blame help, got $($RunSessionJUseAfterMove.Output)" }
+
+}
+
+function Invoke-HumUseAfterMoveProjectionCheck {
+  param([string] $Hum)
+  $OwnershipUseAfterMoveJson = Read-NativeOutputWithExit 'ownership check Session J use-after-move JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_j_use_after_move_fail.hum')
+  if ($OwnershipUseAfterMoveJson.ExitCode -ne 1) { throw "ownership check use-after-move expected exit 1, got $($OwnershipUseAfterMoveJson.ExitCode)" }
+  Assert-Json 'ownership check Session J use-after-move JSON' $OwnershipUseAfterMoveJson.Output
+  if (-not $OwnershipUseAfterMoveJson.Output.Contains('"status": "ownership_errors_v0"')) { throw "ownership check use-after-move expected ownership_errors_v0, got $($OwnershipUseAfterMoveJson.Output)" }
+  if (-not $OwnershipUseAfterMoveJson.Output.Contains('"diagnostic_code": "H0801"')) { throw "ownership check use-after-move expected H0801, got $($OwnershipUseAfterMoveJson.Output)" }
+  if (-not $OwnershipUseAfterMoveJson.Output.Contains('"help"')) { throw "ownership check use-after-move expected blame help, got $($OwnershipUseAfterMoveJson.Output)" }
+
+}
+
+function Invoke-HumCompilerFrontChecks {
+  param([string] $Cargo, [string] $Hum)
+  $MainSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/main.rs'))
+  if (-not $MainSource.StartsWith('#![deny(unsafe_code)]')) { throw 'main crate must deny unsafe code outside reviewed local boundaries' }
+  Invoke-Wo22UnsafeBoundaryCompilerEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
+  $LocalitySource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/windows-drive-locality/src/lib.rs'))
+  if (-not $LocalitySource.Contains('#![deny(unsafe_op_in_unsafe_fn)]')) { throw 'Session AC locality adapter must deny unsafe_op_in_unsafe_fn' }
+  foreach ($Symbol in @('GetDriveTypeW', 'QueryDosDeviceW', 'CreateFileW', 'DeviceIoControl', 'GetStorageDependencyInformation', 'CloseHandle')) {
+    if ([regex]::Matches($LocalitySource, "\b$Symbol\s*\(").Count -ne 2) { throw "Session AC locality adapter foreign-symbol allowlist drifted for $Symbol" }
+  }
+  $Ioctls = @([regex]::Matches($LocalitySource, '\bIOCTL_[A-Z0-9_]+\b') | ForEach-Object { $_.Value } | Sort-Object -Unique)
+  if ($Ioctls.Count -ne 2 -or $Ioctls[0] -ne 'IOCTL_STORAGE_QUERY_PROPERTY' -or $Ioctls[1] -ne 'IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS') { throw 'Session AC locality adapter IOCTL allowlist drifted' }
+  if ([regex]::Matches($LocalitySource, '\bunsafe\s*\{').Count -ne 6 -or [regex]::Matches($LocalitySource, 'unsafe\s+extern').Count -ne 2) { throw 'Session AC locality adapter unsafe-block inventory drifted' }
+  foreach ($Forbidden in @('std::fs', 'File::open', 'OpenOptions', 'canonicalize(', 'metadata(', 'read_to_', 'std::process', 'std::env', 'Command::', 'RegOpenKey', 'WMI', 'CoCreateInstance', 'SetupDi', 'LoadLibrary', 'GetProcAddress', 'WinHttp', 'WinSock', 'VendorIdOffset', 'ProductIdOffset')) {
+    if ($LocalitySource.Contains($Forbidden)) { throw "Session AC locality adapter contains forbidden host surface: $Forbidden" }
+  }
+
+  $HumName = if ($env:OS -eq 'Windows_NT') { 'hum.exe' } else { 'hum' }
+  $Hum = Join-Path (Join-Path (Join-Path $RepoRoot 'target') 'debug') $HumName
+
+  Write-Host '==> Work Order 22 Unit B backend-probe CLI contract'
+  $BackendProbePath = 'examples/core/minimal_add.hum'
+  $BackendProbeHuman = Read-NativeChannelsWithExit 'Work Order 22 Unit B human GO probe' $Hum @('backend-probe', '--format', 'human', $BackendProbePath)
+  if ($BackendProbeHuman.ExitCode -ne 0 -or $BackendProbeHuman.Stderr.Length -ne 0 -or
+      -not $BackendProbeHuman.Stdout.StartsWith("schema=hum.backend_probe.v0`ndecision=GO`nir_ready=1`nbackend_ready=1`n") -or
+      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=B[0-9]{2} decision=GO ').Count -ne 15 -or
+      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^probe left=').Count -ne 6 -or
+      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=B01 ').Count -ne 1 -or
+      [regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=B15 ').Count -ne 1) {
+    throw 'Work Order 22 Unit B human GO report or channel contract drifted'
+  }
+  $BackendProbeRows = @([regex]::Matches($BackendProbeHuman.Stdout, '(?m)^row=(B[0-9]{2}) ') | ForEach-Object { $_.Groups[1].Value })
+  $ExpectedBackendProbeRows = 1..15 | ForEach-Object { 'B{0:D2}' -f $_ }
+  if (($BackendProbeRows -join ',') -cne ($ExpectedBackendProbeRows -join ',')) { throw 'Work Order 22 Unit B runtime rows are missing, duplicate, or reordered' }
+  $BackendProbeJson = Read-NativeChannelsWithExit 'Work Order 22 Unit B JSON GO probe' $Hum @('backend-probe', '--format=json', $BackendProbePath)
+  if ($BackendProbeJson.ExitCode -ne 0 -or $BackendProbeJson.Stderr.Length -ne 0) { throw 'Work Order 22 Unit B JSON GO channel contract drifted' }
+  Assert-Json 'Work Order 22 Unit B backend-probe JSON' $BackendProbeJson.Stdout
+  $BackendProbeObject = $BackendProbeJson.Stdout | ConvertFrom-Json
+  if ($BackendProbeObject.schema -cne 'hum.backend_probe.v0' -or $BackendProbeObject.decision -cne 'GO' -or
+      $BackendProbeObject.ir_ready -ne 1 -or $BackendProbeObject.backend_ready -ne 1 -or
+      @($BackendProbeObject.rows).Count -ne 15 -or @($BackendProbeObject.probes).Count -ne 6 -or
+      @($BackendProbeObject.rows | Where-Object { $_.decision -ceq 'GO' }).Count -ne 15) {
+    throw 'Work Order 22 Unit B JSON semantic report drifted'
+  }
+  foreach ($BackendProbeMisuseArguments in @(
+    @('backend-probe'),
+    @('backend-probe', 'README.md'),
+    @('backend-probe', '--format=textmate', $BackendProbePath),
+    @('backend-probe', $BackendProbePath, $BackendProbePath)
+  )) {
+    $BackendProbeMisuse = Read-NativeChannelsWithExit 'Work Order 22 Unit B invocation misuse' $Hum $BackendProbeMisuseArguments
+    if ($BackendProbeMisuse.ExitCode -ne 2 -or $BackendProbeMisuse.Stdout.Length -ne 0 -or $BackendProbeMisuse.Stderr.Length -eq 0) { throw 'Work Order 22 Unit B invocation misuse contract drifted' }
+  }
+
+  Write-Host '==> Increment 10A canonical syntax and string-aware scope matrix'
+  foreach ($EvidenceTest in @(
+    'parser::tests::string_braces_and_escaped_quotes_do_not_close_items',
+    'parser::tests::quote_escape_and_brace_direction_sabotage_changes_scope_facts',
+    'parser::tests::retained_block_relationship_corruption_fails_closed',
+    'parser::tests::genuine_unclosed_item_still_owns_h0004',
+    'parser::tests::canonical_expression_tree_is_left_associative_and_precedence_aware',
+    'parser::tests::canonical_expression_corruption_fails_closed',
+    'parser::tests::non_ascii_unsupported_expression_is_utf8_safe',
+    'parser::tests::signed_int_is_one_structural_literal_node',
+    'core_body::tests::retained_parser_facts_survive_section_text_sabotage',
+    'core_body::tests::retained_parser_fact_mutation_is_observable',
+    'core_body::tests::parser_owned_core_kinds_preserve_established_preview_pairs'
+  )) {
+    Invoke-ExactRustTest "Increment 10A evidence $EvidenceTest" $Cargo $EvidenceTest
+  }
+  Invoke-ExactRustTest 'Increment 10B.1a.1.1 source/owner matrix: 7 fields, 21 pairs, named sabotage' $Cargo 'parser::tests::source_owner_authority_kernel_is_complete_and_load_bearing'
+  Invoke-ExactRustTest 'canonical-seal seeded pair-tier sampler: deterministic, nonzero, and every field covered' $Cargo 'parser::tests::canonical_seal_pair_tiers_are_deterministic_nonzero_and_field_covering'
+  Invoke-ExactRustTest 'Replacement F1 fast matrix: 36 fields, 216 singles, 256 seeded pairs of 630, all named sabotage' $Cargo 'parser::tests::occurrence_authority_and_common_node_topology_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F2 fast matrix: 64 fields, 384 singles, 256 seeded cumulative pairs of 4950, all named sabotage' $Cargo 'parser::tests::successful_canonical_expression_payloads_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F3 fast matrix: 32 fields, 192 singles, 256 seeded cumulative pairs of 8646, all named sabotage' $Cargo 'parser::tests::parser_completion_and_statement_relationships_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Replacement F4 private Core boundary: 132 fields, 8646 pairs, retained authority, substitution and transport corruption' $Cargo 'parser::tests::complete_canonical_seal_reaches_private_core_and_rejects_transport_corruption'
+  Invoke-ExactRustTest 'Replacement F4 real load_program and private Core inventory path' $Cargo 'tests::replacement_f4_complete_inventory_uses_real_load_and_private_core'
+  Invoke-ExactRustTest `
+    'Replacement F4 compiler-sealed validated body grammar construction' `
+    $Cargo `
+    'core_body::tests::validated_body_grammar_construction_is_compiler_sealed'
+  Invoke-ExactRustTest 'Work Order 17 exact operation-bound checked type producer' $Cargo 'type_check::tests::canonical_minimal_add_type_authority_is_operation_bound'
+  Invoke-ExactRustTest 'Work Order 17 exact Core operation type ownership' $Cargo 'core_lower::tests::canonical_minimal_add_type_authority_is_owned_by_exact_operation'
+  Invoke-ExactRustTest 'Work Order 17 verified access is withheld after corruption' $Cargo 'core_verify::tests::canonical_minimal_add_type_verification_withholds_invalid_access'
+  Invoke-ExactRustTest 'Work Order 17 full type consumes only verified canonical type' $Cargo 'full_type_check::tests::minimal_add_consumes_only_verified_canonical_type'
+  Invoke-ExactRustTest 'Work Order 19 exact full-type backend handoff' $Cargo 'full_type_check::tests::minimal_add_backend_fact_handoff_is_exact_and_borrowed'
+  Invoke-ExactRustTest 'Work Order 19 exact effect and ownership authority' $Cargo 'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned'
+  Invoke-ExactRustTest 'Work Order 19 checked-empty resource and profile authority' $Cargo 'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty'
+  Invoke-ExactRustTest 'Work Order 22 Unit A live verified readiness transition' $Cargo 'ir_readiness::tests::canonical_minimal_add_is_ir_ready_only_after_live_verification'
+  Invoke-ExactRustTest 'Work Order 20 Unit A private SHA-256 boundary matrix' $Cargo 'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact'
+  Invoke-ExactRustTest 'Work Order 20 Unit A canonical backend-input bytes' $Cargo 'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
+  Invoke-ExactRustTest 'Work Order 22 Unit A corruption matrix' $Cargo 'ir_verify::tests::canonical_minimal_add_artifact_corruption_matrix_is_complete'
+  Invoke-ExactRustTest 'Work Order 22 Unit A sealed capability boundary' $Cargo 'ir_verify::tests::verified_backend_input_is_sealed_typed_and_lifetime_bound'
+  Invoke-ExactRustTest 'Work Order 22 Unit B verified checked-add CLIF' $Cargo 'backend_cranelift::tests::verified_minimal_add_emits_checked_cranelift_ir'
+  Invoke-ExactRustTest 'Work Order 22 Unit B exact JIT probe matrix' $Cargo 'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact'
+  Invoke-ExactRustTest 'Work Order 22 Unit B complete load-bearing row matrix' $Cargo 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
+  Invoke-ExactRustTest 'Work Order 22 Unit B explicit unsupported targets' $Cargo 'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
+  Invoke-Wo22BackendPredicateMutationEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
+  Invoke-Wo23UnitAProductionMutationEvidence $Cargo
+  Invoke-Wo24UnitAProductionMutationEvidence $Cargo
+  . Invoke-HumRuntimeProgramChecks $Cargo $Hum
   Invoke-ExactRustTest 'Increment 10B.1b recursive H0010 sealed-consumer matrix and controls' $Cargo 'parser::tests::recursive_h0010_consumer_is_complete_and_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.1b canonical-tree and retained-authority corruption matrix' $Cargo 'parser::tests::h0010_sealed_corruption_and_authority_substitution_fail_closed'
   Invoke-ExactRustTest 'Increment 10B.2 supporting resolver/callable production source and dataflow audit' $Cargo 'callable::tests::ten_b2_source_audit_rejects_semantic_reconstruction_and_span_selection'
@@ -3058,228 +3282,7 @@ task malformed() -> UInt {
   $F4AuditPin = [regex]::Match($F4ParserTestSource, '(?s)const REQUIRED_SOURCE_AUDIT_ARMS: \[&str; 13\] = \[(.*?)\];')
   if (-not $F4AuditPin.Success -or [regex]::Matches($F4AuditPin.Groups[1].Value, '"Replacement F4 [^"]+"').Count -ne 13 -or -not $F4ParserTestSource.Contains('for arm in REQUIRED_SOURCE_AUDIT_ARMS')) { throw 'Replacement F4 F4-selector audit-arm pinning drifted' }
 
-  Write-Host '==> Replacement F4 compiler-enforced validated body construction proof'
-  Invoke-Native 'Replacement F4 normal compiler check before construction proof' $Cargo @('check', '--all-targets')
-  $F4PriorRustFlags = $env:RUSTFLAGS
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_validated_body_grammar_construction'
-    $F4CompileFailure = Read-NativeOutputWithExit 'Replacement F4 forbidden construction compiler proof' $Cargo @('check', '--all-targets')
-  } finally {
-    if ($null -eq $F4PriorRustFlags) {
-      Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
-    } else {
-      $env:RUSTFLAGS = $F4PriorRustFlags
-    }
-  }
-  if ($F4CompileFailure.ExitCode -ne 101) { throw "Replacement F4 forbidden construction compiler proof must exit 101, found $($F4CompileFailure.ExitCode)" }
-  foreach ($F4CompileFunction in @(
-    'body_grammar_report_foreign_literal_must_not_compile',
-    'canonical_body_grammar_report_foreign_literal_must_not_compile',
-    'canonical_body_statement_foreign_literal_must_not_compile',
-    'validated_body_grammar_permit_from_raw_section_must_not_compile'
-  )) {
-    if (-not $F4CompileFailure.Output.Contains($F4CompileFunction)) { throw "Replacement F4 forbidden construction compiler proof did not identify $F4CompileFunction" }
-  }
-  foreach ($F4PrivateType in @('BodyGrammarReport', 'CanonicalBodyGrammarReport', 'CanonicalBodyStatement')) {
-    if (-not $F4CompileFailure.Output.Contains("cannot construct ``$F4PrivateType`` with struct literal syntax due to private fields")) { throw "Replacement F4 compiler proof did not reject foreign $F4PrivateType construction through Rust privacy" }
-  }
-  if (-not $F4CompileFailure.Output.Contains('error[E0308]') -or -not $F4CompileFailure.Output.Contains("expected ``ValidatedCoreSection<'_>``") -or -not $F4CompileFailure.Output.Contains("found ``&Section``")) { throw 'Replacement F4 compiler proof did not reject raw Section substitution for the validated capability' }
-  if ([regex]::IsMatch($F4CompileFailure.Output, 'error\[E(?:0412|0422|0432|0433)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw 'Replacement F4 forbidden construction proof failed for an unrelated symbol, cfg, import, or syntax reason' }
-  if (-not [string]::Equals($env:RUSTFLAGS, $F4PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Replacement F4 compiler proof did not restore RUSTFLAGS' }
-  Invoke-Native 'Replacement F4 normal compiler check after construction proof' $Cargo @('check', '--all-targets')
-
-  Write-Host '==> Work Order 17 lifetime-bound verified canonical type proof'
-  Invoke-Native 'Work Order 17 normal compiler check before lifetime proof' $Cargo @('check', '--all-targets')
-  $Wo17PriorRustFlags = $env:RUSTFLAGS
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_canonical_minimal_add_type_escape'
-    $Wo17CompileFailure = Read-NativeOutputWithExit 'Work Order 17 forbidden verified-type escape proof' $Cargo @('check', '--all-targets')
-  } finally {
-    if ($null -eq $Wo17PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo17PriorRustFlags }
-  }
-  if ($Wo17CompileFailure.ExitCode -ne 101) { throw "Work Order 17 lifetime proof must exit 101, found $($Wo17CompileFailure.ExitCode)" }
-  foreach ($Wo17CompileFunction in @(
-    'verified_canonical_minimal_add_access_cannot_outlive_verify_artifact',
-    'verified_canonical_minimal_add_result_cannot_be_collected',
-    'verified_canonical_minimal_add_result_cannot_become_static',
-    'core_verify_full_type_report_access_cannot_escape',
-    'core_verify_diagnostic_occurrence_access_cannot_escape'
-  )) {
-    if (-not $Wo17CompileFailure.Output.Contains($Wo17CompileFunction)) { throw "Work Order 17 lifetime proof did not identify $Wo17CompileFunction" }
-  }
-  if (-not [regex]::IsMatch($Wo17CompileFailure.Output, 'lifetime may not live long enough|error\[E05(?:15|21)\]')) { throw 'Work Order 17 lifetime proof did not fail for a borrow-check lifetime reason' }
-  if ([regex]::IsMatch($Wo17CompileFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|private (?:struct|field|function)')) { throw 'Work Order 17 lifetime proof failed for an unrelated privacy, symbol, cfg, or import reason' }
-  if (-not [string]::Equals($env:RUSTFLAGS, $Wo17PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 17 lifetime proof did not restore RUSTFLAGS' }
-  Invoke-Native 'Work Order 17 normal compiler check after lifetime proof' $Cargo @('check', '--all-targets')
-
-  Write-Host '==> Work Order 19 combined backend-facts lifetime and wrapper-privacy proof'
-  Invoke-Native 'Work Order 19 normal compiler check before combined proof' $Cargo @('check', '--all-targets')
-  $Wo19PriorRustFlags = $env:RUSTFLAGS
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_canonical_minimal_add_backend_facts_escape'
-    $Wo19CompileFailure = Read-NativeOutputWithExit 'Work Order 19 forbidden backend facts escape and wrapper construction proof' $Cargo @('check', '--all-targets')
-  } finally {
-    if ($null -eq $Wo19PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo19PriorRustFlags }
-  }
-  if ($Wo19CompileFailure.ExitCode -ne 101) { throw "Work Order 19 combined proof must exit 101, found $($Wo19CompileFailure.ExitCode)" }
-  if (-not $Wo19CompileFailure.Output.Contains('no `CanonicalMinimalAddBackendFactsAccess` in `backend_input`') -or -not $Wo19CompileFailure.Output.Contains('cannot find function `with_canonical_minimal_add_backend_facts`') -or -not $Wo19CompileFailure.Output.Contains('cannot find function `issue_assembled`')) { throw 'Work Order 19 proof did not establish removal of every retired backend-facts authority route' }
-  foreach ($Wo19PrivateWrapper in @(
-    'VerifiedMinimalAddFullType',
-    'VerifiedMinimalAddEffect',
-    'VerifiedMinimalAddOwnership',
-    'VerifiedMinimalAddResource',
-    'VerifiedMinimalAddProfile'
-  )) {
-    if (-not $Wo19CompileFailure.Output.Contains("tuple struct constructor ``$Wo19PrivateWrapper`` is private")) { throw "Work Order 19 combined proof did not reject sibling construction of $Wo19PrivateWrapper" }
-  }
-  if ([regex]::Matches($Wo19CompileFailure.Output, 'error\[E0603\]: tuple struct constructor `VerifiedMinimalAdd(?:FullType|Effect|Ownership|Resource|Profile)` is private').Count -ne 5) { throw 'Work Order 19 combined proof must contain exactly five wrapper-constructor privacy failures' }
-  if ([regex]::IsMatch($Wo19CompileFailure.Output, 'error\[E0382\]|error\[E(?:0412|0422|0433)\]|unexpected `cfg`|cannot find (?:type|struct|module)|expected item, found')) { throw 'Work Order 19 combined proof failed for an unrelated move, symbol, cfg, import, or syntax reason' }
-  if (-not [string]::Equals($env:RUSTFLAGS, $Wo19PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 19 combined proof did not restore RUSTFLAGS' }
-  Invoke-Native 'Work Order 19 normal compiler check after combined proof' $Cargo @('check', '--all-targets')
-
-  Write-Host '==> Work Order 22 source-bound VerifiedBackendInput authority proof'
-  Invoke-Native 'Work Order 22 normal compiler check before authority proof' $Cargo @('check', '--all-targets')
-  $Wo22PriorRustFlags = $env:RUSTFLAGS
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_construction'
-    $Wo22ConstructionFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden capability/request construction proof' $Cargo @('check', '--bin', 'hum')
-  } finally {
-    if ($null -eq $Wo22PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22PriorRustFlags }
-  }
-  if ($Wo22ConstructionFailure.ExitCode -ne 101 -or [regex]::Matches($Wo22ConstructionFailure.Output, 'error\[E0451\]').Count -ne 2) { throw 'Work Order 22 private capability/request construction proof must produce exactly two E0451 failures' }
-  foreach ($Wo22PrivateFields in @(
-    'fields `projection` and `_artifact` of struct `VerifiedBackendInput` are private',
-    'fields `expected`, `observed` and `program_identity` of struct `LiveIdentityRequest` are private'
-  )) {
-    if (-not $Wo22ConstructionFailure.Output.Contains($Wo22PrivateFields)) { throw "Work Order 22 construction proof lost: $Wo22PrivateFields" }
-  }
-  if ([regex]::IsMatch($Wo22ConstructionFailure.Output, 'unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 22 construction proof failed for an unrelated cfg, import, symbol, or syntax reason' }
-  $Wo22PriorRustFlags = $env:RUSTFLAGS
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_authority'
-    $Wo22AuthorityFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden production authority substitutions' $Cargo @('check', '--bin', 'hum')
-  } finally {
-    if ($null -eq $Wo22PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22PriorRustFlags }
-  }
-  if ($Wo22AuthorityFailure.ExitCode -ne 101) { throw "Work Order 22 authority proof must exit 101, found $($Wo22AuthorityFailure.ExitCode)" }
-  foreach ($Wo22AuthorityEvidence in @(
-    'struct `CanonicalMinimalAddBackendFacts` is private',
-    'field `projection` of struct `VerifiedBackendInput` is private',
-    'the trait bound `VerifiedBackendInput<''_>: From<&[u8]>` is not satisfied',
-    'found `CanonicalBackendInputArtifact`',
-    'found `IrVerifyReport`',
-    'found `&[u8]`',
-    'expected `&mut LiveIdentityRequest<''_>`, found `&mut ()`',
-    'borrowed data escapes outside of closure'
-  )) {
-    if (-not $Wo22AuthorityFailure.Output.Contains($Wo22AuthorityEvidence)) { throw "Work Order 22 source-bound authority proof lost: $Wo22AuthorityEvidence" }
-  }
-  if ([regex]::Matches($Wo22AuthorityFailure.Output, 'error\[E0308\]').Count -ne 4 -or -not $Wo22AuthorityFailure.Output.Contains('error[E0521]')) { throw 'Work Order 22 substitution/lifetime compiler evidence count drifted' }
-  if ([regex]::IsMatch($Wo22AuthorityFailure.Output, 'unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 22 authority proof failed for an unrelated cfg, import, symbol, or syntax reason' }
-  if (-not [string]::Equals($env:RUSTFLAGS, $Wo22PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 authority proof did not restore RUSTFLAGS' }
-  Invoke-Native 'Work Order 22 normal compiler check after authority proof' $Cargo @('check', '--all-targets')
-
-  Write-Host '==> Work Order 22 Unit B verified-only adapter compile proofs'
-  $Wo22UnitBPriorRustFlags = $env:RUSTFLAGS
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_backend_adapter_raw_inputs'
-    $Wo22UnitBRawFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B raw-input rejection proof' $Cargo @('check', '--bin', 'hum')
-  } finally {
-    if ($null -eq $Wo22UnitBPriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22UnitBPriorRustFlags }
-  }
-  if ($Wo22UnitBRawFailure.ExitCode -ne 101 -or [regex]::Matches($Wo22UnitBRawFailure.Output, 'error\[E0308\]').Count -ne 3) { throw 'Work Order 22 Unit B raw inputs must produce exactly three type mismatches' }
-  foreach ($Wo22UnitBRawType in @('found reference `&Vec<u8>`', 'found reference `&Program`', 'found reference `&(i64, i64)`')) {
-    if (-not $Wo22UnitBRawFailure.Output.Contains($Wo22UnitBRawType)) { throw "Work Order 22 Unit B verified-only proof lost: $Wo22UnitBRawType" }
-  }
-  if (-not [string]::Equals($env:RUSTFLAGS, $Wo22UnitBPriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 Unit B raw-input proof did not restore RUSTFLAGS' }
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_backend_fault_seam_in_production'
-    $Wo22UnitBFaultFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B production fault-seam absence proof' $Cargo @('check', '--bin', 'hum')
-  } finally {
-    if ($null -eq $Wo22UnitBPriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22UnitBPriorRustFlags }
-  }
-  if ($Wo22UnitBFaultFailure.ExitCode -ne 101 -or [regex]::Matches($Wo22UnitBFaultFailure.Output, 'error\[E0433\]').Count -ne 1 -or -not $Wo22UnitBFaultFailure.Output.Contains('could not find `BackendProbeFault` in `super`')) { throw 'Work Order 22 Unit B test fault seam must be absent in production' }
-  if (-not [string]::Equals($env:RUSTFLAGS, $Wo22UnitBPriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 Unit B fault-seam proof did not restore RUSTFLAGS' }
-  Invoke-Native 'Work Order 22 Unit B normal compiler check after compile proofs' $Cargo @('check', '--all-targets')
-
-  Write-Host '==> Work Order 23 VerifiedIntegerSignBackendInput compiler-owned authority proof'
-  $Wo23PriorRustFlags = $env:RUSTFLAGS
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_construction'
-    $Wo23ConstructionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability construction proof' $Cargo @('check', '--bin', 'hum')
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_lifetime'
-    $Wo23LifetimeFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability lifetime escape proof' $Cargo @('check', '--bin', 'hum')
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_substitution'
-    $Wo23SubstitutionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability substitution proof' $Cargo @('check', '--bin', 'hum')
-  } finally {
-    if ($null -eq $Wo23PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo23PriorRustFlags }
-  }
-  if ($Wo23ConstructionFailure.ExitCode -ne 101 -or
-      [regex]::Matches($Wo23ConstructionFailure.Output, 'error\[E0451\]').Count -ne 1 -or
-      -not $Wo23ConstructionFailure.Output.Contains('fields `projection` and `_artifact` of struct `VerifiedIntegerSignBackendInput` are private') -or
-      -not $Wo23ConstructionFailure.Output.Contains('projection: None.unwrap()')) { throw 'Work Order 23 integer-sign construction proof lost its field-privacy diagnostic or primary span' }
-  if ($Wo23LifetimeFailure.ExitCode -ne 101 -or
-      -not [regex]::IsMatch($Wo23LifetimeFailure.Output, 'lifetime may not live long enough|borrowed data escapes outside of closure|error\[E0521\]') -or
-      -not $Wo23LifetimeFailure.Output.Contains('|capability| capability') -or
-      -not $Wo23LifetimeFailure.Output.Contains('return type of closure is VerifiedIntegerSignBackendInput')) { throw 'Work Order 23 integer-sign lifetime proof lost its callback-owned escape diagnostic or primary span' }
-  if ($Wo23SubstitutionFailure.ExitCode -ne 101 -or
-      [regex]::Matches($Wo23SubstitutionFailure.Output, 'error\[E0308\]').Count -ne 2 -or
-      -not $Wo23SubstitutionFailure.Output.Contains('found reference `&[u8]`') -or
-      -not $Wo23SubstitutionFailure.Output.Contains('found reference `&VerifiedBackendInput') -or
-      [regex]::Matches($Wo23SubstitutionFailure.Output, 'execute_integer_sign').Count -lt 4) { throw 'Work Order 23 integer-sign substitution proof lost its two backend-consumer type diagnostics or primary spans' }
-  foreach ($Wo23AuthorityFailure in @($Wo23ConstructionFailure, $Wo23LifetimeFailure, $Wo23SubstitutionFailure)) {
-    if ([regex]::IsMatch($Wo23AuthorityFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 23 integer-sign authority proof failed for an unrelated symbol, cfg, import, or syntax reason' }
-  }
-  if (-not [string]::Equals($env:RUSTFLAGS, $Wo23PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 23 integer-sign authority proof did not restore RUSTFLAGS' }
-  Invoke-Native 'Work Order 23 normal compiler check after authority proof' $Cargo @('check', '--all-targets')
-
-  Write-Host '==> Work Order 24 VerifiedConstantTextBackendInput compiler-owned authority proof'
-  $Wo24PriorRustFlags = $env:RUSTFLAGS
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_constant_text_backend_input_construction'
-    $Wo24ConstructionFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden constant-Text capability construction proof' $Cargo @('check', '--bin', 'hum')
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_constant_text_backend_input_lifetime'
-    $Wo24LifetimeFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden constant-Text capability lifetime escape proof' $Cargo @('check', '--bin', 'hum')
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_cross_substitution'
-    $Wo24SubstitutionFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden verified-capability cross-substitution proof' $Cargo @('check', '--bin', 'hum')
-  } finally {
-    if ($null -eq $Wo24PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo24PriorRustFlags }
-  }
-  if ($Wo24ConstructionFailure.ExitCode -ne 101 -or
-      [regex]::Matches($Wo24ConstructionFailure.Output, 'error\[E0451\]').Count -ne 1 -or
-      -not $Wo24ConstructionFailure.Output.Contains('fields `projection` and `_artifact` of struct `VerifiedConstantTextBackendInput` are private') -or
-      -not $Wo24ConstructionFailure.Output.Contains('type `VerifiedConstantTextProjection` is private') -or
-      -not $Wo24ConstructionFailure.Output.Contains('projection: None.unwrap()')) { throw 'Work Order 24 constant-Text construction proof lost its private authority state or primary span' }
-  if ($Wo24LifetimeFailure.ExitCode -ne 101 -or
-      -not $Wo24LifetimeFailure.Output.Contains('lifetime may not live long enough') -or
-      -not $Wo24LifetimeFailure.Output.Contains('|capability| capability') -or
-      -not $Wo24LifetimeFailure.Output.Contains('return type of closure is VerifiedConstantTextBackendInput')) { throw 'Work Order 24 constant-Text lifetime proof lost its callback-owned escape diagnostic or primary span' }
-  if ($Wo24SubstitutionFailure.ExitCode -ne 101 -or
-      [regex]::Matches($Wo24SubstitutionFailure.Output, 'error\[E0308\]').Count -ne 2 -or
-      -not $Wo24SubstitutionFailure.Output.Contains('expected reference `&VerifiedConstantTextBackendInput') -or
-      -not $Wo24SubstitutionFailure.Output.Contains('found reference `&VerifiedIntegerSignBackendInput') -or
-      -not $Wo24SubstitutionFailure.Output.Contains('expected reference `&VerifiedIntegerSignBackendInput') -or
-      -not $Wo24SubstitutionFailure.Output.Contains('found reference `&VerifiedConstantTextBackendInput') -or
-      [regex]::Matches($Wo24SubstitutionFailure.Output, 'execute_(?:constant_text|integer_sign)').Count -lt 4) { throw 'Work Order 24 capability substitution proof lost its two E0308 owner diagnostics or primary spans' }
-  foreach ($Wo24AuthorityFailure in @($Wo24ConstructionFailure, $Wo24LifetimeFailure, $Wo24SubstitutionFailure)) {
-    if ([regex]::IsMatch($Wo24AuthorityFailure.Output, 'unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 24 constant-Text authority proof failed for an unrelated cfg, import, symbol, or syntax reason' }
-  }
-  if (-not [string]::Equals($env:RUSTFLAGS, $Wo24PriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 24 constant-Text authority proof did not restore RUSTFLAGS' }
-  Invoke-Native 'Work Order 24 normal compiler check after authority proof' $Cargo @('check', '--all-targets')
-
-  Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'
-  $Wo17OutcomePriorRustFlags = $env:RUSTFLAGS
-  try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_canonical_minimal_add_type_outcome_foreign_issue'
-    $Wo17OutcomeFailure = Read-NativeOutputWithExit 'Work Order 17 foreign outcome issuance compiler proof' $Cargo @('check', '--all-targets')
-  } finally {
-    if ($null -eq $Wo17OutcomePriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo17OutcomePriorRustFlags }
-  }
-  if ($Wo17OutcomeFailure.ExitCode -ne 101) { throw "Work Order 17 foreign outcome issuance proof must exit 101, found $($Wo17OutcomeFailure.ExitCode)" }
-  if (-not $Wo17OutcomeFailure.Output.Contains('canonical_minimal_add_type_outcome_foreign_issue_must_not_compile') -or -not $Wo17OutcomeFailure.Output.Contains('error[E0624]') -or -not $Wo17OutcomeFailure.Output.Contains('associated function `non_target` is private')) { throw 'Work Order 17 foreign outcome issuance proof did not fail at the private sole-producer constructor' }
-  if ([regex]::IsMatch($Wo17OutcomeFailure.Output, 'error\[E(?:0412|0422|0432|0433|0603)\]|unexpected `cfg`|unresolved import|cannot find (?:type|struct|module)|expected item, found')) { throw 'Work Order 17 foreign outcome issuance proof failed for an unrelated symbol, cfg, import, privacy-type, or syntax reason' }
-  if (-not [string]::Equals($env:RUSTFLAGS, $Wo17OutcomePriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 17 foreign outcome issuance proof did not restore RUSTFLAGS' }
-  Invoke-Native 'Work Order 17 normal compiler check after sole-producer proof' $Cargo @('check', '--all-targets')
+  Invoke-HumCompilerPrivacyChecks $Cargo
 
   Write-Host '==> Increment 10B.1b audit_h0010_production_dataflow (bounded defense-in-depth source audit)'
   if (
@@ -3440,84 +3443,10 @@ task malformed() -> UInt {
   Invoke-ExactRustTest 'Work Order 24 source-driven constant-Text lowering' $Cargo 'backend_cranelift::tests::hello_world_lowering_is_source_driven_and_load_bearing'
   Invoke-ExactRustTest 'Work Order 24 H0635 catalog projection' $Cargo 'diagnostic_catalog::tests::unsupported_native_feature_catalog_projection_is_exact'
   Invoke-ExactRustTest 'Work Order 24 native CLI and authority' $Cargo 'main::tests::native_hello_world_run_is_authority_bound_and_platform_exact'
-  Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo
-  Invoke-Wo25UnitBFocusedEvidence -Cargo $Cargo
-  Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo
-  Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo
-  $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
-  $OlderExactRustSelectorObligations = @(
-    'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed',
-    'core_body::tests::validated_body_grammar_construction_is_compiler_sealed'
-  )
-  $WorkOrder17ExactRustSelectors = @(
-    'type_check::tests::canonical_minimal_add_type_authority_is_operation_bound',
-    'core_lower::tests::canonical_minimal_add_type_authority_is_owned_by_exact_operation',
-    'core_verify::tests::canonical_minimal_add_type_verification_withholds_invalid_access',
-    'full_type_check::tests::minimal_add_consumes_only_verified_canonical_type'
-  )
-  $WorkOrder19ExactRustSelectors = @(
-    'full_type_check::tests::minimal_add_backend_fact_handoff_is_exact_and_borrowed',
-    'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned',
-    'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty',
-    'ir_readiness::tests::canonical_minimal_add_is_ir_ready_only_after_live_verification'
-  )
-  $WorkOrder20UnitAExactRustSelectors = @(
-    'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact',
-    'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
-  )
-  $WorkOrder22UnitBExactRustSelectors = @(
-    'backend_cranelift::tests::verified_minimal_add_emits_checked_cranelift_ir',
-    'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact',
-    'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing',
-    'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
-  )
-  $WorkOrder23UnitAExactRustSelectors = @(
-    'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing',
-    'backend_input::tests::canonical_integer_sign_backend_input_is_exact_and_nonforgeable',
-    'ir_verify::tests::integer_sign_artifact_rejection_matrix_is_complete',
-    'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing',
-    'main::tests::native_integer_sign_run_is_authority_bound_and_platform_exact'
-  )
-  $WorkOrder24UnitAExactRustSelectors = @(
-    'native_program::tests::native_feature_discrimination_is_typed_and_load_bearing',
-    'backend_input::tests::canonical_hello_world_backend_input_is_exact_and_nonforgeable',
-    'ir_verify::tests::hello_world_artifact_rejection_matrix_is_complete',
-    'backend_cranelift::tests::hello_world_lowering_is_source_driven_and_load_bearing',
-    'diagnostic_catalog::tests::unsupported_native_feature_catalog_projection_is_exact',
-    'main::tests::native_hello_world_run_is_authority_bound_and_platform_exact'
-  )
-  $WorkOrder25UnitAExactRustSelectors = @('commit_message::tests::canonical_rule_is_portable_and_exact', 'identity::tests::candidate_identity_binds_commit_tree_index_and_paths', 'summary::tests::evidence_summary_v1_is_canonical_and_hash_bound', 'cleanup::tests::owned_resources_close_on_every_controlled_terminal_path', 'command::tests::evidence_profiles_are_typed_and_fail_closed', 'cli::legacy_equivalence_preserves_exit_stages_and_stream_hashes')
-  $WorkOrder25UnitBExactRustSelectors = @('status::tests::job_summary_binds_run_attempt_job_sha_tree_and_platform', 'status::tests::status_review_consumes_summaries_without_full_logs', 'workorder::tests::status_facts_touch_only_authenticated_mutable_regions', 'summary::tests::cross_platform_status_agreement_is_exact')
-  $WorkOrder25UnitCExactRustSelectors = @('shell::tests::pwsh7_adapter_is_thin_declarative_and_environment_bound','commit_message::tests::legacy_hook_corpus_matches_portable_rule','cli::preflight_repairs_stop_before_state_changing_launch')
-  $PreservedNamedExactRustSelectors = @($OlderExactRustSelectorObligations) + @($WorkOrder17ExactRustSelectors) + @($WorkOrder19ExactRustSelectors) + @($WorkOrder20UnitAExactRustSelectors) + @($WorkOrder22UnitBExactRustSelectors) + @($WorkOrder23UnitAExactRustSelectors) + @($WorkOrder24UnitAExactRustSelectors) + @($WorkOrder25UnitAExactRustSelectors) + @($WorkOrder25UnitBExactRustSelectors) + @($WorkOrder25UnitCExactRustSelectors)
-  Invoke-ExactRustSelectorLedgerMutationTests -Credits $ExactRustSelectorCredits -PreservedNamedSelectors $PreservedNamedExactRustSelectors
-  foreach ($OlderSelector in $OlderExactRustSelectorObligations) {
-    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $OlderSelector }).Count -ne 1) { throw "exact Rust selector inventory lost older required selector $OlderSelector" }
-  }
-  foreach ($WorkOrder17Selector in $WorkOrder17ExactRustSelectors) {
-    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder17Selector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 17 selector $WorkOrder17Selector" }
-  }
-  foreach ($WorkOrder19Selector in $WorkOrder19ExactRustSelectors) {
-    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder19Selector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 19 selector $WorkOrder19Selector" }
-  }
-  foreach ($WorkOrder20UnitASelector in $WorkOrder20UnitAExactRustSelectors) {
-    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder20UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 20 Unit A selector $WorkOrder20UnitASelector" }
-  }
-  foreach ($WorkOrder22UnitBSelector in $WorkOrder22UnitBExactRustSelectors) {
-    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder22UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 22 Unit B selector $WorkOrder22UnitBSelector" }
-  }
-  foreach ($WorkOrder23UnitASelector in $WorkOrder23UnitAExactRustSelectors) {
-    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder23UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 23 Unit A selector $WorkOrder23UnitASelector" }
-  }
-  foreach ($WorkOrder24UnitASelector in $WorkOrder24UnitAExactRustSelectors) {
-    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder24UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 24 Unit A selector $WorkOrder24UnitASelector" }
-  }
-  foreach ($WorkOrder25UnitASelector in $WorkOrder25UnitAExactRustSelectors) {
-    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit A selector $WorkOrder25UnitASelector" }
-  }
-  foreach ($WorkOrder25UnitBSelector in $WorkOrder25UnitBExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit B selector $WorkOrder25UnitBSelector" } }
-  foreach ($WorkOrder25UnitCSelector in $WorkOrder25UnitCExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitCSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit C selector $WorkOrder25UnitCSelector" } }
+}
 
+function Invoke-HumCompilerCorpusChecks {
+  param([string] $Cargo, [string] $Hum)
   $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
   if ($ApForbiddenFallbacks.Count -ne 0) { throw 'Session AP production source must not reconstruct occurrences from codes or public diagnostics' }
   $ApCatalogSource = Get-Content -Raw 'src/diagnostic_catalog.rs'
@@ -3860,7 +3789,7 @@ task malformed() -> UInt {
     if ($null -eq $FixtureJson.non_claims -or @($FixtureJson.non_claims).Count -eq 0) { throw "target fact fixture $($Fixture.Name) is missing non_claims" }
   }
 
-  Invoke-Native 'hum check examples' $Hum @('check', 'examples')
+  Invoke-HumLanguageProgramChecks $Hum
 
   $RunAdd = Read-NativeOutput 'run core add' $Hum @('run', 'examples/core/add.hum', '--entry', 'add', '--args', '2', '3')
   if ($RunAdd.Trim() -ne '5') { throw "hum run add expected 5, got `$RunAdd" }
@@ -3895,16 +3824,7 @@ task malformed() -> UInt {
   $RunSessionJConsume = Read-NativeOutput 'run Session J consume fixture' $Hum @('run', 'fixtures/ownership_check/session_j_consume_pass.hum', '--entry', 'consume_demo')
   if ($RunSessionJConsume.Trim() -ne '7') { throw "Session J consume run expected 7, got `$RunSessionJConsume" }
 
-  $RunSessionJUseAfterMove = Read-NativeOutputWithExit 'run Session J use-after-move misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_j_use_after_move_fail.hum', '--entry', 'use_after_move')
-  if ($RunSessionJUseAfterMove.ExitCode -ne 2) { throw "Session J use-after-move run expected exit 2, got $($RunSessionJUseAfterMove.ExitCode)" }
-  if (-not $RunSessionJUseAfterMove.Output.Contains('H0801')) { throw "Session J use-after-move run expected H0801, got $($RunSessionJUseAfterMove.Output)" }
-  $RunSessionJUseAfterMoveExpected = @(
-    'fixtures/ownership_check/session_j_use_after_move_fail.hum:18:5: error[H0801]: value `value` was used after it was moved',
-    '  help: Fix task `use_after_move`: `value` moved at fixtures/ownership_check/session_j_use_after_move_fail.hum:17:5; use it before that move or create a fresh owned value.',
-    'runtime trap: H0801 use after move'
-  ) -join "`n"
-  if ($RunSessionJUseAfterMove.Output.Replace(([string][char]13 + [string][char]10), [string][char]10).TrimEnd() -ne $RunSessionJUseAfterMoveExpected) { throw 'Session J H0801 runtime bytes changed' }
-  if (-not $RunSessionJUseAfterMove.Output.Contains('help:')) { throw "Session J use-after-move run expected blame help, got $($RunSessionJUseAfterMove.Output)" }
+  . Invoke-HumUseAfterMoveRuntimeCheck $Hum
 
   $RunSessionJBorrowWrite = Read-NativeOutputWithExit 'run Session J borrowed-write misuse fixture' $Hum @('run', 'fixtures/ownership_check/session_j_borrow_write_fail.hum', '--entry', 'write_borrow', '--args', '7')
   if ($RunSessionJBorrowWrite.ExitCode -ne 2) { throw "Session J borrowed-write run expected exit 2, got $($RunSessionJBorrowWrite.ExitCode)" }
@@ -5517,12 +5437,7 @@ task malformed() -> UInt {
   Assert-Json 'ownership check Session J change JSON' $OwnershipCheckChangeJson
   if (-not $OwnershipCheckChangeJson.Contains('"accepted_parameter_mutation_v0"')) { throw 'ownership check JSON is missing accepted parameter mutation fact' }
 
-  $OwnershipUseAfterMoveJson = Read-NativeOutputWithExit 'ownership check Session J use-after-move JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_j_use_after_move_fail.hum')
-  if ($OwnershipUseAfterMoveJson.ExitCode -ne 1) { throw "ownership check use-after-move expected exit 1, got $($OwnershipUseAfterMoveJson.ExitCode)" }
-  Assert-Json 'ownership check Session J use-after-move JSON' $OwnershipUseAfterMoveJson.Output
-  if (-not $OwnershipUseAfterMoveJson.Output.Contains('"status": "ownership_errors_v0"')) { throw "ownership check use-after-move expected ownership_errors_v0, got $($OwnershipUseAfterMoveJson.Output)" }
-  if (-not $OwnershipUseAfterMoveJson.Output.Contains('"diagnostic_code": "H0801"')) { throw "ownership check use-after-move expected H0801, got $($OwnershipUseAfterMoveJson.Output)" }
-  if (-not $OwnershipUseAfterMoveJson.Output.Contains('"help"')) { throw "ownership check use-after-move expected blame help, got $($OwnershipUseAfterMoveJson.Output)" }
+  . Invoke-HumUseAfterMoveProjectionCheck $Hum
 
   $OwnershipBorrowWriteJson = Read-NativeOutputWithExit 'ownership check Session J borrowed-write JSON' $Hum @('ownership-check', '--format', 'json', 'fixtures/ownership_check/session_j_borrow_write_fail.hum')
   if ($OwnershipBorrowWriteJson.ExitCode -ne 1) { throw "ownership check borrowed-write expected exit 1, got $($OwnershipBorrowWriteJson.ExitCode)" }
@@ -6196,16 +6111,211 @@ task malformed() -> UInt {
   if (-not $LegendsResearchText.Contains('portability-boundary')) { throw 'Systems legends research note is missing portability boundary consequence' }
   if (-not $ResearchMapText.Contains('Systems Legends And Durable Taste')) { throw 'research map is missing systems legends cluster' }
 
-  Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
-  Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'
-  Invoke-RepoScript 'release readiness' 'check_release_readiness.ps1'
+}
+
+Push-Location $RepoRoot
+try {
+  if ($EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo; return }
+  if ($EvidenceTier -eq 'Wo25UnitB') { Invoke-Wo25UnitBFocusedEvidence -Cargo $Cargo; return }
+  if ($EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo; return }
+  if ($EvidenceTier -eq 'Wo25UnitCMutation') { Initialize-Wo25WindowsToolchain; Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo; return }
+  if ($EvidenceTier -cin @('Language', 'Runtime', 'Compiler')) { Invoke-HumFixedProfile $EvidenceTier $Cargo; return }
+  Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
+  $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
+  $PwshApplications = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
+  $Pwsh = Select-FirstApplicationSource $PwshApplications 'outer pwsh selection'
+  $UbuntuPwshResolutionCommand = '$a=@(Get-Command pwsh -CommandType Application -All -ErrorAction Stop);if($a.Count -eq 0){exit 86};$s=[string]($a[0].Source);if([string]::IsNullOrEmpty($s)-or $s.IndexOfAny([char[]]@(13,10,0)) -ge 0){exit 87};[Console]::Out.Write($s)'
+  $UbuntuPwshResolutionEncoded = ConvertTo-UbuntuPwshResolutionEncodedCommand $UbuntuPwshResolutionCommand
+  $UbuntuPwshResolutionArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $UbuntuPwshResolutionEncoded)
+  Assert-UbuntuPwshResolutionArguments $UbuntuPwshResolutionArguments $UbuntuPwshResolutionEncoded
+  Invoke-UbuntuPwshResolutionSelfTests $UbuntuPwshResolutionCommand $UbuntuPwshResolutionEncoded
+  if ($env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_OS -eq 'Linux') {
+    $Workspace = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE -ErrorAction Stop).Path
+    $CurrentRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
+    if (-not [string]::Equals($Workspace, $CurrentRoot, [System.StringComparison]::Ordinal)) {
+      throw "Ubuntu capture workspace differs from repository root: $Workspace != $CurrentRoot"
+    }
+    $ChildPwsh = Read-NativeChannelsWithExit 'Ubuntu fresh-child pwsh resolution' $Pwsh $UbuntuPwshResolutionArguments
+    $null = Assert-UbuntuPwshResolutionCapture $ChildPwsh $Pwsh
+    $UbuntuScratch = Join-Path $env:RUNNER_TEMP "hum-fast-capture-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-ubuntu"
+    Invoke-Native 'Fast evidence capture tests (Ubuntu pwsh checkpoint)' $Pwsh @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', './tools/test_fast_evidence_capture.ps1', '-ShellContract', 'pwsh', '-ScratchRoot', $UbuntuScratch)
+  } else {
+    $CaptureScratchBase = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-fast-capture-" + [Guid]::NewGuid().ToString('N'))
+    Invoke-Native 'Fast evidence capture tests (pwsh)' $Pwsh @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $CaptureTest, '-ShellContract', 'pwsh', '-ScratchRoot', "$CaptureScratchBase-pwsh")
+  }
+  $CheckAllSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
+  foreach ($UbuntuCaptureArm in @(
+    ('(Resolve-Path -LiteralPath $env:' + 'GITHUB_WORKSPACE -ErrorAction Stop).Path'),
+    ('$Pwsh $UbuntuPwshResolution' + 'Arguments'),
+    "hum-fast-capture-`$env:GITHUB_RUN_ID-`$env:GITHUB_RUN_ATTEMPT-ubuntu",
+    "'-File', './tools/test_fast_evidence_capture.ps1', '-ShellContract', 'pwsh', '-ScratchRoot', `$UbuntuScratch"
+  )) {
+    if ([regex]::Matches($CheckAllSource, [regex]::Escape($UbuntuCaptureArm)).Count -ne 1) { throw "Ubuntu capture checkpoint drifted: $UbuntuCaptureArm" }
+  }
+  if ($CheckAllSource.Contains('$UbuntuScratch-' + 'pwsh')) { throw 'Ubuntu capture checkpoint must not append -pwsh' }
+  $CheckAllTokens = $null
+  $CheckAllParseErrors = $null
+  $CheckAllAst = [System.Management.Automation.Language.Parser]::ParseInput($CheckAllSource, [ref] $CheckAllTokens, [ref] $CheckAllParseErrors)
+  Assert-Wo25UnitBMutationSelectorContract -Source $CheckAllSource
+  $MutationFunctions = @($CheckAllAst.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq 'Invoke-Wo22BackendPredicateMutationEvidence' }, $true))
+  if ($CheckAllParseErrors.Count -ne 0 -or $MutationFunctions.Count -ne 1) { throw 'Work Order 22 mutation runner syntax or identity drifted' }
+  $MutationCommands = @($MutationFunctions[0].Body.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.CommandAst] }, $true))
+  $GuardedMutationCalls = @($MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustTest' })
+  $BypassMutationCalls = @($MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustNativeCapture' })
+  if ($GuardedMutationCalls.Count -ne 1 -or $GuardedMutationCalls[0].Extent.Text -cne 'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector' -or $BypassMutationCalls.Count -ne 0) { throw 'Work Order 22 mutation selector must use the one guarded exact-selector route' }
+  $Wo24MutationFunctions = @($CheckAllAst.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq 'Invoke-Wo24UnitAProductionMutationEvidence' }, $true))
+  if ($Wo24MutationFunctions.Count -ne 1) { throw 'Work Order 24 mutation runner identity drifted' }
+  $Wo24MutationCommands = @($Wo24MutationFunctions[0].Body.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.CommandAst] }, $true))
+  $Wo24GuardedMutationCalls = @($Wo24MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustTest' })
+  $Wo24BypassMutationCalls = @($Wo24MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustNativeCapture' })
+  $Wo24ExpectedGuardedCalls = @(
+    'Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector',
+    'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector',
+    'Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector'
+  )
+  if ($Wo24GuardedMutationCalls.Count -ne 3 -or $Wo24BypassMutationCalls.Count -ne 0) { throw 'Work Order 24 mutation evidence must use exactly three guarded selector routes and zero native-capture bypasses' }
+  foreach ($ExpectedGuardedCall in $Wo24ExpectedGuardedCalls) {
+    if (@($Wo24GuardedMutationCalls | Where-Object { $_.Extent.Text -ceq $ExpectedGuardedCall }).Count -ne 1) { throw "Work Order 24 guarded selector route drifted: $ExpectedGuardedCall" }
+  }
+  $ExactFlag = '--' + 'exact'
+  if ($CheckAllSource.Contains($ExactFlag)) { throw 'exact Rust tests must use the guarded selector helper' }
+  $CiSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'))
+  Assert-Wo25UnitBFullPreflightWorkflowRoute -Workflow $CiSource
+  if ($CheckAllSource.IndexOf('Fast evidence capture tests (Ubuntu pwsh checkpoint)', [System.StringComparison]::Ordinal) -ge $CheckAllSource.IndexOf('Invoke-ExactRustSelectorSelfTests', [System.StringComparison]::Ordinal)) {
+    throw 'Ubuntu capture checkpoint must precede compiler selectors'
+  }
+  if ([regex]::Matches($CiSource, [regex]::Escape('timeout-minutes: 60')).Count -ne 1) {
+    throw 'canonical-seal CI timeout headroom drifted'
+  }
+  function Test-Wo25ExhaustiveWorkflowRouteCorruptions { param([string]$CiSource,[string]$RepoRoot);$Cr=[char]13;$Lf=[char]10;$Normalized=$CiSource.Replace([string]$Cr+[string]$Lf,[string]$Lf).Replace([string]$Cr,[string]$Lf);$ExhaustiveStep=[regex]::Match($Normalized,'(?ms)^      - name: Run exhaustive canonical-seal evidence'+$Lf+'.*?(?=^      - name: |\z)').Value;$ExhaustiveCases=@([pscustomobject]@{Name='honest';Source=$CiSource;Failure=$null},[pscustomobject]@{Name='removal';Source=$CiSource.Replace($ExhaustiveStep,'');Failure='step_count'},[pscustomobject]@{Name='duplication';Source=$CiSource+$Lf+$ExhaustiveStep;Failure='step_count'},[pscustomobject]@{Name='profile substitution';Source=$CiSource.Replace('evidence exhaustive --pwsh $Pwsh','evidence full --pwsh $Pwsh');Failure='route_launch_count'},[pscustomobject]@{Name='missing pwsh';Source=$CiSource.Replace(' --pwsh $Pwsh','');Failure='route_launch_count'},[pscustomobject]@{Name='substituted pwsh';Source=$CiSource.Replace('--pwsh $Pwsh','--pwsh pwsh');Failure='route_launch_count'},[pscustomobject]@{Name='isolation bypass';Source=$CiSource.Replace('$Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP ''target''','$Isolated = $Executable');Failure='route_isolation_count'},[pscustomobject]@{Name='cleanup removal';Source=$CiSource.Replace('finally { Remove-HumIsolatedExecutable $Isolated }','finally { }');Failure='route_cleanup_count'},[pscustomobject]@{Name='cleanup reordering';Source=$CiSource.Replace('try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }'+$Lf+'          finally { Remove-HumIsolatedExecutable $Isolated }','finally { Remove-HumIsolatedExecutable $Isolated }'+$Lf+'          try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }');Failure='route_cleanup_order'},[pscustomobject]@{Name='malformed routing';Source=$CiSource.Replace('evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE','evidence exhaustive --pwsh $Pwsh');Failure='route_launch_count'},[pscustomobject]@{Name='retired direct route';Source=$CiSource+$Lf+'        run: ./tools/check_all.ps1 -EvidenceTier Exhaustive';Failure='retired_direct_route'})
+    foreach($Case in $ExhaustiveCases){if($Case.Name-cne'honest'-and$Case.Source-ceq$CiSource){throw "canonical-seal exhaustive corruption was not initialized: $($Case.Name)"};$Failure=Get-Wo25ExhaustiveWorkflowRouteFailure $Case.Source;if($Failure-cne$Case.Failure){throw "canonical-seal exhaustive $($Case.Name) expected $($Case.Failure), got $Failure"};Write-Host "ok - canonical-seal exhaustive $($Case.Name): $Failure"}
+    if($CiSource-cne[IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'))){throw 'canonical-seal exhaustive workflow corruptions did not restore exact source bytes'}};Test-Wo25ExhaustiveWorkflowRouteCorruptions $CiSource $RepoRoot
+  foreach ($ExhaustiveDispatchArm in @(
+    'if ($EvidenceTier -eq ''Exhaustive'') {',
+    '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''exhaustive''',
+    'if ($EvidenceTier -notin @(''Language'', ''Runtime'', ''Compiler'', ''Fast'', ''Wo25UnitA'', ''Wo25UnitB'', ''Wo25UnitC'', ''Wo25UnitCMutation'')) {',
+    'throw "unsupported evidence-tier fallthrough: $EvidenceTier"',
+    '$env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = ''fast'''
+  )) {
+    $ExhaustiveDispatchPattern = '(?m)^\s*' + [regex]::Escape($ExhaustiveDispatchArm) + '\s*$'
+    if ([regex]::Matches($CheckAllSource, $ExhaustiveDispatchPattern).Count -ne 1) {
+      throw "canonical-seal evidence-tier dispatch drifted: $ExhaustiveDispatchArm"
+    }
+  }
+  $ParserSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/parser.rs'))
+  foreach ($ExhaustiveHarnessArm in @(
+    'fn exhaustive_canonical_seal_pair_matrix_is_complete_and_nonzero()',
+    'assert_eq!(f1.pair_rejections, 630);',
+    'assert_eq!(f2.cumulative_pair_rejections, 4_950);',
+    'assert_eq!(f3.cumulative_pair_rejections, 8_646);',
+    'assert_eq!(630 + 4_950 + 8_646, 14_226);'
+  )) {
+    if ([regex]::Matches($ParserSource, [regex]::Escape($ExhaustiveHarnessArm)).Count -ne 1) {
+      throw "canonical-seal exhaustive selector/count pin drifted: $ExhaustiveHarnessArm"
+    }
+  }
+  Invoke-ExactRustSelectorSelfTests $Cargo
+  Reset-ExactRustSelectorCredits
+  Invoke-HumCoreCheck 'format' $Cargo
+  Invoke-HumCoreCheck 'check' $Cargo
+  Invoke-HumCoreCheck 'tests' $Cargo
+  Invoke-ExactRustTest 'canonical diagnostic registry/projection test' $Cargo 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid'
+  Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality')
+  Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff')
+  Invoke-HumCoreCheck 'clippy' $Cargo
+  Invoke-Native 'Windows drive locality adapter clippy' $Cargo @('clippy', '-p', 'windows-drive-locality', '--all-targets', '--', '-D', 'warnings')
+  Invoke-HumCoreCheck 'build' $Cargo
+
+  . Invoke-HumCompilerFrontChecks $Cargo $Hum
+
+  Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo
+  Invoke-Wo25UnitBFocusedEvidence -Cargo $Cargo
+  Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo
+  Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo
+  $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
+  $OlderExactRustSelectorObligations = @(
+    'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed',
+    'core_body::tests::validated_body_grammar_construction_is_compiler_sealed'
+  )
+  $WorkOrder17ExactRustSelectors = @(
+    'type_check::tests::canonical_minimal_add_type_authority_is_operation_bound',
+    'core_lower::tests::canonical_minimal_add_type_authority_is_owned_by_exact_operation',
+    'core_verify::tests::canonical_minimal_add_type_verification_withholds_invalid_access',
+    'full_type_check::tests::minimal_add_consumes_only_verified_canonical_type'
+  )
+  $WorkOrder19ExactRustSelectors = @(
+    'full_type_check::tests::minimal_add_backend_fact_handoff_is_exact_and_borrowed',
+    'ownership_check::tests::minimal_add_effect_and_ownership_authority_stays_operation_owned',
+    'profile_check::tests::minimal_add_resource_and_profile_authority_is_checked_empty',
+    'ir_readiness::tests::canonical_minimal_add_is_ir_ready_only_after_live_verification'
+  )
+  $WorkOrder20UnitAExactRustSelectors = @(
+    'sha256::tests::sha256_known_answer_and_boundary_matrix_is_exact',
+    'backend_input::tests::minimal_add_backend_input_bytes_are_canonical_and_deterministic'
+  )
+  $WorkOrder22UnitBExactRustSelectors = @(
+    'backend_cranelift::tests::verified_minimal_add_emits_checked_cranelift_ir',
+    'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact',
+    'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing',
+    'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
+  )
+  $WorkOrder23UnitAExactRustSelectors = @(
+    'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing',
+    'backend_input::tests::canonical_integer_sign_backend_input_is_exact_and_nonforgeable',
+    'ir_verify::tests::integer_sign_artifact_rejection_matrix_is_complete',
+    'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing',
+    'main::tests::native_integer_sign_run_is_authority_bound_and_platform_exact'
+  )
+  $WorkOrder24UnitAExactRustSelectors = @(
+    'native_program::tests::native_feature_discrimination_is_typed_and_load_bearing',
+    'backend_input::tests::canonical_hello_world_backend_input_is_exact_and_nonforgeable',
+    'ir_verify::tests::hello_world_artifact_rejection_matrix_is_complete',
+    'backend_cranelift::tests::hello_world_lowering_is_source_driven_and_load_bearing',
+    'diagnostic_catalog::tests::unsupported_native_feature_catalog_projection_is_exact',
+    'main::tests::native_hello_world_run_is_authority_bound_and_platform_exact'
+  )
+  $WorkOrder25UnitAExactRustSelectors = @('commit_message::tests::canonical_rule_is_portable_and_exact', 'identity::tests::candidate_identity_binds_commit_tree_index_and_paths', 'summary::tests::evidence_summary_v1_is_canonical_and_hash_bound', 'cleanup::tests::owned_resources_close_on_every_controlled_terminal_path', 'command::tests::evidence_profiles_are_typed_and_fail_closed', 'cli::legacy_equivalence_preserves_exit_stages_and_stream_hashes')
+  $WorkOrder25UnitBExactRustSelectors = @('status::tests::job_summary_binds_run_attempt_job_sha_tree_and_platform', 'status::tests::status_review_consumes_summaries_without_full_logs', 'workorder::tests::status_facts_touch_only_authenticated_mutable_regions', 'summary::tests::cross_platform_status_agreement_is_exact')
+  $WorkOrder25UnitCExactRustSelectors = @('shell::tests::pwsh7_adapter_is_thin_declarative_and_environment_bound','commit_message::tests::legacy_hook_corpus_matches_portable_rule','cli::preflight_repairs_stop_before_state_changing_launch')
+  $PreservedNamedExactRustSelectors = @($OlderExactRustSelectorObligations) + @($WorkOrder17ExactRustSelectors) + @($WorkOrder19ExactRustSelectors) + @($WorkOrder20UnitAExactRustSelectors) + @($WorkOrder22UnitBExactRustSelectors) + @($WorkOrder23UnitAExactRustSelectors) + @($WorkOrder24UnitAExactRustSelectors) + @($WorkOrder25UnitAExactRustSelectors) + @($WorkOrder25UnitBExactRustSelectors) + @($WorkOrder25UnitCExactRustSelectors)
+  Invoke-ExactRustSelectorLedgerMutationTests -Credits $ExactRustSelectorCredits -PreservedNamedSelectors $PreservedNamedExactRustSelectors
+  foreach ($OlderSelector in $OlderExactRustSelectorObligations) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $OlderSelector }).Count -ne 1) { throw "exact Rust selector inventory lost older required selector $OlderSelector" }
+  }
+  foreach ($WorkOrder17Selector in $WorkOrder17ExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder17Selector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 17 selector $WorkOrder17Selector" }
+  }
+  foreach ($WorkOrder19Selector in $WorkOrder19ExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder19Selector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 19 selector $WorkOrder19Selector" }
+  }
+  foreach ($WorkOrder20UnitASelector in $WorkOrder20UnitAExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder20UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 20 Unit A selector $WorkOrder20UnitASelector" }
+  }
+  foreach ($WorkOrder22UnitBSelector in $WorkOrder22UnitBExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder22UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 22 Unit B selector $WorkOrder22UnitBSelector" }
+  }
+  foreach ($WorkOrder23UnitASelector in $WorkOrder23UnitAExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder23UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 23 Unit A selector $WorkOrder23UnitASelector" }
+  }
+  foreach ($WorkOrder24UnitASelector in $WorkOrder24UnitAExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder24UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 24 Unit A selector $WorkOrder24UnitASelector" }
+  }
+  foreach ($WorkOrder25UnitASelector in $WorkOrder25UnitAExactRustSelectors) {
+    if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitASelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit A selector $WorkOrder25UnitASelector" }
+  }
+  foreach ($WorkOrder25UnitBSelector in $WorkOrder25UnitBExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit B selector $WorkOrder25UnitBSelector" } }
+  foreach ($WorkOrder25UnitCSelector in $WorkOrder25UnitCExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitCSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit C selector $WorkOrder25UnitCSelector" } }
+
+  . Invoke-HumCompilerCorpusChecks $Cargo $Hum
+
+  Invoke-HumCoreCheck 'hygiene' $Cargo
 
   if (-not [string]::IsNullOrEmpty($env:HUM_EVIDENCE_RECEIPT)) {
     $Receipt = [IO.Path]::GetFullPath($env:HUM_EVIDENCE_RECEIPT); $RunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
     if (-not $Receipt.StartsWith($RunnerTemp + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or [string]::IsNullOrEmpty($script:ExactRustSelectorLedgerSha256)) { throw 'full evidence receipt ownership or selector identity is invalid' }
     Assert-Wo25MutationReceiptRecords @($script:Wo25MutationRecords)
     $MutationBytes=(New-Object Text.UTF8Encoding($false,$true)).GetBytes(([string]::Join("`n",$script:Wo25MutationRecords)+"`n"));$MutationSha=Get-Wo25Sha256 $MutationBytes
-    $ReceiptText = "selector_ledger_sha256=$($script:ExactRustSelectorLedgerSha256)`nselector_count=131`nmutation_ledger_sha256=$MutationSha`nmutation_count=8`nsuite_count=131`nreadiness=ir_ready=1;backend_ready=1`nhygiene_file_count=585`nclaims=passed`nrelease_version=0.0.1`n"
+    $ReceiptText = "selector_ledger_sha256=$($script:ExactRustSelectorLedgerSha256)`nselector_count=131`nmutation_ledger_sha256=$MutationSha`nmutation_count=8`nsuite_count=131`nreadiness=ir_ready=1;backend_ready=1`nhygiene_file_count=591`nclaims=passed`nrelease_version=0.0.1`n"
     [IO.File]::WriteAllText($Receipt,$ReceiptText,(New-Object Text.UTF8Encoding($false,$true)))
   }
 

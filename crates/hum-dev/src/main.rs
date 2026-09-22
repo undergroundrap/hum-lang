@@ -215,7 +215,19 @@ mod cli {
     fn direct(executable: &Path, script: &str) -> Output { Command::new(executable).current_dir(root()).args(["-NoLogo", "-NoProfile", "-File", script]).output().unwrap() }
 
     #[test]
+    fn fixed_profiles_map_to_the_shared_production_dispatcher() {
+        for (profile, tier) in [(EvidenceProfile::Language, "Language"), (EvidenceProfile::Runtime, "Runtime"), (EvidenceProfile::Compiler, "Compiler")] {
+            let invocation = legacy_invocation(profile);
+            assert_eq!(invocation.executable, "pwsh");
+            assert_eq!(invocation.script, "tools/check_all.ps1");
+            assert_eq!(invocation.arguments, &["-EvidenceTier", tier]);
+            assert_eq!(launch_legacy(OsStr::new("relative-pwsh"), &invocation).unwrap_err(), "pwsh_executable: explicit absolute --pwsh path is required");
+        }
+    }
+
+    #[test]
     fn legacy_equivalence_preserves_exit_stages_and_stream_hashes() {
+        fixed_profiles_map_to_the_shared_production_dispatcher();
         let mappings = [(EvidenceProfile::Focused, "tools/check_all.ps1", &["-EvidenceTier", "Wo25UnitC"][..]), (EvidenceProfile::Full, "tools/check_all.ps1", &["-EvidenceTier", "Fast"][..]), (EvidenceProfile::Exhaustive, "tools/check_all.ps1", &["-EvidenceTier", "Exhaustive"][..]), (EvidenceProfile::Status, "tools/check_workorder_status_boundary.ps1", &[][..])];
         for (profile, script, arguments) in mappings { assert_eq!(legacy_invocation(profile), LegacyInvocation { executable: "pwsh", script, arguments }); }
         let production = include_str!("main.rs").split_once("#[cfg(test)]").unwrap().0;
