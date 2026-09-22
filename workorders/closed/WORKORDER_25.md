@@ -1,7 +1,48 @@
 # Hum Work Order 25: Evidence Infrastructure Acceleration and Portable Developer Workflow
 
 Date: 2026-08-26
-<!-- hum-active-workorder:v1 -->
+Status: CLOSED 2026-09-22. Superseded by WO26 (wordfreq, the first real program).
+
+## Closure record
+
+WO25's CI-throughput mandate is complete as far as the work-order mechanism
+carries it. What landed after the last in-WO status update:
+
+- Linux port (PR #3, `exp/linux-validation`): Hum builds, tests, and runs
+  natively on Linux. Merged to main.
+- Fixed validation profiles (PR #4, `wip/fixed-validation-profiles`): tiered
+  Language / Runtime / Compiler / Full profiles on both OSes, with the
+  main-push changed-range classification. Merged to main.
+- Bootstrap and `$LASTEXITCODE` repair (PR #5, `wip/fix-classify-lastexitcode`):
+  the classify policy probe's expected-failure `git show` leaked a non-zero
+  `$LASTEXITCODE`; fixed with an explicit reset. Merged to main.
+- Main-red scope repair (PR #7, `wip/fix-main-ci-policy-scope`): the accepted
+  policy's `param($Mode='Library')` overwrote the ci.yml classify step's
+  `$Mode` when dot-sourced; the policy now loads in a child scope. The
+  validation.yml plan step derives the accepted base from the integration
+  merge commit's first parent (verified against the PR head and target
+  branch) instead of the stale event `pull_request.base.sha`. Both fixes
+  carry real-path regressions in `tools/test_ci_policy.ps1`.
+
+Still open, tracked outside this Work Order:
+
+- Throwaway per-route profile measurements (Language, Runtime, Compiler,
+  docs-only) against the accepted policy, then re-ranking of the proposed
+  CI-speed cuts. Blocked until the first scheduled nightly validation run
+  on main is green (fires 2026-09-23 03:17 UTC); non-Full routes require a
+  green scheduled main run within the last 30h.
+- The parked `$LASTEXITCODE` hardening: a may-fail native-probe helper and
+  migration of git probes to it; hermetic bootstrap regression repository;
+  extraction of shared workflow logic; structural (non-exact-count) Unit B/C
+  assertions.
+
+The research backlog snapshot
+(`docs/research/hum-improvement-backlog-2026-09-22.md`, research-only) is
+committed alongside this closure; it is the source of the work order
+sequence that follows, starting with WO26.
+
+---
+
 Status: HISTORICAL BRANCH SNAPSHOT; SEE THE DATED BDFL RULING IN THE CURRENT AUTHORIZATION GATE BELOW. UNITS A-B ARE TERMINAL-GREEN, AND UNIT C IMPLEMENTATION IS PUBLISHED AT `3690f4db86bf6a6f8f39673844af2bf1ca304a19`; CI RUN `33575631643` IS TERMINAL-RED AT UBUNTU POWERSHELL DISCOVERY. THE FOUR-PATH RED-MAIN REPAIR REMAINS UNCOMMITTED AND PAUSED WHILE THIS DISCOVERY-AUDIT BUDGET AMENDMENT AWAITS FRESH INDEPENDENT REVIEW. IF AND ONLY IF THE AMENDMENT RECEIVES AN UNQUALIFIED ACCEPT, THE ONLY NEXT ACTION IS A SEPARATELY AUTHORIZED LOCAL WORK-ORDER-ONLY COMMIT `docs(workorder): fund unit c discovery audit`. PUBLICATION, REPAIR RESUMPTION, CI RERUN, AND UNIT D-E WORK REMAIN UNAUTHORIZED.
 
 WO25 Unit A remains implemented, published, status-recorded, synchronized,
