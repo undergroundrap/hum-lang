@@ -49,7 +49,10 @@ try {
 }
 
 # Case 2: accepted base with the policy file -> non-bootstrap route.
-$Present2 = Test-HumBootstrapProbe '8034e687d05efb445abb84e6d711fb1cdbaf7ed6'
+# Use a main commit (the PR's merge-base): it has the policy and is a
+# guaranteed ancestor, so it exists in any clone. Never use a SHA from an
+# unrelated branch tip -- CI checkouts do not fetch other branches.
+$Present2 = Test-HumBootstrapProbe '2965433cc88b0ef8dee1db603351f892fe9aa92c'
 Assert-Bootstrap $Present2 'policy base reports policy present'
 
 # Case 3: unreadable base commit -> throws instead of silently bootstrapping.
