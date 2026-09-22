@@ -1720,6 +1720,19 @@ function Invoke-HumLanguageProgramChecks {
   }
 }
 
+function Invoke-HumCaptureSmoke {
+  # The capture group runs the evidence-capture script in profile-smoke mode.
+  # -ProfileSmokeOnly is bound as a literal switch on the real script: a
+  # [string[]] splat like @('-ProfileSmokeOnly') would bind positionally into
+  # the script's $ShellContract ValidateSet and fail on every host.
+  Write-Host '==> short capture caller smoke'
+  $global:LASTEXITCODE = 0
+  & (Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1') -ProfileSmokeOnly
+  if ($LASTEXITCODE -ne 0) {
+    throw "short capture caller smoke failed with exit code $LASTEXITCODE"
+  }
+}
+
 function Invoke-HumFixedProfile {
   param([string] $Profile, [string] $Cargo)
   if ($Profile -cnotin @('Language','Runtime','Compiler')) { throw 'ci_profile: invalid fixed profile' }
@@ -1745,7 +1758,7 @@ function Invoke-HumFixedProfile {
     $Passed = $false
     try {
       switch -CaseSensitive ($Group) {
-        'capture' { Invoke-RepoScript 'short capture caller smoke' 'test_fast_evidence_capture.ps1' @('-ProfileSmokeOnly') }
+        'capture' { Invoke-HumCaptureSmoke }
         'language-programs' { Invoke-HumLanguageProgramChecks $Hum }
         'runtime-programs' { . Invoke-HumRuntimeProgramChecks $Cargo $Hum }
         'compiler-front' { . Invoke-HumCompilerFrontChecks $Cargo $Hum }

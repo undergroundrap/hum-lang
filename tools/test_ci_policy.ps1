@@ -336,7 +336,7 @@ foreach ($Platform in 0,1) {
 # not compiler, Full, mutation or complete-profile execution credit.
 . (Import-PolicyTestFunction $Source 'Invoke-HumFixedProfile')
 function Invoke-HumCoreCheck([string]$Group,[string]$Cargo) { $script:Observed.Add($Group); if($script:FailAt -ceq $Group){throw 'owned group failure'} }
-function Invoke-RepoScript { $script:Observed.Add('capture') }
+function Invoke-HumCaptureSmoke { $script:Observed.Add('capture') }
 function Invoke-HumLanguageProgramChecks { $script:Observed.Add('language-programs') }
 function Invoke-HumRuntimeProgramChecks { $script:Observed.Add('runtime-programs') }
 function Invoke-HumCompilerPrivacyChecks { $script:Observed.Add('compiler-privacy') }
@@ -346,6 +346,21 @@ function Invoke-Wo22UnsafeBoundaryCompilerEvidence { $script:Observed.Add('unsaf
 function Invoke-Wo22BackendPredicateMutationEvidence { $script:Observed.Add('backend-mutations') }
 function Invoke-Wo23UnitAProductionMutationEvidence { $script:Observed.Add('integer-mutations') }
 function Invoke-Wo24UnitAProductionMutationEvidence { $script:Observed.Add('text-mutations') }
+# Regression: the capture group must bind -ProfileSmokeOnly as a literal
+# switch on the real script. A [string[]] splat like @('-ProfileSmokeOnly')
+# binds positionally into the script's $ShellContract ValidateSet and fails
+# on every host; the old Invoke-RepoScript mock hid this by intercepting the
+# call before binding ever happened.
+$CaptureFn = (Import-PolicyTestFunction $Source 'Invoke-HumCaptureSmoke').ToString()
+$CapTokens = $null; $CapErrors = $null
+$CapAst = [Management.Automation.Language.Parser]::ParseInput($CaptureFn, [ref]$CapTokens, [ref]$CapErrors)
+Assert-Policy ($CapErrors.Count -eq 0) 'capture smoke body parses'
+$CapCalls = @($CapAst.FindAll({ param($Node) $Node -is [Management.Automation.Language.CommandAst] -and $Node.CommandElements.Count -gt 0 -and $Node.CommandElements[0].Extent.Text -like '*test_fast_evidence_capture.ps1*' }, $true))
+Assert-Policy ($CapCalls.Count -eq 1) 'capture smoke invokes the capture script once'
+$CapSwitch = @($CapCalls[0].CommandElements | Where-Object { $_ -is [Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -ceq 'ProfileSmokeOnly' })
+Assert-Policy ($CapSwitch.Count -eq 1) 'capture smoke binds literal -ProfileSmokeOnly switch'
+$CapSplat = @($CapCalls[0].CommandElements | Where-Object { $_ -is [Management.Automation.Language.VariableExpressionAst] -and $_.Splatted })
+Assert-Policy ($CapSplat.Count -eq 0) 'capture smoke has no string-array splat on the call path'
 $RepoRoot=$Root
 $OldReceipt=[Environment]::GetEnvironmentVariable('HUM_EVIDENCE_RECEIPT','Process')
 try {
@@ -382,7 +397,6 @@ try {
   Assert-Policy ($MainCode.Contains($Guard)) 'normal return is owned by actual dispatch'
   function Invoke-RepoScript {
     param($Label,$Path,$Arguments)
-    if($Path -ceq 'test_fast_evidence_capture.ps1' -and ($Arguments -join ',') -ceq '-ProfileSmokeOnly'){$script:Observed.Add('capture');return}
     throw 'ci_policy_test: blocked Full fallback'
   }
   foreach($EvidenceTier in @('Language','Runtime','Compiler')) {
