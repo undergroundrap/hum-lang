@@ -20,14 +20,17 @@ impl ShellEnvironment {
             }
         }
         #[cfg(not(windows))]
-        if let Some(fallback) = Self::psmodulepath_fallback(
-            values
-                .get(OsStr::new("PSModulePath"))
-                .map(OsString::as_os_str),
-            std::env::var_os("HOME").as_deref(),
-        ) {
-            values.insert(OsString::from("PSModulePath"), fallback);
+        {
+            // PSModulePath is synthesized at launch from the resolved pwsh
+            // location when the ambient environment did not export it.
+            let required: &[&str] = &["PATH"];
+            for key in required {
+                if !values.contains_key(OsStr::new(key)) {
+                    return Err(format!("environment_required: missing {key}"));
+                }
+            }
         }
+        #[cfg(windows)]
         for required in ["PATH", "PSModulePath"] {
             if !values.contains_key(OsStr::new(required)) {
                 return Err(format!("environment_required: missing {required}"));
@@ -38,21 +41,30 @@ impl ShellEnvironment {
         values.insert("GIT_CONFIG_VALUE_0".into(), repository.as_os_str().into());
         Ok(Self(values))
     }
-    /// Non-Windows fallback for PSModulePath when the parent process did not
-    /// export it: exactly the default pwsh computes at startup, so the
-    /// authenticated environment records the effective value. None means pass
-    /// through (already present) or fail closed (HOME unavailable).
+    /// Non-Windows PSModulePath fallback applied at launch when the ambient
+    /// environment did not export one. Mirrors the shape of pwsh's own default
+    /// ($HOME/.local/share/powershell/Modules,
+    /// /usr/local/share/powershell/Modules, $PSHOME/Modules) with $PSHOME
+    /// taken from the directory of the authenticated pwsh executable, so it
+    /// stays correct for non-Microsoft installs (snap, Homebrew, dotnet-tool,
+    /// /usr/lib layouts). Returns None to pass through (already present) or to
+    /// fail closed (the executable directory or HOME cannot be determined).
     #[cfg(not(windows))]
-    fn psmodulepath_fallback(current: Option<&OsStr>, home: Option<&OsStr>) -> Option<OsString> {
+    fn psmodulepath_fallback(
+        executable: &Path,
+        current: Option<&OsStr>,
+        home: Option<&OsStr>,
+    ) -> Option<OsString> {
         if current.is_some() {
             return None;
         }
+        let install = executable.parent()?;
         let mut user = PathBuf::from(home?);
         user.push(".local/share/powershell/Modules");
         std::env::join_paths([
             user.as_os_str(),
             OsStr::new("/usr/local/share/powershell/Modules"),
-            OsStr::new("/opt/microsoft/powershell/7/Modules"),
+            install.join("Modules").as_os_str(),
         ])
         .ok()
     }
@@ -93,7 +105,9 @@ impl ShellEnvironment {
             }
         }
         self.get("PATH")?;
-        self.get("PSModulePath")?;
+        if cfg!(windows) {
+            self.get("PSModulePath")?;
+        }
         if let Some(token) = self.0.get(OsStr::new("GITHUB_TOKEN"))
             && token.is_empty()
         {
@@ -369,6 +383,16 @@ impl PwshRequest {
             .map_err(|_| "script_identity: script escapes repository".to_string())?;
         let mut command = self.executable.command()?;
         command.env_clear().envs(&self.environment.0);
+        #[cfg(not(windows))]
+        if !self.environment.0.contains_key(OsStr::new("PSModulePath")) {
+            let fallback = ShellEnvironment::psmodulepath_fallback(
+                &self.executable.path,
+                None,
+                std::env::var_os("HOME").as_deref(),
+            )
+            .ok_or_else(|| "environment_required: missing PSModulePath".to_string())?;
+            command.env("PSModulePath", fallback);
+        }
         let output = command
             .current_dir(&self.repository)
             .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
@@ -499,33 +523,118 @@ fn exercise_owned_pwsh_paths(honest: &PwshRequest, scratch: &Path) {
     honest.executable.reauthenticate().unwrap();
 }
 
-#[cfg(test)]#[rustfmt::skip]mod tests{use super::{ordinary_file,ordinary_windows_attributes,same_ordinary_file,PwshRequest,ShellEnvironment};use std::{ffi::{OsStr,OsString},fs,ops::Deref,path::{Path,PathBuf},sync::atomic::{AtomicU64,Ordering}};struct Scratch(PathBuf);impl Scratch{fn new(tag:&str)->Self{static N:AtomicU64=AtomicU64::new(0);let path=std::env::temp_dir().join(format!("hum-pwsh-adversary-{tag}-{}-{}",std::process::id(),N.fetch_add(1,Ordering::Relaxed)));assert!(!path.exists());fs::create_dir(&path).unwrap();Self(path)}}impl Deref for Scratch{type Target=Path;fn deref(&self)->&Path{&self.0}}impl Drop for Scratch{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}fn exercise_cleanup(mode:&str)->PathBuf{let owned=Scratch::new(mode);let path=owned.0.clone();match mode{"panic"=>assert!(std::panic::catch_unwind(move||{let _guard=owned;panic!("owned adversary")}).is_err()),"error"=>{let result:Result<(),()>=Err(());drop(owned);assert!(result.is_err())},_=>drop(owned)}path}const WINDOWS_TOOLCHAIN_KEYS:&[&str]=&["INCLUDE","LIB","LIBPATH","VCINSTALLDIR","VCToolsInstallDir","VSCMD_ARG_HOST_ARCH","VSCMD_ARG_TGT_ARCH","WindowsSdkDir","WindowsSDKVersion"];#[cfg(windows)] use std::os::windows::ffi::OsStringExt;fn root()->PathBuf{PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()}#[cfg(windows)]#[test]fn malformed_environment_encoding_is_owned(){let root=root();let honest=ShellEnvironment::from_process(&root).unwrap();let malformed=OsString::from_wide(&[0xd800]);let mut changed=honest.clone();changed.0.insert(malformed.clone(),"x".into());assert!(changed.authenticate(&root).unwrap_err().contains("environment_key"));let mut changed=honest.clone();changed.0.insert("PATH".into(),malformed);assert!(changed.authenticate(&root).unwrap_err().contains("environment_value"));assert_eq!(honest,ShellEnvironment::from_process(&root).unwrap());}#[test]fn pwsh7_adapter_is_thin_declarative_and_environment_bound(){let source=include_str!("shell.rs");let forbidden=concat!("let ","windows =");assert!(source.contains("#[cfg(windows)]\n    fn authenticate_windows_toolchain"));assert!(!source.contains(forbidden));let corrupt=source.replacen("impl ShellEnvironment {",&format!("impl ShellEnvironment {{ {forbidden} false;"),1);assert_ne!(corrupt,source);assert!(corrupt.contains(forbidden));assert!(ordinary_windows_attributes(0,1));assert!(!ordinary_windows_attributes(0x400,1));assert!(!ordinary_windows_attributes(0x480,1));assert!(!ordinary_windows_attributes(0,2));let root=root();let environment=ShellEnvironment::from_process(&root).unwrap();let executable=super::test_pwsh7(&environment,&root);let honest=PwshRequest{executable,repository:root.clone(),script:root.join("tools/check_alpha_claims.ps1"),arguments:vec![],environment};honest.authenticate().unwrap();let mut changed=honest.clone();changed.environment.0.remove(OsStr::new("PATH"));assert_eq!(changed.authenticate().unwrap_err(),"environment_required: missing PATH");let mut changed=honest.clone();changed.environment.0.insert("GIT_CONFIG_VALUE_0".into(),"*".into());assert!(changed.authenticate().unwrap_err().contains("repository_trust"));let mut changed=honest.clone();changed.arguments.push(OsString::from("bad\0argument"));assert!(changed.authenticate().unwrap_err().contains("argument_identity"));let mut changed=honest.clone();changed.executable.path=PathBuf::from("pwsh");assert!(changed.authenticate().unwrap_err().contains("pwsh_executable"));if cfg!(windows){let mut changed=honest.clone();changed.environment.0.remove(OsStr::new("OS"));assert!(changed.authenticate().unwrap_err().contains("missing OS"));let mut changed=honest.clone();changed.environment.0.insert("OS".into(),"Linux".into());assert!(changed.authenticate().unwrap_err().contains("OS must be Windows_NT"));for remove_os in [false,true]{let mut changed=honest.clone();if remove_os{changed.environment.0.remove(OsStr::new("OS"));}for key in WINDOWS_TOOLCHAIN_KEYS{changed.environment.0.remove(OsStr::new(key));}assert!(changed.authenticate().unwrap_err().contains(if remove_os{"missing OS"}else{"missing INCLUDE"}));}for key in WINDOWS_TOOLCHAIN_KEYS{let mut changed=honest.clone();changed.environment.0.remove(OsStr::new(key));assert!(changed.authenticate().unwrap_err().contains(key));}let mut changed=honest.clone();changed.environment.0.insert("Path".into(),honest.environment.get("PATH").unwrap().into());assert!(changed.authenticate().unwrap_err().contains("duplicate case-variant"));let mut changed=honest.clone();changed.environment.0.insert("BOGUS".into(),"x".into());changed.environment.0.insert("bogus".into(),"y".into());assert!(changed.authenticate().unwrap_err().contains("duplicate case-variant"));let mut changed=honest.clone();changed.environment.0.remove(OsStr::new("PATH"));changed.environment.0.insert("Path".into(),"x".into());assert!(changed.authenticate().unwrap_err().contains("unsupported Path"));let mut changed=honest.clone();changed.environment.0.insert("UNRELATED_AMBIENT".into(),"x".into());assert!(changed.authenticate().unwrap_err().contains("unsupported"));let mut changed=honest.clone();changed.environment.0.insert("VCToolsInstallDir".into(),"relative".into());assert!(changed.authenticate().unwrap_err().contains("invalid VCToolsInstallDir"));let mut changed=honest.clone();changed.environment.0.insert("VSCMD_ARG_TGT_ARCH".into(),"x86".into());assert!(changed.authenticate().unwrap_err().contains("must be x64"));}else{let mut changed=honest.clone();changed.environment.0.insert("OS".into(),"Windows_NT".into());assert!(changed.authenticate().unwrap_err().contains("non-Windows"));let mut changed=honest.clone();changed.environment.0.insert("Path".into(),"x".into());assert!(changed.authenticate().unwrap_err().contains("unsupported Path"));let mut changed=honest.clone();changed.environment.0.insert("VCINSTALLDIR".into(),root.clone().into());assert!(changed.authenticate().unwrap_err().contains("non-Windows"));}for disposition in ["success","error","panic"]{assert!(!exercise_cleanup(disposition).exists());}let scratch=Scratch::new("identity");let left=scratch.join("Identity.exe");let other=scratch.join("other.exe");fs::copy(std::env::current_exe().unwrap(),&left).unwrap();fs::copy(std::env::current_exe().unwrap(),&other).unwrap();let hard=scratch.join("hard.exe");fs::hard_link(&left,&hard).unwrap();assert!(ordinary_file(&left,"hard_link").unwrap_err().contains("ordinary file"));fs::remove_file(&hard).unwrap();ordinary_file(&left,"hard_link").unwrap();assert!(same_ordinary_file(&left,&left).unwrap());if cfg!(windows){assert!(same_ordinary_file(&left,scratch.join("IDENTITY.EXE").as_path()).unwrap())}else{assert!(same_ordinary_file(&left,scratch.join("IDENTITY.EXE").as_path()).is_err())}assert!(!same_ordinary_file(&left,&other).unwrap());assert!(same_ordinary_file(&left,&scratch).is_err());assert!(same_ordinary_file(&left,&scratch.join("missing.exe")).is_err());let original=honest.environment.get("PATH").unwrap().to_owned();if cfg!(windows){fs::copy(std::env::current_exe().unwrap(),scratch.join("link.exe")).unwrap();let expected=PathBuf::from(honest.environment.get("VCToolsInstallDir").unwrap()).join("bin/Hostx64/x64");for entries in [std::env::split_paths(&original).chain(std::iter::once(expected.clone())).collect::<Vec<_>>(),std::env::split_paths(&original).chain(std::iter::once(scratch.0.clone())).collect::<Vec<_>>()]{let mut changed=honest.clone();changed.environment.0.insert("PATH".into(),std::env::join_paths(entries).unwrap());changed.authenticate().unwrap();}let mut changed=honest.clone();changed.environment.0.insert("PATH".into(),std::env::join_paths(std::iter::once(scratch.0.clone()).chain(std::env::split_paths(&original))).unwrap());assert!(changed.authenticate().unwrap_err().contains("substituted effective"));let mut changed=honest.clone();changed.environment.0.insert("PATH".into(),scratch.as_os_str().to_owned());assert!(changed.authenticate().unwrap_err().contains("substituted effective"));}super::exercise_owned_pwsh_paths(&honest,&scratch);}
-#[cfg(not(windows))]
-#[test]
-fn psmodulepath_fallback_matches_pwsh_default() {
-    // Without the fix this test does not compile: psmodulepath_fallback does not exist.
-    // Present: pass through, synthesize nothing.
-    assert_eq!(
-        ShellEnvironment::psmodulepath_fallback(
-            Some(OsStr::new("/custom/modules")),
-            Some(OsStr::new("/home/test"))
-        ),
-        None
-    );
-    // Absent with HOME: exactly pwsh's own default.
-    let home = OsStr::new("/home/test");
-    let mut user = PathBuf::from(home);
-    user.push(".local/share/powershell/Modules");
-    let expected = std::env::join_paths([
-        user.as_os_str(),
-        OsStr::new("/usr/local/share/powershell/Modules"),
-        OsStr::new("/opt/microsoft/powershell/7/Modules"),
-    ])
-    .unwrap();
-    assert_eq!(
-        ShellEnvironment::psmodulepath_fallback(None, Some(home)),
-        Some(expected)
-    );
-    // Absent without HOME: fail closed, synthesize nothing.
-    assert_eq!(ShellEnvironment::psmodulepath_fallback(None, None), None);
-}}
+#[cfg(test)]#[rustfmt::skip]mod tests{use super::{ordinary_file,ordinary_windows_attributes,same_ordinary_file,PwshRequest,ShellEnvironment};use std::{ffi::{OsStr,OsString},fs,ops::Deref,path::{Path,PathBuf},sync::atomic::{AtomicU64,Ordering}};struct Scratch(PathBuf);impl Scratch{fn new(tag:&str)->Self{static N:AtomicU64=AtomicU64::new(0);let path=std::env::temp_dir().join(format!("hum-pwsh-adversary-{tag}-{}-{}",std::process::id(),N.fetch_add(1,Ordering::Relaxed)));assert!(!path.exists());fs::create_dir(&path).unwrap();Self(path)}}impl Deref for Scratch{type Target=Path;fn deref(&self)->&Path{&self.0}}impl Drop for Scratch{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}fn exercise_cleanup(mode:&str)->PathBuf{let owned=Scratch::new(mode);let path=owned.0.clone();match mode{"panic"=>assert!(std::panic::catch_unwind(move||{let _guard=owned;panic!("owned adversary")}).is_err()),"error"=>{let result:Result<(),()>=Err(());drop(owned);assert!(result.is_err())},_=>drop(owned)}path}const WINDOWS_TOOLCHAIN_KEYS:&[&str]=&["INCLUDE","LIB","LIBPATH","VCINSTALLDIR","VCToolsInstallDir","VSCMD_ARG_HOST_ARCH","VSCMD_ARG_TGT_ARCH","WindowsSdkDir","WindowsSDKVersion"];#[cfg(windows)] use std::os::windows::ffi::OsStringExt;fn root()->PathBuf{PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()}#[cfg(windows)]#[test]fn malformed_environment_encoding_is_owned(){let root=root();let honest=ShellEnvironment::from_process(&root).unwrap();let malformed=OsString::from_wide(&[0xd800]);let mut changed=honest.clone();changed.0.insert(malformed.clone(),"x".into());assert!(changed.authenticate(&root).unwrap_err().contains("environment_key"));let mut changed=honest.clone();changed.0.insert("PATH".into(),malformed);assert!(changed.authenticate(&root).unwrap_err().contains("environment_value"));assert_eq!(honest,ShellEnvironment::from_process(&root).unwrap());}#[test]fn pwsh7_adapter_is_thin_declarative_and_environment_bound(){let source=include_str!("shell.rs");let forbidden=concat!("let ","windows =");assert!(source.contains("#[cfg(windows)]\n    fn authenticate_windows_toolchain"));assert!(!source.contains(forbidden));let corrupt=source.replacen("impl ShellEnvironment {",&format!("impl ShellEnvironment {{ {forbidden} false;"),1);assert_ne!(corrupt,source);assert!(corrupt.contains(forbidden));assert!(ordinary_windows_attributes(0,1));assert!(!ordinary_windows_attributes(0x400,1));assert!(!ordinary_windows_attributes(0x480,1));assert!(!ordinary_windows_attributes(0,2));let root=root();let environment=ShellEnvironment::from_process(&root).unwrap();let executable=super::test_pwsh7(&environment,&root);let honest=PwshRequest{executable,repository:root.clone(),script:root.join("tools/check_alpha_claims.ps1"),arguments:vec![],environment};honest.authenticate().unwrap();let mut changed=honest.clone();changed.environment.0.remove(OsStr::new("PATH"));assert_eq!(changed.authenticate().unwrap_err(),"environment_required: missing PATH");let mut changed=honest.clone();changed.environment.0.insert("GIT_CONFIG_VALUE_0".into(),"*".into());assert!(changed.authenticate().unwrap_err().contains("repository_trust"));let mut changed=honest.clone();changed.arguments.push(OsString::from("bad\0argument"));assert!(changed.authenticate().unwrap_err().contains("argument_identity"));let mut changed=honest.clone();changed.executable.path=PathBuf::from("pwsh");assert!(changed.authenticate().unwrap_err().contains("pwsh_executable"));if cfg!(windows){let mut changed=honest.clone();changed.environment.0.remove(OsStr::new("OS"));assert!(changed.authenticate().unwrap_err().contains("missing OS"));let mut changed=honest.clone();changed.environment.0.insert("OS".into(),"Linux".into());assert!(changed.authenticate().unwrap_err().contains("OS must be Windows_NT"));for remove_os in [false,true]{let mut changed=honest.clone();if remove_os{changed.environment.0.remove(OsStr::new("OS"));}for key in WINDOWS_TOOLCHAIN_KEYS{changed.environment.0.remove(OsStr::new(key));}assert!(changed.authenticate().unwrap_err().contains(if remove_os{"missing OS"}else{"missing INCLUDE"}));}for key in WINDOWS_TOOLCHAIN_KEYS{let mut changed=honest.clone();changed.environment.0.remove(OsStr::new(key));assert!(changed.authenticate().unwrap_err().contains(key));}let mut changed=honest.clone();changed.environment.0.insert("Path".into(),honest.environment.get("PATH").unwrap().into());assert!(changed.authenticate().unwrap_err().contains("duplicate case-variant"));let mut changed=honest.clone();changed.environment.0.insert("BOGUS".into(),"x".into());changed.environment.0.insert("bogus".into(),"y".into());assert!(changed.authenticate().unwrap_err().contains("duplicate case-variant"));let mut changed=honest.clone();changed.environment.0.remove(OsStr::new("PATH"));changed.environment.0.insert("Path".into(),"x".into());assert!(changed.authenticate().unwrap_err().contains("unsupported Path"));let mut changed=honest.clone();changed.environment.0.insert("UNRELATED_AMBIENT".into(),"x".into());assert!(changed.authenticate().unwrap_err().contains("unsupported"));let mut changed=honest.clone();changed.environment.0.insert("VCToolsInstallDir".into(),"relative".into());assert!(changed.authenticate().unwrap_err().contains("invalid VCToolsInstallDir"));let mut changed=honest.clone();changed.environment.0.insert("VSCMD_ARG_TGT_ARCH".into(),"x86".into());assert!(changed.authenticate().unwrap_err().contains("must be x64"));}else{let mut changed=honest.clone();changed.environment.0.insert("OS".into(),"Windows_NT".into());assert!(changed.authenticate().unwrap_err().contains("non-Windows"));let mut changed=honest.clone();changed.environment.0.insert("Path".into(),"x".into());assert!(changed.authenticate().unwrap_err().contains("unsupported Path"));let mut changed=honest.clone();changed.environment.0.insert("VCINSTALLDIR".into(),root.clone().into());assert!(changed.authenticate().unwrap_err().contains("non-Windows"));}for disposition in ["success","error","panic"]{assert!(!exercise_cleanup(disposition).exists());}let scratch=Scratch::new("identity");let left=scratch.join("Identity.exe");let other=scratch.join("other.exe");fs::copy(std::env::current_exe().unwrap(),&left).unwrap();fs::copy(std::env::current_exe().unwrap(),&other).unwrap();let hard=scratch.join("hard.exe");fs::hard_link(&left,&hard).unwrap();assert!(ordinary_file(&left,"hard_link").unwrap_err().contains("ordinary file"));fs::remove_file(&hard).unwrap();ordinary_file(&left,"hard_link").unwrap();assert!(same_ordinary_file(&left,&left).unwrap());if cfg!(windows){assert!(same_ordinary_file(&left,scratch.join("IDENTITY.EXE").as_path()).unwrap())}else{assert!(same_ordinary_file(&left,scratch.join("IDENTITY.EXE").as_path()).is_err())}assert!(!same_ordinary_file(&left,&other).unwrap());assert!(same_ordinary_file(&left,&scratch).is_err());assert!(same_ordinary_file(&left,&scratch.join("missing.exe")).is_err());let original=honest.environment.get("PATH").unwrap().to_owned();if cfg!(windows){fs::copy(std::env::current_exe().unwrap(),scratch.join("link.exe")).unwrap();let expected=PathBuf::from(honest.environment.get("VCToolsInstallDir").unwrap()).join("bin/Hostx64/x64");for entries in [std::env::split_paths(&original).chain(std::iter::once(expected.clone())).collect::<Vec<_>>(),std::env::split_paths(&original).chain(std::iter::once(scratch.0.clone())).collect::<Vec<_>>()]{let mut changed=honest.clone();changed.environment.0.insert("PATH".into(),std::env::join_paths(entries).unwrap());changed.authenticate().unwrap();}let mut changed=honest.clone();changed.environment.0.insert("PATH".into(),std::env::join_paths(std::iter::once(scratch.0.clone()).chain(std::env::split_paths(&original))).unwrap());assert!(changed.authenticate().unwrap_err().contains("substituted effective"));let mut changed=honest.clone();changed.environment.0.insert("PATH".into(),scratch.as_os_str().to_owned());assert!(changed.authenticate().unwrap_err().contains("substituted effective"));}super::exercise_owned_pwsh_paths(&honest,&scratch);}}
+#[cfg(all(test, not(windows)))]
+mod psmodulepath_tests {
+    use super::{PwshRequest, ShellEnvironment};
+    use std::ffi::OsStr;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    fn root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap()
+    }
+
+    fn resolved_pwsh(root: &Path) -> (ShellEnvironment, super::ExecutableBinding) {
+        let environment = ShellEnvironment::from_process(root).unwrap();
+        let executable = super::test_pwsh7(&environment, root);
+        (environment, executable)
+    }
+
+    #[test]
+    fn fallback_derives_install_dir_from_resolved_executable() {
+        let root = root();
+        let (_environment, executable) = resolved_pwsh(&root);
+        let home = std::env::var_os("HOME").expect("tests require HOME");
+        let fallback =
+            ShellEnvironment::psmodulepath_fallback(&executable.path, None, Some(home.as_os_str()))
+                .expect("fallback must be computable for the test pwsh");
+        let parts: Vec<_> = std::env::split_paths(&fallback).collect();
+        assert_eq!(parts.len(), 3);
+        // The install component must track the real executable location, not a
+        // hardcoded package path.
+        assert_eq!(parts[2], executable.path.parent().unwrap().join("Modules"));
+        assert_eq!(
+            parts[0],
+            Path::new(&home).join(".local/share/powershell/Modules")
+        );
+        assert_eq!(parts[1], Path::new("/usr/local/share/powershell/Modules"));
+    }
+
+    #[test]
+    fn present_value_passes_through_and_undeterminable_fails_closed() {
+        let executable = Path::new("/opt/example/pwsh");
+        let home = OsStr::new("/home/tester");
+        assert_eq!(
+            ShellEnvironment::psmodulepath_fallback(
+                executable,
+                Some(OsStr::new("/custom/modules")),
+                Some(home)
+            ),
+            None
+        );
+        assert_eq!(
+            ShellEnvironment::psmodulepath_fallback(executable, None, None),
+            None
+        );
+        assert_eq!(
+            ShellEnvironment::psmodulepath_fallback(Path::new(""), None, Some(home)),
+            None
+        );
+    }
+
+    #[test]
+    fn launched_pwsh_uses_fallback_and_loads_builtin_modules() {
+        let root = root();
+        let (mut environment, executable) = resolved_pwsh(&root);
+        // Simulate the absent-PSModulePath process environment deterministically,
+        // regardless of what the ambient test runner exports.
+        environment.0.remove(OsStr::new("PSModulePath"));
+        let home = std::env::var_os("HOME").expect("tests require HOME");
+        let fallback =
+            ShellEnvironment::psmodulepath_fallback(&executable.path, None, Some(home.as_os_str()))
+                .unwrap();
+        // The value handed to the child must actually drive pwsh: echo it back
+        // from inside and force a built-in module to auto-load.
+        let output = Command::new(&executable.path)
+            .env_clear()
+            .envs(&environment.0)
+            .env("PSModulePath", &fallback)
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$env:PSModulePath; (Get-Command Get-ChildItem -ErrorAction Stop).ModuleName",
+            ])
+            .output()
+            .expect("launch pwsh with fallback PSModulePath");
+        assert!(output.status.success());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let fallback_str = fallback.to_string_lossy();
+        assert!(
+            stdout.contains(fallback_str.as_ref()),
+            "pwsh did not see the fallback value: {stdout}"
+        );
+        assert!(
+            stdout.contains("Microsoft.PowerShell.Management"),
+            "built-in module did not load: {stdout}"
+        );
+        // The production launch path must also succeed with PSModulePath absent
+        // from the authenticated environment.
+        let request = PwshRequest {
+            executable,
+            repository: root.clone(),
+            script: root.join("tools/check_alpha_claims.ps1"),
+            arguments: vec![],
+            environment,
+        };
+        let output = request
+            .launch()
+            .expect("production launch with absent PSModulePath");
+        assert!(output.status.success());
+    }
+}
