@@ -216,9 +216,10 @@ foreach($Yaml in @($Workflow,$Ci)) {
   Assert-Policy ($Blocks.Count -gt 0) 'workflow script owners found'
   foreach($Block in $Blocks){
     $Body=($Block.Groups['body'].Value -split "`n"|ForEach-Object{if($_.StartsWith('          ')){$_.Substring(10)}else{$_}})-join "`n"
-    # Existing push-only script contains this GitHub template substitution.
+    # Existing push-only script contains these GitHub template substitutions.
     # This checks shell syntax after representative interpolation, not API access.
     $Body=$Body.Replace('${{ github.repository }}','owner/repo')
+    $Body=$Body.Replace('${{ github.workspace }}','/workspace/repo')
     $Tokens=$null;$Errors=$null
     $null=[Management.Automation.Language.Parser]::ParseInput($Body,[ref]$Tokens,[ref]$Errors)
     Assert-Policy ($Errors.Count -eq 0) 'actual workflow PowerShell body parses'

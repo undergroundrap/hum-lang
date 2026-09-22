@@ -11,15 +11,24 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# The Work Order discovery rule (active marker, numbered filename shape) is
+# defined once in Find-ActiveWorkorder.ps1; this classifier derives its
+# patterns from it so the two can never disagree about which Work Order is
+# active. The classifier additionally enforces its own stricter contract on
+# top: canonical path shape, exact marker line placement, and legacy-layout
+# support.
+. (Join-Path $PSScriptRoot 'Find-ActiveWorkorder.ps1')
+$script:WorkOrderBoundaryNumberPattern = Get-HumWorkOrderNumberPattern
+
 $script:WorkOrderBoundaryDotSourced = $MyInvocation.InvocationName -eq '.'
 $script:WorkOrderBoundaryWorkflow = '.github/workflows/ci.yml'
 $script:WorkOrderBoundaryApiRoot = 'https://api.github.com'
 $script:WorkOrderBoundaryApiVersion = '2026-03-10'
 $script:WorkOrderBoundaryPageSize = 100
-$script:WorkOrderBoundaryActiveMarker = '<!-- hum-active-workorder:v1 -->'
-$script:WorkOrderBoundaryLegacyPattern = '^WORKORDER(?:_[1-9][0-9]*)?\.md$'
-$script:WorkOrderBoundaryCanonicalActivePattern = '^workorders/active/WORKORDER_[1-9][0-9]*\.md$'
-$script:WorkOrderBoundaryCanonicalClosedPattern = '^workorders/closed/WORKORDER_[1-9][0-9]*\.md$'
+$script:WorkOrderBoundaryActiveMarker = Get-HumActiveWorkOrderMarker
+$script:WorkOrderBoundaryLegacyPattern = '^WORKORDER(?:' + $script:WorkOrderBoundaryNumberPattern + ')?\.md$'
+$script:WorkOrderBoundaryCanonicalActivePattern = '^workorders/active/WORKORDER' + $script:WorkOrderBoundaryNumberPattern + '\.md$'
+$script:WorkOrderBoundaryCanonicalClosedPattern = '^workorders/closed/WORKORDER' + $script:WorkOrderBoundaryNumberPattern + '\.md$'
 $script:WorkOrderBoundaryTopologyScopePattern = '^(?:WORKORDER(?![A-Za-z]).*|workorders(?:[/\\]|$))'
 $script:WorkOrderBoundaryLikePattern = '(?:^|[/\\])WORKORDER(?![A-Za-z]).*$'
 

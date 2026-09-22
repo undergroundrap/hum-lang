@@ -111,6 +111,25 @@ Assert-DiscoveryTest 'two_marked_fails_closed' {
     }
 }
 
+# 6. The status-boundary classifier consumes the same discovery rule.
+# Both scripts must agree on the marker literal and the numbered filename
+# shape; the rule is defined once in Find-ActiveWorkorder.ps1.
+Assert-DiscoveryTest 'classifier_shares_discovery_rule' {
+    . (Join-Path $PSScriptRoot 'check_workorder_status_boundary.ps1')
+    if ($script:WorkOrderBoundaryActiveMarker -cne (Get-HumActiveWorkOrderMarker)) {
+        throw "classifier marker diverged: $($script:WorkOrderBoundaryActiveMarker)"
+    }
+    if ($script:WorkOrderBoundaryCanonicalActivePattern -cne '^workorders/active/WORKORDER_[1-9][0-9]*\.md$') {
+        throw "classifier canonical active pattern diverged: $($script:WorkOrderBoundaryCanonicalActivePattern)"
+    }
+    if (-not (Test-HumWorkOrderNumberedLeafName 'WORKORDER_25.md')) {
+        throw 'shared leaf predicate rejects a valid numbered Work Order name'
+    }
+    if (Test-HumWorkOrderNumberedLeafName 'WORKORDER_0.md') {
+        throw 'shared leaf predicate accepts WORKORDER_0.md'
+    }
+}
+
 Write-Host ""
 Write-Host "Discovery tests: $($Script:Passed) passed, $($Script:Failed) failed."
 if ($Script:Failed -gt 0) { exit 1 }

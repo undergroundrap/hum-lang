@@ -12,7 +12,7 @@ $ClassifierPath = Join-Path $PSScriptRoot 'check_workorder_status_boundary.ps1'
 $script:BoundaryTestCount = 0
 $script:BoundaryRepositorySerial = 0
 $script:ExpectedPublishedBoundaryTestCount = 123
-$script:ExpectedBoundaryTestCount = 151
+$script:ExpectedBoundaryTestCount = 153
 $script:BoundaryCaseNames = New-Object System.Collections.Generic.List[string]
 $script:UnitACaseResults = New-Object System.Collections.Generic.List[object]
 $script:BoundaryActiveWorkOrderPath = 'WORKORDER_10.md'
@@ -38,6 +38,17 @@ function Register-BoundaryCase {
   $script:BoundaryCaseNames.Add($Name)
   $script:BoundaryTestCount += 1
 }
+
+# The discovery rule has exactly one definition: Find-ActiveWorkorder.ps1.
+# The classifier dot-sources it, so these assertions pin the derived values
+# to the accepted literals and prove the classifier consumes the shared rule.
+Assert-BoundaryTest ($script:WorkOrderBoundaryActiveMarker -ceq (Get-HumActiveWorkOrderMarker)) 'classifier marker is not derived from the shared discovery rule'
+Assert-BoundaryTest ($script:WorkOrderBoundaryActiveMarker -ceq '<!-- hum-active-workorder:v1 -->') 'shared discovery marker drifted from the accepted literal'
+Assert-BoundaryTest ($script:WorkOrderBoundaryNumberPattern -ceq (Get-HumWorkOrderNumberPattern)) 'classifier number pattern is not derived from the shared discovery rule'
+Assert-BoundaryTest ($script:WorkOrderBoundaryNumberPattern -ceq '_[1-9][0-9]*') 'shared discovery number pattern drifted from the accepted shape'
+Assert-BoundaryTest ($script:WorkOrderBoundaryLegacyPattern -ceq '^WORKORDER(?:_[1-9][0-9]*)?\.md$') 'classifier legacy pattern diverged from the shared number pattern'
+Assert-BoundaryTest ($script:WorkOrderBoundaryCanonicalActivePattern -ceq '^workorders/active/WORKORDER_[1-9][0-9]*\.md$') 'classifier canonical active pattern diverged from the shared number pattern'
+Assert-BoundaryTest ($script:WorkOrderBoundaryCanonicalClosedPattern -ceq '^workorders/closed/WORKORDER_[1-9][0-9]*\.md$') 'classifier canonical closed pattern diverged from the shared number pattern'
 
 function Get-OrdinalUniqueCount {
   param([string[]] $Values)
@@ -809,15 +820,24 @@ function Assert-ProductionSeamIsClosed {
     'refs/replace/',
     'info/grafts',
     'Resolve-ActiveWorkOrderBlob',
-    '<!-- hum-active-workorder:v1 -->',
-    '^WORKORDER(?:_[1-9][0-9]*)?\.md$',
-    '^workorders/active/WORKORDER_[1-9][0-9]*\.md$',
-    '^workorders/closed/WORKORDER_[1-9][0-9]*\.md$',
+    "Join-Path `$PSScriptRoot 'Find-ActiveWorkorder.ps1'",
+    'Get-HumActiveWorkOrderMarker',
+    'Get-HumWorkOrderNumberPattern',
     '^(?:WORKORDER(?![A-Za-z]).*|workorders(?:[/\\]|$))',
     '(?:^|[/\\])WORKORDER(?![A-Za-z]).*$',
     "'ls-tree', '-r', '-z', '--full-tree'"
   )) {
     Assert-BoundaryTest $Classifier.Contains($RequiredText) "classifier is missing history-rewrite defense $RequiredText"
+  }
+  # The marker and numbered-pattern literals live exactly once, in
+  # Find-ActiveWorkorder.ps1; the classifier must derive, not duplicate.
+  foreach ($DuplicatedLiteral in @(
+    "'<!-- hum-active-workorder:v1 -->'",
+    "'^WORKORDER(?:_[1-9][0-9]*)?\.md$'",
+    "'^workorders/active/WORKORDER_[1-9][0-9]*\.md$'",
+    "'^workorders/closed/WORKORDER_[1-9][0-9]*\.md$'"
+  )) {
+    Assert-BoundaryTest (-not $Classifier.Contains($DuplicatedLiteral)) "classifier duplicates the shared discovery literal $DuplicatedLiteral"
   }
 
   $ScopeAssignment = "`$script:WorkOrderBoundaryTopologyScopePattern = '^(?:WORKORDER(?![A-Za-z]).*|workorders(?:[/\\]|`$))'"
@@ -1464,6 +1484,27 @@ try {
   Assert-BoundaryTest (
     (Get-OrdinalUniqueCount $PublishedBoundaryNames) -eq 123
   ) 'published Work Order status-boundary inventory contains duplicate names'
+
+  # A Work Order rotation (close 21, issue 22) changes the active path, so the
+  # status step cannot fetch the head-discovered path at the anchor commit.
+  # The classifier must select Full, never the fast status-only lane.
+  $Rotation = New-CanonicalTestRepository $TestRoot
+  Invoke-TestGit $Rotation.Path @('mv', 'workorders/active/WORKORDER_21.md', 'workorders/closed/WORKORDER_21.md') | Out-Null
+  Write-TestText (Join-Path $Rotation.Path 'workorders/closed/WORKORDER_21.md') (New-TestWorkOrderText -Inactive)
+  Write-TestText (Join-Path $Rotation.Path 'workorders/active/WORKORDER_22.md') (New-TestWorkOrderText)
+  $RotationHead = Commit-TestRepository $Rotation 'rotate work order 21 to 22'
+  Invoke-BoundaryCase 'Work Order rotation is full' $Rotation $Rotation.Anchor $RotationHead (New-ValidPairFactory $Rotation.Anchor) 'full' 'no_status_transition'
+
+  # A status-only commit on top of a rotation must still classify Full: the
+  # rotation is the anchor, and the base falls outside the status suffix.
+  $RotationChain = New-CanonicalTestRepository $TestRoot
+  Invoke-TestGit $RotationChain.Path @('mv', 'workorders/active/WORKORDER_21.md', 'workorders/closed/WORKORDER_21.md') | Out-Null
+  Write-TestText (Join-Path $RotationChain.Path 'workorders/closed/WORKORDER_21.md') (New-TestWorkOrderText -Inactive)
+  Write-TestText (Join-Path $RotationChain.Path 'workorders/active/WORKORDER_22.md') (New-TestWorkOrderText)
+  Invoke-TestGit $RotationChain.Path @('add', '--all') | Out-Null
+  Invoke-TestGit $RotationChain.Path @('commit', '--quiet', '-m', 'rotate work order 21 to 22') | Out-Null
+  $RotationChainHead = Add-TestStatusCommit $RotationChain ' rotated and updated' 'rotated authorization' -WorkOrderPath 'workorders/active/WORKORDER_22.md'
+  Invoke-BoundaryCase 'Work Order rotation chain is full' $RotationChain $RotationChain.Anchor $RotationChainHead (New-ValidPairFactory $RotationChain.Anchor) 'full' 'event_base_outside_status_suffix'
 
   $A01 = New-CanonicalTestRepository $TestRoot
   Assert-ResolvedActivePath $A01 $A01.Anchor $script:BoundaryCanonicalActivePath 'A01 parent control'

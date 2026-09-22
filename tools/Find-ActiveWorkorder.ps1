@@ -1,3 +1,26 @@
+# The single definition of the Work Order discovery rule. The status-boundary
+# classifier (tools/check_workorder_status_boundary.ps1) dot-sources this file
+# and derives its marker and numbered-path patterns from these functions, so
+# the two scripts can never disagree about which Work Order is active.
+
+function Get-HumActiveWorkOrderMarker {
+    # The literal marker line that designates the active Work Order.
+    return '<!-- hum-active-workorder:v1 -->'
+}
+
+function Get-HumWorkOrderNumberPattern {
+    # The numbered suffix shared by canonical Work Order paths, e.g. the
+    # "_25" in workorders/active/WORKORDER_25.md. Numbers start at 1; there is
+    # no WORKORDER_0.md.
+    return '_[1-9][0-9]*'
+}
+
+function Test-HumWorkOrderNumberedLeafName {
+    param([string] $Name)
+
+    return $Name -cmatch ('^WORKORDER' + (Get-HumWorkOrderNumberPattern) + '\.md$')
+}
+
 # Finds the active Work Order by its marker, not by filename.
 #
 # The active Work Order is the sole regular numbered Markdown file under
@@ -20,12 +43,12 @@ function Find-ActiveWorkorder {
         [string] $RepoRoot
     )
 
-    $Marker = '<!-- hum-active-workorder:v1 -->'
+    $Marker = Get-HumActiveWorkOrderMarker
     $ResolvedDir = [IO.Path]::GetFullPath($Directory)
     $ResolvedRoot = [IO.Path]::GetFullPath($RepoRoot)
 
-    $Candidates = @(Get-ChildItem -LiteralPath $ResolvedDir -File -Filter '*.md' | Where-Object {
-        $_.Name -match '^WORKORDER_[0-9]+\.md$'
+    $Candidates = @(Get-ChildItem -LiteralPath $ResolvedDir -File | Where-Object {
+        Test-HumWorkOrderNumberedLeafName $_.Name
     })
 
     $Marked = @($Candidates | Where-Object {
