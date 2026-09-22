@@ -316,6 +316,17 @@ Assert-PolicyRejects { Assert-HumIntegrationHealth @($Run,$Red) $Now 'owner/repo
 Assert-PolicyRejects { Assert-HumIntegrationHealth @() $Now 'owner/repo' } 'missing health'
 $Future = New-HealthRun; $Future.created_at='2026-09-21T10:00:00Z'
 Assert-PolicyRejects { Assert-HumIntegrationHealth @($Future) $Now 'owner/repo' } 'future health'
+$Dispatch = New-HealthRun; $Dispatch.event='workflow_dispatch'
+$null = Assert-HumIntegrationHealth @($Dispatch) $Now 'owner/repo'
+Assert-Policy $true 'dispatch health accepted'
+$Older = New-HealthRun; $Older.created_at='2026-09-20T09:00:00Z'
+$Newer = New-HealthRun; $Newer.event='workflow_dispatch'; $Newer.created_at='2026-09-20T11:00:00Z'
+$Picked = Assert-HumIntegrationHealth @($Older,$Newer) $Now 'owner/repo'
+Assert-Policy ($Picked.event -ceq 'workflow_dispatch') 'latest dispatch wins over older schedule'
+$Dead = New-HealthRun; $Dead.event='workflow_dispatch'; $Dead.created_at='2026-09-20T11:00:00Z'; $Dead.conclusion='failure'
+Assert-PolicyRejects { Assert-HumIntegrationHealth @($Run,$Dead) $Now 'owner/repo' } 'latest dispatch failure must not fall back to older schedule success'
+$Push = New-HealthRun; $Push.event='push'
+Assert-PolicyRejects { Assert-HumIntegrationHealth @($Push) $Now 'owner/repo' } 'push event never mints health'
 function New-HealthJobs {
   foreach ($Platform in @('windows','ubuntu')) {
     $Names=@('Checkout','Verify integration identity','Run Hum preflight','Close full evidence transport','Confirm selected work completion')
