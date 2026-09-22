@@ -79,15 +79,30 @@ only. No other new builtins, no syntax changes, no parser changes beyond what
 2. `examples/tools/wordfreq.hum` — the program.
 3. Its `test` blocks — positive, boundary, misuse cases.
 4. `docs/research/wordfreq-friction-ledger.md` — the classified friction ledger.
-5. Correction to `notes/three_program_sequence.md` recording the falsified
-   assumption, with a pointer to decision 0021.
+5. `docs/LANGUAGE_REFERENCE.md` entry for `text_split` (signature, matching
+   rule, edge cases, ownership and cost).
+6. `docs/DIAGNOSTICS.md` entry for the `SepEmpty` error code.
+7. Falsified-assumption record in `docs/research/hum-improvement-backlog-2026-09-22.md`
+   (the `three_program_sequence` note lives in the research package, not the
+   repo; the repo-side record goes in the backlog snapshot).
 
 ## Current authorization gate
 
-BDFL-issued 2026-09-22 (via Claude): execute the two-part mission above, in
-order. Part 1 (the builtin with its probes and fixtures) is reviewed before
-Part 2 (the program) begins. Commit the Work Order issuance first, as its own
-atomic commit, before any implementation work. Draft PR against `main` is the
-review gate; the BDFL merges. CI on the PR runs the Full route (the
-`hum-full-validation` label) until the first scheduled main validation exists.
-No other work is authorized under this Work Order.
+Issued when the BDFL merges the PR carrying this Work Order. (Claude holds no
+issuing authority; the decision and the Work Order take effect on merge.)
+
+Execute the two-part mission above, in order:
+
+- Gate 0: decision record 0021 is accepted — the BDFL's ruling recorded in the
+  decision file — before any Part 1 code is written. Part 1 implements a
+  proposed decision until that ruling lands.
+- Part 1 (the builtin with its probes and fixtures) is reviewed before Part 2
+  (the program) begins.
+- The newline-separator dependency recorded in 0021 is resolved before Part 2
+  begins.
+
+Commit the Work Order issuance first, as its own atomic commit, before any
+implementation work. Draft PR against `main` is the review gate; the BDFL
+merges. CI on the PR runs the Full route (the `hum-full-validation` label)
+until the first scheduled main validation exists. No other work is authorized
+under this Work Order.
