@@ -23,13 +23,14 @@ read a file but cannot break its text apart. This is a language capability gap,
 not an interpreter bug, and the work-order process caught it the way it is
 meant to: the session stopped instead of inventing surface.
 
-A prior research assumption is falsified by this finding.
-`notes/three_program_sequence.md` asserted "word tokenization has no stdlib
-(the program must define its own splitting — fine, it keeps the program honest
-about what the language provides)." That assumption is false: the program
-*cannot* define its own splitting, because the primitives to define it with do
-not exist. The note should be corrected, not deleted — the falsification is
-part of the record.
+A prior research assumption is falsified by this finding. The research package
+(not the repo) contains `notes/three_program_sequence.md`, which asserted
+"word tokenization has no stdlib (the program must define its own splitting —
+fine, it keeps the program honest about what the language provides)." That
+assumption is false: the program *cannot* define its own splitting, because
+the primitives to define it with do not exist. The falsification is recorded
+in the repo at `docs/research/hum-improvement-backlog-2026-09-22.md`, which is
+where the research assumptions live in repo form.
 
 ## Options considered
 
@@ -62,6 +63,15 @@ The program gets back a list and uses `for each`, which is already bounded.
 That is one new builtin, and it slots straight into the counting code in
 `word_count.hum`.
 
+### Matching rule (normative)
+
+Exact substring matching, left to right, non-overlapping. The scan finds the
+leftmost occurrence of the separator, emits the piece before it, then
+continues scanning after the separator's end. For example,
+`text_split("aaa", "aa")` is `["", "a"]`: the first `aa` matches at position
+0, emitting the empty piece before it, and the remaining `a` contains no
+further match.
+
 ### Edge-case semantics (normative)
 
 - Leading separators produce a leading empty piece: `text_split(",a,b", ",")`
@@ -73,24 +83,50 @@ That is one new builtin, and it slots straight into the counting code in
 - Separator not present returns the whole text as the single piece:
   `text_split("abc", ",")` is `["abc"]`.
 - Empty input returns a single empty piece: `text_split("", ",")` is `[""]`.
-- Empty separator is a typed error (`SepEmpty`), raised at call time. A misuse
-  fixture must cover it.
+
+### Empty separator (normative, under decision 0016)
+
+A **literal** empty separator is a checker error: `text_split(text, "")` does
+not type-check. Only a separator computed at runtime can fail at runtime,
+raising the typed error `SepEmpty` through the normal `try` / `fail` path of
+decision 0016. This keeps the common case — `text_split(line, " ")` — free of
+`try` ceremony while keeping the genuinely dynamic case honest. A misuse
+fixture must cover both the literal-rejection and the runtime failure.
 
 ### Ownership and cost (normative)
 
-- `text_split` returns **owned copies** of the pieces, not views into the
-  source text. Views would run straight into the internal-references item in
-  the ownership debt (backlog #4). Copies avoid that completely.
-- The builtin **allocates**: one string per piece, plus the list. Its `cost:`
-  and `allocates:` declarations must say so honestly. No zero-cost claim.
+`slice_until` is already a view-deriving operation: `first_word.hum` returns a
+view tied to its parameter under the V0 returned-view `from parameter` rule
+(H0805). `text_split` nevertheless returns **owned copies** of the pieces, not
+views. The reason is structural, not conservative: a `List Text` of views
+would need element-alias and stored-view relationships — which view aliases
+which piece, how long each view lives relative to the list, what happens when
+the list is appended to — and decision 0014 explicitly locks the ownership
+model against that shape. Copies avoid the entire question.
+
+The builtin **allocates**: one string per piece, plus the list. Its `cost:`
+and `allocates:` declarations must say so honestly. No zero-cost claim.
+
+### Newline separators (empirical finding, 2026-09-22)
+
+Hum text literals cannot express a newline. A probe returning the literal
+`"\n"` produces two bytes (backslash, `n`), not a line feed — there is no
+escape syntax in the literal grammar. This means `text_split` as specified
+cannot split a file into lines until the language can name a newline. That
+gap must be resolved — by whatever mechanism the BDFL chooses — before
+wordfreq's Part 2 begins, because wordfreq on real files depends on it. This
+decision does not settle the mechanism; it records the dependency.
 
 ### What this deliberately does not settle
 
-- String views or slices into text: not adopted, not specified. The
-  internal-references ownership question stays open.
+- String views or slices into text beyond the existing `slice_until`: not
+  adopted, not specified. The internal-references ownership question stays
+  open.
 - A general string library (join, trim, case mapping, replacement): not
   adopted. `text_split` is the single tokenization primitive; anything further
   needs its own decision record.
+- The newline-literal mechanism: recorded above as an open dependency, not
+  decided here.
 - Whether `for each` over the resulting list needs additional bounds: no, it
   is already bounded by the list produced.
 
@@ -98,8 +134,12 @@ That is one new builtin, and it slots straight into the counting code in
 
 - The implementing Work Order must provide probes and positive, boundary, and
   misuse fixtures for `text_split` before wordfreq is written on top of it.
-  The misuse fixtures include the empty-separator typed error and the
-  leading/trailing/repeated separator edge cases above.
-- `notes/three_program_sequence.md` must be corrected to record the falsified
-  assumption, with a pointer to this decision.
+  The misuse fixtures include the literal-empty-separator checker rejection,
+  the runtime `SepEmpty` failure, and the leading/trailing/repeated separator
+  edge cases above.
+- The falsified `three_program_sequence` assumption is recorded in
+  `docs/research/hum-improvement-backlog-2026-09-22.md`, not by editing a file
+  outside the repo.
+- `docs/LANGUAGE_REFERENCE.md` gains an entry for `text_split`;
+  `docs/DIAGNOSTICS.md` gains an entry for `SepEmpty`.
 - This decision does not authorize the implementation; the Work Order does.
