@@ -40,6 +40,7 @@ jobs:
         env:
           HUM_EVENT: ${{ github.event_name }}
           HUM_BASE: ${{ github.event.pull_request.base.sha }}
+          HUM_BASE_REF: ${{ github.event.pull_request.base.ref }}
           HUM_HEAD: ${{ github.event.pull_request.head.sha }}
           HUM_INTEGRATION: ${{ github.sha }}
           HUM_FULL_REQUESTED: ${{ contains(github.event.pull_request.labels.*.name, 'hum-full-validation') }}
@@ -53,42 +54,67 @@ jobs:
           $Actual = git rev-parse HEAD
           if ($LASTEXITCODE -ne 0 -or $Actual -cne $env:HUM_INTEGRATION) { throw 'checkout differs from event integration' }
           $Profile = 'full'
+          $AcceptedBase = $env:HUM_BASE
           if ($env:HUM_EVENT -ceq 'pull_request') {
             if ($env:HUM_BASE -cnotmatch $ShaPattern -or $env:HUM_HEAD -cnotmatch $ShaPattern) { throw 'PR identity is malformed' }
-            $Parents = git rev-list --parents -n 1 $env:HUM_INTEGRATION
-            if ($LASTEXITCODE -ne 0 -or $Parents -cne "$env:HUM_INTEGRATION $env:HUM_BASE $env:HUM_HEAD") { throw 'integration parents differ' }
+            # The event's base.sha goes stale when the target branch moves after GitHub
+            # builds the test merge commit, so it can never be trusted for the policy
+            # read. The merge commit's first parent is the accepted base by
+            # construction: verify the commit shape, verify the second parent is the
+            # event head, and verify the base is on the target branch.
+            $ParentsRaw = git rev-list --parents -n 1 $env:HUM_INTEGRATION
+            if ($LASTEXITCODE -ne 0) { throw 'integration parents are unavailable' }
+            $ParentIds = @($ParentsRaw.Trim() -split '\s+')
+            if ($ParentIds.Count -ne 3 -or $ParentIds[0] -cne $env:HUM_INTEGRATION) { throw 'integration is not a two-parent merge of the event revision' }
+            $AcceptedBase = $ParentIds[1]
+            if ($ParentIds[2] -cne $env:HUM_HEAD) { throw 'integration second parent differs from event head' }
+            if ([string]::IsNullOrEmpty($env:HUM_BASE_REF)) { throw 'event base ref is missing' }
+            # Fetch the target tip without --depth: a depth-limited fetch would
+            # mark this full clone shallow and force every PR to Full.
+            git fetch --no-tags origin "+refs/heads/$($env:HUM_BASE_REF):refs/hum/verified-base-tip" 2>$null
+            if ($LASTEXITCODE -ne 0) { throw 'target branch tip is unavailable' }
+            git merge-base --is-ancestor $AcceptedBase 'refs/hum/verified-base-tip' 2>$null
+            if ($LASTEXITCODE -ne 0) { throw 'accepted base is not on the target branch' }
+            $global:LASTEXITCODE = 0
             # Only the accepted base selects a cheaper route. No proposed-script fallback.
             # Probe for the policy without minting a read failure: cat-file -e exits 0
             # iff the path exists on the accepted base. A missing path is the bootstrap
             # case; an unreadable base commit is a real Git failure and still throws.
-            git cat-file -e "$($env:HUM_BASE):tools/check_ci_policy.ps1" 2>$null
+            git cat-file -e "$($AcceptedBase):tools/check_ci_policy.ps1" 2>$null
             $PolicyPresent = ($LASTEXITCODE -eq 0)
             if (-not $PolicyPresent) {
-              git cat-file -e "$($env:HUM_BASE)^{commit}" 2>$null
+              git cat-file -e "$($AcceptedBase)^{commit}" 2>$null
               if ($LASTEXITCODE -ne 0) { throw 'accepted base commit is unreadable' }
             }
             if ($PolicyPresent) {
-              $Policy = git show "$($env:HUM_BASE):tools/check_ci_policy.ps1" 2>$null
+              $Policy = git show "$($AcceptedBase):tools/check_ci_policy.ps1" 2>$null
               if ($LASTEXITCODE -ne 0) { throw 'accepted policy read failed' }
               $PolicyPath = Join-Path $env:RUNNER_TEMP ('hum-accepted-policy-' + [Guid]::NewGuid().ToString('N') + '.ps1')
               try {
                 [IO.File]::WriteAllText($PolicyPath, ($Policy -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
-                . $PolicyPath
-                $Selection = Get-HumCiSelection (Get-Location).Path $env:HUM_BASE $env:HUM_HEAD $env:HUM_INTEGRATION
-                $Profile = $Selection.Profile
-                # The owner may separately authorize this coverage-increasing label.
-                if ($env:HUM_FULL_REQUESTED -ceq 'true') { $Profile = 'full' }
-                if ($Selection.Tree -cne $Tree) { throw 'selection tree disagreement' }
-                if ($Profile -cne 'full') {
-                  $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?event=schedule&branch=main&per_page=1"
-                  if ($LASTEXITCODE -ne 0) { throw 'integration health metadata unavailable' }
-                  $Runs = @(($Json | ConvertFrom-Json).workflow_runs)
-                  $Health = Assert-HumIntegrationHealth $Runs ([datetimeoffset]::UtcNow) $env:GITHUB_REPOSITORY
-                  $JobJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/actions/runs/$($Health.id)/attempts/$($Health.run_attempt)/jobs?per_page=100"
-                  if ($LASTEXITCODE -ne 0) { throw 'integration job metadata unavailable' }
-                  $Jobs = @(($JobJson | ConvertFrom-Json) | ForEach-Object { $_.jobs })
-                  Assert-HumIntegrationJobs $Jobs $Health
-                  "health_run=$($Health.id);health_attempt=$($Health.run_attempt);health_sha=$($Health.head_sha)" >> $env:GITHUB_STEP_SUMMARY
+                # The policy script opens with a param() block; dot-sourcing it in the
+                # step scope would leak its variables into the step. The policy and
+                # everything that consumes it run in a child scope; only the selected
+                # profile crosses the boundary.
+                $Profile = & {
+                  . $PolicyPath
+                  $InnerSelection = Get-HumCiSelection (Get-Location).Path $AcceptedBase $env:HUM_HEAD $env:HUM_INTEGRATION
+                  if ($InnerSelection.Tree -cne $Tree) { throw 'selection tree disagreement' }
+                  $InnerProfile = $InnerSelection.Profile
+                  # The owner may separately authorize this coverage-increasing label.
+                  if ($env:HUM_FULL_REQUESTED -ceq 'true') { $InnerProfile = 'full' }
+                  if ($InnerProfile -cne 'full') {
+                    $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?event=schedule&branch=main&per_page=1"
+                    if ($LASTEXITCODE -ne 0) { throw 'integration health metadata unavailable' }
+                    $Runs = @(($Json | ConvertFrom-Json).workflow_runs)
+                    $Health = Assert-HumIntegrationHealth $Runs ([datetimeoffset]::UtcNow) $env:GITHUB_REPOSITORY
+                    $JobJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/actions/runs/$($Health.id)/attempts/$($Health.run_attempt)/jobs?per_page=100"
+                    if ($LASTEXITCODE -ne 0) { throw 'integration job metadata unavailable' }
+                    $Jobs = @(($JobJson | ConvertFrom-Json) | ForEach-Object { $_.jobs })
+                    Assert-HumIntegrationJobs $Jobs $Health
+                    "health_run=$($Health.id);health_attempt=$($Health.run_attempt);health_sha=$($Health.head_sha)" >> $env:GITHUB_STEP_SUMMARY
+                  }
+                  $InnerProfile
                 }
               } finally { if (Test-Path -LiteralPath $PolicyPath) { Remove-Item -LiteralPath $PolicyPath -Force } }
             } else {
@@ -97,13 +123,13 @@ jobs:
             }
           } elseif ($env:HUM_EVENT -cnotin @('schedule','workflow_dispatch')) { throw 'unsupported validation event' }
           "profile=$Profile" >> $env:GITHUB_OUTPUT
-          "base=$env:HUM_BASE" >> $env:GITHUB_OUTPUT
+          "base=$AcceptedBase" >> $env:GITHUB_OUTPUT
           "head=$env:HUM_HEAD" >> $env:GITHUB_OUTPUT
           "integration=$env:HUM_INTEGRATION" >> $env:GITHUB_OUTPUT
           "tree=$Tree" >> $env:GITHUB_OUTPUT
           "run=$env:GITHUB_RUN_ID" >> $env:GITHUB_OUTPUT
           "attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_OUTPUT
-          "profile=$Profile;base=$env:HUM_BASE;head=$env:HUM_HEAD;integration=$env:HUM_INTEGRATION;tree=$Tree;run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
+          "profile=$Profile;base=$AcceptedBase;head=$env:HUM_HEAD;integration=$env:HUM_INTEGRATION;tree=$Tree;run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
 
   evaluate:
     needs: plan
