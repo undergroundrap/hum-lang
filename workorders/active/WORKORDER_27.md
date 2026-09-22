@@ -8,30 +8,43 @@ surface (see closure record in `workorders/closed/WORKORDER_26.md`).
 
 ## Mission and present authorization
 
-Two-part mission, in order:
+Three-part mission, in order:
 
-**Part 1 — the language increment.** Implement `text_split(text: Text, sep: Text)
+**Part 1a — `text_split`.** Implement `text_split(text: Text, sep: Text)
 -> List Text` per decision record 0021, with probes and positive, boundary,
 and misuse fixtures. This is the minimal new surface that unblocks wordfreq:
 one builtin, owned copies (not views), empty separator as a typed error,
 explicit edge-case semantics (leading/trailing/repeated separators, absent
 separator, empty input), honest `cost:` and `allocates:` declarations.
 
+**Part 1b — text-literal escapes.** Implement escape sequences in text
+literals per decision record 0022 (`\n`, `\t`, `\\`, `\"`, unknown escapes
+a checker error). The newline probe for 0021 proved Hum literals cannot name
+a newline, which blocks both the input side (`text_split` on lines) and the
+output side (`stdout_write` of a line break). This is a language gap every
+real program will hit, not a wordfreq quirk. Part 1b is reviewed before Part 2
+begins.
+
 **Part 2 — the program.** Write `examples/tools/wordfreq.hum` on top of
-`text_split`, meeting WO26's original acceptance criteria: `hum check` clean
-with honesty locks intact; positive, boundary, and misuse cases through
-`hum run`; misuse fails closed with typed errors; `hum evidence` links every
-obligation; explicit statement of what the evidence does not prove; friction
-ledger classifying every rough edge.
+`text_split` and the 0022 escapes, meeting WO26's original acceptance criteria:
+`hum check` clean with honesty locks intact; positive, boundary, and misuse
+cases through `hum run`; misuse fails closed with typed errors; `hum evidence`
+links every obligation; explicit statement of what the evidence does not prove;
+friction ledger classifying every rough edge.
 
 This Work Order authorizes the checker/interpreter changes for `text_split`
-only. No other new builtins, no syntax changes, no parser changes beyond what
-`text_split` requires (none expected).
+and the parser/canonical-AST change for the 0022 escapes, and nothing else.
+No other new builtins, no other syntax changes.
 
 ## Scope
 
 - New builtin `text_split` in the interpreter (`src/run.rs`) and its checker
   recognition, per decision 0021's normative semantics.
+- Escape decoding in text literals at canonical-AST build time
+  (`canonical_expression_build` in `src/parser.rs`), per decision 0022's
+  normative semantics: the four escapes decode, unknown escapes and trailing
+  backslash are checker errors. The canonical-seal change triggers the
+  Exhaustive evidence route in CI.
 - Probes for `text_split` covering: basic split, leading separator
   (`["", "a", "b"]`), trailing separator (`["a", "b", ""]`), repeated
   separators (`["a", "", "b"]`), absent separator (`["abc"]`), empty input
@@ -68,7 +81,8 @@ only. No other new builtins, no syntax changes, no parser changes beyond what
   (Views would hit the internal-references ownership debt.)
 - No general string library: no join, trim, case mapping, replacement, or
   other text builtins. `text_split` is the single tokenization primitive.
-- No syntax changes. No parser changes.
+- No syntax changes and no parser changes beyond the 0022 escape decoding,
+  which is the single authorized exception to this ban.
 - No weakening of `ensures:` to make dispatch pass.
 - Interpreter changes land as separate atomic commits from the program
   commit, each with their own tests.
@@ -76,6 +90,9 @@ only. No other new builtins, no syntax changes, no parser changes beyond what
 ## Deliverables
 
 1. `text_split` implementation + probes + fixtures.
+1b. `text_split` is Part 1a; Part 1b is the 0022 escape implementation +
+   fixtures (each escape decodes, unknown escapes and trailing backslash fail
+   at check time, no-escape literals unchanged).
 2. `examples/tools/wordfreq.hum` — the program.
 3. Its `test` blocks — positive, boundary, misuse cases.
 4. `docs/research/wordfreq-friction-ledger.md` — the classified friction ledger.
@@ -93,9 +110,11 @@ issuing authority; the decision and the Work Order take effect on merge.)
 
 Execute the two-part mission above, in order:
 
-- Gate 0: decision record 0021 is accepted — the BDFL's ruling recorded in the
-  decision file — before any Part 1 code is written. Part 1 implements a
-  proposed decision until that ruling lands.
+- Gate 0: decision records 0021 and 0022 are both accepted — the BDFL's ruling
+  recorded in each decision file — before any Part 1 code is written. Part 1
+  implements proposed decisions until those rulings land. 0021 is accepted
+  (BDFL ruling 2026-09-22 on the review at 5c44b91); 0022 awaits the BDFL's
+  ruling.
 - Part 1 (the builtin with its probes and fixtures) is reviewed before Part 2
   (the program) begins.
 - The newline-separator dependency recorded in 0021 is resolved before Part 2
