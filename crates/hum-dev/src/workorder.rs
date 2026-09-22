@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn real_active_workorder_projects_only_authenticated_mutable_regions() {
-        let base = include_bytes!("../../../workorders/active/WORKORDER_25.md");
+        let base = include_bytes!("../../../fixtures/workorder/active_workorder_sample.md");
         let text = std::str::from_utf8(base).unwrap();
         assert_eq!(text.matches(ACTIVE_MARKER).count(), 1);
         assert!(!text.contains("<!-- workorder-active: v1 -->"));
