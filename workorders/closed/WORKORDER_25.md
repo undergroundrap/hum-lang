@@ -23,6 +23,12 @@ carries it. What landed after the last in-WO status update:
   merge commit's first parent (verified against the PR head and target
   branch) instead of the stale event `pull_request.base.sha`. Both fixes
   carry real-path regressions in `tools/test_ci_policy.ps1`.
+- Marker-based Work Order discovery (PR #9, `wip/wo-discovery`): the active
+  Work Order is discovered by its `<!-- hum-active-workorder:v1 -->` marker
+  instead of a hard-coded WO25 path; `Find-ActiveWorkorder.ps1` is the single
+  definition of the rule and the status-boundary classifier derives from it.
+  Production Rust tests use frozen fixtures instead of the live WO25 file,
+  which is what makes this closure buildable. Merged to main.
 
 Still open, tracked outside this Work Order:
 
