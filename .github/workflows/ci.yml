@@ -556,6 +556,16 @@ jobs:
           "started_ticks=$StartedTicks" >> $env:GITHUB_OUTPUT
           "frequency=$Frequency" >> $env:GITHUB_OUTPUT
 
+      - name: Discover active Work Order
+        id: discover_workorder
+        if: steps.classify.outputs.mode == 'fast'
+        shell: pwsh
+        run: |
+          . ${{ github.workspace }}/tools/Find-ActiveWorkorder.ps1
+          $Found = Find-ActiveWorkorder -Directory ${{ github.workspace }}/workorders/active -RepoRoot ${{ github.workspace }}
+          "path=$($Found.FullPath)" >> $env:GITHUB_OUTPUT
+          "repo_path=$($Found.RepoPath)" >> $env:GITHUB_OUTPUT
+
       - name: Download hum-dev executable
         id: download_hum_dev_executable
         if: steps.classify.outputs.mode == 'fast'
@@ -583,7 +593,8 @@ jobs:
           HUM_STATUS_WINDOWS_JOB_ID: ${{ steps.classify.outputs.windows_job_id }}
           HUM_STATUS_ANCHOR: ${{ steps.classify.outputs.anchor }}
           HUM_STATUS_GH_PATH: ${{ github.workspace }}/gh-placeholder
-          HUM_STATUS_WORKORDER: ${{ github.workspace }}/workorders/active/WORKORDER_25.md
+          HUM_STATUS_WORKORDER: ${{ steps.discover_workorder.outputs.path }}
+          HUM_STATUS_WORKORDER_REPO_PATH: ${{ steps.discover_workorder.outputs.repo_path }}
           HUM_BOOTSTRAP_PATH: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.download_path }}
           HUM_BOOTSTRAP_DIGEST: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.github_digest }}
           HUM_EXECUTABLE_SHA256: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.executable_sha256 }}
