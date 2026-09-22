@@ -1696,6 +1696,7 @@ function Invoke-HumCoreCheck {
     'build' { Invoke-Native 'cargo build' $Cargo @('build') }
     'hygiene' {
       Invoke-RepoScript 'fixed validation policy controls' 'test_ci_policy.ps1'
+      Invoke-RepoScript 'validation bootstrap probe' 'test_validation_bootstrap.ps1'
       Invoke-RepoScript 'workorder discovery regression' 'test_workorder_discovery.ps1'
       Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
       Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'
