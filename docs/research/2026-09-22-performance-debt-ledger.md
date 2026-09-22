@@ -58,6 +58,19 @@ is debt quietly accepted as final.
 - Resurfaces when: the enforcement strategy is specified for a real
   backend.
 
+### PD-005: verification feedback speed
+
+- Source: decision 0024 (accepted 2026-09-22), "what it commits us to".
+- Tradeoff: none yet -- this entry records a goal, not a past decision,
+  so that future checker or harness tradeoffs that slow feedback are
+  named here instead of made by accident.
+- Cost: today's CI wall-clock (~40 minutes for Full) is process cost,
+  not compiler speed; the compiler's own check latency on real programs
+  is unmeasured.
+- Resurfaces when: any decision trades check speed for something else;
+  and at each tiered-profile routing measurement (the 0024 PR is the
+  first).
+
 ## Dispositioned entries
 
 (none yet)
