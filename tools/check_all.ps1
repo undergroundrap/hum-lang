@@ -1,3 +1,4 @@
+# step-3 measurement probe: comment-only change, no semantic content
 param(
   [ValidateSet('Language', 'Runtime', 'Compiler', 'Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation')]
   [string] $EvidenceTier = 'Fast'
