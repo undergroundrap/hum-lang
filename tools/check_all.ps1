@@ -2804,7 +2804,7 @@ task malformed() -> UInt {
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
   $DiagnosticsCatalog = $DiagnosticsJson | ConvertFrom-Json
   $DiagnosticCodes = @($DiagnosticsCatalog.diagnostics | ForEach-Object { $_.code })
-  if ($DiagnosticsCatalog.count -ne 92 -or $DiagnosticCodes.Count -ne 92 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 92) { throw 'canonical diagnostic catalog must expose exactly 92 unique active codes' }
+  if ($DiagnosticsCatalog.count -ne 93 -or $DiagnosticCodes.Count -ne 93 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 93) { throw 'canonical diagnostic catalog must expose exactly 93 unique active codes' }
   $H0634CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0634' -and $_.title -ceq 'canonical native program layout' })
   if ($H0634CatalogRows.Count -ne 1) { throw 'Work Order 23 H0634 catalog projection drifted' }
   $H0635CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0635' -and $_.title -ceq 'unsupported native program feature' })
