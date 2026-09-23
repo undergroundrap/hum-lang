@@ -629,8 +629,8 @@ foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invok
 # These pins protect the mechanically shared bodies from silent omissions.
 # They are source-closure evidence, never a claim that the full corpus ran.
 $CompilerBodies=@{
-  'Invoke-HumCompilerFrontChecks'='38b665cf68b1f62b350e950ca2d4d97565e81323cf78d97a6d5b99eff5b1ad1c'
-  'Invoke-HumCompilerCorpusChecks'='e6ee4f3daa04fd591c34911cc6d652f94154d1c06b1629997992532c7ac63e1a'
+  'Invoke-HumCompilerFrontChecks'='4d532cc6335d66a86d0de23f0cb9e4803d4e1b8119052faa6a0248d6f36ae26c'
+  'Invoke-HumCompilerCorpusChecks'='04206e644e750c93c10460081bf3c0903d14488273887392be6ec50cc7498240'
   'Invoke-HumUseAfterMoveRuntimeCheck'='a7c5db7146519cba950ec4ba2de9a0f15bf505bbfde0bc855b2e49c9a74a34f8'
   'Invoke-HumUseAfterMoveProjectionCheck'='d1708df1234a0cbdf4f686d48facad32ccfb2bcc7baa834281d2246b748f41f0'
 }
@@ -870,4 +870,68 @@ try {
   if ($PlanOutput -and (Test-Path -LiteralPath $PlanOutput)) { Remove-Item -LiteralPath $PlanOutput -Force }
   if ($PlanSummary -and (Test-Path -LiteralPath $PlanSummary)) { Remove-Item -LiteralPath $PlanSummary -Force }
 }
+# StrictMode regression contract. StrictMode is deliberately NOT enabled
+# globally: these scripts depend on PowerShell's lenient semantics in
+# load-bearing ways (see the leniency inventory below), and flipping the
+# switch globally would churn hundreds of unrelated lines for no safety gain.
+# Instead, the security-critical contract assertions run inside a confined
+# `& { Set-StrictMode -Version Latest; ... }` scope, which proves they never
+# read an unset variable. That is exactly the failure shape of the 2026-09-23
+# stale-rename incident: renaming $FastStart to $HygieneBoundary left stale
+# references that silently evaluated to $null and surfaced as a confusing
+# ".Replace($null,'') cannot convert newChar to System.Char" error. Under
+# confined StrictMode the same staleness throws
+# "The variable '$HygieneBoundary' cannot be retrieved because it has not
+# been set." at the read site. The dispatcher contract, Unit B transport
+# contract, and Unit C isolation contract run under confined StrictMode in
+# check_all.ps1's Invoke-Wo25StrictModeContract (hygiene group, every
+# profile); this file covers the classifier and the stale-rename mutation.
+#
+# Lenient-dependency inventory (why StrictMode stays confined). Do not add new
+# instances of these patterns inside contract assertions; the confined scopes
+# are the tripwire.
+# - Unset-variable reads are load-bearing in check_all.ps1: the WO25
+#   stale-control matrix builds needle variables ($HygieneBoundary and
+#   friends) and reads them across 41 in-memory corruption cases; optional
+#   env reads ($env:HUM_CANONICAL_SEAL_EVIDENCE_TIER, $env:GITHUB_RUN_ATTEMPT)
+#   return $null when unset and the code branches on that.
+# - $Matches is read after -match in check_all.ps1 (14 sites),
+#   run_fast_evidence.ps1 (4), check_ci_policy.ps1 (3), test_ci_policy.ps1
+#   (1). The safe idiom — read $Matches immediately after the matching
+#   operation in the same scope — is used everywhere; separating the read
+#   from the match would silently pick up a stale $Matches.
+# - $null is always on the left of -eq/-ne comparisons (45 sites in
+#   check_all.ps1, 8 in run_fast_evidence.ps1); the reversed form would apply
+#   lenient array filtering instead of a null test.
+# - Native-command probes rely on the $LASTEXITCODE reset protocol
+#   ($global:LASTEXITCODE = 0 after capturing the code of interest); see the
+#   regression above and the workspace AGENTS.md entry.
+$StrictSource=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
+$StrictFixtures=@(
+  @(@('docs/bakeoff/EFFECT_POLYMORPHISM_CORPUS.md'),'language'),
+  @(@('docs/DIAGNOSTICS.md'),'compiler'),
+  @(@('src/parser.rs'),'compiler'),
+  @(@('tools/check_all.ps1'),'full'),
+  @(@('workorders/active/WO27.md'),'language')
+)
+$StrictBaseline=@($StrictFixtures | ForEach-Object { Get-HumCiProfile $_[0] })
+$StrictError=$null
+$StrictProfiles=& {
+  Set-StrictMode -Version Latest
+  try {
+    @($StrictFixtures | ForEach-Object { Get-HumCiProfile $_[0] })
+  } catch { $script:StrictError=$_ }
+}
+Assert-Policy ($null -eq $StrictError) "classifier runs under confined StrictMode (error: $($StrictError.Exception.Message))"
+Assert-Policy ((@($StrictProfiles | ForEach-Object { "$_" }) -join '|') -ceq ((@($StrictBaseline | ForEach-Object { "$_" }) -join '|'))) 'classifier routes identically under confined StrictMode'
+# Stale-rename mutation: rename the $HygieneBoundary initialization but leave
+# its use sites stale, reproducing the 2026-09-23 incident shape. Under
+# confined StrictMode the stale read must throw the unset-variable error,
+# not silently evaluate to $null.
+$StaleInitCount=([regex]::Matches($StrictSource,'\$HygieneBoundary =')).Count
+Assert-Policy ($StaleInitCount -eq 1) 'stale-rename mutation target is unique'
+$StaleSource=$StrictSource -creplace '\$HygieneBoundary =','$HygieneBoundaryRenamed ='
+$StaleFailure=$null
+& { Set-StrictMode -Version Latest; try { Assert-Wo25EvidenceTierDispatcherContract -Source $StaleSource } catch { $script:StaleFailure=$_ } }
+Assert-Policy (($null -ne $StaleFailure) -and ($StaleFailure.Exception.Message -like "*'HygieneBoundary'*") -and ($StaleFailure.Exception.Message -like '*has not been set*')) 'stale variable rename fails closed with unset-variable error under StrictMode'
 Write-Output "CI policy focused controls passed: $Count assertions; no Full execution credit."

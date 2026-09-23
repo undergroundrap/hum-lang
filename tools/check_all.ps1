@@ -1265,7 +1265,7 @@ function Assert-Wo25EvidenceTierDispatcherContract { param([string] $Source, [sw
       $Cases += ,@("mutation $Id substitution", (& $ReplaceOwned $Source $MutationExtent ($MutationExtent.Replace($Needle, "Id = '${Id}X'"))))
     }
     $UnitCFocusedExtent=$UnitCFocusedFunction.Extent.Text;$WithoutInit=$Wo25UnitCMutationReturn.Replace("$ToolchainInit; ",'');$AfterMutation=$Wo25UnitCMutationReturn.Replace("$ToolchainInit; Reset-ExactRustSelectorCredits; $UnitCMutationCall","Reset-ExactRustSelectorCredits; $UnitCMutationCall; $ToolchainInit");$DuplicateInit=$Wo25UnitCMutationReturn.Replace("$ToolchainInit;","$ToolchainInit; $ToolchainInit;");$DirectMutation='if ('+$Dollar+"EvidenceTier -eq 'Wo25UnitCMutation') { $UnitCMutationCall; return }";$AlternateEnvironment=$Wo25UnitCMutationReturn.Replace($ToolchainInit,($Dollar+"env:INCLUDE = 'incomplete'"))
-    $Cases+=,@('missing Unit C standalone initialization',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $WithoutInit)),@('late Unit C standalone initialization',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $AfterMutation)),@('duplicate Unit C standalone initialization',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $DuplicateInit)),@('direct Unit C mutation dispatch',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $DirectMutation)),@('incomplete Unit C alternate environment',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $AlternateEnvironment)),@('missing Unit C focused initialization',(&$ReplaceOwned $Source $UnitCFocusedExtent ($UnitCFocusedExtent.Replace($ToolchainInit,'')))),@('reordered Unit C integrated mutation',(&$ReplaceOwned $Source $UnitCFullOrder (($UnitCFullOrder-split"`n")[1]+"`n"+($UnitCFullOrder-split"`n")[0])))
+    $Cases+=@(@('missing Unit C standalone initialization',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $WithoutInit)),@('late Unit C standalone initialization',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $AfterMutation)),@('duplicate Unit C standalone initialization',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $DuplicateInit)),@('direct Unit C mutation dispatch',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $DirectMutation)),@('incomplete Unit C alternate environment',(&$ReplaceOwned $Source $Wo25UnitCMutationReturn $AlternateEnvironment)),@('missing Unit C focused initialization',(&$ReplaceOwned $Source $UnitCFocusedExtent ($UnitCFocusedExtent.Replace($ToolchainInit,'')))),@('reordered Unit C integrated mutation',(&$ReplaceOwned $Source $UnitCFullOrder (($UnitCFullOrder-split"`n")[1]+"`n"+($UnitCFullOrder-split"`n")[0]))))
     if ($Cases.Count -ne 41) { throw "Work Order 25 dispatcher ownership rejection matrix must contain exactly 41 controls, found $($Cases.Count)" }
     foreach ($Case in $Cases) {
       $Failure = $null
@@ -1571,6 +1571,29 @@ function Assert-Wo25UnitCIsolationContract {
   } finally {if($null-ne$Handle){$Handle.Dispose()};if([IO.Directory]::Exists($Record.Directory)){if([IO.File]::Exists($Record.Executable)){Remove-Item -LiteralPath $Record.Executable -Force};[IO.File]::Copy($Record.Source,$Record.Executable,$false);$Record.ExecutableFileIdentity=(Get-HumExecutableIdentity $Record.Executable).FileIdentity;Remove-HumIsolatedExecutable $Record};if([IO.Directory]::Exists($HardRoot)){Remove-Item -LiteralPath $HardRoot -Recurse -Force};if([IO.Directory]::Exists($HardRoot)){throw 'Unit C hard-link fixture cleanup failed'}}
 }
 
+function Invoke-Wo25StrictModeContract {
+  # Focused StrictMode regression. StrictMode is NOT enabled globally (see the
+  # leniency inventory in tools/test_ci_policy.ps1); instead the
+  # leniency-sensitive contract assertions run inside a confined
+  # `& { Set-StrictMode -Version Latest; ... }` scope, which proves they never
+  # read an unset variable. The full dispatcher contract runs WITH its
+  # 41-case in-memory stale-control matrix because the matrix's needle
+  # variables are the exact failure shape of the 2026-09-23 stale-rename
+  # incident ($FastStart renamed to $HygieneBoundary with stale references
+  # left behind, silently evaluating to $null). This scope also caught a real
+  # vacuous control: the first Unit C case was wrapped in an extra array
+  # level (`,@(...)` precedence), so it tested the empty string and always
+  # "rejected in memory" without testing anything.
+  $Source = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
+  & {
+    Set-StrictMode -Version Latest
+    Assert-Wo25EvidenceTierDispatcherContract -Source $Source
+    Assert-Wo25UnitBTransportContract
+    Assert-Wo25UnitCIsolationContract
+  }
+  Write-Host 'ok - Work Order 25 StrictMode contract passed under confined StrictMode'
+}
+
 function Assert-Wo25UnitCV2OrchestrationContract {
   $Summary=[IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/hum-dev/src/summary.rs'))
   $Status=[IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/hum-dev/src/status.rs'))
@@ -1724,6 +1747,7 @@ function Invoke-HumCoreCheck {
     'clippy' { Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings', '-D', 'clippy::undocumented_unsafe_blocks') }
     'build' { Invoke-Native 'cargo build' $Cargo @('build') }
     'hygiene' {
+      Invoke-Wo25StrictModeContract
       Invoke-RepoScript 'fixed validation policy controls' 'test_ci_policy.ps1'
       Invoke-RepoScript 'validation bootstrap probe' 'test_validation_bootstrap.ps1'
       Invoke-RepoScript 'workorder discovery regression' 'test_workorder_discovery.ps1'
