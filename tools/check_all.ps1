@@ -8,6 +8,23 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $GitRepoRoot = $RepoRoot.Replace([System.IO.Path]::DirectorySeparatorChar, '/')
 $script:Wo25MutationRecords = New-Object 'System.Collections.Generic.List[string]'
+function Get-HumRepoRustSources {
+  # Every .rs file compiled anywhere in the repository: the hum binary (src/),
+  # the workspace crates (crates/), and the experiments (experiments/) that CI
+  # still compiles and tests (e.g. the effect bake-off harness). Production
+  # audits must not silently miss code that moved out of src/. Excludes build
+  # output (target/) and .git by enumerating only the known source roots.
+  $Sources = @()
+  foreach ($Top in @('src', 'crates', 'experiments')) {
+    $Dir = Join-Path $RepoRoot $Top
+    if (-not (Test-Path -LiteralPath $Dir)) { continue }
+    foreach ($File in @(Get-ChildItem -LiteralPath $Dir -Recurse -Filter '*.rs' -File)) {
+      $RepoRel = $File.FullName.Substring($RepoRoot.Length + 1).Replace([IO.Path]::DirectorySeparatorChar, '/')
+      $Sources += [pscustomobject]@{ FullName = $File.FullName; RepoRelativePath = $RepoRel }
+    }
+  }
+  return @($Sources | Sort-Object RepoRelativePath)
+}
 function Get-Wo25Sha256([byte[]]$Bytes) { $Hasher=[Security.Cryptography.SHA256]::Create();try{return -join ($Hasher.ComputeHash($Bytes)|ForEach-Object{$_.ToString('x2')})}finally{$Hasher.Dispose()} }
 function Initialize-Wo25WindowsToolchain { if($env:OS-cne'Windows_NT'){return};$VsWhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe';foreach($File in @($VsWhere)){if(-not[IO.File]::Exists($File)-or([IO.File]::GetAttributes($File)-band[IO.FileAttributes]::ReparsePoint)){throw 'Unit C toolchain resolver is not an ordinary file'}};$Install=(& $VsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath|Select-Object -Unique);if(@($Install).Count-ne1-or-not[IO.Path]::IsPathFullyQualified($Install)){throw 'Unit C requires exactly one Visual Studio x64 toolchain'};$DevCmd=Join-Path $Install 'Common7\Tools\VsDevCmd.bat';if(-not[IO.File]::Exists($DevCmd)-or([IO.File]::GetAttributes($DevCmd)-band[IO.FileAttributes]::ReparsePoint)){throw 'Unit C VsDevCmd is not an ordinary file'};$Lines=@(& "$env:SystemRoot\System32\cmd.exe" /d /s /c "`"$DevCmd`" -arch=x64 -host_arch=x64 >nul && set");if($LASTEXITCODE-ne0){throw 'Unit C authenticated x64 environment construction failed'};$Required=@('INCLUDE','LIB','LIBPATH','VCINSTALLDIR','VCToolsInstallDir','VSCMD_ARG_HOST_ARCH','VSCMD_ARG_TGT_ARCH','WindowsSdkDir','WindowsSDKVersion');foreach($Key in $Required){$Matches=@($Lines|Where-Object{$_.StartsWith("$Key=",[StringComparison]::Ordinal)});if($Matches.Count-ne1){throw "Unit C toolchain binding is missing or ambiguous: $Key"};[Environment]::SetEnvironmentVariable($Key,$Matches[0].Substring($Key.Length+1),'Process')};$Paths=@($Lines|Where-Object{$_.StartsWith('PATH=',[StringComparison]::Ordinal)});if($Paths.Count-ne1){throw 'Unit C canonical PATH is missing or ambiguous'};Remove-Item Env:Path,Env:PATH -ErrorAction SilentlyContinue;[Environment]::SetEnvironmentVariable('PATH',$Paths[0].Substring(5),'Process');$Expected=Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\link.exe';$Effective=@([Environment]::GetEnvironmentVariable('PATH').Split(';')|ForEach-Object{Join-Path $_ 'link.exe'}|Where-Object{[IO.File]::Exists($_)}|Select-Object -First 1);if($Effective.Count-ne1-or-not([IO.Path]::GetFullPath($Effective[0]).Equals([IO.Path]::GetFullPath($Expected),[StringComparison]::OrdinalIgnoreCase))){throw 'Unit C authenticated effective linker differs'} }
 function Get-Wo25ExpectedMutationReceiptRecords { $Rows=@(@('I01','crates/hum-dev/src/commit_message.rs'),@('I02','crates/hum-dev/src/identity.rs'),@('I03','crates/hum-dev/src/summary.rs'),@('I04','crates/hum-dev/src/cleanup.rs'),@('I05','crates/hum-dev/src/status.rs'),@('I06','crates/hum-dev/src/status.rs'),@('I07','crates/hum-dev/src/status.rs'),@('I08','crates/hum-dev/src/shell.rs'));@($Rows|ForEach-Object{"$($_[0])|rejected|$(Get-Wo25Sha256 ([IO.File]::ReadAllBytes((Join-Path $RepoRoot $_[1]))))"}) }
@@ -3253,8 +3270,8 @@ task malformed() -> UInt {
   $F4ProgramLocator = [regex]::Match($F4AstProduction, '(?s)pub\(crate\) fn canonical_core_expectation<''a>\(\s*&''a self,\s*item: &''a Item,\s*section: &''a Section,')
   if (-not $F4ExpectationShape.Success -or -not $F4ProgramLocator.Success -or -not $F4ExpectationShape.Groups[1].Value.Contains("container: CanonicalCoreContainerRef<'a>") -or -not $F4ExpectationShape.Groups[1].Value.Contains("file: &'a SourceFile") -or -not $F4ExpectationShape.Groups[1].Value.Contains("item: &'a Item") -or -not $F4ExpectationShape.Groups[1].Value.Contains("section: &'a Section") -or -not $F4ParserTestSource.Contains("assert_not_impl!(CanonicalCoreSectionExpectation<'static>, Clone)") -or -not $F4ParserTestSource.Contains("assert_not_impl!(CanonicalCoreSectionExpectation<'static>, Copy)") -or -not $F4ParserTestSource.Contains("assert_not_impl!(CanonicalCoreSectionExpectation<'static>, Default)")) { throw 'Replacement F4 stale expectation borrow topology drifted' }
   $F4ProductionSources = [ordered]@{}
-  foreach ($SourceFile in Get-ChildItem -Path 'src' -Filter '*.rs') {
-    $F4ProductionSources["src/$($SourceFile.Name)"] = Get-AqRustProductionSource $SourceFile.FullName
+  foreach ($SourceFile in Get-HumRepoRustSources) {
+    $F4ProductionSources[$SourceFile.RepoRelativePath] = Get-AqRustProductionSource $SourceFile.FullName
   }
   foreach ($Entry in $F4ProductionSources.GetEnumerator()) {
     if ($Entry.Key -in @('src/ast.rs', 'src/parser.rs')) { continue }
@@ -3422,12 +3439,12 @@ task malformed() -> UInt {
   if (-not $AqCapabilityInsertionSignature.Success -or $AqCapabilityInsertionSignature.Groups[1].Value.Contains('ReanalyzableProjection') -or $AqCapabilityInsertionSignature.Groups[1].Value.Contains('BTreeMap')) { throw 'Session AQ capability insertion must remain structurally unable to create an authoritative-old ledger entry' }
   if ([regex]::Matches($AqMainProduction, 'producer:\s*ReanalysisProducer::AppEntry').Count -ne 1 -or [regex]::Matches($AqMainProduction, 'producer:\s*ReanalysisProducer::CapabilityRoot').Count -ne 0) { throw 'Session AQ production ledger must classify only real per-file app authorities as removable old projections' }
   $AqRawProduction = @()
-  foreach ($SourceFile in Get-ChildItem -Path 'src' -Filter '*.rs') {
-    if ($SourceFile.Name -eq 'diagnostic_catalog.rs') { continue }
+  foreach ($SourceFile in Get-HumRepoRustSources) {
+    if ($SourceFile.RepoRelativePath -eq 'src/diagnostic_catalog.rs') { continue }
     $Production = Get-AqRustProductionSource $SourceFile.FullName
-    if ([regex]::IsMatch($Production, '"H\d{4}"')) { $AqRawProduction += $SourceFile.Name }
+    if ([regex]::IsMatch($Production, '"H\d{4}"')) { $AqRawProduction += $SourceFile.RepoRelativePath }
   }
-  $AqAllowedPresentation = @('callable.rs', 'explain.rs', 'full_type_check.rs')
+  $AqAllowedPresentation = @('src/callable.rs', 'src/explain.rs', 'src/full_type_check.rs')
   foreach ($RawFile in $AqRawProduction) {
     if ($AqAllowedPresentation -notcontains $RawFile) { throw "Session AQ found a raw production H-code outside the registry/presentation allowlist: $RawFile" }
   }
@@ -3485,7 +3502,7 @@ task malformed() -> UInt {
 
 function Invoke-HumCompilerCorpusChecks {
   param([string] $Cargo, [string] $Hum)
-  $ApForbiddenFallbacks = @(Get-ChildItem -Path 'src' -Filter '*.rs' | Where-Object { $_.Name -ne 'diagnostic_catalog.rs' } | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
+  $ApForbiddenFallbacks = @((Get-HumRepoRustSources) | Where-Object { $_.RepoRelativePath -ne 'src/diagnostic_catalog.rs' } | Select-Object -ExpandProperty FullName | Select-String -Pattern 'default_emitter_cause|registered_default|from_diagnostics|validate_owned_diagnostics')
   if ($ApForbiddenFallbacks.Count -ne 0) { throw 'Session AP production source must not reconstruct occurrences from codes or public diagnostics' }
   $ApCatalogSource = Get-Content -Raw 'src/diagnostic_catalog.rs'
   if (-not [regex]::IsMatch($ApCatalogSource, '#\[cfg\(test\)\]\s+pub\(crate\) fn default_emitter_cause')) { throw 'Session AP emitter-default lookup must remain test-only registry-baseline evidence' }

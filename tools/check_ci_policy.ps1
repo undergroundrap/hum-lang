@@ -341,6 +341,14 @@ function Get-HumCiOwnership {
   $Owners.Add('docs/RUNTIME_PROFILES.md', 2)
   $Owners.Add('docs/LANGUAGE_SUBSET_0_1.md', 2)
   $Owners.Add('docs/PORTABILITY_BOUNDARY_MODEL.md', 2)
+  # docs/bakeoff/EFFECT_POLYMORPHISM_CORPUS.md is compiled into the effect
+  # bake-off experiment binary via include_str! in
+  # experiments/effect-bakeoff/src/corpus.rs, so it needs a code-level pin like
+  # the binary-compiled docs above. It pins at language rank (the docs/ prefix
+  # rank): the corpus's functional consumer is the experimental bake-off
+  # harness in the compiler-corpus group, not the hum binary. If that harness
+  # ever becomes a merge gate, revisit this pin to compiler rank.
+  $Owners.Add('docs/bakeoff/EFFECT_POLYMORPHISM_CORPUS.md', 0)
   # tools/check_all.ps1 is include_str!'d by src/parser.rs and IS the Full
   # preflight (mutation matrices, capture tests, exhaustive paths run only in
   # Full), so it must NOT be pinned at language rank. Only the scripts the
