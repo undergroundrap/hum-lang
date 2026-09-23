@@ -13,8 +13,8 @@ as a pure `wordfreq_count` task instead. The ledger asks 0027's question: is
 concatenation/interpolation the GENERAL fix, or is the histogram an
 acceptable program shape? No surface was invented there.
 
-This record lays out the options. It does not choose — the taste call is
-Claude's.
+This record lays out the options. It does not choose — Ocean rules as
+BDFL; Claude reviews.
 
 ## Constraints from prior decisions
 
@@ -37,8 +37,18 @@ Claude's.
 One builtin, e.g. `text_concat(a: Text, b: Text) -> Text` — the two-argument
 shape mirrors `text_split`. Multi-part rendering nests: `text_concat("hum ",
 uint_to_text(n))`. A noted variant is a list form, `text_concat(parts: List
-Text) -> Text`, which would compose directly with `text_split` output; the
-arity shape is part of the taste call.
+Text) -> Text`, which would compose directly with `text_split` output.
+
+Arity is also a performance decision (0024): repeated binary concat in an
+accumulation loop is quadratic — each iteration copies the accumulated
+prefix. The list form is linear: one allocation at the end. If binary ships
+as the primary form, the decision must name the loop-quadratic shape and
+steer accumulation toward the list form; the candidate perf-debt entry:
+
+> **[Proposed] PD-00X: binary text_concat in accumulation loops is
+> quadratic.** Each chained concat copies the prefix built so far. The
+> list-of-parts form is the linear path. Resurfaces when a builder or
+> optimizer exists, or when loop accumulation gets a dedicated form.
 
 ### Allocation and cost honesty
 
@@ -141,12 +151,31 @@ Trivially easy. There is nothing to misuse.
 wordfreq's counts, the config parser's line numbers — anywhere a number
 meets rendered text.
 
+### Correction: C alone solves wordfreq's output
+
+The first draft of this analysis was wrong. wordfreq does not need
+concatenation to emit `hum 3` lines — stdout output composes by sequential
+writes:
+
+```hum
+try stdout_write(word)
+try stdout_write(" ")
+try stdout_write(uint_to_text(n))
+try stdout_write("\n")
+```
+
+Concatenation is needed only to build text as a VALUE — a `Text` that is
+returned, stored, or carried in a failure payload, e.g. the config parser's
+error messages. That need is anticipated, not yet demonstrated: no program
+has filed a friction entry for it. Under 0027's motivating-evidence rule
+(additions cite motivating evidence), C arrives with a ledger entry behind
+it; A arrives with a named future consumer but no entry yet.
+
 ### General-vs-specific
 
-Fails alone: without concatenation, `uint_to_text` cannot produce `hum 3`
-— `"hum " + "3"` still needs joining. C is a complement, not an
-alternative. As a standalone decision it would be shaped like a
-program-specific fix; paired with A, it is the general fix.
+General and demonstrated: rendering numbers as text is wordfreq's actual
+friction, and the config parser's line numbers need it too. C is the only
+option whose motivating evidence already exists.
 
 ## Option D: minimal combination (A + C)
 
@@ -181,6 +210,96 @@ Each piece is independently general (composition + rendering are not
 wordfreq's private needs), and the combination is exactly the demonstrated
 need, nothing more. D passes 0027's test where B strains it.
 
+## Option E: C now, A when the config parser demonstrates it
+
+### Surface
+
+Ship only integer rendering now. Concatenation waits until the config
+parser — or another program — files a friction entry showing that
+text-as-value composition is actually needed.
+
+### The honest weighing against D
+
+For E (the 0027-purist position): default-to-no exists precisely to stop
+"almost certainly needed" from shipping surface. Anticipated need has a
+habit of being wrong about the shape — the real friction entry might want
+the list form, or structured error values instead of rendered text — and
+then D's early binary concat is the wrong primitive shipped early. If the
+need never materializes, the language stays smaller forever.
+
+For D: the config parser's error values will need text composition —
+failure payloads cannot be built from sequential writes, which go to
+stdout, not to callers. D's extra surface is one or two infallible
+builtins with zero failure modes and zero new diagnostics. The cost of E
+being wrong is a second decision cycle in the middle of the config parser;
+the cost of D being wrong is a small, independently general builtin
+shipped early.
+
+This is the closest call in the record. E follows 0027's letter; D bets a
+small, cheap-to-be-wrong stake on 0027's spirit — the evidence is named and
+concrete, just not yet filed.
+
+## Option F: an operator (`+` or `++`)
+
+### Surface
+
+New syntax and type-checker work. `a + b` over `Text` is operator
+overloading — which LANGUAGE_REFERENCE explicitly delays "until the formal
+core, graph, diagnostics, and tooling can explain them." Spending that
+deferred decision on string concatenation would be a strange first use. A
+distinct `++` avoids overloading but still adds syntax, parsing, and
+type-checking machinery for one builtin's job, plus its own misuse
+diagnostics.
+
+### Allocation and cost honesty
+
+Identical to A. The operator changes spelling, not cost.
+
+### 0016 interaction
+
+None beyond A's: infallible either way.
+
+### Agents: easy vs error-prone
+
+This is F's real argument: it is what agents will reach for. Every
+mainstream language spells concatenation `+` or `++`, so the builtin's
+honest cost is the confused first attempt — an agent writing `"hum " + "3"`
+and hitting a checker error.
+
+### Why a builtin beats it — or doesn't
+
+The builtin wins on machinery: no new syntax, no overload story, no new
+diagnostics, explicit and greppable. And most of F's value is capturable
+without the operator: a targeted diagnostic on `+` applied to `Text`
+("use text_concat") redirects the agent's first instinct at the cost of one
+error message instead of new syntax. F's remaining advantage is pure
+spelling — real, but not load-bearing.
+
+### General-vs-specific
+
+The least general-shaped option: new syntax serving a single operation.
+
+## Normative: integer rendering
+
+Whichever option renders integers (C, D, or E) implements this exactly:
+
+- base 10;
+- `-` prefix for negatives (`Int`); no sign for `UInt`;
+- no leading zeros;
+- no digit separators;
+- ASCII digits `0`–`9` only;
+- locale-independent and deterministic: the same input produces the same
+  bytes on every target.
+
+## Out of scope: the frequency summary itself
+
+Stated plainly: neither C nor D completes wordfreq's frequency summary.
+Rendering `hum 3` lines is the easy half; finding the unique words and
+their counts without a map/dictionary type is quadratic nested loops. That
+is a separate friction-ledger item — a future map/dictionary design
+question — not 0028's scope. 0028 is about rendering text, not about the
+data structure that holds the counts.
+
 ## What is NOT on the table
 
 - join-with-separator, trim, case mapping, replacement, padding/alignment
@@ -189,12 +308,15 @@ need, nothing more. D passes 0027's test where B strains it.
 - Newline modes on `stdout_write`: ledger entry #10's separate question.
 - Multi-separator splitting: ledger entry #6, adjacent but separate.
 
-## Open questions for the taste call
+## Open questions for the ruling
 
-1. If A: binary concat vs the list-of-parts variant.
+1. If A: binary concat vs the list-of-parts variant — now also a 0024
+   linear-vs-quadratic question, not just spelling.
 2. If C: one builtin per integer type vs a single name.
 3. The ledger's original question still stands: is the histogram (no new
    surface) actually acceptable? If yes, none of this ships.
-4. Is D a stable resting point, or does its verbosity for long lines
+4. E vs D: is "C now, A on demonstrated need" the right application of
+   0027, or is D's small early stake the better bet?
+5. Is D a stable resting point, or does its verbosity for long lines
    predict a future join-with-separator request — i.e., is D the general
    fix or the first step toward the banned library?
