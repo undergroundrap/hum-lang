@@ -225,9 +225,16 @@ another producer.
 The separately authorized profile increment does not complete WO25 Unit D.
 After separately authorized rollout and required-check activation, ordinary
 PRs require Windows and Ubuntu Language, Runtime, or Compiler validation as
-selected by the accepted base's finite dependency table. Infrastructure,
-policy, workflow, mixed infrastructure, and unknown impact require Full on
-both platforms before integration. Groups and routing ownership are in
+selected by the accepted base's finite dependency table. Decision 0025
+(accepted 2026-09-23): additions and deletions under owned prefixes
+(`docs/`, `tools/`, `workorders/`) classify by path at language rank;
+renames take the max rank of both sides; mode/type changes (symlink,
+gitlink, executable bit) and unknown prefixes require Full. Exceptions:
+`docs/DIAGNOSTICS.md` keeps compiler rank (compiled via `include_str!`);
+`tools/check_ci_policy.ps1` keeps a code-level profile whose hygiene group
+runs the classification's own real gates. Infrastructure, workflow, mixed
+infrastructure, and unknown impact require Full on both platforms before
+integration. Groups and routing ownership are in
 `docs/TESTING_STRATEGY.md`; focused results are never Full credit.
 
 Independent review and owner-authorized integration, not automatic workflow
@@ -249,9 +256,12 @@ circular nightly dependence; it does not fabricate a scheduled result.
 Release validation remains Full on the exact release candidate.
 
 Ordinary main pushes select their normal profile from the complete actual
-push range using pre-push accepted policy. Policy, infrastructure, unknown
-ownership, file-kind changes or ambiguous history require Full. The registry
-is closed: new names cannot gain cheaper admission from filename patterns.
+push range using pre-push accepted policy. Infrastructure, unknown
+ownership, file-kind changes or ambiguous history require Full; the policy
+script itself keeps a code-level profile under decision 0025. The registry
+is closed for unlisted names, extended only by the 0025 owned-prefix table
+(`docs/`, `tools/`, `workorders/` at language rank): new names cannot gain
+cheaper admission from ad-hoc filename patterns.
 Preserve the authenticated status-only exception and fresh health check;
 normal pushes earn no Full anchor. Normal Ubuntu CI includes exhaustive
 canonical-seal checks. Full rollout remains separately authorized.
@@ -584,6 +594,7 @@ write it into the repo.
 - If `apply_patch` fails in the Windows sandbox, use a guarded non-interactive PowerShell writer only inside the repo root, and write with `[System.IO.File]::WriteAllText(..., (New-Object System.Text.UTF8Encoding($false)))`.
 - Do not use long interactive PowerShell here-strings for docs; terminal line wrapping and pasted control characters can corrupt files.
 - Do not use `Set-Content -Encoding UTF8` in Windows PowerShell 5.1 for repo text files because it writes a UTF-8 BOM.
+- In test fixtures, `Remove-Item Function:global:<name>` silently removes nothing; remove a global mock function with `Remove-Item -Path 'Function:\<name>'` (resolves through the scope chain) and assert afterwards that `Get-Command` no longer resolves to the mock, otherwise the leaked mock masks the real command and the failure surfaces elsewhere (learned 2026-09-23: the leaked `gh` mock skipped `Pop-Location`, so fixture cleanup failed with "in use").
 - Default to ASCII unless a file already requires non-ASCII.
 - Keep setup docs editor-agnostic. Prefer `.editorconfig`, `.gitattributes`, Cargo commands on `PATH`, and repo-relative paths.
 - Do not commit local editor state such as `.vscode/`, `.cursor/`, `.idea/`, `.vs/`, `.fleet/`, `*.code-workspace`, or `*.iml`.

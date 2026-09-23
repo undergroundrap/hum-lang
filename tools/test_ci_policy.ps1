@@ -20,6 +20,61 @@ function Import-PolicyTestFunction([string] $Source, [string] $Name) {
   if ($Definitions.Count -ne 1) { throw "ci_policy_test: function ownership $Name" }
   [scriptblock]::Create($Definitions[0].Extent.Text)
 }
+# Decision 0025: fixtures that exercise the real workflow health gates for
+# cheap profiles install this isolated gh mock. The mock answers the two
+# metadata calls the gates make (workflow runs, then --paginate jobs) with a
+# successful scheduled main result, so a cheap-profile fixture exercises the
+# health check honestly instead of routing Full to avoid it. Any pre-existing
+# gh command and the prior health-conclusion variable are preserved and
+# restored exactly; the variable is uniquely named to avoid collisions.
+function Install-HumCiTestGhMock {
+  $State = [pscustomobject]@{ HadCommand = $false; PriorFunction = $null; HadHealthVar = $false; PriorHealth = $null }
+  $Prior = Get-Command gh -ErrorAction SilentlyContinue
+  if ($null -ne $Prior) {
+    $State.HadCommand = $true
+    if ($Prior.CommandType -ceq 'Function') { $State.PriorFunction = $Prior.ScriptBlock }
+  }
+  if (Test-Path Variable:global:HumCiTestHealthConclusion) {
+    $State.HadHealthVar = $true
+    $State.PriorHealth = $global:HumCiTestHealthConclusion
+  }
+  $global:HumCiTestHealthConclusion = 'success'
+  # Global scope: the workflow code runs through nested child scopes
+  # (scriptblock dot-source inside & blocks), where a script-local function
+  # is not reliably visible.
+  function global:gh {
+    $global:LASTEXITCODE = 0
+    if ($args -contains '--paginate') {
+      $Jobs = foreach ($Platform in @('windows','ubuntu')) {
+        $Names = @('Checkout','Verify integration identity','Run Hum preflight','Close full evidence transport','Confirm selected work completion')
+        if ($Platform -ceq 'ubuntu') { $Names += 'Run exhaustive canonical-seal evidence' }
+        @{name="evaluate / preflight ($Platform-latest)";run_id=42;head_sha=('a'*40);status='completed';conclusion='success';steps=@($Names|ForEach-Object{@{name=$_;status='completed';conclusion='success'}})}
+      }
+      ConvertTo-Json -InputObject @(@{jobs=@($Jobs)}) -Depth 8 -Compress
+    } else {
+      @{workflow_runs=@(@{event='schedule';path='.github/workflows/validation.yml';repository=@{full_name='owner/repo'};head_branch='main';head_sha=('a'*40);status='completed';conclusion=$global:HumCiTestHealthConclusion;id=42;run_attempt=1;created_at=[datetimeoffset]::UtcNow.ToString('o')})}|ConvertTo-Json -Depth 8 -Compress
+    }
+  }
+  Assert-Policy ((Get-Command gh -ErrorAction Stop).CommandType -ceq 'Function') 'gh resolves to the isolated mock inside the fixture'
+  Assert-Policy ((Get-Command gh).Definition -match 'HumCiTestHealthConclusion') 'gh resolves to this mock, not a pre-existing function'
+  $State
+}
+function Remove-HumCiTestGhMock([pscustomobject] $State) {
+  # 'Function:\gh' resolves through the scope chain to the global mock. The
+  # 'Function:global:gh' path form silently removes nothing (verified
+  # 2026-09-23); the old code used it and leaked the mock, which the
+  # assertion below now catches fail-closed.
+  Remove-Item -Path 'Function:\gh' -ErrorAction SilentlyContinue
+  if ($State.HadCommand -and $null -ne $State.PriorFunction) {
+    Set-Item -Path 'function:global:gh' -Value $State.PriorFunction -Force
+  }
+  if ($State.HadHealthVar) { $global:HumCiTestHealthConclusion = $State.PriorHealth }
+  else { Remove-Variable -Name HumCiTestHealthConclusion -Scope Global -ErrorAction SilentlyContinue }
+  $After = Get-Command gh -ErrorAction SilentlyContinue
+  $MockStillResolves = ($null -ne $After) -and ($After.CommandType -ceq 'Function') -and ($After.Definition -match 'HumCiTestHealthConclusion')
+  Assert-Policy (-not $MockStillResolves) 'gh no longer resolves to the isolated mock after the fixture'
+  $global:LASTEXITCODE = 0
+}
 
 if ($CompilerConsumerOnly) {
   if (-not [IO.Path]::IsPathRooted($HumPath)) { throw 'ci_policy_test: explicit compiler required' }
@@ -52,18 +107,39 @@ foreach ($Case in @(
   @('runtime', @('examples/probes/word_count.hum','src/run.rs','docs/LANGUAGE_REFERENCE.md')),
   @('compiler', @('src/parser.rs')), @('compiler', @('src/type_check.rs')),
   @('language', @('README.md','docs/LANGUAGE_REFERENCE.md')),
-  @('full', @('tools/run_fast_evidence.ps1')), @('full', @('.github/workflows/validation.yml')),
-  @('full', @('docs/TESTING_STRATEGY.md')), @('full', @('unknown.file')),
+  @('full', @('.github/workflows/validation.yml')),
+  @('full', @('unknown.file')),
   @('full', @('src/new_unmapped.rs')), @('full', @('examples/new_unmapped.hum')),
   @('full', @('fixtures/new_unmapped.json')), @('full', @('fixtures/new_unmapped.hum')),
-  @('full', @('docs/new_policy.md')), @('full', @('docs/HUM_CORE_VERIFY_SCHEMA.md')),
-  @('full', @('docs/TEXT_HYGIENE_WORKFLOW.md')), @('full', @('CONTRIBUTING.md')),
+  @('language', @('docs/HUM_CORE_VERIFY_SCHEMA.md')),
+  @('language', @('docs/TEXT_HYGIENE_WORKFLOW.md')),
+  @('full', @('CONTRIBUTING.md')),
+  # Decision 0025: owned prefixes (docs/, tools/, workorders/) classify at
+  # language rank by path; unknown prefixes still classify Full.
+  @('language', @('tools/run_fast_evidence.ps1')),
+  @('language', @('docs/TESTING_STRATEGY.md')),
+  @('language', @('docs/new_policy.md')),
+  @('language', @('workorders/completed/2026-09-22-fix-validation-bootstrap-probe.md')),
+  # Decision 0025 exceptions: docs/DIAGNOSTICS.md is compiled into the binary
+  # via include_str!, so it keeps compiler rank. tools/check_ci_policy.ps1 is
+  # the highest-sensitivity tooling path; it keeps a code-level profile whose
+  # hygiene group runs the classification's own real gates.
+  @('compiler', @('docs/DIAGNOSTICS.md')),
+  @('language', @('tools/check_ci_policy.ps1')),
+  @('runtime', @('src/run.rs','tools/check_ci_policy.ps1')),
   @('compiler', @('fixtures/ownership_check/session_j_use_after_move_fail.hum')),
-  @('full', @('src/run.rs','tools/check_ci_policy.ps1')), @('full', @())
+  @('full', @())
 )) { Assert-Policy ((Get-HumCiProfile $Case[1]) -ceq $Case[0]) "routing $($Case[1] -join ',')" }
 foreach ($Paths in @(@('src/run.rs','SRC/run.rs'), @('../src/run.rs'), @('src//run.rs'), @("src/run.rs`nother"), @(('C'+':/src/run.rs')), @('src\run.rs'), @(''))) {
   Assert-PolicyRejects { Get-HumCiProfile $Paths } 'malformed inventory cannot select cheaper work'
 }
+# Decision 0025: workorders/ routes at language rank only because the hygiene
+# group executes its consumer, the status-boundary classifier. Pin the real
+# wiring in check_all.ps1, not a re-implementation.
+$CheckAllText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'))
+$HygieneMatch = [regex]::Match($CheckAllText, "(?ms)^    'hygiene' \{(?<body>.*?)^    \}")
+Assert-Policy $HygieneMatch.Success 'hygiene group owner exists in check_all.ps1'
+Assert-Policy ($HygieneMatch.Groups['body'].Value -cmatch "test_workorder_status_boundary\.ps1") 'hygiene group executes the work-order status-boundary consumer'
 
 $Workflow = [IO.File]::ReadAllText((Join-Path $Root '.github/workflows/validation.yml')).Replace(([string][char]13+[char]10),[string][char]10)
 $Ci = [IO.File]::ReadAllText((Join-Path $Root '.github/workflows/ci.yml')).Replace(([string][char]13+[char]10),[string][char]10)
@@ -102,34 +178,63 @@ try {
     $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$KindMerge)
     Assert-Policy ((Get-HumCiSelection $Fixture $Base $KindHead $KindMerge).Profile -ceq 'full') "actual mode $Mode selects Full"
   }
-  foreach($Path in @('src/new_unmapped.rs','examples/new_unmapped.hum','fixtures/new_unmapped.hum','docs/new_policy.md')) {
+  foreach($Path in @('src/new_unmapped.rs','examples/new_unmapped.hum','fixtures/new_unmapped.hum')) {
     $null=Read-HumCiGit $Fixture @('read-tree',$TreeA)
     $null=Read-HumCiGit $Fixture @('update-index','--add','--cacheinfo',"100644,$Blob,$Path")
     $NewTree=(Read-HumCiGit $Fixture @('write-tree')).Trim()
     $NewHead=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',$NewTree,'-p',$Base,'-m','addition'))).Trim()
     $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$NewHead)
-    Assert-Policy ((Get-HumCiPushSelection $Fixture $Base $NewHead).Profile -ceq 'full') 'new path cannot admit itself'
+    Assert-Policy ((Get-HumCiPushSelection $Fixture $Base $NewHead).Profile -ceq 'full') 'unregistered prefix addition cannot admit itself'
   }
+  # Decision 0025: additions under owned prefixes classify by path.
+  $null=Read-HumCiGit $Fixture @('read-tree',$TreeA)
+  $null=Read-HumCiGit $Fixture @('update-index','--add','--cacheinfo',"100644,$Blob,docs/new_policy.md")
+  $DocsAddTree=(Read-HumCiGit $Fixture @('write-tree')).Trim()
+  $DocsAddHead=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',$DocsAddTree,'-p',$Base,'-m','docs-addition'))).Trim()
+  $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$DocsAddHead)
+  Assert-Policy ((Get-HumCiPushSelection $Fixture $Base $DocsAddHead).Profile -ceq 'language') 'owned-prefix addition classifies by path'
   $null=Read-HumCiGit $Fixture @('read-tree',$TreeA)
   $null=Read-HumCiGit $Fixture @('update-index','--force-remove','--','src/run.rs')
   $DeletedTree=(Read-HumCiGit $Fixture @('write-tree')).Trim()
   $Deleted=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',$DeletedTree,'-p',$Base,'-m','deletion'))).Trim()
   $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$Deleted)
-  Assert-Policy ((Get-HumCiPushSelection $Fixture $Base $Deleted).Profile -ceq 'full') 'registered deletion selects Full'
+  Assert-Policy ((Get-HumCiPushSelection $Fixture $Base $Deleted).Profile -ceq 'runtime') 'registered deletion classifies by path'
   $null=Read-HumCiGit $Fixture @('update-index','--add','--cacheinfo',"100644,$Blob,src/parser.rs")
   $RenameTree=(Read-HumCiGit $Fixture @('write-tree')).Trim()
   $Renamed=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',$RenameTree,'-p',$Base,'-m','rename'))).Trim()
   $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$Renamed)
   $RenameSelection=Get-HumCiPushSelection $Fixture $Base $Renamed
-  Assert-Policy ($RenameSelection.Profile -ceq 'full' -and $RenameSelection.Paths -ccontains 'src/run.rs' -and $RenameSelection.Paths -ccontains 'src/parser.rs') 'both rename sides participate'
+  Assert-Policy ($RenameSelection.Profile -ceq 'compiler' -and $RenameSelection.Paths -ccontains 'src/run.rs' -and $RenameSelection.Paths -ccontains 'src/parser.rs') 'both rename sides participate and the max rank wins'
+  # Decision 0025: mode/type changes stay Full even under owned prefixes.
+  foreach($ModeCase in @(@('100755','executable bit'),@('120000','symlink'),@('160000','gitlink'))) {
+    $Mode=$ModeCase[0]
+    $null=Read-HumCiGit $Fixture @('read-tree',$TreeA)
+    $ModeObject=if($Mode -ceq '160000'){$Base}else{$Blob}
+    $null=Read-HumCiGit $Fixture @('update-index','--add','--cacheinfo',"$Mode,$ModeObject,docs/tool_link")
+    $ModeTree=(Read-HumCiGit $Fixture @('write-tree')).Trim()
+    $ModeHead=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',$ModeTree,'-p',$Base,'-m','mode-add'))).Trim()
+    $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$ModeHead)
+    Assert-Policy ((Get-HumCiPushSelection $Fixture $Base $ModeHead).Profile -ceq 'full') "owned-prefix $($ModeCase[1]) addition selects Full"
+  }
+  # Decision 0025: deletions under owned prefixes classify by path.
+  $null=Read-HumCiGit $Fixture @('read-tree',$TreeB)
+  $null=Read-HumCiGit $Fixture @('update-index','--add','--cacheinfo',"100644,$Blob,docs/removable.md")
+  $DocsBase=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',(Read-HumCiGit $Fixture @('write-tree')).Trim(),'-p',$Base,'-m','docs-base'))).Trim()
+  $null=Read-HumCiGit $Fixture @('update-index','--force-remove','--','docs/removable.md')
+  $DocsDelTree=(Read-HumCiGit $Fixture @('write-tree')).Trim()
+  $DocsDel=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',$DocsDelTree,'-p',$DocsBase,'-m','docs-deletion'))).Trim()
+  $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$DocsDel)
+  Assert-Policy ((Get-HumCiPushSelection $Fixture $DocsBase $DocsDel).Profile -ceq 'language') 'owned-prefix deletion classifies by path'
   # Complete multi-commit range, including a policy edit reverted before head.
+  # Decision 0025: the policy script keeps a code-level profile, so the range's
+  # max rank comes from the src/run.rs modification, not the policy add/revert.
   $null=Read-HumCiGit $Fixture @('read-tree',$TreeB)
   $null=Read-HumCiGit $Fixture @('update-index','--add','--cacheinfo',"100644,$Blob,tools/check_ci_policy.ps1")
   $PolicyTree=(Read-HumCiGit $Fixture @('write-tree')).Trim()
   $PolicyCommit=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',$PolicyTree,'-p',$Head,'-m','policy'))).Trim()
   $Revert=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',$TreeB,'-p',$PolicyCommit,'-m','revert'))).Trim()
   $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$Revert)
-  Assert-Policy ((Get-HumCiPushSelection $Fixture $Base $Revert).Profile -ceq 'full') 'reverted policy in earlier push commit remains Full'
+  Assert-Policy ((Get-HumCiPushSelection $Fixture $Base $Revert).Profile -ceq 'runtime') 'reverted policy in earlier push commit classifies by remaining changes'
   $Again=(Read-HumCiGit $Fixture ($Identity+@('commit-tree',$TreeA,'-p',$Head,'-m','ordinary'))).Trim()
   $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$Again)
   Assert-Policy ((Get-HumCiPushSelection $Fixture $Base $Again).Profile -ceq 'runtime') 'multi-commit ordinary push (net empty) executes Runtime'
@@ -171,35 +276,27 @@ try {
     $env:HUM_SELECTED_PROFILE='full';$env:HUM_CI_EVENT_NAME='push';$env:HUM_CI_EVENT_REF='refs/heads/main'
     $env:RUNNER_TEMP=$Fixture;$env:GITHUB_REPOSITORY='owner/repo';$env:GITHUB_RUN_ID='42';$env:GITHUB_RUN_ATTEMPT='1'
     $env:GITHUB_STEP_SUMMARY=Join-Path $Fixture 'summary.txt';$env:GITHUB_OUTPUT=Join-Path $Fixture 'output.txt'
-    function gh {
-      $global:LASTEXITCODE=0
-      if($args -contains '--paginate'){
-        $Jobs=foreach($Platform in @('windows','ubuntu')){
-          $Names=@('Checkout','Verify integration identity','Run Hum preflight','Close full evidence transport','Confirm selected work completion')
-          if($Platform -ceq 'ubuntu'){$Names+='Run exhaustive canonical-seal evidence'}
-          @{name="evaluate / preflight ($Platform-latest)";run_id=42;head_sha=('a'*40);status='completed';conclusion='success';steps=@($Names|ForEach-Object{@{name=$_;status='completed';conclusion='success'}})}
-        }
-        ConvertTo-Json -InputObject @(@{jobs=@($Jobs)}) -Depth 8 -Compress
-      }else{
-        @{workflow_runs=@(@{event='schedule';path='.github/workflows/validation.yml';repository=@{full_name='owner/repo'};head_branch='main';head_sha=('a'*40);status='completed';conclusion=$script:HealthConclusion;id=42;run_attempt=1;created_at=[datetimeoffset]::UtcNow.ToString('o')})}|ConvertTo-Json -Depth 8 -Compress
-      }
-    }
-    foreach($Case in @(@($Accepted,$Ordinary,'runtime'),@($Accepted,$Poison,'full'),@($Base,$Head,'full'),@(('0'*40),$Ordinary,'full'))){
-      $env:HUM_CI_BASE_SHA=$Case[0];$env:HUM_CI_HEAD_SHA=$Case[1];$script:HealthConclusion='success'
+    $GhState = Install-HumCiTestGhMock
+    # Decision 0025: the push range Accepted..Poison holds the Ordinary commit
+    # (src/run.rs, runtime) plus the poisoned policy modification (language);
+    # the max rank wins. The mechanism under test is that the accepted policy
+    # is consumed, never the poisoned candidate.
+    foreach($Case in @(@($Accepted,$Ordinary,'runtime'),@($Accepted,$Poison,'runtime'),@($Base,$Head,'full'),@(('0'*40),$Ordinary,'full'))){
+      $env:HUM_CI_BASE_SHA=$Case[0];$env:HUM_CI_HEAD_SHA=$Case[1];$global:HumCiTestHealthConclusion='success'
       $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$Case[1])
       [IO.File]::WriteAllText($env:GITHUB_OUTPUT,'')
       & { $Mode='full'; . ([scriptblock]::Create($PushCode)) }
       $Lines=[IO.File]::ReadAllLines($env:GITHUB_OUTPUT)
       Assert-Policy ($Lines -ccontains "profile=$($Case[2])") 'actual push caller consumes accepted policy or Full fallback'
     }
-    $env:HUM_CI_BASE_SHA=$Accepted;$env:HUM_CI_HEAD_SHA=$Ordinary;$script:HealthConclusion='failure'
+    $env:HUM_CI_BASE_SHA=$Accepted;$env:HUM_CI_HEAD_SHA=$Ordinary;$global:HumCiTestHealthConclusion='failure'
     $null=Read-HumCiGit $Fixture @('update-ref','HEAD',$Ordinary)
     [IO.File]::WriteAllText($env:GITHUB_OUTPUT,'')
     Assert-PolicyRejects { & { $Mode='full'; . ([scriptblock]::Create($PushCode)) } } 'actual normal push rejects failed health'
     Assert-Policy ([IO.File]::ReadAllText($env:GITHUB_OUTPUT).Length -eq 0) 'failed health publishes no selected mode'
     Assert-Policy (@(Get-ChildItem -LiteralPath $Fixture -Filter 'hum-accepted-push-policy-*').Count -eq 0) 'accepted-policy disposable files removed'
   } finally {
-    Remove-Item Function:gh -ErrorAction SilentlyContinue
+    Remove-HumCiTestGhMock $GhState
     foreach($Key in $SavedPush.Keys){[Environment]::SetEnvironmentVariable($Key,$SavedPush[$Key],'Process')}
     Pop-Location
   }
@@ -526,6 +623,11 @@ try {
   $null=Read-HumCiGit $ScopeFixture @('init','-q','-b','main')
   [IO.Directory]::CreateDirectory((Join-Path $ScopeFixture 'tools'))|Out-Null
   [IO.File]::Copy((Join-Path $PSScriptRoot 'check_ci_policy.ps1'),(Join-Path $ScopeFixture 'tools/check_ci_policy.ps1'))
+  # Decision 0025: the fixture change lives under the owned tools/ prefix, so
+  # production selects the language profile and the classify step's health
+  # gate runs. The fixture installs the isolated gh mock; the regression
+  # under test is that the child-scope policy load does not clobber the
+  # step's $Mode.
   [IO.File]::WriteAllText((Join-Path $ScopeFixture 'tools/run_fast_evidence.ps1'),"base`n")
   $null=Read-HumCiGit $ScopeFixture @('add','--','tools/check_ci_policy.ps1','tools/run_fast_evidence.ps1')
   $ScopeTreeA=(Read-HumCiGit $ScopeFixture @('write-tree')).Trim()
@@ -536,12 +638,13 @@ try {
   $ScopeHead=(Read-HumCiGit $ScopeFixture ($ScopeIdentity+@('commit-tree',$ScopeTreeB,'-p',$ScopeBase,'-m','push-head'))).Trim()
   $null=Read-HumCiGit $ScopeFixture @('update-ref','HEAD',$ScopeHead)
   $null=Read-HumCiGit $ScopeFixture @('checkout','-q','--detach',$ScopeHead)
-  foreach ($Name in @('HUM_CI_BASE_SHA','HUM_CI_HEAD_SHA','RUNNER_TEMP','GITHUB_STEP_SUMMARY','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT')) {
+  foreach ($Name in @('HUM_CI_BASE_SHA','HUM_CI_HEAD_SHA','RUNNER_TEMP','GITHUB_STEP_SUMMARY','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_REPOSITORY')) {
     $OldScopeEnv[$Name]=[Environment]::GetEnvironmentVariable($Name,'Process')
   }
   [Environment]::SetEnvironmentVariable('HUM_CI_BASE_SHA',$ScopeBase,'Process')
   [Environment]::SetEnvironmentVariable('HUM_CI_HEAD_SHA',$ScopeHead,'Process')
   [Environment]::SetEnvironmentVariable('RUNNER_TEMP',[IO.Path]::GetTempPath(),'Process')
+  [Environment]::SetEnvironmentVariable('GITHUB_REPOSITORY','owner/repo','Process')
   $ScopeSummary=Join-Path ([IO.Path]::GetTempPath()) ('hum-ci-scope-summary-'+[Guid]::NewGuid().ToString('N')+'.md')
   [Environment]::SetEnvironmentVariable('GITHUB_STEP_SUMMARY',$ScopeSummary,'Process')
   [Environment]::SetEnvironmentVariable('GITHUB_RUN_ID','0','Process')
@@ -552,9 +655,12 @@ try {
     $SelectedProfile='full'
     $Policy=git -C $ScopeFixture show "$($ScopeBase):tools/check_ci_policy.ps1" 2>$null
     Assert-Policy ($LASTEXITCODE -eq 0) 'scope fixture policy readable'
-    & ([scriptblock]::Create($LoadBlock+"`n`$script:ScopeModeAfter = `$Mode`n`$script:ScopeProfileAfter = `$SelectedProfile"))
+    $ScopeGhState = Install-HumCiTestGhMock
+    try {
+      & ([scriptblock]::Create($LoadBlock+"`n`$script:ScopeModeAfter = `$Mode`n`$script:ScopeProfileAfter = `$SelectedProfile"))
+    } finally { Remove-HumCiTestGhMock $ScopeGhState }
     Assert-Policy ($script:ScopeModeAfter -ceq 'full') 'classify policy load leaves step $Mode at full (not Library)'
-    Assert-Policy ($script:ScopeProfileAfter -ceq 'full') 'classify push selection completes as full'
+    Assert-Policy ($script:ScopeProfileAfter -ceq 'language') 'classify push selection honestly selects language for the owned-prefix change'
     Assert-Policy ($LASTEXITCODE -eq 0) 'classify policy load leaves LASTEXITCODE 0'
   } finally { Pop-Location }
 } finally {
@@ -598,6 +704,11 @@ try {
   $null=Read-HumCiGit $PlanFixture @('init','-q','-b','main')
   [IO.Directory]::CreateDirectory((Join-Path $PlanFixture 'tools'))|Out-Null
   [IO.File]::Copy((Join-Path $PSScriptRoot 'check_ci_policy.ps1'),(Join-Path $PlanFixture 'tools/check_ci_policy.ps1'))
+  # Decision 0025: the fixture change lives under the owned tools/ prefix, so
+  # production selects the language profile and the plan step's health gate
+  # runs. The fixture installs the isolated gh mock; the regression under
+  # test is that the verified merge-parent base is used, not the stale event
+  # base.
   [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/run_fast_evidence.ps1'),"base`n")
   $null=Read-HumCiGit $PlanFixture @('add','--','tools/check_ci_policy.ps1','tools/run_fast_evidence.ps1')
   $PlanTreeA=(Read-HumCiGit $PlanFixture @('write-tree')).Trim()
@@ -641,11 +752,13 @@ try {
   Push-Location $PlanFixture
   try {
     $PlanError=$null
+    $PlanGhState = Install-HumCiTestGhMock
     try { & ([scriptblock]::Create($PlanBlock)) } catch { $PlanError=$_.Exception.Message }
+    Remove-HumCiTestGhMock $PlanGhState
     Assert-Policy ($null -eq $PlanError) "plan block passes with a stale event base (error: $PlanError)"
     $PlanOutLines=@(Get-Content -LiteralPath $PlanOutput)
     Assert-Policy ($PlanOutLines -contains "base=$PlanTip") 'plan reports the verified base, not the stale event base'
-    Assert-Policy ($PlanOutLines -contains 'profile=full') 'plan selects full for the fixture change'
+    Assert-Policy ($PlanOutLines -contains 'profile=language') 'plan selects language for the owned-prefix fixture change'
   } finally { Pop-Location }
 } finally {
   foreach ($Entry in $OldPlanEnv.GetEnumerator()) { [Environment]::SetEnvironmentVariable($Entry.Key,$Entry.Value,'Process') }
