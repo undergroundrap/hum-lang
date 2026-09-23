@@ -888,7 +888,7 @@ fn count_kind_slice(items: &[Item], kind: &str) -> usize {
         .sum()
 }
 
-fn quote(value: &str) -> String {
+pub(crate) fn quote(value: &str) -> String {
     let mut out = String::from("\"");
     for ch in value.chars() {
         match ch {

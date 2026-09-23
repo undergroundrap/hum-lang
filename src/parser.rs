@@ -4924,12 +4924,23 @@ fn retained_payload_events(
                 CanonicalPayloadField::TextDecodedValue,
                 // Retained evidence re-derives the decoded value from the raw
                 // source text with the same decode function. A retained
-                // TextLiteral payload only exists for valid literals, so the
-                // decode cannot fail; the fallback is defensive.
-                CanonicalPayloadEventValue::Text(
-                    decode_text_escapes(&text[1..text.len() - 1])
-                        .unwrap_or_else(|_| text[1..text.len() - 1].to_string()),
-                ),
+                // TextLiteral payload is only built when
+                // `retained_completion_event` reports `Complete`, and that
+                // function marks any literal with a bad escape `Unsupported`
+                // (H0638) before payload construction, so the decode cannot
+                // fail here. The fallback is defensive only; the debug_assert
+                // pins the invariant so a future decode regression fails
+                // loudly in test/debug builds instead of silently keeping
+                // raw source text in the seal.
+                CanonicalPayloadEventValue::Text({
+                    let inner = &text[1..text.len() - 1];
+                    let decoded = decode_text_escapes(inner);
+                    debug_assert!(
+                        decoded.is_ok(),
+                        "retained TextLiteral decode failed for a literal that passed H0638"
+                    );
+                    decoded.unwrap_or_else(|_| inner.to_string())
+                }),
             ));
             events.push(payload_value(
                 CanonicalPayloadField::TextTerminated,
@@ -8852,9 +8863,9 @@ fn reduction_child(
 /// literal's inner text, spanning `len` bytes (2 for `\x`, 1 for a trailing
 /// `\`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TextEscapeError {
-    offset: usize,
-    len: usize,
+pub(crate) struct TextEscapeError {
+    pub(crate) offset: usize,
+    pub(crate) len: usize,
 }
 
 /// Decodes decision-0022 escape sequences in a text literal's inner text.
@@ -8862,7 +8873,10 @@ struct TextEscapeError {
 /// always carries the decoded value. `\n` -> U+000A, `\t` -> U+0009,
 /// `\\` -> one backslash, `\"` -> `"`. Any other backslash sequence, and a
 /// trailing backslash, is an error carrying the bad escape's position.
-fn decode_text_escapes(inner: &str) -> Result<String, TextEscapeError> {
+///
+/// `pub(crate)` so the tree-walking runner (`run.rs`) decodes literals the
+/// same way instead of taking the inner source text verbatim.
+pub(crate) fn decode_text_escapes(inner: &str) -> Result<String, TextEscapeError> {
     let mut decoded = String::with_capacity(inner.len());
     let mut chars = inner.char_indices();
     while let Some((offset, ch)) = chars.next() {
@@ -12890,6 +12904,40 @@ task payload(value: UInt, other: UInt) -> UInt {
         assert_eq!(decode_text_escapes("hello").unwrap(), "hello");
         assert_eq!(decode_text_escapes("").unwrap(), "");
         assert_eq!(decode_text_escapes("a b c").unwrap(), "a b c");
+    }
+
+    #[test]
+    // WO27 Part 2: the decoded TextLiteral value (not the source spelling)
+    // must survive JSON emission as the `\n` escape with no raw line break.
+    // `decode_text_escapes` is the production decoder feeding
+    // `CanonicalPayloadField::TextDecodedValue`; `crate::json::quote` is the
+    // production JSON string escaper used by the `--format json` emitters.
+    fn decoded_text_literal_value_json_escapes_newline() {
+        // Source spelling `a\nb` (backslash-n) decodes to a real U+000A.
+        // Backslashes are built with char::from(92) to keep the source free
+        // of literal double-backslash sequences (public-readiness rule).
+        let bs = char::from(92);
+        let source = format!("a{bs}nb");
+        let decoded = decode_text_escapes(&source).unwrap();
+        assert_eq!(decoded, "a\nb");
+        assert!(
+            decoded.contains('\n'),
+            "decoded value must carry a real newline, not the source backslash-n"
+        );
+        let json = crate::json::quote(&decoded);
+        // The JSON text carries the U+000A escape (backslash-n), ...
+        let expected_json = format!("\"a{bs}nb\"");
+        assert_eq!(json, expected_json);
+        // ... and no raw 0x0A byte inside the JSON string.
+        assert!(
+            !json.contains('\n'),
+            "JSON emission must not contain a raw line break: {json:?}"
+        );
+        // A tab decodes and escapes the same way.
+        let source_tab = format!("a{bs}tb");
+        let decoded_tab = decode_text_escapes(&source_tab).unwrap();
+        let expected_tab = format!("\"a{bs}tb\"");
+        assert_eq!(crate::json::quote(&decoded_tab), expected_tab);
     }
 
     #[test]

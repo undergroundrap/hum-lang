@@ -2339,9 +2339,19 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             return Ok(Evaluated::Value(Value::Int(value)));
         }
         if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
-            return Ok(Evaluated::Value(Value::Text(
-                text[1..text.len() - 1].to_string(),
-            )));
+            // Decision 0022: a text literal evaluates to its DECODED value.
+            // The checker (H0638) rejects unknown escapes and trailing
+            // backslashes before `hum run` executes, so this decode cannot
+            // fail on checked source; the Err branch fails closed instead
+            // of silently keeping raw source text.
+            let inner = &text[1..text.len() - 1];
+            let decoded = crate::parser::decode_text_escapes(inner).map_err(|bad| {
+                format!(
+                    "invalid text escape at offset {} reached the runner; H0638 should have rejected it",
+                    bad.offset
+                )
+            })?;
+            return Ok(Evaluated::Value(Value::Text(decoded)));
         }
         if text.starts_with('[') && text.ends_with(']') {
             let inside = &text[1..text.len() - 1];
@@ -7649,6 +7659,26 @@ task set_after_move() -> Int {
         );
         assert_eq!(report.outcome, RunOutcome::AppSuccess);
         assert_eq!(output.writes, vec!["split-ok".as_bytes()]);
+    }
+
+    // WO27 Part 2: decision 0022 decode applies in the tree-walking runner,
+    // not just the canonical AST. A `"\n"` literal evaluates to U+000A, so
+    // splitting `"a\nb"` on `"\n"` yields two pieces.
+    #[test]
+    fn runner_text_literal_newline_escape_decodes() {
+        let program = fixture_program(
+            "examples/probes/decoded_newline_probe.hum",
+            include_str!("../examples/probes/decoded_newline_probe.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(
+            &program,
+            Some("decoded_newline_probe"),
+            &[],
+            &allowed_stdout(),
+            &mut output,
+        );
+        assert_eq!(report.outcome, RunOutcome::Success("\n".to_string()));
     }
 
     // WO27 Part 1a: a runtime-computed empty separator fails closed as a
