@@ -178,6 +178,36 @@ function Read-NativeChannelsWithExit {
   }
 }
 
+function Read-NativeArgumentListWithExit {
+  param(
+    [string] $Label,
+    [string] $FilePath,
+    [string[]] $Arguments
+  )
+
+  Write-Host "==> $Label"
+  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $StartInfo.FileName = $FilePath
+  foreach ($Argument in $Arguments) { $StartInfo.ArgumentList.Add($Argument) }
+  $StartInfo.UseShellExecute = $false
+  $StartInfo.CreateNoWindow = $true
+  $StartInfo.RedirectStandardOutput = $true
+  $StartInfo.RedirectStandardError = $true
+  $Process = New-Object System.Diagnostics.Process
+  $Process.StartInfo = $StartInfo
+  if (-not $Process.Start()) {
+    throw "$Label could not start"
+  }
+  $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+  $StderrTask = $Process.StandardError.ReadToEndAsync()
+  $Process.WaitForExit()
+  return [pscustomobject] @{
+    Stdout = $StdoutTask.Result
+    Stderr = $StderrTask.Result
+    ExitCode = $Process.ExitCode
+  }
+}
+
 function ConvertTo-UbuntuPwshResolutionEncodedCommand {
   param([string] $Command)
 
@@ -5050,11 +5080,96 @@ function Invoke-HumCompilerCorpusChecks {
   if ($SessionABH0638Trail.ExitCode -ne 1 -or [regex]::Matches($SessionABH0638Trail.Output, 'diagnostic=H0638').Count -ne 1) { throw 'Session AB trailing backslash must fail with exactly one H0638' }
   $SessionABH0636Stray = Read-NativeOutputWithExit 'full-type-check Session AB stray empty argument' $Hum @('full-type-check', 'fixtures/diagnostics/text_split_stray_empty_argument_fail.hum')
   if ($SessionABH0636Stray.ExitCode -ne 1 -or [regex]::Matches($SessionABH0636Stray.Output, 'diagnostic=H0636').Count -ne 1) { throw 'Session AB stray empty argument must fail with exactly one H0636' }
-  # Newline round trip: the \n literal in the decode fixture must survive
-  # the graph JSON emitter as an escaped \n, never a raw line break.
+  # Source-spelling coverage: the graph JSON emitter carries the source
+  # spelling `a\nb` (backslash-n), not the decoded value. The decoded
+  # TextDecodedValue lives in the canonical seal path (Rust-tested); no
+  # public JSON command surfaces it.
   $SessionABGraphEscapes = Read-NativeOutput 'graph Session AB text escapes decode' $Hum @('graph', 'fixtures/text_escapes_decode.hum')
   Assert-Json 'graph Session AB text escapes decode' $SessionABGraphEscapes
   if (-not $SessionABGraphEscapes.Contains('a\\nb')) { throw 'Session AB graph output must contain the escaped newline literal' }
+  # Byte-exact decoded newline: the tree-walking runner must decode the
+  # source "\n" to U+000A (decision 0022). The probe returns the decoded
+  # Text; stdout must be exactly two 0x0A bytes (the value plus the CLI
+  # println terminator), proving a real newline reaches the byte stream.
+  $SessionABProbePsi = New-Object System.Diagnostics.ProcessStartInfo
+  $SessionABProbePsi.FileName = $Hum
+  foreach ($Argument in @('run', 'examples/probes/decoded_newline_probe.hum', '--entry', 'decoded_newline_probe')) { $SessionABProbePsi.ArgumentList.Add($Argument) }
+  $SessionABProbePsi.UseShellExecute = $false
+  $SessionABProbePsi.CreateNoWindow = $true
+  $SessionABProbePsi.RedirectStandardOutput = $true
+  $SessionABProbePsi.RedirectStandardError = $true
+  $SessionABProbeProc = [System.Diagnostics.Process]::Start($SessionABProbePsi)
+  $SessionABProbeMs = New-Object System.IO.MemoryStream
+  $SessionABProbeProc.StandardOutput.BaseStream.CopyTo($SessionABProbeMs)
+  $SessionABProbeStderr = $SessionABProbeProc.StandardError.ReadToEnd()
+  $SessionABProbeProc.WaitForExit()
+  $SessionABProbeBytes = $SessionABProbeMs.ToArray()
+  if ($SessionABProbeProc.ExitCode -ne 0) { throw "Session AB decoded-newline probe expected exit 0, got $($SessionABProbeProc.ExitCode)" }
+  if ($SessionABProbeStderr -ne '') { throw 'Session AB decoded-newline probe must not write to stderr' }
+  if ($SessionABProbeBytes.Count -ne 2 -or $SessionABProbeBytes[0] -ne 0x0A -or $SessionABProbeBytes[1] -ne 0x0A) { throw 'Session AB decoded-newline probe stdout must be exactly two 0x0A bytes' }
+
+  # Session AG: wordfreq (WO27 Part 2, decisions 0021/0022). The first real
+  # program on text_split + text escapes: checker acceptance, pure-helper
+  # positive/boundary runs, misuse fail-closed, and evidence linkage.
+  $SessionAGProgram = 'examples/tools/wordfreq.hum'
+  $SessionAGCheck = Read-NativeOutputWithExit 'check Session AG wordfreq' $Hum @('check', $SessionAGProgram)
+  if ($SessionAGCheck.ExitCode -ne 0 -or -not $SessionAGCheck.Output.Contains('0 error(s)')) { throw 'Session AG wordfreq must check with zero errors' }
+  $SessionAGGraph = Read-NativeOutput 'graph Session AG wordfreq' $Hum @('graph', $SessionAGProgram)
+  Assert-Json 'graph Session AG wordfreq' $SessionAGGraph
+  $SessionAGEvidence = Read-NativeOutput 'evidence Session AG wordfreq' $Hum @('evidence', '--format', 'json', $SessionAGProgram)
+  Assert-Json 'evidence Session AG wordfreq' $SessionAGEvidence
+  # Pure helpers: positive and boundary through hum run. The ArgumentList
+  # helper accepts whitespace-bearing text arguments (the channel helper
+  # rejects them by design).
+  $SessionAGCount = Read-NativeArgumentListWithExit 'run Session AG wordfreq_count positive' $Hum @('run', $SessionAGProgram, '--entry', 'wordfreq_count', '--args', 'hum lang hum')
+  if ($SessionAGCount.ExitCode -ne 0 -or $SessionAGCount.Stdout.Trim() -ne '3' -or $SessionAGCount.Stderr -ne '') { throw 'Session AG wordfreq_count must return 3 for "hum lang hum"' }
+  $SessionAGWords = Read-NativeArgumentListWithExit 'run Session AG wordfreq_words positive' $Hum @('run', $SessionAGProgram, '--entry', 'wordfreq_words', '--args', 'hum lang hum')
+  if ($SessionAGWords.ExitCode -ne 0 -or $SessionAGWords.Stdout.Trim() -ne '[hum, lang, hum]' -or $SessionAGWords.Stderr -ne '') { throw 'Session AG wordfreq_words must return [hum, lang, hum]' }
+  $SessionAGEmpty = Read-NativeArgumentListWithExit 'run Session AG wordfreq_count empty boundary' $Hum @('run', $SessionAGProgram, '--entry', 'wordfreq_count', '--args', '')
+  if ($SessionAGEmpty.ExitCode -ne 0 -or $SessionAGEmpty.Stdout.Trim() -ne '0' -or $SessionAGEmpty.Stderr -ne '') { throw 'Session AG wordfreq_count must return 0 for empty input' }
+  $SessionAGNewline = Read-NativeArgumentListWithExit 'run Session AG wordfreq_words newline boundary' $Hum @('run', $SessionAGProgram, '--entry', 'wordfreq_words', '--args', "hum`nlang`nhum")
+  if ($SessionAGNewline.ExitCode -ne 0 -or $SessionAGNewline.Stdout.Trim() -ne '[hum, lang, hum]' -or $SessionAGNewline.Stderr -ne '') { throw 'Session AG wordfreq_words must split on real newlines' }
+  # Misuse: a missing --args fails closed with a typed arity error on
+  # stderr (exit 2), never a panic or stack trace.
+  $SessionAGNoArgs = Read-NativeArgumentListWithExit 'run Session AG wordfreq_count missing args misuse' $Hum @('run', $SessionAGProgram, '--entry', 'wordfreq_count')
+  if ($SessionAGNoArgs.ExitCode -ne 2 -or -not $SessionAGNoArgs.Stderr.Contains('expects 1 argument(s), got 0') -or $SessionAGNoArgs.Stderr.Contains('panicked')) { throw 'Session AG missing args must fail closed with the arity error' }
+  if ($IsWindows) {
+    # Windows: positive exact granted file read with byte-exact stdout.
+    # The fixture is 15 bytes; stdout must be exactly 13 bytes with three
+    # 0x0A newlines and no 0x0D carriage returns.
+    $SessionAGFixture = 'fixtures/wordfreq/sample.txt'
+    $SessionAGPsi = New-Object System.Diagnostics.ProcessStartInfo
+    $SessionAGPsi.FileName = $Hum
+    foreach ($Argument in @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)) { $SessionAGPsi.ArgumentList.Add($Argument) }
+    $SessionAGPsi.UseShellExecute = $false
+    $SessionAGPsi.CreateNoWindow = $true
+    $SessionAGPsi.RedirectStandardOutput = $true
+    $SessionAGPsi.RedirectStandardError = $true
+    $SessionAGProc = [System.Diagnostics.Process]::Start($SessionAGPsi)
+    $SessionAGMs = New-Object System.IO.MemoryStream
+    $SessionAGProc.StandardOutput.BaseStream.CopyTo($SessionAGMs)
+    $SessionAGStderr = $SessionAGProc.StandardError.ReadToEnd()
+    $SessionAGProc.WaitForExit()
+    $SessionAGBytes = $SessionAGMs.ToArray()
+    $SessionAGExpected = [byte[]]@(0x68, 0x75, 0x6D, 0x0A, 0x6C, 0x61, 0x6E, 0x67, 0x0A, 0x68, 0x75, 0x6D, 0x0A)
+    if ($SessionAGProc.ExitCode -ne 0) { throw "Session AG wordfreq file read expected exit 0, got $($SessionAGProc.ExitCode)" }
+    if ($SessionAGStderr -ne '') { throw 'Session AG wordfreq file read must not write to stderr' }
+    if ($SessionAGBytes.Count -ne $SessionAGExpected.Count) { throw "Session AG wordfreq stdout must be exactly 13 bytes, got $($SessionAGBytes.Count)" }
+    for ($SessionAGI = 0; $SessionAGI -lt $SessionAGExpected.Count; $SessionAGI++) {
+      if ($SessionAGBytes[$SessionAGI] -ne $SessionAGExpected[$SessionAGI]) { throw "Session AG wordfreq stdout byte $SessionAGI must be 0x$($SessionAGExpected[$SessionAGI].ToString('X2'))" }
+    }
+    # Windows misuse: no files.read grant fails closed with typed denial.
+    $SessionAGDenied = Read-NativeArgumentListWithExit 'run Session AG wordfreq file denial misuse' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', '--args', $SessionAGFixture)
+    if ($SessionAGDenied.ExitCode -ne 1 -or -not $SessionAGDenied.Stderr.Contains('WordfreqError.read') -or -not $SessionAGDenied.Stderr.Contains('FileReadError.denied') -or $SessionAGDenied.Stderr.Contains('panicked')) { throw 'Session AG file denial must fail closed with typed WordfreqError.read caused by FileReadError.denied' }
+    $global:LASTEXITCODE = 0
+  } else {
+    # Non-Windows: native Path input is unavailable by platform design;
+    # the positive file-read path is Windows-only. Assert the fail-closed
+    # unavailability instead of claiming file-read coverage.
+    $SessionAGUnavailable = Read-NativeArgumentListWithExit 'run Session AG wordfreq native path unavailable' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', '--allow=files.read=fixtures/wordfreq/sample.txt', '--args', 'fixtures/wordfreq/sample.txt')
+    if ($SessionAGUnavailable.ExitCode -eq 0 -or -not ($SessionAGUnavailable.Stdout.Contains('native_path_input_unavailable_on_non_windows_v0') -or $SessionAGUnavailable.Stderr.Contains('native_path_input_unavailable_on_non_windows_v0'))) { throw 'Session AG non-Windows must fail closed with native path unavailability' }
+    $global:LASTEXITCODE = 0
+  }
 
   $SessionAAPositive = 'examples/probes/runner_replay_clock.hum'
   foreach ($Command in @('resolve', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
