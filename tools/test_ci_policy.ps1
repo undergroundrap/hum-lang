@@ -443,8 +443,8 @@ foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invok
 # These pins protect the mechanically shared bodies from silent omissions.
 # They are source-closure evidence, never a claim that the full corpus ran.
 $CompilerBodies=@{
-  'Invoke-HumCompilerFrontChecks'='f705e7a73254db2626ea9a0b0a536de493417a15380622745b4941ed6d4a1dda'
-  'Invoke-HumCompilerCorpusChecks'='c07fbd4f30d9d811584d5f4ea11bd4490f6cb48537bf87c43ff2e160bc7bc1d5'
+  'Invoke-HumCompilerFrontChecks'='fa10b6d816d601b3dfc848fd68098c1a91be57a3853d88c08e5cce95f9fbcae8'
+  'Invoke-HumCompilerCorpusChecks'='30c164d7d13c8cd003a59627160b743179a07c19b2c91742380b65862628038f'
   'Invoke-HumUseAfterMoveRuntimeCheck'='a7c5db7146519cba950ec4ba2de9a0f15bf505bbfde0bc855b2e49c9a74a34f8'
   'Invoke-HumUseAfterMoveProjectionCheck'='d1708df1234a0cbdf4f686d48facad32ccfb2bcc7baa834281d2246b748f41f0'
 }
