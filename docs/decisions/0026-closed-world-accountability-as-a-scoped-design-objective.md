@@ -1,9 +1,9 @@
 # 0026: Closed-World Accountability As A Scoped Design Objective
 
 Date: 2026-09-22
-Status: rejected as written (BDFL ruling 2026-09-22). Revision 3 reframes the
-record as a scoped design objective per the independent thesis review; the
-non-bolt-on exclusivity claim is withdrawn. NOT accepted — see Ruling.
+Status: accepted 2026-09-23 as a scoped design objective and research plan
+(revision 3, BDFL ruling). Revision 2 was rejected as written (BDFL ruling
+2026-09-22); the non-bolt-on exclusivity claim is withdrawn. See Ruling.
 
 Recommendation only; the BDFL rules.
 
@@ -597,8 +597,12 @@ sources:
 
 ## Ruling
 
-Rejected as written. BDFL ruling 2026-09-22: 0026 is NOT accepted as the
-justification for a non-bolt-on property.
+Accepted as a scoped design objective and research plan. BDFL ruling
+2026-09-23 (revision 3): revision 3 is the rewrite the BDFL asked for after
+rejecting revision 2, so it is not "rejected" — revision 2's rejection is
+history. Revision 2 stands rejected as written (BDFL ruling 2026-09-22):
+0026 was NOT accepted as the justification for a non-bolt-on property. The
+non-bolt-on exclusivity claim stays withdrawn.
 
 **Review history.** (1) Pre-issuance execution review of revision 2:
 Claude, 2026-09-22 — with disclosure that the thesis wording is Claude's,
@@ -606,7 +610,15 @@ so that review covers execution accuracy only, not the truth of the
 thesis. (2) Independent thesis review: ChatGPT Pro, full text received via
 Ocean 2026-09-22 — a document/source review with external primary-source
 spot checks (not an execution of any test suite). Verdict: does not hold
-as written. This revision (3) addresses its findings: the stronger
+as written. (3) Execution re-check of revision 3: Claude, 2026-09-22 — the
+exclusivity claim is gone, every tool the review named is in the steelman
+(Cackle, RefinedRust, SAW, MIRAI, Wasmtime/WASI), the forbid/cap-lints
+correction is in, evidence labels are split into Requirement / Implemented
+/ Guarantee throughout, the falsifier is the symmetric one, "stop growing
+the checker" is explicitly removed, the comparative plan leads with linear
+resources versus `mem::forget`, and the review history is recorded
+honestly, including Claude's conflict of interest.
+Revision 3 addresses the independent review's findings: the stronger
 enforced-profile steelman; the ledger-artifact correction; the per-crate
 forbid correction; the FFI corrections; composition and the corrected
 Aeneas account; the capability correction; the coverage-and-trust
@@ -615,5 +627,6 @@ evidence model with the corrected 0015 mapping; the symmetric trusted base
 with the conditional guarantee; every overstated claim re-split into
 Requirement / Implemented / Guarantee; the symmetric operational
 falsifier; the removed "stop growing the checker" consequence; and the
-comparative-evidence plan. No PR until the enforced-Rust-profile
-comparison lands.
+comparative-evidence plan. The enforced-Rust-profile comparison gates the
+language-versus-toolchain INVESTMENT decision, not this record — this
+record is what commissions that comparison.
