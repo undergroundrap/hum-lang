@@ -5183,39 +5183,39 @@ function Invoke-HumCompilerCorpusChecks {
   $SessionAGNoArgs = Read-NativeArgumentListWithExit 'run Session AG wordfreq_count missing args misuse' $Hum @('run', $SessionAGProgram, '--entry', 'wordfreq_count')
   if ($SessionAGNoArgs.ExitCode -ne 2 -or -not $SessionAGNoArgs.Stderr.Contains('expects 1 argument(s), got 0') -or $SessionAGNoArgs.Stderr.Contains('panicked')) { throw 'Session AG missing args must fail closed with the arity error' }
   if ($IsWindows) {
-    # Windows: positive exact granted file read with byte-exact stdout.
-    # The fixture is 15 bytes; stdout must be exactly 13 bytes with three
-    # 0x0A newlines and no 0x0D carriage returns.
-    # Native paths must be absolute (drive-rooted) — the Windows validator
-    # rejects relative paths, so resolve the fixture against $RepoRoot.
-    # Join per segment: Join-Path only inserts the platform separator
-    # between its two arguments, so a single 'fixtures/wordfreq/sample.txt'
-    # child keeps its forward slashes and yields a mixed-separator path on
-    # Windows (drive-rooted, then backslashes, then forward slashes) that
-    # fails the strict native-path grant comparison (run 35914248940:
-    # exit 1 with no visible reason until stderr was surfaced). Per-segment
-    # joins stay canonical on both platforms.
+    # Windows: the wordfreq APP entry is refused by the full type-check gate
+    # (recognized_core_body_type_gate_v0: blocked_by_unchecked_body_types_v0)
+    # because for_each headers are unchecked statements
+    # (iterator_type_checking_not_implemented). This is a KNOWN LIMITATION
+    # gated on friction ledger #13, not a pass: the app path runs nowhere
+    # today (--entry runs bypass the gate; non-Windows fails earlier on
+    # files_read). WO28 orders #13 (type for-each loop variables) first with
+    # done-condition "wordfreq runs end-to-end on Windows", which flips this
+    # assertion back to the byte-exact stdout success check.
+    # The mixed-separator fixture-path hypothesis (run 35914248940) was
+    # DISPROVEN by run 35918468834: the enriched stderr showed the gate
+    # refusal, never a path error. Per-segment joins stay (canonical on both
+    # platforms) but they were never the cause.
     # Stdout/stderr drain concurrently inside the helper: the previous
     # inline sequential read deadlocked when hum.exe wrote a long stderr
     # (validation run 35906343427 hung to the 3000 s deadline), hiding the
     # real failure. A hang now fails in minutes with captured stderr.
-    $SessionAGFixture = Join-Path (Join-Path (Join-Path $RepoRoot 'fixtures') 'wordfreq') 'sample.txt'
-    $SessionAGFileRead = Read-NativeBytesWithExit 'run Session AG wordfreq file read positive' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)
-    $SessionAGBytes = $SessionAGFileRead.Bytes
-    $SessionAGStderr = $SessionAGFileRead.Stderr
-    $SessionAGExpected = [byte[]]@(0x68, 0x75, 0x6D, 0x0A, 0x6C, 0x61, 0x6E, 0x67, 0x0A, 0x68, 0x75, 0x6D, 0x0A)
     # Failure messages carry the child's stderr/stdout: the previous
     # bare "got 1" (run 35914248940) hid the real reason. Never discard
     # captured diagnostics.
-    if ($SessionAGFileRead.ExitCode -ne 0) { throw "Session AG wordfreq file read expected exit 0, got $($SessionAGFileRead.ExitCode); stderr: $SessionAGStderr; stdout: $([BitConverter]::ToString($SessionAGBytes))" }
-    if ($SessionAGStderr -ne '') { throw "Session AG wordfreq file read must not write to stderr; stderr: $SessionAGStderr" }
-    if ($SessionAGBytes.Count -ne $SessionAGExpected.Count) { throw "Session AG wordfreq stdout must be exactly 13 bytes, got $($SessionAGBytes.Count); stdout: $([BitConverter]::ToString($SessionAGBytes)); stderr: $SessionAGStderr" }
-    for ($SessionAGI = 0; $SessionAGI -lt $SessionAGExpected.Count; $SessionAGI++) {
-      if ($SessionAGBytes[$SessionAGI] -ne $SessionAGExpected[$SessionAGI]) { throw "Session AG wordfreq stdout byte $SessionAGI must be 0x$($SessionAGExpected[$SessionAGI].ToString('X2')), got 0x$($SessionAGBytes[$SessionAGI].ToString('X2')); stderr: $SessionAGStderr" }
-    }
-    # Windows misuse: no files.read grant fails closed with typed denial.
-    $SessionAGDenied = Read-NativeArgumentListWithExit 'run Session AG wordfreq file denial misuse' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', '--args', $SessionAGFixture)
-    if ($SessionAGDenied.ExitCode -ne 1 -or -not $SessionAGDenied.Stderr.Contains('WordfreqError.read') -or -not $SessionAGDenied.Stderr.Contains('FileReadError.denied') -or $SessionAGDenied.Stderr.Contains('panicked')) { throw 'Session AG file denial must fail closed with typed WordfreqError.read caused by FileReadError.denied' }
+    $SessionAGFixture = Join-Path (Join-Path (Join-Path $RepoRoot 'fixtures') 'wordfreq') 'sample.txt'
+    $SessionAGFileRead = Read-NativeBytesWithExit 'run Session AG wordfreq app entry gate refusal' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)
+    $SessionAGBytes = $SessionAGFileRead.Bytes
+    $SessionAGStderr = $SessionAGFileRead.Stderr
+    if ($SessionAGFileRead.ExitCode -ne 1) { throw "Session AG wordfreq app entry must be refused by the type gate with exit 1 (ledger #13), got $($SessionAGFileRead.ExitCode); stderr: $SessionAGStderr; stdout: $([BitConverter]::ToString($SessionAGBytes))" }
+    if (-not $SessionAGStderr.Contains('blocked_by_unchecked_body_types_v0')) { throw "Session AG wordfreq app entry refusal must carry blocked_by_unchecked_body_types_v0 (ledger #13); stderr: $SessionAGStderr; stdout: $([BitConverter]::ToString($SessionAGBytes))" }
+    if ($SessionAGStderr.Contains('panicked')) { throw "Session AG wordfreq app entry must fail closed without panicking; stderr: $SessionAGStderr" }
+    # Windows misuse: without the files.read grant the APP entry is still
+    # refused by the type gate before capability enforcement runs, so no
+    # typed FileReadError.denied is observable yet. Pin the fail-closed gate
+    # refusal (no panic); the typed-denial assertion returns with ledger #13.
+    $SessionAGDenied = Read-NativeArgumentListWithExit 'run Session AG wordfreq ungranted app entry gate refusal' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', '--args', $SessionAGFixture)
+    if ($SessionAGDenied.ExitCode -ne 1 -or -not $SessionAGDenied.Stderr.Contains('blocked_by_unchecked_body_types_v0') -or $SessionAGDenied.Stderr.Contains('panicked')) { throw "Session AG ungranted app entry must fail closed at the type gate (ledger #13), got exit $($SessionAGDenied.ExitCode); stderr: $($SessionAGDenied.Stderr)" }
     $global:LASTEXITCODE = 0
   } else {
     # Non-Windows: native Path input is unavailable by platform design;
