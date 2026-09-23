@@ -1,0 +1,25 @@
+module examples.probes.text_split_args
+
+type SplitError {
+  code: Text
+}
+
+task split_args(text: Text, sep: Text) -> Result List Text, SplitError {
+  why:
+    pure entry probe observing exact split pieces for boundary inputs
+
+  fails when:
+    splitting fails
+
+  cost:
+    time: O(text)
+    space: O(pieces)
+    check: warn
+
+  allocates:
+    one owned string per piece, plus the piece list
+
+  does:
+    let pieces = try text_split(text, sep) or fail SplitError.split
+    return pieces
+}

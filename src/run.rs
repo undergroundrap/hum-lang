@@ -989,6 +989,31 @@ fn file_failure(variant: &str, span: Span) -> FailureValue {
     )
 }
 
+fn text_split_failure(variant: &str, span: Span) -> FailureValue {
+    FailureValue::root(
+        FailureVariant {
+            root: "TextSplitError".to_string(),
+            variant: variant.to_string(),
+        },
+        span,
+    )
+}
+
+/// Exact substring split, left-to-right, non-overlapping (decision 0021).
+/// `separator` must be non-empty; the caller raises `TextSplitError.SepEmpty`
+/// otherwise. Returns owned copies, never views.
+fn split_text_owned(text: &str, separator: &str) -> Vec<String> {
+    debug_assert!(!separator.is_empty());
+    let mut pieces = Vec::new();
+    let mut start = 0usize;
+    while let Some(relative) = text[start..].find(separator) {
+        pieces.push(text[start..start + relative].to_string());
+        start += relative + separator.len();
+    }
+    pieces.push(text[start..].to_string());
+    pieces
+}
+
 #[allow(clippy::too_many_arguments)]
 fn output_audit_event(
     event_id: String,
@@ -2437,6 +2462,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             if callee == "files_read_text" {
                 return self.eval_files_read_text(args, env, span, task_name);
             }
+            if callee == "text_split" {
+                return self.eval_text_split(args, env, span, task_name);
+            }
             if return_dependency::is_closed_view_deriving_operation(callee) {
                 return self.eval_slice_until(args, env, span, task_name);
             }
@@ -2849,6 +2877,53 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 )))
             }
         }
+    }
+
+    fn eval_text_split(
+        &self,
+        args: &str,
+        env: &mut Env,
+        statement_span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
+        let raw_args = split_arguments(args);
+        if raw_args.len() != 2 {
+            return Err(format!(
+                "text_split expects exactly 2 Text arguments, got {}",
+                raw_args.len()
+            ));
+        }
+        let mut values = Vec::with_capacity(2);
+        for raw in &raw_args {
+            match self.eval_expr(raw, env, statement_span, task_name)? {
+                Evaluated::Value(value) => values.push(value),
+                Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+                Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+            }
+        }
+        let [text, separator] = values.as_slice() else {
+            unreachable!("text_split arity checked above");
+        };
+        let Value::Text(text) = text else {
+            return Err("text_split expects a Text value to split".to_string());
+        };
+        let Value::Text(separator) = separator else {
+            return Err("text_split expects a Text separator".to_string());
+        };
+        if separator.is_empty() {
+            return Ok(Evaluated::Failure(text_split_failure(
+                "SepEmpty",
+                statement_span.clone(),
+            )));
+        }
+        // Owned copies, not views: one string per piece plus the list.
+        // Deliberate allocation (perf debt, see decision 0021) to avoid the
+        // locked ownership relationships a `List Text` of views would need.
+        let pieces = split_text_owned(text, separator)
+            .into_iter()
+            .map(Value::Text)
+            .collect();
+        Ok(Evaluated::Value(Value::List(pieces)))
     }
 
     fn next_file_policy(
@@ -4326,31 +4401,12 @@ fn constant_text_stdout_write_try_call(text: &str) -> Option<&str> {
         .then_some(call)
 }
 
-fn split_arguments(text: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0usize;
-    let mut depth = 0isize;
-    let mut in_string = false;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '"' => in_string = !in_string,
-            '(' | '[' | '{' if !in_string => depth += 1,
-            ')' | ']' | '}' if !in_string => depth -= 1,
-            ',' if !in_string && depth == 0 => {
-                let part = text[start..index].trim();
-                if !part.is_empty() {
-                    parts.push(part);
-                }
-                start = index + ch.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    let part = text[start..].trim();
-    if !part.is_empty() {
-        parts.push(part);
-    }
-    parts
+// WO27 Part 1a: thin delegating wrapper over the canonical escape-aware
+// `typed_failure::split_call_arguments`. This name is on borrowed time —
+// Part 1b removes it and migrates the remaining call sites to the canonical
+// name. It carries no parser logic of its own.
+pub(crate) fn split_arguments(text: &str) -> Vec<&str> {
+    crate::typed_failure::split_call_arguments(text)
 }
 
 fn split_word_operator<'a>(text: &'a str, operator: &str) -> Option<(&'a str, &'a str)> {
@@ -4460,6 +4516,7 @@ fn outer_parens_wrap(text: &str) -> bool {
 pub(crate) mod tests {
     use std::ffi::{OsStr, OsString};
 
+    use super::split_text_owned;
     use crate::ast::Program;
     use crate::check;
     use crate::diagnostic::{
@@ -7536,5 +7593,148 @@ task set_after_move() -> Int {
         Program {
             files: vec![parsed.file],
         }
+    }
+
+    // WO27 Part 1a: `text_split` exact-substring semantics (decision 0021).
+    #[test]
+    fn text_split_owned_matches_normative_edges() {
+        let cases: &[(&str, &str, &[&str])] = &[
+            ("aaa", "aa", &["", "a"]),
+            (",a,b", ",", &["", "a", "b"]),
+            ("a,b,", ",", &["a", "b", ""]),
+            ("a,,b", ",", &["a", "", "b"]),
+            ("abc", ",", &["abc"]),
+            ("", ",", &[""]),
+            ("a,b,c", ",", &["a", "b", "c"]),
+            ("aaaa", "aa", &["", "", ""]),
+            ("héllo wörld", " ", &["héllo", "wörld"]),
+        ];
+        for (text, separator, expected) in cases {
+            assert_eq!(
+                split_text_owned(text, separator),
+                expected
+                    .iter()
+                    .map(|piece| (*piece).to_string())
+                    .collect::<Vec<_>>(),
+                "text={text:?} sep={separator:?}"
+            );
+        }
+    }
+
+    // WO27 Part 1a: every piece is an owned copy, never a view into the source.
+    #[test]
+    fn text_split_owned_returns_owned_pieces() {
+        let text = String::from("a,b");
+        let pieces = split_text_owned(&text, ",");
+        assert_eq!(pieces.len(), 2);
+        let text_start = text.as_ptr() as usize;
+        let text_end = text_start + text.len();
+        for (index, piece) in pieces.iter().enumerate() {
+            let piece_ptr = piece.as_ptr() as usize;
+            assert!(
+                piece_ptr < text_start || piece_ptr >= text_end,
+                "piece {index} must not alias the source text"
+            );
+        }
+    }
+
+    // WO27 Part 1a: the app probe exercises the production split path.
+    #[test]
+    fn text_split_app_probe_writes_marker_on_success() {
+        let program = fixture_program(
+            "examples/probes/text_split.hum",
+            include_str!("../examples/probes/text_split.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(
+            &program,
+            None,
+            &["a,b,c".to_string(), ",".to_string()],
+            &allowed_stdout(),
+            &mut output,
+        );
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        assert_eq!(output.writes, vec!["split-ok".as_bytes()]);
+    }
+
+    // WO27 Part 1a: a runtime-computed empty separator fails closed as a
+    // typed failure through the app path.
+    #[test]
+    fn text_split_app_probe_empty_separator_raises_sep_empty() {
+        let program = fixture_program(
+            "examples/probes/text_split.hum",
+            include_str!("../examples/probes/text_split.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(
+            &program,
+            None,
+            &["a,b,c".to_string(), String::new()],
+            &allowed_stdout(),
+            &mut output,
+        );
+        let RunOutcome::AppFailure(chain) = report.outcome else {
+            panic!("expected typed app failure, got {:?}", report.outcome);
+        };
+        assert!(chain.contains("failure: SplitError.split"));
+        assert!(chain.contains("caused by: TextSplitError.SepEmpty"));
+        assert!(chain.contains("while calling `text_split`"));
+        assert_eq!(output.calls, 0);
+    }
+
+    // WO27 Part 1a: the pure entry probe observes exact boundary pieces.
+    #[test]
+    fn text_split_entry_probe_observes_boundary_pieces() {
+        let program = fixture_program(
+            "examples/probes/text_split_args.hum",
+            include_str!("../examples/probes/text_split_args.hum"),
+        );
+        let cases: &[(&str, &str, &str)] = &[
+            ("a,b,c", ",", "[a, b, c]"),
+            ("a,,b", ",", "[a, , b]"),
+            (",a,b", ",", "[, a, b]"),
+            ("a,b,", ",", "[a, b, ]"),
+            ("abc", ",", "[abc]"),
+            ("", ",", "[]"),
+            ("aaa", "aa", "[, a]"),
+        ];
+        for (text, separator, expected) in cases {
+            let mut output = RecordingOutput::default();
+            let report = run_program_with_output(
+                &program,
+                Some("split_args"),
+                &[(*text).to_string(), (*separator).to_string()],
+                &allowed_stdout(),
+                &mut output,
+            );
+            assert_eq!(
+                report.outcome,
+                RunOutcome::Success((*expected).to_string()),
+                "text={text:?} sep={separator:?}"
+            );
+        }
+    }
+
+    // WO27 Part 1a: a runtime-computed empty separator surfaces through the
+    // pure entry probe as the task's declared failure, wrapping SepEmpty.
+    #[test]
+    fn text_split_entry_probe_empty_separator_wraps_sep_empty() {
+        let program = fixture_program(
+            "examples/probes/text_split_args.hum",
+            include_str!("../examples/probes/text_split_args.hum"),
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(
+            &program,
+            Some("split_args"),
+            &["a,b,c".to_string(), String::new()],
+            &allowed_stdout(),
+            &mut output,
+        );
+        let RunOutcome::Failure(chain) = report.outcome else {
+            panic!("expected typed failure, got {:?}", report.outcome);
+        };
+        assert!(chain.contains("failure: SplitError.split"));
+        assert!(chain.contains("caused by: TextSplitError.SepEmpty"));
     }
 }

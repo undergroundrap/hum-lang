@@ -155,6 +155,13 @@ struct FileReadTypeIssue {
     reason: &'static str,
 }
 
+struct TextSplitTypeIssue {
+    call_source: String,
+    call_span: Span,
+    actual_type: Option<TypeFact>,
+    reason: &'static str,
+}
+
 pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> bool {
     full_type_check_summary(program, diagnostics).blocking_issues > 0
 }
@@ -910,6 +917,35 @@ fn type_statement(
         return typed;
     }
 
+    if let Some(issue) = text_split_type_issue(statement, environment, task_returns, field_types) {
+        let mut typed = typed_statement(
+            statement,
+            index,
+            Some(issue.call_source),
+            Some("List Text".to_string()),
+            issue.actual_type,
+            "rejected_invalid_text_split_call_v0",
+            Some(issue.reason),
+        );
+        typed.failure_form = Some("text_split_builtin");
+        typed.call_span = Some(issue.call_span);
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::INVALID_TEXT_SPLIT_CALL.as_str());
+        typed.help = Some(
+            "Pass exactly two `Text` arguments to `text_split`, use a non-empty separator, then handle its `TextSplitError` explicitly unless the separator is a directly-written non-empty literal."
+                .to_string(),
+        );
+        attach_builtin_occurrence(
+            &mut typed,
+            item_identity,
+            index,
+            DiagnosticCode::INVALID_TEXT_SPLIT_CALL,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(183),
+            "text_split_call_shape",
+        );
+        return typed;
+    }
+
     if let Some(binding_name) = constant_text_stdout_write_binding(parsed) {
         let actual = type_fact("Unit", "constant_text_stdout_write_success_v0");
         environment.insert(name_key(binding_name), actual.clone());
@@ -1163,31 +1199,72 @@ fn file_read_type_issue(
     })
 }
 
-fn split_call_arguments(text: &str) -> Vec<&str> {
-    let mut arguments = Vec::new();
-    let mut start = 0usize;
-    let mut depth = 0isize;
-    let mut in_string = false;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '"' => in_string = !in_string,
-            '(' | '[' | '{' if !in_string => depth += 1,
-            ')' | ']' | '}' if !in_string => depth -= 1,
-            ',' if !in_string && depth == 0 => {
-                let argument = text[start..index].trim();
-                if !argument.is_empty() {
-                    arguments.push(argument);
-                }
-                start = index + ch.len_utf8();
-            }
-            _ => {}
+fn text_split_type_issue(
+    statement: &BodyStatement,
+    environment: &BTreeMap<String, TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<TextSplitTypeIssue> {
+    let expression = expression_text_for_statement(statement)?;
+    let expression_offset = statement.text.find(expression).unwrap_or(0);
+    let call = typed_failure::calls_in_expression(expression)
+        .into_iter()
+        .find(|call| call.callee == "text_split")?;
+    let call_span = Span {
+        file: statement.span.file.clone(),
+        line: statement.span.line,
+        column: statement.span.column
+            + statement.text[..expression_offset + call.source_offset]
+                .chars()
+                .count(),
+    };
+    let args = call.source.strip_prefix("text_split(")?.strip_suffix(')')?;
+    // Escape-aware per decision 0022: the canonical splitter, via the local
+    // delegating wrapper, so an escaped quote inside a separator literal can
+    // never produce a spurious arity error here.
+    let arguments = split_call_arguments(args);
+    if arguments.len() != 2 {
+        return Some(TextSplitTypeIssue {
+            call_source: call.source,
+            call_span,
+            actual_type: None,
+            reason: "text_split_requires_exactly_two_arguments_v0",
+        });
+    }
+    for argument in &arguments {
+        let actual_type = infer_expression_type(argument, environment, task_returns, field_types);
+        if actual_type
+            .as_ref()
+            .is_none_or(|actual| actual.type_text != "Text")
+        {
+            return Some(TextSplitTypeIssue {
+                call_source: call.source,
+                call_span,
+                actual_type,
+                reason: "text_split_arguments_must_be_text_v0",
+            });
         }
     }
-    let argument = text[start..].trim();
-    if !argument.is_empty() {
-        arguments.push(argument);
+    // A literal empty separator is a checker error (decision 0021). Only a
+    // directly-written `""` is caught here; a runtime-computed empty
+    // separator raises `TextSplitError.SepEmpty` through `try`/`fail`.
+    if arguments[1].trim() == "\"\"" {
+        return Some(TextSplitTypeIssue {
+            call_source: call.source,
+            call_span,
+            actual_type: None,
+            reason: "text_split_separator_must_not_be_empty_literal_v0",
+        });
     }
-    arguments
+    None
+}
+
+// WO27 Part 1a: thin delegating wrapper over the canonical escape-aware
+// `typed_failure::split_call_arguments`. This name is on borrowed time —
+// Part 1b removes it and migrates the remaining call sites to the canonical
+// name. It carries no parser logic of its own.
+pub(crate) fn split_call_arguments(text: &str) -> Vec<&str> {
+    crate::typed_failure::split_call_arguments(text)
 }
 
 fn expected_type_for_statement(
@@ -1415,6 +1492,10 @@ fn session_z_builtin_return_types() -> BTreeMap<String, TypeFact> {
         (
             name_key("files_read_text"),
             type_fact("Text", "hardened_exact_file_read_builtin_v0"),
+        ),
+        (
+            name_key("text_split"),
+            type_fact("List Text", "text_split_builtin_v0"),
         ),
     ])
 }
@@ -3054,5 +3135,133 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         });
         assert!(delivered);
         assert_eq!(verify_builds(), 1);
+    }
+
+    // WO27 Part 1a: `text_split` checker-shape tests (decision 0021).
+    fn text_split_probe_program(source: &str) -> Program {
+        Program {
+            files: vec![parse_source("text_split_probe.hum", source).file],
+        }
+    }
+
+    fn text_split_probe_json(source: &str) -> String {
+        let program = text_split_probe_program(source);
+        full_type_check_json(&program, &[])
+    }
+
+    fn count_diagnostic_code(json: &str, code: &str) -> usize {
+        json.matches(&format!("\"diagnostic_code\": \"{code}\""))
+            .count()
+    }
+
+    #[test]
+    fn text_split_literal_empty_separator_is_h0636() {
+        let source =
+            include_str!("../fixtures/diagnostics/text_split_literal_empty_separator_fail.hum");
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0636"), 1);
+        assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn text_split_wrong_arity_is_h0636() {
+        let json = text_split_probe_json(
+            r#"task split_arity() -> List Text {
+  does:
+    let pieces = text_split("a,b,c")
+    return pieces
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0636"), 1);
+    }
+
+    #[test]
+    fn text_split_non_text_argument_is_h0636() {
+        let json = text_split_probe_json(
+            r#"task split_types(count: UInt) -> List Text {
+  does:
+    let pieces = text_split("a,b,c", count)
+    return pieces
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0636"), 1);
+    }
+
+    #[test]
+    fn text_split_valid_calls_have_no_h0636() {
+        let json = text_split_probe_json(include_str!("../examples/probes/text_split.hum"));
+        assert_eq!(count_diagnostic_code(&json, "H0636"), 0);
+        let args_json =
+            text_split_probe_json(include_str!("../examples/probes/text_split_args.hum"));
+        assert_eq!(count_diagnostic_code(&args_json, "H0636"), 0);
+    }
+
+    // WO27 Part 1a: a variable separator requires `try` even when bound to a
+    // literal — the direct-literal exemption is literal-only.
+    #[test]
+    fn text_split_variable_separator_requires_try() {
+        let json = text_split_probe_json(include_str!(
+            "../fixtures/diagnostics/text_split_variable_separator_needs_try_fail.hum"
+        ));
+        assert_eq!(count_diagnostic_code(&json, "H0901"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0636"), 0);
+    }
+
+    // WO27 Part 1a: an exempt literal-separator call is skipped by H0901
+    // analysis but never masks a later fallible call in the same body.
+    #[test]
+    fn text_split_literal_exemption_does_not_mask_later_fallible_call() {
+        let masked = text_split_probe_json(
+            r#"type ProbeError {
+  code: Text
+}
+
+task probe(line: Text, sep: Text) -> Result Unit, ProbeError {
+  why:
+    exempt text_split must not mask a later fallible text_split
+
+  fails when:
+    splitting fails
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let first = text_split(line, ", ")
+    let second = text_split(line, sep)
+    fail ProbeError.done
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&masked, "H0901"), 1);
+        let unmasked = text_split_probe_json(
+            r#"type ProbeError {
+  code: Text
+}
+
+task probe(line: Text) -> Result Unit, ProbeError {
+  why:
+    the exempt call alone raises no H0901
+
+  fails when:
+    splitting fails
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let first = text_split(line, ", ")
+    fail ProbeError.done
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&unmasked, "H0901"), 0);
     }
 }

@@ -1,0 +1,15 @@
+module fixtures.diagnostics.text_split_literal_empty_separator_fail
+
+task split_empty_literal() -> List Text {
+  why:
+    misuse fixture: a directly-written empty separator is a checker error
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let pieces = text_split("a,b,c", "")
+    return pieces
+}
