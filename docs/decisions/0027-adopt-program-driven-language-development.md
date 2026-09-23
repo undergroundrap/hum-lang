@@ -1,7 +1,7 @@
 # 0027: Adopt Program-Driven Language Development
 
 Date: 2026-09-23
-Status: proposed 2026-09-23. BDFL rules and merges.
+Status: accepted 2026-09-23 (BDFL ruling on review at 6b36621).
 
 ## Context
 
@@ -16,7 +16,9 @@ general-fix test before they land.
 1. **Real programs drive the language.** wordfreq is the first real program
    (WO27). Next: the config-file parser and the state machine with ownership
    transfer chosen by 0026 to stress the closed-world accountability
-   objective — not to demo syntax.
+   objective — not to demo syntax. Programs 2 and 3 are the current order;
+   wordfreq's ledger may reorder them — update this record rather than
+   treating the order as fixed.
 2. **Friction goes into per-program friction ledgers.** Every friction point
    is classified: program gap, tooling gap, docs gap, or language gap. The
    ledger is a deliverable alongside the program.
@@ -33,16 +35,18 @@ general-fix test before they land.
    against each finished program, so the 0014 ownership bet keeps being
    tested (backlog item 2). Corpus provenance is recorded per program.
 6. **"Best for humans and agents" is measured four ways:** the friction
-   ledgers; the agent repair benchmark (agents fixing broken programs —
-   success rate and attempts); the human review study (backlog item 3); and
-   CI minutes per PR.
+   ledgers (exist today); the agent repair benchmark — agents fixing broken
+   programs, success rate and attempts (to be built); the human review study
+   (backlog item 3; to be built); and CI minutes per PR (exist today).
 
 ## Consequences
 
-- No language addition lands without the ledger entry that motivated it and
-  the decision record that specified it.
+- Every language addition cites its motivating evidence — a friction-ledger
+  entry, a benchmark or measurement result, or a study — and the decision
+  record that specified it. Some legitimate additions (safety profiles,
+  perf-debt fixes, 0026 study results) will not come from program friction.
 - The general-vs-specific test is a review gate: a proposal that serves only
   its motivating program is rejected by default.
 - The bake-off scorecard and the four measures are re-run as programs finish.
-  A program that stops the loop's measures from moving is reported, not
-  hidden.
+  A finished program that moves none of the measures is reported: a program
+  that teaches nothing is itself a signal.
