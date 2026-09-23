@@ -23,7 +23,7 @@ jobs:
       pull-requests: read
     outputs:
       profile: ${{ steps.select.outputs.profile }}
-      paths: ${{ steps.select.outputs.paths }}
+      boundary_required: ${{ steps.select.outputs.boundary_required }}
       base: ${{ steps.select.outputs.base }}
       head: ${{ steps.select.outputs.head }}
       integration: ${{ steps.select.outputs.integration }}
@@ -115,19 +115,19 @@ jobs:
                     Assert-HumIntegrationJobs $Jobs $Health
                     "health_run=$($Health.id);health_attempt=$($Health.run_attempt);health_sha=$($Health.head_sha)" >> $env:GITHUB_STEP_SUMMARY
                   }
-                  # Decision 0025 amendment (2026-09-23): publish the accepted
-                  # policy's classified change paths — the same inventory that
-                  # selected the profile — so the fixed profiles can gate the
-                  # status-boundary classifier tests without a new diff. Only
-                  # published once the selection is accepted (after the health
-                  # gate): a rejected selection publishes nothing. Paths are
-                  # joined with the unit separator ([char]0x1F): the evidence
-                  # launcher rejects CR/LF in environment values, and no
-                  # classified path contains a unit separator. An empty
-                  # inventory fails safe (the tests run).
-                  'paths<<HUM_CI_PATHS_EOF' >> $env:GITHUB_OUTPUT
-                  ($InnerSelection.Paths -join [char]0x1F) >> $env:GITHUB_OUTPUT
-                  'HUM_CI_PATHS_EOF' >> $env:GITHUB_OUTPUT
+                  # Decision 0025 amendment (2026-09-23, boolean transport):
+                  # publish boundary_required — whether the fixed profiles must
+                  # run the status-boundary classifier tests — computed here
+                  # from the ACCEPTED BASE policy's trigger function against
+                  # the same classified paths that selected the profile. Only
+                  # a boolean crosses the step boundary: check_all never sees
+                  # the path inventory and never dot-sources the PR's policy.
+                  # A PR editing the trigger function cannot change its own
+                  # decision. Published only once the selection is accepted
+                  # (after the health gate); a rejected selection publishes
+                  # nothing (missing output fails safe: the tests run).
+                  $BoundaryRequired = Test-HumCiWorkOrderBoundaryTrigger -Paths $InnerSelection.Paths
+                  "boundary_required=$($BoundaryRequired.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
                   $InnerProfile
                 }
               } finally { if (Test-Path -LiteralPath $PolicyPath) { Remove-Item -LiteralPath $PolicyPath -Force } }
@@ -155,7 +155,7 @@ jobs:
       profile: ${{ needs.plan.outputs.profile }}
       integration: ${{ needs.plan.outputs.integration }}
       tree: ${{ needs.plan.outputs.tree }}
-      paths: ${{ needs.plan.outputs.paths }}
+      boundary_required: ${{ needs.plan.outputs.boundary_required }}
 
   required:
     name: Hum required validation

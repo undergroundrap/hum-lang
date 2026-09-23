@@ -158,14 +158,16 @@ $CheckAllText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1')
 $HygieneMatch = [regex]::Match($CheckAllText, "(?ms)^    'hygiene' \{(?<body>.*?)^    \}")
 Assert-Policy $HygieneMatch.Success 'hygiene group owner exists in check_all.ps1'
 Assert-Policy ($HygieneMatch.Groups['body'].Value -cmatch "test_workorder_status_boundary\.ps1") 'hygiene group executes the work-order status-boundary consumer'
-# Decision 0025 amendment (2026-09-23): in the fixed profiles the boundary
-# tests run only when the accepted policy's classified change paths touch
-# their consumers; the Full tier always runs them. The wiring must stay
-# conditional (the trigger name and the inventory env var), and the trigger
-# decision must come from the accepted policy function, not a re-derived
-# diff. Each entry is @(expected, paths).
-Assert-Policy ($HygieneMatch.Groups['body'].Value -cmatch 'HUM_CI_CHANGE_PATHS') 'hygiene boundary gate reads the accepted path inventory'
-Assert-Policy ($HygieneMatch.Groups['body'].Value -cmatch 'Test-HumCiWorkOrderBoundaryTrigger') 'hygiene boundary gate uses the policy trigger function'
+# Decision 0025 amendment (2026-09-23, boolean transport): in the fixed
+# profiles the boundary tests run only when the plan/push classify step
+# computed boundary_required=true from the ACCEPTED BASE policy. check_all
+# reads only the boolean env var; it never sees the path inventory, never
+# calls the trigger function, and never dot-sources the PR's policy. Only an
+# explicit 'false' skips; missing, empty, or malformed values run (fail safe).
+# Each entry is @(expected, paths) for the BASE trigger function matrix.
+Assert-Policy ($HygieneMatch.Groups['body'].Value -cmatch 'HUM_CI_BOUNDARY_REQUIRED') 'hygiene boundary gate reads the precomputed boolean'
+Assert-Policy ($HygieneMatch.Groups['body'].Value -cnotmatch 'HUM_CI_CHANGE_PATHS') 'hygiene boundary gate carries no path inventory'
+Assert-Policy ($HygieneMatch.Groups['body'].Value -cnotmatch 'Test-HumCiWorkOrderBoundaryTrigger') 'hygiene boundary gate does not call the trigger function'
 foreach ($Case in @(
   @($true,  $null),
   @($true,  @()),
@@ -190,6 +192,31 @@ foreach ($Case in @(
 # line endings do not trigger.
 Assert-Policy (Test-HumCiWorkOrderBoundaryTrigger -Paths @('', '   ')) 'blank-only inventory fails safe to true'
 Assert-Policy (-not (Test-HumCiWorkOrderBoundaryTrigger -Paths @(('src/main.rs' + [char]13 + [char]10), 'docs/LANGUAGE_REFERENCE.md'))) 'non-consumer paths with line endings must not trigger'
+# Boolean transport (2026-09-23): check_all must not dot-source the policy
+# script — the PR's own trigger function must never decide the skip. The
+# boolean is computed by the plan/push classify step from the ACCEPTED BASE
+# policy before check_all runs.
+$CheckAllTop = (Get-Content -Raw (Join-Path $Root 'tools/check_all.ps1'))
+Assert-Policy ($CheckAllTop -cnotmatch "(?m)^\s*\.\s*\(.*check_ci_policy") 'check_all does not dot-source check_ci_policy.ps1'
+# Fail-safe boolean reading: only an explicit 'false' skips. Extract the
+# assignment from the hygiene gate and evaluate it against each input.
+$BoundaryAssign = [regex]::Match($HygieneMatch.Groups['body'].Value, '\$BoundaryRequired\s*=\s*\$env:HUM_CI_BOUNDARY_REQUIRED\s*-cne\s*''false''').Value
+Assert-Policy ($BoundaryAssign.Length -gt 0) 'hygiene gate uses explicit-false-only skip'
+foreach ($Case in @(
+  @($true,  $null),
+  @($true,  ''),
+  @($true,  '   '),
+  @($true,  'true'),
+  @($true,  'TRUE'),
+  @($true,  'yes'),
+  @($true,  '0'),
+  @($false, 'false')
+)) {
+  $Expected, $Raw = $Case
+  $Label = if ($null -eq $Raw) { '<null>' } else { "'$Raw'" }
+  Assert-Policy ((($Raw -cne 'false') -eq $Expected)) "boundary boolean for [$Label] must be $Expected"
+}
+Assert-Policy ((('FALSE' -cne 'false') -eq $true)) "boundary boolean is case-sensitive: 'FALSE' runs (fail safe)"
 
 # Decision 0025: every include_str!/include_bytes! target under docs/ must have
 # a code-level pin in check_ci_policy.ps1, so a newly compiled-in doc can't
@@ -370,12 +397,14 @@ try {
       & { $Mode='full'; . ([scriptblock]::Create($PushCode)) }
       $Lines=[IO.File]::ReadAllLines($env:GITHUB_OUTPUT)
       Assert-Policy ($Lines -ccontains "profile=$($Case[2])") 'actual push caller consumes accepted policy or Full fallback'
-      # Decision 0025 amendment (2026-09-23): the push classify step publishes
-      # the accepted push-range's classified paths (unit-separator-joined, one
-      # logical line) so the fixed profiles can gate the status-boundary
-      # classifier tests. The runtime cases' ranges both hold src/run.rs.
+      # Decision 0025 amendment (2026-09-23, boolean transport): the push
+      # classify step publishes boundary_required (true/false) computed from
+      # the ACCEPTED BASE policy's trigger function, never the path inventory.
+      # The runtime cases' ranges hold src/run.rs (not a boundary consumer),
+      # so the boolean must be false. A PR editing the trigger function cannot
+      # change its own decision.
       if ($Case[2] -ceq 'runtime') {
-        Assert-Policy ((($Lines -join "`n") -cmatch 'src/run\.rs')) 'push classify publishes the accepted push-range classified paths'
+        Assert-Policy ($Lines -ccontains 'boundary_required=false') 'push classify publishes boundary_required=false for non-consumer range'
       }
     }
     $env:HUM_CI_BASE_SHA=$Accepted;$env:HUM_CI_HEAD_SHA=$Ordinary;$global:HumCiTestHealthConclusion='failure'
@@ -672,14 +701,15 @@ foreach ($Step in @('Generate evidence summary','Upload evidence summary','Uploa
 # against a policy-less base, asserting exit 0 and the bootstrap path.
 $ClassifyStep=[regex]::Match($Ci,'(?ms)^      - name: Classify CI evidence lane\n.*?(?=^      - name: |\z)').Value
 Assert-Policy ($ClassifyStep.Length -gt 0) 'classify step found in ci.yml'
-# Decision 0025 amendment (2026-09-23): on workflow_call the classify step
-# must forward the reusable paths input (the accepted inventory published by
-# validation.yml's plan step) to its paths output; the fixed profiles read
-# steps.classify.outputs.paths. The forwarding is workflow_call-gated so it
-# cannot overwrite the push-published paths output (step outputs are
-# last-wins); an empty input stays empty and fails safe downstream.
-Assert-Policy ($ClassifyStep -match 'HUM_CI_INPUT_PATHS: \$\{\{ inputs\.paths \}\}') 'classify maps the reusable paths input'
-Assert-Policy ($ClassifyStep -match "(?s)if \(\`$env:HUM_CI_EVENT_NAME -ceq 'workflow_call'\) \{.*?paths<<HUM_CI_PATHS_EOF.*?\`$env:HUM_CI_INPUT_PATHS") 'classify forwards the paths input on workflow_call only'
+# Decision 0025 amendment (2026-09-23, boolean transport): on workflow_call
+# the classify step must forward the reusable boundary_required input (the
+# boolean published by validation.yml's plan step from the accepted base
+# policy) to its boundary_required output; the fixed profiles read
+# steps.classify.outputs.boundary_required. The forwarding is workflow_call-
+# gated so it cannot overwrite the push-published boolean output (step outputs
+# are last-wins); an empty input stays empty and fails safe downstream.
+Assert-Policy ($ClassifyStep -match 'HUM_CI_BOUNDARY_REQUIRED_INPUT: \$\{\{ inputs\.boundary_required \}\}') 'classify maps the reusable boundary_required input'
+Assert-Policy ($ClassifyStep -match "(?s)if \(\`$env:HUM_CI_EVENT_NAME -ceq 'workflow_call'\) \{.*?boundary_required=\`$env:HUM_CI_BOUNDARY_REQUIRED_INPUT") 'classify forwards the boundary_required input on workflow_call only'
 $ProbeStart=$ClassifyStep.IndexOf('$SavedPreference = $ErrorActionPreference')
 $ProbeEndMarker="} else { Write-Host 'Accepted pre-push policy unavailable: Full bootstrap required.' }"
 $ProbeEnd=$ClassifyStep.IndexOf($ProbeEndMarker)
@@ -857,11 +887,12 @@ try {
     $PlanOutLines=@(Get-Content -LiteralPath $PlanOutput)
     Assert-Policy ($PlanOutLines -contains "base=$PlanTip") 'plan reports the verified base, not the stale event base'
     Assert-Policy ($PlanOutLines -contains 'profile=language') 'plan selects language for the owned-prefix fixture change'
-    # Decision 0025 amendment (2026-09-23): the plan step publishes the
-    # accepted policy's classified change paths — the same inventory that
-    # selected the profile — so the fixed profiles can gate the
-    # status-boundary classifier tests without a new diff.
-    Assert-Policy ($PlanOutLines -contains 'tools/check_text_hygiene.ps1') 'plan publishes the accepted classified change paths'
+    # Decision 0025 amendment (2026-09-23, boolean transport): the plan step
+    # publishes boundary_required computed from the ACCEPTED BASE policy's
+    # trigger function, never the path inventory. The fixture change
+    # (tools/check_text_hygiene.ps1) is not a boundary consumer, so the
+    # boolean must be false.
+    Assert-Policy ($PlanOutLines -contains 'boundary_required=false') 'plan publishes boundary_required=false for non-consumer change'
   } finally { Pop-Location }
 } finally {
   foreach ($Entry in $OldPlanEnv.GetEnumerator()) { [Environment]::SetEnvironmentVariable($Entry.Key,$Entry.Value,'Process') }

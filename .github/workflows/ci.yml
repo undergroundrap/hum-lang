@@ -12,7 +12,7 @@ on:
       tree:
         required: true
         type: string
-      paths:
+      boundary_required:
         required: false
         type: string
         default: ''
@@ -93,7 +93,7 @@ jobs:
           HUM_CI_BASE_SHA: ${{ github.event.before }}
           HUM_CI_HEAD_SHA: ${{ github.sha }}
           HUM_SELECTED_PROFILE: ${{ inputs.profile || 'full' }}
-          HUM_CI_INPUT_PATHS: ${{ inputs.paths }}
+          HUM_CI_BOUNDARY_REQUIRED_INPUT: ${{ inputs.boundary_required }}
         run: |
           $Mode = 'full'
           $Result = $null
@@ -152,20 +152,20 @@ jobs:
                       Assert-HumIntegrationJobs @(($JobJson | ConvertFrom-Json) | ForEach-Object { $_.jobs }) $Health
                       "health_run=$($Health.id);health_attempt=$($Health.run_attempt);health_sha=$($Health.head_sha)" >> $env:GITHUB_STEP_SUMMARY
                     }
-                    # Decision 0025 amendment (2026-09-23): publish the accepted
-                    # push-range policy's classified change paths — the same
-                    # inventory that selected the profile — so the fixed
-                    # profiles can gate the status-boundary classifier tests
-                    # without a new diff. Only published once the selection is
-                    # accepted (after the health gate): a rejected selection
-                    # publishes nothing. Paths are joined with the unit
-                    # separator ([char]0x1F): the evidence launcher rejects
-                    # CR/LF in environment values, and no classified path
-                    # contains a unit separator. An empty inventory fails safe
-                    # (the tests run).
-                    'paths<<HUM_CI_PATHS_EOF' >> $env:GITHUB_OUTPUT
-                    ($Selection.Paths -join [char]0x1F) >> $env:GITHUB_OUTPUT
-                    'HUM_CI_PATHS_EOF' >> $env:GITHUB_OUTPUT
+                    # Decision 0025 amendment (2026-09-23, boolean transport):
+                    # publish boundary_required — whether the fixed profiles
+                    # must run the status-boundary classifier tests — computed
+                    # here from the ACCEPTED BASE policy's trigger function
+                    # against the same classified paths that selected the
+                    # profile. Only a boolean crosses the step boundary:
+                    # check_all never sees the path inventory and never
+                    # dot-sources the PR's policy. A PR editing the trigger
+                    # function cannot change its own decision. Published only
+                    # once the selection is accepted (after the health gate);
+                    # a rejected selection publishes nothing (missing output
+                    # fails safe: the tests run).
+                    $BoundaryRequired = Test-HumCiWorkOrderBoundaryTrigger -Paths $Selection.Paths
+                    "boundary_required=$($BoundaryRequired.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
                     $Selection.Profile
                   }
                 } finally { if (Test-Path -LiteralPath $PolicyPath) { Remove-Item -LiteralPath $PolicyPath -Force } }
@@ -176,20 +176,17 @@ jobs:
           if ($SelectedProfile -cne 'full') { $Mode = 'normal' }
           "profile=$SelectedProfile" >> $env:GITHUB_OUTPUT
           "mode=$Mode" >> $env:GITHUB_OUTPUT
-          # Decision 0025 amendment (2026-09-23): on workflow_call the
-          # accepted path inventory arrives as the reusable input (published
-          # by validation.yml's plan step from the same selection that chose
-          # the profile); forward it to the step outputs so the fixed
-          # profiles can gate the status-boundary classifier tests. The
-          # heredoc form carries the value safely. Push publishes its own
-          # paths output above (from the accepted push-range selection), so
-          # this forwarding is workflow_call-only: a second paths output
-          # would overwrite it (last wins). An empty input stays empty
-          # downstream and fails safe (the tests run).
+          # Decision 0025 amendment (2026-09-23, boolean transport): on
+          # workflow_call the boundary_required boolean arrives as the reusable
+          # input (published by validation.yml's plan step from the accepted
+          # base policy); forward it to the step outputs so the fixed profiles
+          # can gate the status-boundary classifier tests. Push publishes its
+          # own boundary_required output above (from the accepted push-range
+          # selection), so this forwarding is workflow_call-only: a second
+          # boundary_required output would overwrite it (last wins). An empty
+          # input stays empty downstream and fails safe (the tests run).
           if ($env:HUM_CI_EVENT_NAME -ceq 'workflow_call') {
-            'paths<<HUM_CI_PATHS_EOF' >> $env:GITHUB_OUTPUT
-            $env:HUM_CI_INPUT_PATHS >> $env:GITHUB_OUTPUT
-            'HUM_CI_PATHS_EOF' >> $env:GITHUB_OUTPUT
+            "boundary_required=$env:HUM_CI_BOUNDARY_REQUIRED_INPUT" >> $env:GITHUB_OUTPUT
           }
           if ($Mode -ceq 'fast') {
             "reason=$($Result.Reason)" >> $env:GITHUB_OUTPUT
@@ -227,7 +224,7 @@ jobs:
         shell: pwsh
         env:
           HUM_SELECTED_PROFILE: ${{ steps.classify.outputs.profile }}
-          HUM_CI_CHANGE_PATHS: ${{ steps.classify.outputs.paths }}
+          HUM_CI_BOUNDARY_REQUIRED: ${{ steps.classify.outputs.boundary_required }}
         run: |
           if ($env:HUM_SELECTED_PROFILE -cnotin @('language','runtime','compiler')) { throw 'normal profile admission failed' }
           $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
