@@ -583,7 +583,7 @@ foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invok
 # They are source-closure evidence, never a claim that the full corpus ran.
 $CompilerBodies=@{
   'Invoke-HumCompilerFrontChecks'='fa10b6d816d601b3dfc848fd68098c1a91be57a3853d88c08e5cce95f9fbcae8'
-  'Invoke-HumCompilerCorpusChecks'='30c164d7d13c8cd003a59627160b743179a07c19b2c91742380b65862628038f'
+  'Invoke-HumCompilerCorpusChecks'='e6ee4f3daa04fd591c34911cc6d652f94154d1c06b1629997992532c7ac63e1a'
   'Invoke-HumUseAfterMoveRuntimeCheck'='a7c5db7146519cba950ec4ba2de9a0f15bf505bbfde0bc855b2e49c9a74a34f8'
   'Invoke-HumUseAfterMoveProjectionCheck'='d1708df1234a0cbdf4f686d48facad32ccfb2bcc7baa834281d2246b748f41f0'
 }
@@ -595,7 +595,8 @@ foreach($Name in $CompilerBodies.Keys){
   $Hasher=[Security.Cryptography.SHA256]::Create()
   try {
     $Digest=-join($Hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($Body))|ForEach-Object{$_.ToString('x2')})
-    Assert-Policy ($Digest -ceq $CompilerBodies[$Name]) "complete shared body $Name"
+    $ExpectedDigest = $CompilerBodies[$Name]
+    Assert-Policy ($Digest -ceq $ExpectedDigest) "complete shared body ${Name}: expected ${ExpectedDigest}, found ${Digest}"
     $First=@($Function.Body.EndBlock.Statements)[0].Extent.Text
     $Omitted=$Body.Replace($First,'')
     $BadDigest=-join($Hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($Omitted))|ForEach-Object{$_.ToString('x2')})

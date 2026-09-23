@@ -1,0 +1,15 @@
+module fixtures.diagnostics.text_trailing_backslash_fail
+
+task trailing_backslash() -> Text {
+  why:
+    misuse fixture: a trailing backslash before the closing quote is a
+    checker error (H0638, unterminated escape)
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return "ab\"
+}
