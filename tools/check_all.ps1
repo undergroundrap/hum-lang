@@ -1439,8 +1439,16 @@ function Assert-Wo25UnitBTransportContract {
     T01='actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a';T02='actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c';T03='hum-dev-executable-transport-v1-';T04='artifact_id=$($Fields[0])';T05='status executable GitHub digest mismatch';T06='status executable byte hash mismatch';T07='status executable raw-archive entry count mismatch';T08='status executable archive traversal mismatch';T09='status executable archive entry is not regular';T10='status executable artifact cardinality mismatch';T11='if ($Match.Count -ne 1)';T12='$Fields[3] -cne ''false''';T14='status executable bit missing';T15='status executable descendants survived';T16='status executable bootstrap cleanup failed'
   }
   foreach($Entry in $WorkflowPredicates.GetEnumerator()){if(([regex]::Matches($Workflow,[regex]::Escape($Entry.Value))).Count -lt 1){throw "Unit B $($Entry.Key) workflow predicate missing: $($Entry.Value)"}}
-  foreach($Literal in @('overwrite: false','retention-days: 14','if-no-files-found: error','include-hidden-files: false')){if(([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count -ne 4){throw "Unit B upload configuration drifted: $Literal"}}
-  foreach($Literal in @('repository: ${{ github.repository }}','run-id: ${{ steps.classify.outputs.run_id }}','github-token: ${{ github.token }}','skip-decompress: true','digest-mismatch: error')){if(([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count -ne 1){throw "Unit B download configuration drifted: $Literal"}}
+  $UploadArtifactSteps=([regex]::Matches($Workflow,'actions/upload-artifact@')).Count
+  foreach($Literal in @('overwrite: false','retention-days: 14','if-no-files-found: error','include-hidden-files: false')){
+    $Found=([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count
+    if($Found -ne $UploadArtifactSteps){throw "Unit B upload configuration drifted: '$Literal' occurs $Found times but .github/workflows/ci.yml declares $UploadArtifactSteps upload-artifact steps. Assert-Wo25UnitBTransportContract in tools/check_all.ps1 expects every upload-artifact step to carry all four literals."}
+  }
+  $DownloadArtifactSteps=([regex]::Matches($Workflow,'actions/download-artifact@')).Count
+  foreach($Literal in @('repository: ${{ github.repository }}','run-id: ${{ steps.classify.outputs.run_id }}','github-token: ${{ github.token }}','skip-decompress: true','digest-mismatch: error')){
+    $Found=([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count
+    if($Found -ne $DownloadArtifactSteps){throw "Unit B download configuration drifted: '$Literal' occurs $Found times but .github/workflows/ci.yml declares $DownloadArtifactSteps download-artifact steps. Assert-Wo25UnitBTransportContract in tools/check_all.ps1 expects every download-artifact step to carry all five literals."}
+  }
   $Status=[IO.File]::ReadAllText((Join-Path $RepoRoot 'crates/hum-dev/src/status.rs'));foreach($Forbidden in @('"--log"','call.contains("cargo")','"rustc"','"check_all"','"workflow run"','"local-copy"','running executable and producer summary disagree')){if(-not $Status.Contains($Forbidden)){throw "Unit B status sentinel missing: $Forbidden"}}
 }
 function Invoke-Wo25UnitBFocusedEvidence { param([string]$Cargo)
@@ -1505,7 +1513,10 @@ function Invoke-Wo25UnitCFocusedEvidence { param([string]$Cargo)
 function Assert-Wo25UnitCIsolationContract {
   $LauncherPath=Join-Path $PSScriptRoot 'run_fast_evidence.ps1';$Launcher=[IO.File]::ReadAllText($LauncherPath);$Workflow=[IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'))
   foreach($Required in @('function New-HumIsolatedExecutable','function Assert-HumIsolatedExecutable','function Remove-HumIsolatedExecutable','[IO.File]::Copy','GetUnixFileMode','ReparsePoint','LinkType','isolated execution directory already exists','isolated executable byte identity failed')){if(-not$Launcher.Contains($Required)){throw "Unit C isolated launcher predicate missing: $Required"};if($Launcher.Replace($Required,'').Contains($Required)){throw "Unit C isolated launcher predicate is ambiguous: $Required"}}
-  foreach($Required in @('New-HumIsolatedExecutable','Remove-HumIsolatedExecutable','. ./tools/run_fast_evidence.ps1')){if(([regex]::Matches($Workflow,[regex]::Escape($Required))).Count-ne4){throw "Unit C workflow isolation route drifted: $Required"}}
+  $IsolationNewCount=([regex]::Matches($Workflow,'New-HumIsolatedExecutable')).Count
+  $IsolationRemoveCount=([regex]::Matches($Workflow,'Remove-HumIsolatedExecutable')).Count
+  $IsolationLauncherCount=([regex]::Matches($Workflow,[regex]::Escape('. ./tools/run_fast_evidence.ps1'))).Count
+  if($IsolationNewCount -eq 0 -or $IsolationRemoveCount -ne $IsolationNewCount -or $IsolationLauncherCount -ne $IsolationNewCount){throw "Unit C workflow isolation routes are unbalanced in .github/workflows/ci.yml: New-HumIsolatedExecutable=$IsolationNewCount, Remove-HumIsolatedExecutable=$IsolationRemoveCount, run_fast_evidence launcher=$IsolationLauncherCount. Every isolated route must carry all three markers; see Assert-Wo25UnitCIsolationContract in tools/check_all.ps1."}
   . $LauncherPath
   $Suffix=if($script:HumHostIsWindows){'.exe'}else{''};$Source=Join-Path $RepoRoot "target/debug/hum-dev$Suffix";$Record=New-HumIsolatedExecutable $Source ([IO.Path]::GetTempPath()) (Join-Path $RepoRoot 'target');$Original=[IO.File]::ReadAllBytes($Record.Executable);$Extra=Join-Path $Record.Directory 'extra';$HardRoot=Join-Path ([IO.Path]::GetTempPath()) "hum-unit-c-hardlink-$PID-$([Guid]::NewGuid().ToString('N'))";$HardSource=Join-Path $HardRoot 'source';$HardLink=Join-Path $HardRoot 'linked';$Handle=$null;$PriorProcesses=@((Get-Process -Name hum-dev,cargo,rustc -ErrorAction SilentlyContinue).Id|Sort-Object);$Reject={param($Name,$Expected,[scriptblock]$Action)$Attempts=0;$Failure=$null;try{&$Action;$Attempts++}catch{$Failure=$_.Exception.Message};if($Attempts-ne0-or$Failure-notlike$Expected){throw "Unit C isolation $Name disposition drifted: $Failure; attempts=$Attempts"}}
   try {
@@ -2837,7 +2848,10 @@ task malformed() -> UInt {
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
   $DiagnosticsCatalog = $DiagnosticsJson | ConvertFrom-Json
   $DiagnosticCodes = @($DiagnosticsCatalog.diagnostics | ForEach-Object { $_.code })
-  if ($DiagnosticsCatalog.count -ne 93 -or $DiagnosticCodes.Count -ne 93 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 93) { throw 'canonical diagnostic catalog must expose exactly 93 unique active codes' }
+  $CatalogTotal = $DiagnosticsCatalog.count
+  $CodeTotal = $DiagnosticCodes.Count
+  $UniqueTotal = @($DiagnosticCodes | Sort-Object -Unique).Count
+  if ($CatalogTotal -ne 93 -or $CodeTotal -ne 93 -or $UniqueTotal -ne 93) { throw "canonical diagnostic catalog must expose exactly 93 unique active codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
   $H0634CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0634' -and $_.title -ceq 'canonical native program layout' })
   if ($H0634CatalogRows.Count -ne 1) { throw 'Work Order 23 H0634 catalog projection drifted' }
   $H0635CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0635' -and $_.title -ceq 'unsupported native program feature' })

@@ -643,7 +643,7 @@ foreach($Name in $CompilerBodies.Keys){
   try {
     $Digest=-join($Hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($Body))|ForEach-Object{$_.ToString('x2')})
     $ExpectedDigest = $CompilerBodies[$Name]
-    Assert-Policy ($Digest -ceq $ExpectedDigest) "complete shared body ${Name}: expected ${ExpectedDigest}, found ${Digest}"
+    Assert-Policy ($Digest -ceq $ExpectedDigest) "complete shared body ${Name} changed: expected ${ExpectedDigest}, found ${Digest}. If the change is intended, update the pin in the `$CompilerBodies table in tools/test_ci_policy.ps1"
     $First=@($Function.Body.EndBlock.Statements)[0].Extent.Text
     $Omitted=$Body.Replace($First,'')
     $BadDigest=-join($Hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($Omitted))|ForEach-Object{$_.ToString('x2')})
