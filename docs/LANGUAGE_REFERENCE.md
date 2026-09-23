@@ -117,6 +117,25 @@ lines as text for graph facts and future lowering. It is not the final grammar
 engine. See [MILESTONE_0_GRAMMAR.md](MILESTONE_0_GRAMMAR.md) for the exact
 Milestone 0 parser contract.
 
+### Text Literals and Escapes
+
+Text literals are double-quoted. The canonical AST decodes escape sequences
+exactly once, at parse time (decision 0022). Exactly four escapes are
+accepted:
+
+| Escape | Decodes to |
+|--------|------------|
+| `\n` | U+000A (newline) |
+| `\t` | U+0009 (tab) |
+| `\\` | U+005C (backslash) |
+| `\"` | U+0022 (quote) |
+
+Any other escape sequence (e.g. `\q`, `\é`) is a checker error, H0638,
+spanning exactly the backslash plus the escaped character. A backslash at the
+end of the literal (before the closing quote) is an unterminated-escape error,
+also H0638. An escaped quote never terminates the literal: all quote-aware
+scanners agree that `\"` does not close the string.
+
 ## Top-Level Forms
 
 Current Milestone 0 recognizes these item kinds:
@@ -698,8 +717,8 @@ Fallibility is conditional on the separator's written form:
 - A directly-written non-empty literal separator is infallible and needs no
   `try`: `text_split("a,b,c", ",")` type-checks as `List Text` without H0901.
 - Every other separator form requires `try`, including a variable bound to a
-  literal (`let sep = ","; text_split(text, sep)` still raises H0901 without
-  `try`). No constant-variable flow analysis recovers the literal.
+  literal (`let sep = ","` then `text_split(text, sep)` still raises H0901
+  without `try`). No constant-variable flow analysis recovers the literal.
 - A directly-written empty separator is a checker error, H0636.
 - A runtime-computed empty separator raises the typed failure
   `TextSplitError.SepEmpty` through normal `try`/`fail`; it is not an H-code.

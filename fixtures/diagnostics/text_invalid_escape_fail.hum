@@ -1,0 +1,14 @@
+module fixtures.diagnostics.text_invalid_escape_fail
+
+task invalid_escape() -> Text {
+  why:
+    misuse fixture: an unknown escape sequence is a checker error (H0638)
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return "bad\qescape"
+}

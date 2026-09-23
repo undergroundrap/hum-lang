@@ -1770,6 +1770,15 @@ diagnostic_causes!(
         "check",
         "intent_source_node",
         "intent_check_route"
+    ),
+    (
+        185,
+        "invalid_text_escape_v0",
+        INVALID_TEXT_ESCAPE,
+        "front_end_semantics",
+        "full_type_check",
+        "text_literal_relationship",
+        "text_literal_route"
     )
 );
 
@@ -2100,6 +2109,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         89 => 89,
         90 => 90,
         91 => 91,
+        92 => 92,
         _ => u16::MAX,
     }
 }
@@ -2839,6 +2849,15 @@ diagnostic_code_allocations!(
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "check"
+    ),
+    (
+        92,
+        INVALID_TEXT_ESCAPE,
+        "H0638",
+        "invalid text escape",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "full_type_check"
     ),
     (
         60,
@@ -3652,6 +3671,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "A user task redeclares the exact `text_split` name reserved for Hum's text-splitting built-in, which would split callable identity across stages.",
         repair: "Rename the user task and keep `text_split` reserved for `text_split(text: Text, sep: Text) -> List Text`.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INVALID_TEXT_ESCAPE,
+        default_severity: Severity::Error,
+        explanation: "A text literal contains an escape sequence outside the accepted set (`\\n`, `\\t`, `\\\\`, `\\\"`) or ends with a trailing backslash.",
+        repair: "Use only the four accepted escapes, or remove the backslash. A literal backslash is written `\\\\`.",
     },
 ];
 
@@ -4625,12 +4650,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 92);
+        assert_eq!(summary.active_codes, 93);
         assert_eq!(summary.retired_codes, 0);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 184);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 185);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
@@ -4687,7 +4712,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 92);
+        assert_eq!(all().len(), 93);
     }
 
     #[test]

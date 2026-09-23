@@ -289,8 +289,9 @@ unallocated rather than implicitly free.
 | `H0633` | error | reserved file-read built-in name redeclared | A user task attempts to redeclare the exact `files_read_text` builtin name. |
 | `H0634` | error | canonical native program layout | Native canonical admission requires matching `programs/<name>.hum`, `module programs.<name>`, and `app <name>` identity, with one module first, optional local types before the sole final app, and its declared entry task first. |
 | `H0635` | error | unsupported native program feature | A layout-valid native request has no supported typed feature (`native_feature_not_supported_v0`) or has an ambiguous typed match (`native_feature_ambiguous_v0`). Owner `native_program` emits it at `native_admission`, after semantic/H0634 blockers and before backend input, JIT, output, or readiness. |
-| `H0636` | error | invalid text_split call | A `text_split` call is rejected: it takes exactly two `Text` arguments and its separator must not be a directly-written empty literal. |
+| `H0636` | error | invalid text_split call | A `text_split` call is rejected: it takes exactly two `Text` arguments, its separator must not be a directly-written empty literal, and it must not contain a stray empty argument. |
 | `H0637` | error | reserved text-split built-in name redeclared | A user task attempts to redeclare the exact `text_split` built-in name. |
+| `H0638` | error | invalid text escape | A text literal contains an unknown escape sequence or a trailing backslash. Only `\n`, `\t`, `\\`, and `\"` are accepted (decision 0022). |
 
 Note: `TextSplitError.SepEmpty` is not a checker diagnostic and holds no H-code.
 It is a runtime typed failure variant raised when a computed (non-literal)

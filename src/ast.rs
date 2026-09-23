@@ -169,6 +169,7 @@ pub(crate) enum CanonicalMalformedCause {
     ListTrailingComma,
     ListNonTextElement,
     IntegerLiteralOutOfRange,
+    InvalidTextEscape,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,6 +181,7 @@ pub(crate) enum CanonicalExpectedLexicalEvidence {
     ListSeparatorOrClose,
     TextListElement,
     Int64Value,
+    TextEscape,
     MaximumDelimiterDepth(usize),
 }
 

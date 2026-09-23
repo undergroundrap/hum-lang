@@ -1,0 +1,16 @@
+module fixtures.diagnostics.text_split_stray_empty_argument_fail
+
+task split_stray_empty() -> List Text {
+  why:
+    misuse fixture: a stray empty argument is a checker error (H0636)
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let line = "a,b,c"
+    let pieces = text_split(line,, ",")
+    return pieces
+}
