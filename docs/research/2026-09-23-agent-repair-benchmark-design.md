@@ -72,10 +72,11 @@ to act on; more delays the first measurement.
 
 ### Setup given to the agent
 
-The broken program in its repo directory, with this instruction: "Repair the
-program so `hum check` is clean and the program behaves as documented." The
-agent may read any file in the directory and run `hum check` (`--format json`
-or text), `hum explain <code>`, and `hum run`.
+The broken program in a fresh isolated directory (see Leakage control), with
+this instruction: "Repair the program so `hum check` is clean and the
+program behaves as documented." The agent may read any file in the directory
+and run `hum check` (`--format json` or text), `hum explain <code>`, and
+`hum run`.
 
 ### Budget [Inference: starting parameters]
 
@@ -103,6 +104,37 @@ Two conditions per item: full JSON diagnostics (code + span + related_spans
 + help) versus code-and-span-only (help text stripped). If the help prose
 does not move the fix rate, the blame-style-help investment is unjustified.
 
+## Statistics
+
+- **Runs per item**: 5 attempts per item per condition (350 attempts per arm
+  per condition at 70 items). This smooths agent nondeterminism; a single
+  run per item measures luck.
+- **Recorded per run**: model name and version, harness version,
+  temperature / top-p and other sampling settings, the compact Hum guide's
+  content hash, the `hum` binary version, and the date. A run without this
+  record is not reproducible and not comparable across releases.
+- **Confidence intervals, never bare rates**: report Wilson 95% intervals
+  for every rate. At 5 items per class one item is 20 percentage points —
+  per-class rates are directional, not decisive (3/5 carries roughly a
+  23%–88% interval). Decisive comparisons pool across classes: at n=70 an
+  arm's rate carries roughly ±12pp, and arm-vs-arm differences below about
+  15pp are noise. If per-class decisiveness is ever needed, raise items per
+  class; the cost is linear.
+- **Pre-registered loss thresholds with a margin**: a loss criterion fires
+  only if the entire 95% interval clears the threshold (for ceilings) or
+  the intervals do not overlap (for comparisons). Noise alone cannot fire
+  a loss.
+
+## Leakage control
+
+Every item is a mutation of a green corpus program, so each attempt runs in
+a fresh isolated directory containing exactly the broken program file(s) and
+the compact Hum guide — no green originals, no corpus checkout, no git
+history (no `.git`), no network access to fetch the original. The harness
+lists the directory before the attempt and fails the run if anything
+unexpected is present. Otherwise a "fix" can be a copy, which measures
+retrieval, not diagnostic quality.
+
 ## How Hum's diagnostics are fed to the agent
 
 The feed is the existing machine surface, per the Agent Contract
@@ -129,34 +161,66 @@ and may run `cargo check` / `cargo test` under the same budget.
 
 Fairness rules:
 
+- **Familiarity confound (named)**: agents train on vast Rust and
+  approximately no Hum, so the Rust arm measures familiarity plus
+  diagnostics, not diagnostics alone. The confound is reduced, not removed,
+  by the mitigation below — it must ride along as a caveat on every
+  cross-language number.
+- **Compact Hum guide in context**: the Hum arm runs with a purpose-built
+  guide in the isolated directory — the syntax the items use, the
+  diagnostic codes in play, and `hum check` / `hum explain` usage, excerpted
+  from LANGUAGE_REFERENCE.md. The agent is tested on repairing with the
+  diagnostics, not on discovering the language from scratch. The guide's
+  content hash is recorded per run (see Statistics).
 - Same attempt budget, same scoring, same hidden-test oracle discipline
   (`cargo test` semantic tests, not just a clean compile).
 - The Rust programs are written by someone fluent in Rust and reviewed for
   idiomaticity — a straw-man Rust arm invalidates the comparison.
 - rustc's diagnostics are mature; the comparison measures diagnostic quality
-  for agents, not language superiority. Hum wins only on a higher fix rate,
-  fewer attempts, or a lower wrong-fix rate on the analogous classes.
+  for agents, not language superiority.
 - Hum-only classes are reported alongside, never averaged in.
 
 ## What counts as Hum losing
 
-- Agents repair the Rust analogues at an equal or higher fix rate with equal
-  or fewer attempts: the "best for agents" claim fails for the measured
-  population.
-- Hum's wrong-fix-that-compiles rate exceeds Rust's: Hum's diagnostics
-  mislead more than rustc's — a loss even at equal fix rates.
-- The help-text ablation shows no effect: the blame-style-help investment
-  (a core 0014-era claim) is unjustified.
+Primary results are within-Hum: per-class fix rates, the help-text ablation,
+and trends across releases (the benchmark doubles as a regression suite for
+Hum's own diagnostics). The cross-language comparison is secondary and
+always reported with the familiarity caveat.
+
+Primary (within-Hum) loss criteria:
+
+- The help-text ablation shows no effect, with intervals: the
+  blame-style-help investment (a core 0014-era claim) is unjustified.
+- Hum's wrong-fix-that-compiles rate exceeds its pre-registered ceiling,
+  with the entire 95% interval above the ceiling: Hum's diagnostics
+  mislead more than the design tolerates.
+- Regression across releases: fix rate drops or wrong-fix rate rises
+  versus the previous benchmark run, with non-overlapping intervals.
+
+Secondary (cross-language) signal:
+
+- Rust's fix rate exceeds Hum's by more than the pre-registered margin
+  (15pp), with non-overlapping 95% intervals. This fires an investigation,
+  not a verdict: the familiarity confound may explain it. It becomes a
+  loss only if the investigation rules the confound out.
+
+Other findings that are reported as findings, not failures:
+
 - Agents systematically need the structural interface (`hum graph --json`)
   to make progress: the benchmark then fires backlog item 10's deferred
-  trigger — a finding, not a failure, but reported as one.
+  trigger.
 
 ## Tooling dependencies [To be built]
 
 Everything in this section is unexecuted; the design must not assume it:
 
-- **The harness**: drives agents, enforces budgets, scores outcomes, runs
-  hidden tests. Does not exist.
+- **The harness**: drives agents, enforces budgets, enforces attempt-directory
+  isolation (lists the directory pre-attempt, fails the run on unexpected
+  files), scores outcomes, runs hidden tests. Does not exist.
+- **Compact Hum guide**: a purpose-built LANGUAGE_REFERENCE excerpt for the
+  agent context (syntax used by the items, codes in play, `hum check` /
+  `hum explain` usage). A docs artifact, not tooling; its content hash is
+  recorded per run. Does not exist.
 - **Mutation operators**: generate the broken corpus from green programs.
   Do not exist; hand-write the first 70.
 - **JSON coverage audit**: verify every corpus code has JSON coverage per
