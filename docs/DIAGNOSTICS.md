@@ -462,3 +462,5 @@ rewrite it.
 
 If an agent cannot repair from the code, span, message, and help, enrich the
 machine form before adding clever syntax elsewhere.
+
+<!-- step-3 measurement probe: comment-only change, no semantic content -->
