@@ -112,6 +112,7 @@ foreach ($Case in @(
   @('full', @('src/new_unmapped.rs')), @('full', @('examples/new_unmapped.hum')),
   @('full', @('fixtures/new_unmapped.json')), @('full', @('fixtures/new_unmapped.hum')),
   @('language', @('docs/HUM_CORE_VERIFY_SCHEMA.md')),
+  @('language', @('docs/bakeoff/EFFECT_POLYMORPHISM_CORPUS.md')),
   @('language', @('docs/TEXT_HYGIENE_WORKFLOW.md')),
   @('full', @('CONTRIBUTING.md')),
   # Decision 0025: owned prefixes (docs/, workorders/) classify at language
@@ -192,12 +193,19 @@ Assert-Policy (-not (Test-HumCiWorkOrderBoundaryTrigger -Paths @(('src/main.rs' 
 
 # Decision 0025: every include_str!/include_bytes! target under docs/ must have
 # a code-level pin in check_ci_policy.ps1, so a newly compiled-in doc can't
-# silently route cheap via the docs/ prefix (language rank). Scans the real
-# src/ tree, not a fixture. tools/ targets need no pin: with no tools/ prefix
-# entry, unlisted tools default to Full (the safe direction).
+# silently route cheap via the docs/ prefix (language rank). Scans every
+# repository .rs file — the hum binary (src/), the workspace crates (crates/),
+# and the experiments (experiments/) that CI still compiles and tests — not
+# just the src/ tree, and never a fixture. tools/ targets need no pin: with no
+# tools/ prefix entry, unlisted tools default to Full (the safe direction).
 $PolicyText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_ci_policy.ps1'))
+$RsFiles = @()
+foreach ($Top in @('src', 'crates', 'experiments')) {
+  $Dir = Join-Path $Root $Top
+  if ([IO.Directory]::Exists($Dir)) { $RsFiles += [IO.Directory]::GetFiles($Dir, '*.rs', [IO.SearchOption]::AllDirectories) }
+}
 $Unpinned = @()
-foreach ($RsFile in [IO.Directory]::GetFiles((Join-Path $Root 'src'), '*.rs', [IO.SearchOption]::AllDirectories)) {
+foreach ($RsFile in $RsFiles) {
   $RsText = [IO.File]::ReadAllText($RsFile)
   foreach ($M in [regex]::Matches($RsText, 'include_(?:str|bytes)!\("([^"]+)"\)')) {
     $Target = $M.Groups[1].Value
