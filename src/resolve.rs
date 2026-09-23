@@ -2351,7 +2351,13 @@ impl<'program> ResolverContext<'program> {
         let builtin_callee = input.reference_kind == "callee_ref"
             && matches!(
                 builtin_name,
-                "stdout_write" | "clock_replay_tick" | "files_read_text" | "text_split"
+                "stdout_write"
+                    | "clock_replay_tick"
+                    | "files_read_text"
+                    | "text_split"
+                    | "list_append"
+                    | "list_len"
+                    | "list_count"
             );
         let app_local_callee = input.reference_kind == "callee_ref"
             && self.scope_is_within_app_boundary(scope_id)
@@ -2373,6 +2379,9 @@ impl<'program> ResolverContext<'program> {
                     "clock_replay_tick" => "session_aa_runner_replay_builtin_v0",
                     "files_read_text" => "session_ad_exact_file_read_builtin_v0",
                     "text_split" => "session_z_text_split_builtin_v0",
+                    "list_append" => "session_z_list_builtin_v0",
+                    "list_len" => "session_z_list_builtin_v0",
+                    "list_count" => "session_z_list_builtin_v0",
                     _ => unreachable!("pinned builtin"),
                 }),
             )
@@ -4056,5 +4065,46 @@ task remember_work_item(title: Text) -> WorkItem {
             "target identity: {}",
             split_call.target_definition_id
         );
+    }
+
+    // WO27 Part 2: list builtins resolve inside app scope (the resolver's
+    // app-visible builtin list must include them; otherwise H0601).
+    #[test]
+    fn list_builtins_resolve_in_app_scope() {
+        let source = r#"app probe {
+  why:
+    resolver identity probe
+
+  starts with:
+    run_tool
+
+  task run_tool() -> UInt {
+    why:
+      resolver identity probe
+
+    does:
+      change items: List Text = []
+      let added = list_append(change items, "x")
+      let count = list_len(items)
+      return list_count(items, "x")
+  }
+}
+"#;
+        let program = Program {
+            files: vec![parse_source("list_builtin_app_resolve.hum", source).file],
+        };
+        let calls = resolve_call_occurrence_summaries(&program, &[]);
+        for builtin in ["list_append", "list_len", "list_count"] {
+            let call = calls
+                .iter()
+                .find(|call| call.reference_id.contains(builtin))
+                .unwrap_or_else(|| panic!("{builtin} call occurrence"));
+            assert!(
+                call.target_definition_id
+                    .contains(&format!("builtin_{builtin}")),
+                "target identity for {builtin}: {}",
+                call.target_definition_id
+            );
+        }
     }
 }
