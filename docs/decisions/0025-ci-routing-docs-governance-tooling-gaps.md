@@ -86,19 +86,31 @@ Adopt option B, in two parts:
     governance, and tooling paths -- docs/decisions/, docs/research/,
     workorders/, tools/, and their peers -- so they classify by path
     instead of defaulting to Full. One general rule governs the ranks: a
-    path's rank must include the checks that consume it. The consumers are
-    concrete: the status-boundary classifier and the hum-dev status
-    tooling read workorders/ (the active marker drives Work Order
-    discovery); the public and release readiness checks scan docs/; every
-    gate consumes tools/. Verification against the current workflow shows
-    those consuming checks run in the Full preflight
-    (tools/check_all.ps1) and the fast status-only path -- not in the
-    normal language/runtime/compiler profiles. A cheap rank is therefore
-    only safe if the implementation wires the path's consumers into that
-    rank's profile, or keeps the path at a rank whose profile already
-    executes them. Any prefix not in the ownership table still classifies
-    Full: prefix ownership narrows the default; it does not make the
-    unregistered cheap. Two kinds of exception keep a code-level profile:
+    path's rank must include the checks that consume it. The wiring is
+    verified, not assumed: Invoke-HumFixedProfile (tools/check_all.ps1)
+    adds the hygiene group unconditionally (`$Groups += 'hygiene'`), and
+    CI's normal path reaches it -- `hum-dev evidence <profile>` dispatches
+    to `pwsh tools/check_all.ps1 -EvidenceTier <Profile>` (pinned by the
+    `fixed_profiles_map_to_the_shared_production_dispatcher` test). The
+    hygiene group is test_ci_policy.ps1, test_validation_bootstrap.ps1,
+    test_workorder_discovery.ps1, check_text_hygiene.ps1,
+    check_public_readiness.ps1, and check_release_readiness.ps1. Against
+    that wiring the rule splits:
+    - docs/ and tools/ are already covered at language rank. The checks
+      that consume docs/ (public/release readiness, text hygiene) and
+      tools/ (policy controls, bootstrap probe, discovery regression) are
+      all in the hygiene group, so a language-rank profile executes them
+      today.
+    - workorders/ is not. The status-boundary classifier
+      (test_workorder_status_boundary.ps1) sits outside the hygiene
+      group; it runs in the Full tier (after the fixed-profile early
+      return) and the fast status-only path. Language rank does not
+      execute it, so the implementation must either wire the boundary
+      classifier into the cheap profile's hygiene group or keep
+      workorders/ at a higher rank.
+    Any prefix not in the ownership table still classifies Full: prefix
+    ownership narrows the default; it does not make the unregistered
+    cheap. Two kinds of exception keep a code-level profile:
     - Paths that can affect compiled behaviour. docs/DIAGNOSTICS.md is
       compiled into the binary via `include_str!`
       (src/diagnostic_catalog.rs:4270, 5233); editing it changes the
@@ -122,12 +134,10 @@ Adopt option B, in two parts:
 
 - The step-3 cuts. Per-route measurements for language, runtime, and
   compiler are still owed before any cut is implemented.
-- The exact prefix list and ranks, and whether a cheap rank's profile gains
-  the path's consuming checks or the path keeps a higher rank. That mapping
-  is the BDFL's call; this record proposes the shape and the rule, not the
-  table. In particular, the right rank for tools/ paths -- which must prove
-  CI integrity rather than compiled behaviour -- needs the prefix table,
-  not a guess here.
+- The workorders/ wiring: whether the boundary classifier joins the cheap
+  profile's hygiene group or workorders/ keeps a higher rank -- and the
+  exact prefix list and ranks beyond that. That mapping is the BDFL's call;
+  this record proposes the shape and the rule, not the table.
 - Whether buying the fix is worth its price: the policy edit is itself a
   tools/ change, and tools/ is unregistered, so implementing this record
   costs one more full-price run (~40 minutes) to earn cheaper docs,
