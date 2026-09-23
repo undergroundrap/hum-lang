@@ -924,14 +924,28 @@ $StrictProfiles=& {
 }
 Assert-Policy ($null -eq $StrictError) "classifier runs under confined StrictMode (error: $($StrictError.Exception.Message))"
 Assert-Policy ((@($StrictProfiles | ForEach-Object { "$_" }) -join '|') -ceq ((@($StrictBaseline | ForEach-Object { "$_" }) -join '|'))) 'classifier routes identically under confined StrictMode'
-# Stale-rename mutation: rename the $HygieneBoundary initialization but leave
-# its use sites stale, reproducing the 2026-09-23 incident shape. Under
-# confined StrictMode the stale read must throw the unset-variable error,
-# not silently evaluate to $null.
+# Stale-rename regression: rename the $HygieneBoundary initialization in a copy
+# of check_all.ps1, define the MUTATED contract function, and execute it under
+# confined StrictMode. The stale $HygieneBoundary read must throw the
+# unset-variable error instead of silently evaluating to $null. This is the
+# 2026-09-23 incident shape ($FastStart renamed, stale references left
+# behind); executing the mutated definition is what makes the test honest —
+# passing mutated text as -Source would only analyze it as data and could
+# never catch a stale read.
 $StaleInitCount=([regex]::Matches($StrictSource,'\$HygieneBoundary =')).Count
 Assert-Policy ($StaleInitCount -eq 1) 'stale-rename mutation target is unique'
 $StaleSource=$StrictSource -creplace '\$HygieneBoundary =','$HygieneBoundaryRenamed ='
 $StaleFailure=$null
-& { Set-StrictMode -Version Latest; try { Assert-Wo25EvidenceTierDispatcherContract -Source $StaleSource } catch { $script:StaleFailure=$_ } }
-Assert-Policy (($null -ne $StaleFailure) -and ($StaleFailure.Exception.Message -like "*'HygieneBoundary'*") -and ($StaleFailure.Exception.Message -like '*has not been set*')) 'stale variable rename fails closed with unset-variable error under StrictMode'
+& {
+  Set-StrictMode -Version Latest
+  try {
+    $StaleTokens=$null; $StaleErrors=$null
+    $StaleAst=[Management.Automation.Language.Parser]::ParseInput($StaleSource,[ref]$StaleTokens,[ref]$StaleErrors)
+    $StaleDef=@($StaleAst.FindAll({ param($Node) $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq 'Assert-Wo25EvidenceTierDispatcherContract' },$true))
+    if ($StaleDef.Count -ne 1) { throw 'stale-rename mutation lost the contract function' }
+    Invoke-Expression $StaleDef[0].Extent.Text
+    Assert-Wo25EvidenceTierDispatcherContract -Source $StaleSource -SkipStaleControl
+  } catch { $script:StaleFailure=$_ }
+}
+Assert-Policy (($null -ne $StaleFailure) -and ($StaleFailure.Exception.Message -match '\$HygieneBoundary') -and ($StaleFailure.Exception.Message -match 'has not been set')) 'stale variable rename fails closed with unset-variable error under StrictMode'
 Write-Output "CI policy focused controls passed: $Count assertions; no Full execution credit."
