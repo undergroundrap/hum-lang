@@ -156,3 +156,14 @@ Adopt option B, in two parts:
 - Like 0023, if this record is accepted, the written routing ruling in
   AGENTS.md changes in the same PR as the policy code, so the written rule
   and the code stay in step.
+- Amendment 2026-09-23: the status-boundary classifier tests no longer run
+  unconditionally in every fixed profile's hygiene group. They are the
+  consumer that lets workorders/ route at language rank, so the Full tier
+  (and the nightly, which selects Full) still always runs them with the
+  determinism double-run; the language, runtime, and compiler profiles run
+  them only when the accepted policy's classified change paths touch one of
+  their consumers (workorders/, the two classifier scripts,
+  tools/Find-ActiveWorkorder.ps1, .github/workflows/ci.yml). The trigger
+  derives from the same accepted inventory that selected the profile — not
+  a new diff — and fails safe: a missing or empty inventory runs the tests.
+  Supersedes the earlier ruling that the boundary test run in every profile.

@@ -245,6 +245,15 @@ a test fails if any `include_str!`/`include_bytes!` target under `docs/` or
 infrastructure, and unknown impact require Full on both platforms before
 integration. Groups and routing ownership are in
 `docs/TESTING_STRATEGY.md`; focused results are never Full credit.
+Amendment 2026-09-23: the status-boundary classifier tests
+(`test_workorder_status_boundary`), the consumer that lets `workorders/`
+route at language rank, run unconditionally only in the Full tier (and the
+nightly, which selects Full); the language, runtime, and compiler profiles
+run them only when the accepted policy's classified change paths touch
+their consumers (`workorders/`, the classifier scripts,
+`tools/Find-ActiveWorkorder.ps1`, `.github/workflows/ci.yml`). The trigger
+derives from the same accepted inventory that selected the profile, never a
+new diff, and fails safe: a missing or empty inventory runs the tests.
 
 Independent review and owner-authorized integration, not automatic workflow
 attestation, protect validation definitions. Review the definitions and

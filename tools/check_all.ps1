@@ -44,6 +44,7 @@ $Cargo = Resolve-Tool 'cargo' '.cargo\bin\cargo.exe' 'cargo was not found on PAT
 $Git = Resolve-Tool 'git' '' 'git was not found on PATH'
 . (Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1')
 . (Join-Path $PSScriptRoot 'run_fast_evidence.ps1')
+. (Join-Path $PSScriptRoot 'check_ci_policy.ps1')
 
 if ($EvidenceTier -eq 'Exhaustive') {
   $PreviousEvidenceTier = $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER
@@ -1698,10 +1699,25 @@ function Invoke-HumCoreCheck {
       Invoke-RepoScript 'fixed validation policy controls' 'test_ci_policy.ps1'
       Invoke-RepoScript 'validation bootstrap probe' 'test_validation_bootstrap.ps1'
       Invoke-RepoScript 'workorder discovery regression' 'test_workorder_discovery.ps1'
-      # Decision 0025: the status-boundary classifier is the consumer that lets
-      # workorders/ route at language rank. It must run in every profile's
-      # hygiene group, not just the Full tier.
-      Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
+      # Decision 0025 amendment (2026-09-23): the status-boundary classifier
+      # is the consumer that lets workorders/ route at language rank. The
+      # fixed profiles (language/runtime/compiler) run it only when the
+      # accepted policy's classified change paths touch its consumers;
+      # Fast (Full tier) always runs it, as does the nightly.
+      # HUM_CI_CHANGE_PATHS carries the accepted selection's classified path
+      # inventory through the CI evidence pipeline (unit-separator-joined; the
+      # evidence launcher rejects CR/LF in environment values). It is unset
+      # for local runs and Full, and an empty or missing inventory runs the
+      # tests (fail safe).
+      $BoundaryRequired = $true
+      if (-not [string]::IsNullOrWhiteSpace($env:HUM_CI_CHANGE_PATHS)) {
+        $BoundaryRequired = Test-HumCiWorkOrderBoundaryTrigger -Paths ($env:HUM_CI_CHANGE_PATHS -split [char]0x1F)
+      }
+      if ($BoundaryRequired) {
+        Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
+      } else {
+        Write-Host 'Skipping Work Order status-boundary classifier tests: no consumer path in the accepted selection.'
+      }
       Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
       Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'
       Invoke-RepoScript 'release readiness' 'check_release_readiness.ps1'
