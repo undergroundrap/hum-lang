@@ -365,7 +365,10 @@ function Get-HumCiPrefixOwnership {
   # include the checks that consume it; the consumers of these prefixes
   # (public/release readiness, text hygiene, policy controls, bootstrap probe,
   # discovery regression, work-order status boundary) all run in the hygiene
-  # group, which every profile executes.
+  # group. Amendment 2026-09-23: the status-boundary consumer runs
+  # unconditionally only in the Full tier; the fixed profiles run it only when
+  # the accepted selection's classified paths touch its consumers, failing
+  # safe to run.
   #
   # tools/ is deliberately NOT in this table. check_all.ps1 IS the Full
   # preflight (its mutation matrices, capture tests and exhaustive paths run
@@ -407,6 +410,30 @@ function Get-HumCiProfile([string[]] $Paths) {
     $Rank = [Math]::Max($Rank, $Current)
   }
   @('language', 'runtime', 'compiler', 'full')[$Rank]
+}
+
+function Test-HumCiWorkOrderBoundaryTrigger {
+  # Decision 0025 amendment (2026-09-23): the Work Order status-boundary
+  # classifier tests are the consumer that lets workorders/ route at language
+  # rank. In the fixed profiles they run only when the accepted policy's
+  # classified change paths touch one of their consumers; the Full tier (and
+  # the nightly, which selects Full) always runs them with the determinism
+  # double-run. Fail safe: a null, empty, or blank-only inventory runs them.
+  param([string[]] $Paths)
+  $Consumers = @(
+    'tools/check_workorder_status_boundary.ps1',
+    'tools/test_workorder_status_boundary.ps1',
+    'tools/Find-ActiveWorkorder.ps1',
+    '.github/workflows/ci.yml'
+  )
+  $Seen = $false
+  foreach ($Path in $Paths) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { continue }
+    $Seen = $true
+    if ($Path.StartsWith('workorders/', [StringComparison]::Ordinal)) { return $true }
+    if ($Consumers -ccontains $Path) { return $true }
+  }
+  return (-not $Seen)
 }
 
 function Read-HumCiGit([string] $Root, [string[]] $Arguments) {
