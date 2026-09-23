@@ -114,17 +114,34 @@ foreach ($Case in @(
   @('language', @('docs/HUM_CORE_VERIFY_SCHEMA.md')),
   @('language', @('docs/TEXT_HYGIENE_WORKFLOW.md')),
   @('full', @('CONTRIBUTING.md')),
-  # Decision 0025: owned prefixes (docs/, tools/, workorders/) classify at
-  # language rank by path; unknown prefixes still classify Full.
-  @('language', @('tools/run_fast_evidence.ps1')),
+  # Decision 0025: owned prefixes (docs/, workorders/) classify at language
+  # rank by path; unknown prefixes still classify Full. tools/ has NO prefix
+  # entry: only hygiene-group scripts are pinned at language rank as literals;
+  # everything else under tools/ (including check_all.ps1, the Full preflight)
+  # defaults to Full.
+  @('full', @('tools/run_fast_evidence.ps1')),
+  @('full', @('tools/check_all.ps1')),
+  @('full', @('tools/test_fast_evidence_capture.ps1')),
+  @('full', @('tools/test_exact_rust_selector.ps1')),
+  @('full', @('tools/check_editor_fixtures.ps1')),
+  @('full', @('tools/new_unlisted_tool.ps1')),
+  @('language', @('tools/check_text_hygiene.ps1')),
+  @('language', @('tools/test_ci_policy.ps1')),
   @('language', @('docs/TESTING_STRATEGY.md')),
   @('language', @('docs/new_policy.md')),
   @('language', @('workorders/completed/2026-09-22-fix-validation-bootstrap-probe.md')),
-  # Decision 0025 exceptions: docs/DIAGNOSTICS.md is compiled into the binary
-  # via include_str!, so it keeps compiler rank. tools/check_ci_policy.ps1 is
-  # the highest-sensitivity tooling path; it keeps a code-level profile whose
-  # hygiene group runs the classification's own real gates.
+  # Decision 0025 exceptions: the docs compiled into the binary via include_str!
+  # in src/diagnostic_catalog.rs keep compiler rank. tools/check_ci_policy.ps1
+  # is the highest-sensitivity tooling path; it keeps a code-level profile
+  # whose hygiene group runs the classification's own real gates.
   @('compiler', @('docs/DIAGNOSTICS.md')),
+  @('compiler', @('docs/DIAGNOSTICS_SCHEMA_0_1.md')),
+  @('compiler', @('docs/EFFECT_REPORT_SCHEMA_0_1.md')),
+  @('compiler', @('docs/SECURITY_MODEL.md')),
+  @('compiler', @('docs/UNSAFE_POLICY.md')),
+  @('compiler', @('docs/RUNTIME_PROFILES.md')),
+  @('compiler', @('docs/LANGUAGE_SUBSET_0_1.md')),
+  @('compiler', @('docs/PORTABILITY_BOUNDARY_MODEL.md')),
   @('language', @('tools/check_ci_policy.ps1')),
   @('runtime', @('src/run.rs','tools/check_ci_policy.ps1')),
   @('compiler', @('fixtures/ownership_check/session_j_use_after_move_fail.hum')),
@@ -140,6 +157,31 @@ $CheckAllText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1')
 $HygieneMatch = [regex]::Match($CheckAllText, "(?ms)^    'hygiene' \{(?<body>.*?)^    \}")
 Assert-Policy $HygieneMatch.Success 'hygiene group owner exists in check_all.ps1'
 Assert-Policy ($HygieneMatch.Groups['body'].Value -cmatch "test_workorder_status_boundary\.ps1") 'hygiene group executes the work-order status-boundary consumer'
+
+# Decision 0025: every include_str!/include_bytes! target under docs/ must have
+# a code-level pin in check_ci_policy.ps1, so a newly compiled-in doc can't
+# silently route cheap via the docs/ prefix (language rank). Scans the real
+# src/ tree, not a fixture. tools/ targets need no pin: with no tools/ prefix
+# entry, unlisted tools default to Full (the safe direction).
+$PolicyText = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_ci_policy.ps1'))
+$Unpinned = @()
+foreach ($RsFile in [IO.Directory]::GetFiles((Join-Path $Root 'src'), '*.rs', [IO.SearchOption]::AllDirectories)) {
+  $RsText = [IO.File]::ReadAllText($RsFile)
+  foreach ($M in [regex]::Matches($RsText, 'include_(?:str|bytes)!\("([^"]+)"\)')) {
+    $Target = $M.Groups[1].Value
+    # Resolve relative to src/ (targets look like "../docs/X.md").
+    $Resolved = [IO.Path]::GetFullPath((Join-Path (Split-Path $RsFile) $Target))
+    $RepoRel = [IO.Path]::GetRelativePath($Root, $Resolved).Replace([IO.Path]::DirectorySeparatorChar, '/')
+    if ($RepoRel.StartsWith('docs/')) {
+      # Must appear as a literal pin: $Owners.Add('<path>', <rank>)
+      $Escaped = [regex]::Escape($RepoRel)
+      if ($PolicyText -notmatch "\`$Owners\.Add\('$Escaped',") {
+        $Unpinned += "$RepoRel (from $(([IO.Path]::GetRelativePath($Root, $RsFile)).Replace([IO.Path]::DirectorySeparatorChar, '/')))"
+      }
+    }
+  }
+}
+Assert-Policy ($Unpinned.Count -eq 0) ("compiled-in docs without code-level pin: " + ($Unpinned -join '; '))
 
 $Workflow = [IO.File]::ReadAllText((Join-Path $Root '.github/workflows/validation.yml')).Replace(([string][char]13+[char]10),[string][char]10)
 $Ci = [IO.File]::ReadAllText((Join-Path $Root '.github/workflows/ci.yml')).Replace(([string][char]13+[char]10),[string][char]10)
@@ -623,17 +665,17 @@ try {
   $null=Read-HumCiGit $ScopeFixture @('init','-q','-b','main')
   [IO.Directory]::CreateDirectory((Join-Path $ScopeFixture 'tools'))|Out-Null
   [IO.File]::Copy((Join-Path $PSScriptRoot 'check_ci_policy.ps1'),(Join-Path $ScopeFixture 'tools/check_ci_policy.ps1'))
-  # Decision 0025: the fixture change lives under the owned tools/ prefix, so
-  # production selects the language profile and the classify step's health
-  # gate runs. The fixture installs the isolated gh mock; the regression
-  # under test is that the child-scope policy load does not clobber the
-  # step's $Mode.
-  [IO.File]::WriteAllText((Join-Path $ScopeFixture 'tools/run_fast_evidence.ps1'),"base`n")
-  $null=Read-HumCiGit $ScopeFixture @('add','--','tools/check_ci_policy.ps1','tools/run_fast_evidence.ps1')
+  # Decision 0025: the fixture change lives under the tools/ hygiene-script
+  # pin (check_text_hygiene.ps1 selects language rank), so production selects
+  # the language profile and the classify step's health gate runs. The fixture
+  # installs the isolated gh mock; the regression under test is that the
+  # child-scope policy load does not clobber the step's $Mode.
+  [IO.File]::WriteAllText((Join-Path $ScopeFixture 'tools/check_text_hygiene.ps1'),"base`n")
+  $null=Read-HumCiGit $ScopeFixture @('add','--','tools/check_ci_policy.ps1','tools/check_text_hygiene.ps1')
   $ScopeTreeA=(Read-HumCiGit $ScopeFixture @('write-tree')).Trim()
   $ScopeBase=(Read-HumCiGit $ScopeFixture ($ScopeIdentity+@('commit-tree',$ScopeTreeA,'-m','policy-base'))).Trim()
-  [IO.File]::WriteAllText((Join-Path $ScopeFixture 'tools/run_fast_evidence.ps1'),"changed`n")
-  $null=Read-HumCiGit $ScopeFixture @('add','--','tools/run_fast_evidence.ps1')
+  [IO.File]::WriteAllText((Join-Path $ScopeFixture 'tools/check_text_hygiene.ps1'),"changed`n")
+  $null=Read-HumCiGit $ScopeFixture @('add','--','tools/check_text_hygiene.ps1')
   $ScopeTreeB=(Read-HumCiGit $ScopeFixture @('write-tree')).Trim()
   $ScopeHead=(Read-HumCiGit $ScopeFixture ($ScopeIdentity+@('commit-tree',$ScopeTreeB,'-p',$ScopeBase,'-m','push-head'))).Trim()
   $null=Read-HumCiGit $ScopeFixture @('update-ref','HEAD',$ScopeHead)
@@ -704,18 +746,18 @@ try {
   $null=Read-HumCiGit $PlanFixture @('init','-q','-b','main')
   [IO.Directory]::CreateDirectory((Join-Path $PlanFixture 'tools'))|Out-Null
   [IO.File]::Copy((Join-Path $PSScriptRoot 'check_ci_policy.ps1'),(Join-Path $PlanFixture 'tools/check_ci_policy.ps1'))
-  # Decision 0025: the fixture change lives under the owned tools/ prefix, so
-  # production selects the language profile and the plan step's health gate
-  # runs. The fixture installs the isolated gh mock; the regression under
-  # test is that the verified merge-parent base is used, not the stale event
-  # base.
-  [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/run_fast_evidence.ps1'),"base`n")
-  $null=Read-HumCiGit $PlanFixture @('add','--','tools/check_ci_policy.ps1','tools/run_fast_evidence.ps1')
+  # Decision 0025: the fixture change uses the tools/ hygiene-script pin
+  # (check_text_hygiene.ps1 selects language rank), so production selects the
+  # language profile and the plan step's health gate runs. The fixture
+  # installs the isolated gh mock; the regression under test is that the
+  # verified merge-parent base is used, not the stale event base.
+  [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/check_text_hygiene.ps1'),"base`n")
+  $null=Read-HumCiGit $PlanFixture @('add','--','tools/check_ci_policy.ps1','tools/check_text_hygiene.ps1')
   $PlanTreeA=(Read-HumCiGit $PlanFixture @('write-tree')).Trim()
   # A is the stale event base: the main tip the PR was opened against.
   $PlanStaleBase=(Read-HumCiGit $PlanFixture ($PlanIdentity+@('commit-tree',$PlanTreeA,'-m','stale-base'))).Trim()
-  [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/run_fast_evidence.ps1'),"main tip`n")
-  $null=Read-HumCiGit $PlanFixture @('add','--','tools/run_fast_evidence.ps1')
+  [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/check_text_hygiene.ps1'),"main tip`n")
+  $null=Read-HumCiGit $PlanFixture @('add','--','tools/check_text_hygiene.ps1')
   $PlanTreeB=(Read-HumCiGit $PlanFixture @('write-tree')).Trim()
   # B is the current main tip: the merge commit's first parent.
   $PlanTip=(Read-HumCiGit $PlanFixture ($PlanIdentity+@('commit-tree',$PlanTreeB,'-p',$PlanStaleBase,'-m','main-tip'))).Trim()
@@ -725,8 +767,8 @@ try {
   $null=Read-HumCiGit $PlanFixture @('push','-q','origin','main')
   # H is the PR head, branched from the stale base.
   $null=Read-HumCiGit $PlanFixture @('read-tree',$PlanTreeA)
-  [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/run_fast_evidence.ps1'),"pr change`n")
-  $null=Read-HumCiGit $PlanFixture @('add','--','tools/run_fast_evidence.ps1')
+  [IO.File]::WriteAllText((Join-Path $PlanFixture 'tools/check_text_hygiene.ps1'),"pr change`n")
+  $null=Read-HumCiGit $PlanFixture @('add','--','tools/check_text_hygiene.ps1')
   $PlanTreeH=(Read-HumCiGit $PlanFixture @('write-tree')).Trim()
   $PlanHead=(Read-HumCiGit $PlanFixture ($PlanIdentity+@('commit-tree',$PlanTreeH,'-p',$PlanStaleBase,'-m','pr-head'))).Trim()
   # M is GitHub's test merge commit, built on the current main tip.
