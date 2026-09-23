@@ -208,6 +208,60 @@ function Read-NativeArgumentListWithExit {
   }
 }
 
+function Read-NativeBytesWithExit {
+  param(
+    [string] $Label,
+    [string] $FilePath,
+    [string[]] $Arguments,
+    [int] $TimeoutMilliseconds = 120000
+  )
+
+  Write-Host "==> $Label"
+  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $StartInfo.FileName = $FilePath
+  foreach ($Argument in $Arguments) { $StartInfo.ArgumentList.Add($Argument) }
+  $StartInfo.UseShellExecute = $false
+  $StartInfo.CreateNoWindow = $true
+  # Redirect stdin and close it immediately: a child must never block
+  # waiting on input the harness will never send.
+  $StartInfo.RedirectStandardInput = $true
+  $StartInfo.RedirectStandardOutput = $true
+  $StartInfo.RedirectStandardError = $true
+  $Process = New-Object System.Diagnostics.Process
+  $Process.StartInfo = $StartInfo
+  if (-not $Process.Start()) {
+    throw "$Label could not start"
+  }
+  $Process.StandardInput.Close()
+  # Drain both pipes concurrently. A sequential stdout-then-stderr read
+  # deadlocks permanently when the child fills the stderr pipe buffer
+  # while the harness drains stdout (Session AG Windows hang, validation
+  # run 35906343427: preflight killed at the 3000 s deadline, hiding the
+  # real failure behind an empty log).
+  $StdoutBytes = New-Object System.IO.MemoryStream
+  try {
+    $StdoutTask = $Process.StandardOutput.BaseStream.CopyToAsync($StdoutBytes)
+    $StderrTask = $Process.StandardError.ReadToEndAsync()
+    if (-not $Process.WaitForExit($TimeoutMilliseconds)) {
+      try { $Process.Kill($true) } catch { }
+      $Process.WaitForExit()
+      $null = $StderrTask.Wait(5000)
+      $PartialStderr = if ($StderrTask.IsCompleted) { $StderrTask.Result } else { '' }
+      throw "$Label timed out after ${TimeoutMilliseconds}ms; stderr so far: $PartialStderr"
+    }
+    $null = $StdoutTask.Wait($TimeoutMilliseconds)
+    $null = $StderrTask.Wait($TimeoutMilliseconds)
+    return [pscustomobject] @{
+      Bytes = $StdoutBytes.ToArray()
+      Stderr = if ($StderrTask.IsCompleted) { $StderrTask.Result } else { '' }
+      ExitCode = $Process.ExitCode
+    }
+  } finally {
+    $StdoutBytes.Dispose()
+    $Process.Dispose()
+  }
+}
+
 function ConvertTo-UbuntuPwshResolutionEncodedCommand {
   param([string] $Command)
 
@@ -5091,21 +5145,13 @@ function Invoke-HumCompilerCorpusChecks {
   # source "\n" to U+000A (decision 0022). The probe returns the decoded
   # Text; stdout must be exactly two 0x0A bytes (the value plus the CLI
   # println terminator), proving a real newline reaches the byte stream.
-  $SessionABProbePsi = New-Object System.Diagnostics.ProcessStartInfo
-  $SessionABProbePsi.FileName = $Hum
-  foreach ($Argument in @('run', 'examples/probes/decoded_newline_probe.hum', '--entry', 'decoded_newline_probe')) { $SessionABProbePsi.ArgumentList.Add($Argument) }
-  $SessionABProbePsi.UseShellExecute = $false
-  $SessionABProbePsi.CreateNoWindow = $true
-  $SessionABProbePsi.RedirectStandardOutput = $true
-  $SessionABProbePsi.RedirectStandardError = $true
-  $SessionABProbeProc = [System.Diagnostics.Process]::Start($SessionABProbePsi)
-  $SessionABProbeMs = New-Object System.IO.MemoryStream
-  $SessionABProbeProc.StandardOutput.BaseStream.CopyTo($SessionABProbeMs)
-  $SessionABProbeStderr = $SessionABProbeProc.StandardError.ReadToEnd()
-  $SessionABProbeProc.WaitForExit()
-  $SessionABProbeBytes = $SessionABProbeMs.ToArray()
-  if ($SessionABProbeProc.ExitCode -ne 0) { throw "Session AB decoded-newline probe expected exit 0, got $($SessionABProbeProc.ExitCode)" }
-  if ($SessionABProbeStderr -ne '') { throw 'Session AB decoded-newline probe must not write to stderr' }
+  # Byte-exact stdout goes through the shared concurrent-drain helper:
+  # the inline sequential stdout-then-stderr read it replaced deadlocks
+  # when the child fills the stderr pipe buffer (run 35906343427).
+  $SessionABProbe = Read-NativeBytesWithExit 'run Session AB decoded-newline probe' $Hum @('run', 'examples/probes/decoded_newline_probe.hum', '--entry', 'decoded_newline_probe')
+  $SessionABProbeBytes = $SessionABProbe.Bytes
+  if ($SessionABProbe.ExitCode -ne 0) { throw "Session AB decoded-newline probe expected exit 0, got $($SessionABProbe.ExitCode)" }
+  if ($SessionABProbe.Stderr -ne '') { throw 'Session AB decoded-newline probe must not write to stderr' }
   if ($SessionABProbeBytes.Count -ne 2 -or $SessionABProbeBytes[0] -ne 0x0A -or $SessionABProbeBytes[1] -ne 0x0A) { throw 'Session AB decoded-newline probe stdout must be exactly two 0x0A bytes' }
 
   # Session AG: wordfreq (WO27 Part 2, decisions 0021/0022). The first real
@@ -5139,22 +5185,16 @@ function Invoke-HumCompilerCorpusChecks {
     # 0x0A newlines and no 0x0D carriage returns.
     # Native paths must be absolute (drive-rooted) — the Windows validator
     # rejects relative paths, so resolve the fixture against $RepoRoot.
+    # Stdout/stderr drain concurrently inside the helper: the previous
+    # inline sequential read deadlocked when hum.exe wrote a long stderr
+    # (validation run 35906343427 hung to the 3000 s deadline), hiding the
+    # real failure. A hang now fails in minutes with captured stderr.
     $SessionAGFixture = Join-Path $RepoRoot 'fixtures/wordfreq/sample.txt'
-    $SessionAGPsi = New-Object System.Diagnostics.ProcessStartInfo
-    $SessionAGPsi.FileName = $Hum
-    foreach ($Argument in @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)) { $SessionAGPsi.ArgumentList.Add($Argument) }
-    $SessionAGPsi.UseShellExecute = $false
-    $SessionAGPsi.CreateNoWindow = $true
-    $SessionAGPsi.RedirectStandardOutput = $true
-    $SessionAGPsi.RedirectStandardError = $true
-    $SessionAGProc = [System.Diagnostics.Process]::Start($SessionAGPsi)
-    $SessionAGMs = New-Object System.IO.MemoryStream
-    $SessionAGProc.StandardOutput.BaseStream.CopyTo($SessionAGMs)
-    $SessionAGStderr = $SessionAGProc.StandardError.ReadToEnd()
-    $SessionAGProc.WaitForExit()
-    $SessionAGBytes = $SessionAGMs.ToArray()
+    $SessionAGFileRead = Read-NativeBytesWithExit 'run Session AG wordfreq file read positive' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)
+    $SessionAGBytes = $SessionAGFileRead.Bytes
+    $SessionAGStderr = $SessionAGFileRead.Stderr
     $SessionAGExpected = [byte[]]@(0x68, 0x75, 0x6D, 0x0A, 0x6C, 0x61, 0x6E, 0x67, 0x0A, 0x68, 0x75, 0x6D, 0x0A)
-    if ($SessionAGProc.ExitCode -ne 0) { throw "Session AG wordfreq file read expected exit 0, got $($SessionAGProc.ExitCode)" }
+    if ($SessionAGFileRead.ExitCode -ne 0) { throw "Session AG wordfreq file read expected exit 0, got $($SessionAGFileRead.ExitCode)" }
     if ($SessionAGStderr -ne '') { throw 'Session AG wordfreq file read must not write to stderr' }
     if ($SessionAGBytes.Count -ne $SessionAGExpected.Count) { throw "Session AG wordfreq stdout must be exactly 13 bytes, got $($SessionAGBytes.Count)" }
     for ($SessionAGI = 0; $SessionAGI -lt $SessionAGExpected.Count; $SessionAGI++) {
