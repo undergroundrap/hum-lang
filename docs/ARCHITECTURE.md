@@ -378,3 +378,5 @@ authority. Constant Text continues through additive backend-input v2, a
 callback-scoped verifier capability, one Cranelift tag/store and finalized
 invocation, then the existing deny-first bounded output adapter. Cranelift
 remains a replaceable first backend, not Hum's semantic owner.
+
+<!-- step-3 measurement probe: comment-only change, no semantic content -->
