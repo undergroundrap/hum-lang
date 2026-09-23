@@ -897,11 +897,11 @@ try {
 #   return $null when unset and the code branches on that.
 # - $Matches is read after -match in check_all.ps1 (14 sites),
 #   run_fast_evidence.ps1 (4), check_ci_policy.ps1 (3), test_ci_policy.ps1
-#   (1). The safe idiom — read $Matches immediately after the matching
+#   (4). The safe idiom — read $Matches immediately after the matching
 #   operation in the same scope — is used everywhere; separating the read
 #   from the match would silently pick up a stale $Matches.
-# - $null is always on the left of -eq/-ne comparisons (45 sites in
-#   check_all.ps1, 8 in run_fast_evidence.ps1); the reversed form would apply
+# - $null is always on the left of -eq/-ne comparisons (75 sites in
+#   check_all.ps1, 19 in run_fast_evidence.ps1); the reversed form would apply
 #   lenient array filtering instead of a null test.
 # - Native-command probes rely on the $LASTEXITCODE reset protocol
 #   ($global:LASTEXITCODE = 0 after capturing the code of interest); see the
