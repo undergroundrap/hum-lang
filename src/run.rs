@@ -1,3 +1,4 @@
+// step-3 measurement probe: comment-only change, no semantic content
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ffi::{OsStr, OsString};
