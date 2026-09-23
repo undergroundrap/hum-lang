@@ -1274,13 +1274,34 @@ fn matching_call_end(text: &str, open: usize) -> Option<usize> {
 /// it. Empty arguments are dropped, matching the historical splitters this
 /// replaces.
 ///
-/// WO27 Part 1a note: `full_type_check::split_call_arguments` and
-/// `run::split_arguments` are thin delegating wrappers over this function.
-/// They are on borrowed time — Part 1b removes them and migrates the
-/// remaining call sites here. The `argument_splitter_inventory_has_no_drift`
-/// test pins the allowed set mechanically, so a second real splitter fails
-/// the build.
+/// WO27 Part 1b: the Part 1a temporary wrappers are removed. This is the
+/// single canonical escape-aware argument splitter; all call sites use it
+/// directly.
 pub(crate) fn split_call_arguments(text: &str) -> Vec<&str> {
+    split_call_argument_segments(text)
+        .into_iter()
+        .filter(|argument| !argument.is_empty())
+        .collect()
+}
+
+/// True when the comma-separated argument list contains a stray empty
+/// segment (e.g. `line,, ","`). Decision 0022: empty arguments are never
+/// valid; the canonical splitter drops them by historical behavior, so
+/// callers that must reject them (like `text_split`) check with this first.
+/// An empty argument list is not stray — only an empty segment within a
+/// non-empty list.
+pub(crate) fn has_stray_empty_argument(text: &str) -> bool {
+    if text.trim().is_empty() {
+        return false;
+    }
+    split_call_argument_segments(text)
+        .iter()
+        .any(|argument| argument.is_empty())
+}
+
+/// Quote-aware comma split that preserves empty segments. The scan is
+/// escape-aware per decision 0022: `\"` never terminates the literal.
+fn split_call_argument_segments(text: &str) -> Vec<&str> {
     let mut arguments = Vec::new();
     let mut start = 0usize;
     let mut depth = 0isize;
@@ -1297,19 +1318,13 @@ pub(crate) fn split_call_arguments(text: &str) -> Vec<&str> {
             '(' | '[' | '{' if !in_string => depth += 1,
             ')' | ']' | '}' if !in_string => depth -= 1,
             ',' if !in_string && depth == 0 => {
-                let argument = text[start..index].trim();
-                if !argument.is_empty() {
-                    arguments.push(argument);
-                }
+                arguments.push(text[start..index].trim());
                 start = index + ch.len_utf8();
             }
             _ => {}
         }
     }
-    let argument = text[start..].trim();
-    if !argument.is_empty() {
-        arguments.push(argument);
-    }
+    arguments.push(text[start..].trim());
     arguments
 }
 
@@ -1525,9 +1540,9 @@ mod tests {
         FailureCatalog, TypedFailureBindingError, TypedFailureCause, analyze_program, analyze_task,
         analyze_task_with_resolver_calls, bind_failure_fact_to_resolver_call,
         call_span_for_identifier_use, call_span_in_statement, calls_in_expression,
-        contains_keyword_token, is_meaningful_failure_declaration, is_non_empty_text_literal,
-        is_try_candidate, parse_failure_variant, parse_try_expression, result_error_root,
-        split_call_arguments,
+        contains_keyword_token, has_stray_empty_argument, is_meaningful_failure_declaration,
+        is_non_empty_text_literal, is_try_candidate, parse_failure_variant, parse_try_expression,
+        result_error_root, split_call_arguments,
     };
     use crate::ast::{Item, Program};
     use crate::core_body::BodyStatement;
@@ -1998,13 +2013,13 @@ task caller() -> Result UInt, SourceError {
         );
     }
 
-    // WO27 Part 1a: inventory pin. Exactly three argument-splitter definitions
-    // exist: the canonical one here, one delegating wrapper in
-    // full_type_check.rs, and one in run.rs. The naive private validator also
-    // in this file predates Part 1a and is out of scope. Part 1b removes the
-    // two wrappers; this test must be updated then, not silently re-baselined.
+    // WO27 Part 1b: inventory pin. Exactly one argument-splitter definition
+    // exists: the canonical `split_call_arguments` in this file. The Part 1a
+    // delegating wrappers in full_type_check.rs and run.rs are removed; a
+    // second real splitter fails the build. The naive private validator also
+    // in this file predates Part 1a and is out of scope.
     #[test]
-    fn argument_splitter_inventory_pins_three_definitions() {
+    fn argument_splitter_inventory_pins_single_definition() {
         // Built at runtime so this test's own source never self-counts.
         let canonical_name = ["fn split", "_call_arguments"].concat();
         let legacy_name = ["fn split", "_arguments"].concat();
@@ -2018,13 +2033,13 @@ task caller() -> Result UInt, SourceError {
         );
         assert_eq!(
             full_type_check.matches(canonical_name.as_str()).count(),
-            1,
-            "checker wrapper must be defined exactly once"
+            0,
+            "checker wrapper must be gone"
         );
         assert_eq!(
             run.matches(legacy_name.as_str()).count(),
-            1,
-            "runtime wrapper must be defined exactly once"
+            0,
+            "runtime wrapper must be gone"
         );
         assert_eq!(
             typed_failure.matches(legacy_name.as_str()).count(),
@@ -2033,36 +2048,42 @@ task caller() -> Result UInt, SourceError {
         );
     }
 
-    // WO27 Part 1a: the two temporary wrappers carry no logic of their own —
-    // they agree with the canonical splitter on the whole corpus.
+    // WO27 Part 1b: the Part 1a wrappers are removed; the canonical splitter
+    // stands alone. This test pins the stray-empty-argument detector used by
+    // `text_split` (decision 0022): interior empty segments are rejected,
+    // while an empty argument list is not stray.
     #[test]
-    fn splitter_wrappers_agree_with_canonical() {
-        // Backslash-bearing inputs are built with char::from(92): the
-        // public-readiness scan rejects double-backslash sequences in sources.
-        let bs = char::from(92).to_string();
-        let corpus: Vec<String> = vec![
-            "\"a,b\", \",\"".to_string(),
-            format!("\"a{bs}\",b\", \",\""),
-            format!("\"a{bs}{bs}\", \",\""),
-            "f(a, b), \",\"".to_string(),
-            "[a, b], \",\"".to_string(),
-            "f(g(a, b), [c, d]), \",\"".to_string(),
-            "  text ,  sep  ".to_string(),
-            "a, b, c".to_string(),
-            "a,,b".to_string(),
-        ];
-        for input in &corpus {
-            let canonical = split_call_arguments(input);
-            assert_eq!(
-                crate::full_type_check::split_call_arguments(input),
-                canonical,
-                "checker wrapper disagrees on {input:?}"
-            );
-            assert_eq!(
-                crate::run::split_arguments(input),
-                canonical,
-                "runtime wrapper disagrees on {input:?}"
+    fn stray_empty_argument_detection() {
+        let stray = vec!["a,,b", "a, ,b", ",a", "a,", "line,, \",\""];
+        for input in &stray {
+            assert!(
+                has_stray_empty_argument(input),
+                "expected stray empty in {input:?}"
             );
         }
+        let clean = vec!["", "   ", "a", "a, b", "\"a,b\", \",\"", "f(a, b), \",\""];
+        for input in &clean {
+            assert!(
+                !has_stray_empty_argument(input),
+                "unexpected stray empty in {input:?}"
+            );
+        }
+        // An escaped quote never splits the argument: the first argument is
+        // one literal, so there is no stray empty.
+        let bs = char::from(92).to_string();
+        let escaped = bs.clone() + "\",b\", \",\"";
+        let input = ["\"a", &escaped].concat();
+        assert!(!has_stray_empty_argument(&input));
+    }
+    // Decision 0022: an escaped quote never terminates a literal, so the
+    // scanner sees exactly two arguments here.
+    #[test]
+    fn escaped_quote_does_not_split_arguments() {
+        let bs = char::from(92).to_string();
+        // Input: "a\"b, c", d  (the comma inside the literal is not a separator)
+        let input = format!("\"a{bs}\"b, c\", d");
+        let args = split_call_arguments(&input);
+        assert_eq!(args.len(), 2, "escaped quote split the arguments");
+        assert_eq!(args[1], "d");
     }
 }

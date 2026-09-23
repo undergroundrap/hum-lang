@@ -162,6 +162,68 @@ struct TextSplitTypeIssue {
     reason: &'static str,
 }
 
+struct InvalidTextEscapeIssue {
+    offending_span: Span,
+    spelling: String,
+}
+
+/// Walks a statement's canonical expressions for a text literal whose escape
+/// sequences failed decision-0022 decoding. The parser marks the literal
+/// Unsupported with an InvalidTextEscape malformed completion; the checker
+/// surfaces it here as H0638.
+fn invalid_text_escape_issue(
+    parsed: &crate::ast::ParsedBodyStatement,
+) -> Option<InvalidTextEscapeIssue> {
+    fn walk(
+        expression: &crate::ast::CanonicalExpression,
+    ) -> Option<&crate::ast::CanonicalMalformedEvent> {
+        if let crate::ast::CanonicalCompletionEvent::Unsupported(event) = &expression.completion
+            && event.cause == crate::ast::CanonicalMalformedCause::InvalidTextEscape
+        {
+            return Some(event);
+        }
+        let children: Vec<&crate::ast::CanonicalExpression> = match &expression.kind {
+            crate::ast::CanonicalExpressionKind::Field { base, .. } => vec![base],
+            crate::ast::CanonicalExpressionKind::ElementPlace { base, .. } => vec![base],
+            crate::ast::CanonicalExpressionKind::ListLiteral(items) => items.iter().collect(),
+            crate::ast::CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                fields.iter().map(|(_, value)| value).collect()
+            }
+            crate::ast::CanonicalExpressionKind::Call { callee, arguments } => {
+                std::iter::once(callee.as_ref())
+                    .chain(arguments.iter())
+                    .collect()
+            }
+            crate::ast::CanonicalExpressionKind::Permission { value, .. } => vec![value],
+            crate::ast::CanonicalExpressionKind::Try { value, .. } => vec![value],
+            crate::ast::CanonicalExpressionKind::Binary { left, right, .. } => vec![left, right],
+            crate::ast::CanonicalExpressionKind::Group(inner) => vec![inner],
+            _ => Vec::new(),
+        };
+        children.into_iter().find_map(walk)
+    }
+
+    let expressions: Vec<&crate::ast::ParsedExpression> = match &parsed.kind {
+        crate::ast::ParsedBodyStatementKind::Return(expression) => vec![expression],
+        crate::ast::ParsedBodyStatementKind::Binding { value, .. } => value.iter().collect(),
+        crate::ast::ParsedBodyStatementKind::Other { expressions } => expressions.iter().collect(),
+    };
+    expressions.into_iter().find_map(|expression| {
+        walk(&expression.canonical).map(|event| {
+            let spelling = match &event.actual {
+                crate::ast::CanonicalActualLexicalEvidence::Token { spelling, .. } => {
+                    spelling.clone()
+                }
+                _ => String::new(),
+            };
+            InvalidTextEscapeIssue {
+                offending_span: event.offending.start.clone(),
+                spelling,
+            }
+        })
+    })
+}
+
 pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic]) -> bool {
     full_type_check_summary(program, diagnostics).blocking_issues > 0
 }
@@ -829,6 +891,34 @@ fn type_statement(
         );
     }
 
+    if let Some(issue) = invalid_text_escape_issue(parsed) {
+        let mut typed = typed_statement(
+            statement,
+            index,
+            None,
+            Some("Text".to_string()),
+            None,
+            "rejected_invalid_text_escape_v0",
+            Some("text_literal_has_invalid_escape_sequence_v0"),
+        );
+        typed.call_span = Some(issue.offending_span);
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::INVALID_TEXT_ESCAPE.as_str());
+        typed.help = Some(format!(
+            "Replace `{}` with one of the accepted escapes (`\\n`, `\\t`, `\\\\`, `\\\"`).",
+            issue.spelling
+        ));
+        attach_builtin_occurrence(
+            &mut typed,
+            item_identity,
+            index,
+            DiagnosticCode::INVALID_TEXT_ESCAPE,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(185),
+            "text_literal_escape_shape",
+        );
+        return typed;
+    }
+
     if let Some(issue) = stdout_write_type_issue(statement, environment, task_returns, field_types)
     {
         let mut typed = typed_statement(
@@ -1103,7 +1193,7 @@ fn stdout_write_type_issue(
         .source
         .strip_prefix("stdout_write(")?
         .strip_suffix(')')?;
-    let arguments = split_call_arguments(args);
+    let arguments = typed_failure::split_call_arguments(args);
     if arguments.len() != 1 {
         return Some(StdoutWriteTypeIssue {
             call_source: call.source,
@@ -1175,7 +1265,7 @@ fn file_read_type_issue(
         .source
         .strip_prefix("files_read_text(")?
         .strip_suffix(')')?;
-    let arguments = split_call_arguments(args);
+    let arguments = typed_failure::split_call_arguments(args);
     if arguments.len() != 1 {
         return Some(FileReadTypeIssue {
             call_source: call.source,
@@ -1219,10 +1309,20 @@ fn text_split_type_issue(
                 .count(),
     };
     let args = call.source.strip_prefix("text_split(")?.strip_suffix(')')?;
-    // Escape-aware per decision 0022: the canonical splitter, via the local
-    // delegating wrapper, so an escaped quote inside a separator literal can
-    // never produce a spurious arity error here.
-    let arguments = split_call_arguments(args);
+    // Escape-aware per decision 0022: the canonical splitter, so an escaped
+    // quote inside a separator literal can never produce a spurious arity
+    // error here.
+    let arguments = typed_failure::split_call_arguments(args);
+    // Decision 0022: a stray empty argument (e.g. `text_split(line,, ",")`)
+    // is a checker error, not a silently-dropped segment.
+    if typed_failure::has_stray_empty_argument(args) {
+        return Some(TextSplitTypeIssue {
+            call_source: call.source,
+            call_span,
+            actual_type: None,
+            reason: "text_split_rejects_stray_empty_argument_v0",
+        });
+    }
     if arguments.len() != 2 {
         return Some(TextSplitTypeIssue {
             call_source: call.source,
@@ -1259,13 +1359,8 @@ fn text_split_type_issue(
     None
 }
 
-// WO27 Part 1a: thin delegating wrapper over the canonical escape-aware
-// `typed_failure::split_call_arguments`. This name is on borrowed time —
-// Part 1b removes it and migrates the remaining call sites to the canonical
-// name. It carries no parser logic of its own.
-pub(crate) fn split_call_arguments(text: &str) -> Vec<&str> {
-    crate::typed_failure::split_call_arguments(text)
-}
+// WO27 Part 1b: the thin `split_call_arguments` wrapper is removed; call
+// sites use `typed_failure::split_call_arguments` directly.
 
 fn expected_type_for_statement(
     item: &Item,

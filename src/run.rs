@@ -2346,7 +2346,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         if text.starts_with('[') && text.ends_with(']') {
             let inside = &text[1..text.len() - 1];
             let mut values = Vec::new();
-            for item in split_arguments(inside) {
+            for item in crate::typed_failure::split_call_arguments(inside) {
                 match self.eval_expr(item, env, span, task_name)? {
                     Evaluated::Value(value) => values.push(value),
                     Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
@@ -2358,7 +2358,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         if text.starts_with('{') && text.ends_with('}') {
             let inside = &text[1..text.len() - 1];
             let mut fields = BTreeMap::new();
-            for field in split_arguments(inside) {
+            for field in crate::typed_failure::split_call_arguments(inside) {
                 let (name, value_text) = field
                     .split_once(':')
                     .ok_or_else(|| format!("record field `{field}` is missing `:`"))?;
@@ -2489,7 +2489,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             let Some(task) = self.find_task(callee) else {
                 return Err(format!("task `{callee}` was not found"));
             };
-            let raw_args = split_arguments(args);
+            let raw_args = crate::typed_failure::split_call_arguments(args);
             if raw_args.len() != task.params.len() {
                 return Err(format!(
                     "task `{}` expects {} argument(s), got {}",
@@ -2576,7 +2576,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         statement_span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
+        let raw_args = crate::typed_failure::split_call_arguments(args);
         if raw_args.len() != 1 {
             return Err(format!(
                 "stdout_write expects exactly 1 Text argument, got {}",
@@ -2745,7 +2745,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         statement_span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
+        let raw_args = crate::typed_failure::split_call_arguments(args);
         if raw_args.len() != 1 {
             return Err(format!(
                 "files_read_text expects exactly 1 Path argument, got {}",
@@ -2886,7 +2886,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         statement_span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
+        let raw_args = crate::typed_failure::split_call_arguments(args);
         if raw_args.len() != 2 {
             return Err(format!(
                 "text_split expects exactly 2 Text arguments, got {}",
@@ -3387,7 +3387,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
+        let raw_args = crate::typed_failure::split_call_arguments(args);
         if raw_args.len() != 2 {
             return Err(format!(
                 "list_append expects 2 argument(s), got {}",
@@ -3426,7 +3426,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
+        let raw_args = crate::typed_failure::split_call_arguments(args);
         if raw_args.len() != 2 {
             return Err(format!(
                 "slice_until expects 2 argument(s), got {}",
@@ -3462,7 +3462,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         span: &Span,
         task_name: &str,
     ) -> Result<Evaluated, String> {
-        let raw_args = split_arguments(args);
+        let raw_args = crate::typed_failure::split_call_arguments(args);
         if raw_args.len() != 1 {
             return Err(format!(
                 "list_len expects 1 argument(s), got {}",
@@ -4004,7 +4004,7 @@ fn parse_list_arg(element_ty: &str, raw: &str) -> Result<Value, String> {
         .and_then(|text| text.strip_suffix(']'))
         .ok_or_else(|| format!("list argument `{raw}` must use `[a, b]` syntax"))?;
     let mut values = Vec::new();
-    for item in split_arguments(inside) {
+    for item in crate::typed_failure::split_call_arguments(inside) {
         values.push(parse_list_element(element_ty, item.trim())?);
     }
     Ok(Value::List(values))
@@ -4026,7 +4026,7 @@ fn parse_record_arg(ty: &str, raw: &str) -> Result<Value, String> {
         .ok_or_else(|| format!("record argument for `{ty}` must use `{{field: value}}` syntax"))?;
 
     let mut fields = BTreeMap::new();
-    for field in split_arguments(inside) {
+    for field in crate::typed_failure::split_call_arguments(inside) {
         let (name, value_text) = field
             .split_once(':')
             .ok_or_else(|| format!("record field `{field}` is missing `:`"))?;
@@ -4059,7 +4059,7 @@ fn parse_cli_literal_value(raw: &str) -> Result<Value, String> {
     if raw.starts_with('[') && raw.ends_with(']') {
         let inside = &raw[1..raw.len() - 1];
         let mut values = Vec::new();
-        for item in split_arguments(inside) {
+        for item in crate::typed_failure::split_call_arguments(inside) {
             values.push(parse_cli_literal_value(item)?);
         }
         return Ok(Value::List(values));
@@ -4390,7 +4390,7 @@ fn split_call(text: &str) -> Option<(&str, &str)> {
 fn constant_text_stdout_write_try_call(text: &str) -> Option<&str> {
     let call = text.trim().strip_prefix("try ")?;
     let (callee, arguments) = split_call(call)?;
-    let arguments = split_arguments(arguments);
+    let arguments = crate::typed_failure::split_call_arguments(arguments);
     let [argument] = arguments.as_slice() else {
         return None;
     };
@@ -4401,14 +4401,8 @@ fn constant_text_stdout_write_try_call(text: &str) -> Option<&str> {
         .then_some(call)
 }
 
-// WO27 Part 1a: thin delegating wrapper over the canonical escape-aware
-// `typed_failure::split_call_arguments`. This name is on borrowed time —
-// Part 1b removes it and migrates the remaining call sites to the canonical
-// name. It carries no parser logic of its own.
-pub(crate) fn split_arguments(text: &str) -> Vec<&str> {
-    crate::typed_failure::split_call_arguments(text)
-}
-
+// WO27 Part 1b: the thin `split_arguments` wrapper is removed; call sites
+// use `typed_failure::split_call_arguments` directly.
 fn split_word_operator<'a>(text: &'a str, operator: &str) -> Option<(&'a str, &'a str)> {
     let pattern = format!(" {operator} ");
     let index = find_top_level_pattern(text, &pattern, Search::Leftmost)?;

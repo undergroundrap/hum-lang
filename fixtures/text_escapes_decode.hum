@@ -1,0 +1,18 @@
+module fixtures.text_escapes_decode
+
+task escapes_decode() -> Text {
+  why:
+    positive fixture: all four accepted escapes decode exactly once
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let newline = "a\nb"
+    let tab = "c\td"
+    let backslash = "e\\f"
+    let quote = "g\"h"
+    return newline
+}

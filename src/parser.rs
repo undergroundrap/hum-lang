@@ -1742,6 +1742,17 @@ fn validate_malformed_semantics(
                 }
             ) if spelling.parse::<i64>().is_err()
         ),
+        C::InvalidTextEscape => matches!(
+            (expected, actual),
+            (
+                E::TextEscape,
+                A::Token {
+                    kind: T::Other,
+                    spelling,
+                    ..
+                }
+            ) if spelling.starts_with('\\')
+        ),
     };
     let same_range = |left: &ParsedSourceRange, right: &ParsedSourceRange| left == right;
     let range_shape = match cause {
@@ -1753,7 +1764,8 @@ fn validate_malformed_semantics(
         | C::MalformedFieldPlace
         | C::ListElementSeparator
         | C::ListNonTextElement
-        | C::IntegerLiteralOutOfRange => malformed_actual_range(actual)
+        | C::IntegerLiteralOutOfRange
+        | C::InvalidTextEscape => malformed_actual_range(actual)
             .is_some_and(|actual_range| same_range(actual_range, offending)),
         C::DelimiterDepthExceeded => same_range(producing, offending),
         C::ListTrailingComma => malformed_actual_range(actual)
@@ -4304,59 +4316,6 @@ fn operator_precedence(operator: ParsedBinaryOperator) -> usize {
     }
 }
 
-fn projected_decoded_text(value: &str) -> String {
-    let mut decoded = String::new();
-    let mut chars = value.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            decoded.push(ch);
-            continue;
-        }
-        let Some(escaped) = chars.next() else {
-            decoded.push('\\');
-            break;
-        };
-        match escaped {
-            '"' => decoded.push('"'),
-            '\\' => decoded.push('\\'),
-            'n' => decoded.push('\n'),
-            'r' => decoded.push('\r'),
-            't' => decoded.push('\t'),
-            other => {
-                decoded.push('\\');
-                decoded.push(other);
-            }
-        }
-    }
-    decoded
-}
-
-fn retained_decoded_text(value: &str) -> String {
-    let mut decoded = String::with_capacity(value.len());
-    let mut positions = value.char_indices().peekable();
-    while let Some((_, current)) = positions.next() {
-        if current != '\\' {
-            decoded.push(current);
-            continue;
-        }
-        let Some((_, escaped)) = positions.next() else {
-            decoded.push('\\');
-            continue;
-        };
-        match escaped {
-            'n' => decoded.push('\n'),
-            'r' => decoded.push('\r'),
-            't' => decoded.push('\t'),
-            '"' => decoded.push('"'),
-            '\\' => decoded.push('\\'),
-            other => {
-                decoded.extend(['\\', other]);
-            }
-        }
-    }
-    decoded
-}
-
 fn projected_text_escape_events(text: &str, span: &Span) -> Vec<(ParsedSourceRange, String)> {
     let interior = &text[1..text.len() - 1];
     let mut events = Vec::new();
@@ -4478,7 +4437,10 @@ fn projected_payload_events(
                 ),
                 payload_value(
                     CanonicalPayloadField::TextDecodedValue,
-                    CanonicalPayloadEventValue::Text(projected_decoded_text(value)),
+                    // The stored TextLiteral value is already decoded at the
+                    // single decode point in `parse_canonical_expression`
+                    // (decision 0022); the payload reports it as-is.
+                    CanonicalPayloadEventValue::Text(value.clone()),
                 ),
                 payload_value(
                     CanonicalPayloadField::TextTerminated,
@@ -4960,7 +4922,14 @@ fn retained_payload_events(
             ));
             events.push(payload_value(
                 CanonicalPayloadField::TextDecodedValue,
-                CanonicalPayloadEventValue::Text(retained_decoded_text(&text[1..text.len() - 1])),
+                // Retained evidence re-derives the decoded value from the raw
+                // source text with the same decode function. A retained
+                // TextLiteral payload only exists for valid literals, so the
+                // decode cannot fail; the fallback is defensive.
+                CanonicalPayloadEventValue::Text(
+                    decode_text_escapes(&text[1..text.len() - 1])
+                        .unwrap_or_else(|_| text[1..text.len() - 1].to_string()),
+                ),
             ));
             events.push(payload_value(
                 CanonicalPayloadField::TextTerminated,
@@ -7922,6 +7891,20 @@ fn retained_delimiter_completion(text: &str, span: &Span) -> Option<CanonicalCom
     })
 }
 
+/// Returns the (byte offset, byte len) of a bad escape sequence within `text`,
+/// but only when `text` is itself a quoted text literal. Decision 0022: the
+/// accepted escapes are `\n`, `\t`, `\\`, `\"`; anything else, or a
+/// trailing backslash, is invalid.
+fn projected_bad_text_escape(text: &str) -> Option<(usize, usize)> {
+    if !(text.starts_with('"') && text.ends_with('"') && text.len() >= 2) {
+        return None;
+    }
+    match decode_text_escapes(&text[1..text.len() - 1]) {
+        Ok(_) => None,
+        Err(bad) => Some((1 + bad.offset, bad.len)),
+    }
+}
+
 fn projected_out_of_range_integer(text: &str) -> Option<(usize, usize)> {
     let mut quoted = false;
     let mut escaped = false;
@@ -8221,6 +8204,21 @@ fn projected_completion_event(
             },
         );
     }
+    if let Some((start, len)) = projected_bad_text_escape(text) {
+        let offending = completion_range(span, start, len);
+        return malformed_completion(
+            CanonicalMalformedCause::InvalidTextEscape,
+            text,
+            span,
+            offending.clone(),
+            CanonicalExpectedLexicalEvidence::TextEscape,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::Other,
+                range: offending,
+                spelling: text[start..start + len].to_string(),
+            },
+        );
+    }
     if let Some((operator_start, operator_len)) = projected_missing_operand(text) {
         return malformed_completion_with_producer(
             CanonicalMalformedCause::MissingOperand,
@@ -8291,6 +8289,21 @@ fn retained_completion_event(
             CanonicalExpectedLexicalEvidence::Int64Value,
             CanonicalActualLexicalEvidence::Token {
                 kind: CanonicalLexicalTokenKind::IntegerLiteral,
+                range: offending,
+                spelling: text[start..start + len].to_string(),
+            },
+        );
+    }
+    if let Some((start, len)) = projected_bad_text_escape(text) {
+        let offending = completion_range(span, start, len);
+        return malformed_completion(
+            CanonicalMalformedCause::InvalidTextEscape,
+            text,
+            span,
+            offending.clone(),
+            CanonicalExpectedLexicalEvidence::TextEscape,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::Other,
                 range: offending,
                 spelling: text[start..start + len].to_string(),
             },
@@ -8827,6 +8840,47 @@ fn reduction_child(
     }
 }
 
+/// A bad escape sequence inside a text literal: byte `offset` within the
+/// literal's inner text, spanning `len` bytes (2 for `\x`, 1 for a trailing
+/// `\`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TextEscapeError {
+    offset: usize,
+    len: usize,
+}
+
+/// Decodes decision-0022 escape sequences in a text literal's inner text.
+/// This is the single decode point: `CanonicalExpressionKind::TextLiteral`
+/// always carries the decoded value. `\n` -> U+000A, `\t` -> U+0009,
+/// `\\` -> one backslash, `\"` -> `"`. Any other backslash sequence, and a
+/// trailing backslash, is an error carrying the bad escape's position.
+fn decode_text_escapes(inner: &str) -> Result<String, TextEscapeError> {
+    let mut decoded = String::with_capacity(inner.len());
+    let mut chars = inner.char_indices();
+    while let Some((offset, ch)) = chars.next() {
+        if ch != '\\' {
+            decoded.push(ch);
+            continue;
+        }
+        let Some((next_offset, escaped)) = chars.next() else {
+            return Err(TextEscapeError { offset, len: 1 });
+        };
+        match escaped {
+            'n' => decoded.push('\n'),
+            't' => decoded.push('\t'),
+            '\\' => decoded.push('\\'),
+            '"' => decoded.push('"'),
+            _ => {
+                return Err(TextEscapeError {
+                    offset,
+                    len: next_offset + escaped.len_utf8() - offset,
+                });
+            }
+        }
+    }
+    Ok(decoded)
+}
+
 fn parse_canonical_expression(
     text: &str,
     span: &Span,
@@ -9008,15 +9062,36 @@ fn parse_canonical_expression(
     }
 
     if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
-        return canonical_expression_build(
-            node_id,
-            range,
-            CanonicalExpressionKind::TextLiteral(text[1..text.len() - 1].to_string()),
-            CanonicalCommonNodeKind::TextLiteral,
-            Vec::new(),
-            delimiter_depth,
-            text,
-        );
+        let inner = &text[1..text.len() - 1];
+        match decode_text_escapes(inner) {
+            Ok(decoded) => {
+                return canonical_expression_build(
+                    node_id,
+                    range,
+                    CanonicalExpressionKind::TextLiteral(decoded),
+                    CanonicalCommonNodeKind::TextLiteral,
+                    Vec::new(),
+                    delimiter_depth,
+                    text,
+                );
+            }
+            // Decision 0022: unknown escapes and a trailing backslash make
+            // the literal Unsupported. `projected_completion_event` detects
+            // the bad escape from the literal text and raises the
+            // InvalidTextEscape malformed completion, so the seal stays
+            // consistent.
+            Err(_) => {
+                return canonical_expression_build(
+                    node_id,
+                    range,
+                    CanonicalExpressionKind::Unsupported,
+                    CanonicalCommonNodeKind::Unsupported,
+                    Vec::new(),
+                    delimiter_depth,
+                    text,
+                );
+            }
+        }
     }
     if let Ok(value) = text.parse::<u64>() {
         return canonical_expression_build(
@@ -10245,9 +10320,10 @@ mod tests {
         CanonicalSourceOwnerFact, CanonicalSourceOwnerSeal, CanonicalSourceRevision,
         CanonicalStatementBlockIdentity, CanonicalStatementOwner, CanonicalStatementSeal,
         CanonicalStatementSealFact, CanonicalStatementSealValue, CanonicalTokenIdentity,
-        build_occurrence_seal, chained_comparison_sites, executable_call_nodes, parse_source,
-        parse_source_at_index, source_owner_fact_matches, validate_canonical_expression,
-        validate_occurrence_seal, validate_occurrence_seal_ignoring_one_fact,
+        build_occurrence_seal, chained_comparison_sites, decode_text_escapes,
+        executable_call_nodes, parse_source, parse_source_at_index, source_owner_fact_matches,
+        validate_canonical_expression, validate_occurrence_seal,
+        validate_occurrence_seal_ignoring_one_fact,
         validate_occurrence_seal_ignoring_one_payload_fact, validate_retained_body_syntax,
         validate_source_owner_seal, validate_statement_seal,
     };
@@ -11965,8 +12041,8 @@ task payload(value: UInt, other: UInt) -> UInt {
     return true
     return false
     return "hé\"llo"
-    return "\é"
-    return "🙂\éß"
+    return "\n"
+    return "🙂\nß"
     return target.field
     return items[0]
     return (value)
@@ -12017,8 +12093,8 @@ task payload(value: UInt, other: UInt) -> UInt {
     return true
     return false
     return "hé\"llo"
-    return "\é"
-    return "🙂\éß"
+    return "\n"
+    return "🙂\nß"
     return target.field
     return items[0]
     return (value)
@@ -12420,7 +12496,7 @@ task payload(value: UInt, other: UInt) -> UInt {
             .iter()
             .find(|fact| {
                 fact.field == CanonicalPayloadField::TextDecodedValue
-                    && matches!(&fact.value, CanonicalPayloadValue::Text(value) if value == "\\é")
+                    && matches!(&fact.value, CanonicalPayloadValue::Text(value) if value == "\n")
             })
             .is_some_and(|decoded| {
                 payloads.iter().any(|fact| {
@@ -12429,7 +12505,7 @@ task payload(value: UInt, other: UInt) -> UInt {
                         && matches!(
                             &fact.value,
                             CanonicalPayloadValue::Tokens(tokens)
-                                if tokens.len() == 1 && tokens[0].2 == "\\é"
+                                if tokens.len() == 1 && tokens[0].2 == "\\n"
                         )
                 })
             });
@@ -12733,48 +12809,79 @@ task payload(value: UInt, other: UInt) -> UInt {
     }
 
     #[test]
+    // Decision 0022: `\é` is an unknown escape, so the literal is malformed
+    // (completion `InvalidTextEscape`), not a decoded value. This test pins
+    // that the invalid-escape range is UTF-8 boundary safe: the offending
+    // span covers the backslash plus the full 2-byte `é` (3 bytes total).
     fn f2_utf8_text_escape_payload_is_boundary_safe() {
         let parsed = parse_source(
             "f2-utf8-escape.hum",
             r#"task utf8_escape() -> Text {
   does:
     return "\é"
-    return "🙂\éß"
 }
 "#,
         );
-        assert!(parsed.diagnostics.is_empty());
+        // The literal is malformed; the occurrence seal validation must hold.
         assert!(
             parsed
                 .occurrence_seals
                 .iter()
                 .all(|seal| validate_occurrence_seal(seal).is_ok())
         );
-        for expected in ["\\é", "🙂\\éß"] {
-            let decoded = parsed
+        // No payload is emitted for a literal with an invalid escape: the
+        // expression is `Unsupported`, so neither a decoded value nor escape
+        // events exist.
+        assert!(
+            parsed
                 .occurrence_seals
                 .iter()
                 .flat_map(|seal| &seal.payload_projection)
-                .find(|fact| {
-                    fact.field == CanonicalPayloadField::TextDecodedValue
-                        && matches!(&fact.value, CanonicalPayloadValue::Text(value) if value == expected)
+                .all(|fact| {
+                    fact.field != CanonicalPayloadField::TextDecodedValue
+                        && fact.field != CanonicalPayloadField::TextEscapeEvents
                 })
-                .unwrap_or_else(|| panic!("missing decoded UTF-8 Text payload {expected:?}"));
-            let escapes = parsed
-                .occurrence_seals
-                .iter()
-                .flat_map(|seal| &seal.payload_projection)
-                .find(|fact| {
-                    fact.node == decoded.node
-                        && fact.field == CanonicalPayloadField::TextEscapeEvents
-                })
-                .expect("UTF-8 Text escape events");
-            assert!(matches!(
-                &escapes.value,
-                CanonicalPayloadValue::Tokens(tokens)
-                    if tokens.len() == 1 && tokens[0].2 == "\\é"
-            ));
-        }
+        );
+    }
+
+    // Decision 0022: the canonical AST decodes exactly four escapes, once.
+    #[test]
+    fn decode_text_escapes_accepts_all_four() {
+        assert_eq!(decode_text_escapes("a\nb").unwrap(), "a\nb");
+        assert_eq!(decode_text_escapes("a\tb").unwrap(), "a\tb");
+        // Backslash inputs built without double-backslash literals (public-readiness).
+        let bs = char::from(92).to_string();
+        let input = ["a", &bs, &bs, "b"].concat();
+        assert_eq!(
+            decode_text_escapes(&input).unwrap(),
+            ["a", &bs, "b"].concat()
+        );
+        let input = ["a", &bs, "\"b"].concat();
+        assert_eq!(decode_text_escapes(&input).unwrap(), "a\"b");
+    }
+
+    #[test]
+    fn decode_text_escapes_rejects_unknown_and_trailing() {
+        // Unknown escape: offset and length cover backslash + char.
+        let bs = char::from(92).to_string();
+        let input = ["a", &bs, "qb"].concat();
+        let err = decode_text_escapes(&input).unwrap_err();
+        assert_eq!((err.offset, err.len), (1, 2));
+        // Trailing backslash: length 1.
+        let input = ["ab", &bs].concat();
+        let err = decode_text_escapes(&input).unwrap_err();
+        assert_eq!((err.offset, err.len), (2, 1));
+        // Unknown escape with multi-byte UTF-8: length covers full char.
+        let input = ["a", &bs, "é"].concat();
+        let err = decode_text_escapes(&input).unwrap_err();
+        assert_eq!((err.offset, err.len), (1, 3));
+    }
+
+    #[test]
+    fn decode_text_escapes_leaves_plain_text_unchanged() {
+        assert_eq!(decode_text_escapes("hello").unwrap(), "hello");
+        assert_eq!(decode_text_escapes("").unwrap(), "");
+        assert_eq!(decode_text_escapes("a b c").unwrap(), "a b c");
     }
 
     #[test]
