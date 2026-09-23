@@ -227,12 +227,21 @@ After separately authorized rollout and required-check activation, ordinary
 PRs require Windows and Ubuntu Language, Runtime, or Compiler validation as
 selected by the accepted base's finite dependency table. Decision 0025
 (accepted 2026-09-23): additions and deletions under owned prefixes
-(`docs/`, `tools/`, `workorders/`) classify by path at language rank;
-renames take the max rank of both sides; mode/type changes (symlink,
-gitlink, executable bit) and unknown prefixes require Full. Exceptions:
-`docs/DIAGNOSTICS.md` keeps compiler rank (compiled via `include_str!`);
-`tools/check_ci_policy.ps1` keeps a code-level profile whose hygiene group
-runs the classification's own real gates. Infrastructure, workflow, mixed
+(`docs/`, `workorders/`) classify by path at language rank; renames take the
+max rank of both sides; mode/type changes (symlink, gitlink, executable bit)
+and unknown prefixes require Full. `tools/` has NO prefix entry: only the
+hygiene-group scripts are pinned at language rank as literals
+(`test_ci_policy`, `test_validation_bootstrap`, `test_workorder_discovery`,
+`Find-ActiveWorkorder`, `check_text_hygiene`, `check_public_readiness`,
+`check_release_readiness`, `check/test_workorder_status_boundary`,
+`check_ci_policy`); everything else under `tools/` (including `check_all.ps1`,
+the Full preflight) defaults to Full. Exceptions: the eight docs compiled into
+the binary via `include_str!` in `src/diagnostic_catalog.rs`
+(`DIAGNOSTICS.md`, `DIAGNOSTICS_SCHEMA_0_1.md`, `EFFECT_REPORT_SCHEMA_0_1.md`,
+`SECURITY_MODEL.md`, `UNSAFE_POLICY.md`, `RUNTIME_PROFILES.md`,
+`LANGUAGE_SUBSET_0_1.md`, `PORTABILITY_BOUNDARY_MODEL.md`) keep compiler rank;
+a test fails if any `include_str!`/`include_bytes!` target under `docs/` or
+`tools/` lacks a code-level pin. Infrastructure, workflow, mixed
 infrastructure, and unknown impact require Full on both platforms before
 integration. Groups and routing ownership are in
 `docs/TESTING_STRATEGY.md`; focused results are never Full credit.

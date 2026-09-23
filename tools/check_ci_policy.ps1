@@ -328,32 +328,60 @@ function Get-HumCiOwnership {
   $Owners.Add('README.md', 0)
   $Owners.Add('docs/LANGUAGE_REFERENCE.md', 0)
   # Decision 0025 exceptions: literal pins that outrank the prefix table below.
-  # docs/DIAGNOSTICS.md is compiled into the binary via include_str!, so it
-  # keeps a compiler-rank profile. tools/check_ci_policy.ps1 is the
-  # highest-sensitivity tooling path; it keeps a code-level profile whose
-  # hygiene group runs the classification's own real gates
-  # (test_ci_policy.ps1), not a re-implementation.
+  # The following docs are compiled into the binary via include_str! in
+  # src/diagnostic_catalog.rs, so they keep a compiler-rank profile. A test
+  # (Test-CompiledDocPins in test_ci_policy.ps1) fails if any include_str!/
+  # include_bytes! target under docs/ or tools/ lacks a code-level pin here,
+  # so a newly compiled-in doc can't silently route cheap.
   $Owners.Add('docs/DIAGNOSTICS.md', 2)
+  $Owners.Add('docs/DIAGNOSTICS_SCHEMA_0_1.md', 2)
+  $Owners.Add('docs/EFFECT_REPORT_SCHEMA_0_1.md', 2)
+  $Owners.Add('docs/SECURITY_MODEL.md', 2)
+  $Owners.Add('docs/UNSAFE_POLICY.md', 2)
+  $Owners.Add('docs/RUNTIME_PROFILES.md', 2)
+  $Owners.Add('docs/LANGUAGE_SUBSET_0_1.md', 2)
+  $Owners.Add('docs/PORTABILITY_BOUNDARY_MODEL.md', 2)
+  # tools/check_all.ps1 is include_str!'d by src/parser.rs and IS the Full
+  # preflight (mutation matrices, capture tests, exhaustive paths run only in
+  # Full), so it must NOT be pinned at language rank. Only the scripts the
+  # hygiene group actually runs are pinned at language rank; all other tools/
+  # paths default to Full via the absent prefix entry.
   $Owners.Add('tools/check_ci_policy.ps1', 0)
+  $Owners.Add('tools/test_ci_policy.ps1', 0)
+  $Owners.Add('tools/test_validation_bootstrap.ps1', 0)
+  $Owners.Add('tools/test_workorder_discovery.ps1', 0)
+  $Owners.Add('tools/Find-ActiveWorkorder.ps1', 0)
+  $Owners.Add('tools/check_text_hygiene.ps1', 0)
+  $Owners.Add('tools/check_public_readiness.ps1', 0)
+  $Owners.Add('tools/check_release_readiness.ps1', 0)
+  $Owners.Add('tools/check_workorder_status_boundary.ps1', 0)
+  $Owners.Add('tools/test_workorder_status_boundary.ps1', 0)
   return ,$Owners
 }
 
 function Get-HumCiPrefixOwnership {
-  # Decision 0025 prefix ownership: documentation, tooling, and governance
-  # paths classify at language rank by path instead of defaulting to Full.
-  # A path's rank must include the checks that consume it; the consumers of
-  # these prefixes (public/release readiness, text hygiene, policy controls,
-  # bootstrap probe, discovery regression, work-order status boundary) all run
-  # in the hygiene group, which every profile executes. Any prefix not listed
-  # here still classifies Full: prefix ownership narrows the default, it does
-  # not make the unregistered cheap. Ordered longest-first for future nesting.
-  # The unary comma defeats return-value unrolling: without it PowerShell
-  # flattens the table to six scalars and prefix matching breaks. The trailing
-  # commas matter too: bare newlines inside @() separate statements and each
-  # inner array would unroll into the collection.
+  # Decision 0025 prefix ownership: documentation and governance paths classify
+  # at language rank by path instead of defaulting to Full. A path's rank must
+  # include the checks that consume it; the consumers of these prefixes
+  # (public/release readiness, text hygiene, policy controls, bootstrap probe,
+  # discovery regression, work-order status boundary) all run in the hygiene
+  # group, which every profile executes.
+  #
+  # tools/ is deliberately NOT in this table. check_all.ps1 IS the Full
+  # preflight (its mutation matrices, capture tests and exhaustive paths run
+  # only in Full; it's also include_str!'d by src/parser.rs), so a tools/
+  # prefix at language rank would let Full-only logic route cheap. Only the
+  # hygiene-group scripts are pinned at language rank as literal entries in
+  # Get-HumCiOwnership above; unlisted tools/ paths default to Full.
+  #
+  # Any prefix not listed here still classifies Full: prefix ownership narrows
+  # the default, it does not make the unregistered cheap. Ordered longest-first
+  # for future nesting. The unary comma defeats return-value unrolling: without
+  # it PowerShell flattens the table to scalars and prefix matching breaks.
+  # The trailing commas matter too: bare newlines inside @() separate statements
+  # and each inner array would unroll into the collection.
   $Table = @(
     @('docs/', 0),
-    @('tools/', 0),
     @('workorders/', 0)
   )
   return ,$Table
