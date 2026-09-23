@@ -8186,6 +8186,26 @@ fn projected_completion_event(
     text: &str,
     span: &Span,
 ) -> CanonicalCompletionEvent {
+    // Decision 0022: a bad escape in a complete-looking literal (including a
+    // trailing backslash before the closing quote) is an invalid-escape
+    // error, not a delimiter error. The escape check runs first so the
+    // quote-aware delimiter scanner does not claim `"ab\"` as an
+    // unterminated literal; H0638 covers the trailing-backslash case.
+    if let Some((start, len)) = projected_bad_text_escape(text) {
+        let offending = completion_range(span, start, len);
+        return malformed_completion(
+            CanonicalMalformedCause::InvalidTextEscape,
+            text,
+            span,
+            offending.clone(),
+            CanonicalExpectedLexicalEvidence::TextEscape,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::Other,
+                range: offending,
+                spelling: text[start..start + len].to_string(),
+            },
+        );
+    }
     if let Some(issue) = projected_delimiter_completion(text, span) {
         return issue;
     }
@@ -8199,21 +8219,6 @@ fn projected_completion_event(
             CanonicalExpectedLexicalEvidence::Int64Value,
             CanonicalActualLexicalEvidence::Token {
                 kind: CanonicalLexicalTokenKind::IntegerLiteral,
-                range: offending,
-                spelling: text[start..start + len].to_string(),
-            },
-        );
-    }
-    if let Some((start, len)) = projected_bad_text_escape(text) {
-        let offending = completion_range(span, start, len);
-        return malformed_completion(
-            CanonicalMalformedCause::InvalidTextEscape,
-            text,
-            span,
-            offending.clone(),
-            CanonicalExpectedLexicalEvidence::TextEscape,
-            CanonicalActualLexicalEvidence::Token {
-                kind: CanonicalLexicalTokenKind::Other,
                 range: offending,
                 spelling: text[start..start + len].to_string(),
             },
@@ -8276,6 +8281,24 @@ fn retained_completion_event(
     text: &str,
     span: &Span,
 ) -> CanonicalCompletionEvent {
+    // Decision 0022: keep the projected/retained precedence aligned — a bad
+    // escape in a complete-looking literal is an invalid-escape error (H0638),
+    // not a delimiter error.
+    if let Some((start, len)) = projected_bad_text_escape(text) {
+        let offending = completion_range(span, start, len);
+        return malformed_completion(
+            CanonicalMalformedCause::InvalidTextEscape,
+            text,
+            span,
+            offending.clone(),
+            CanonicalExpectedLexicalEvidence::TextEscape,
+            CanonicalActualLexicalEvidence::Token {
+                kind: CanonicalLexicalTokenKind::Other,
+                range: offending,
+                spelling: text[start..start + len].to_string(),
+            },
+        );
+    }
     if let Some(issue) = retained_delimiter_completion(text, span) {
         return issue;
     }
@@ -8289,21 +8312,6 @@ fn retained_completion_event(
             CanonicalExpectedLexicalEvidence::Int64Value,
             CanonicalActualLexicalEvidence::Token {
                 kind: CanonicalLexicalTokenKind::IntegerLiteral,
-                range: offending,
-                spelling: text[start..start + len].to_string(),
-            },
-        );
-    }
-    if let Some((start, len)) = projected_bad_text_escape(text) {
-        let offending = completion_range(span, start, len);
-        return malformed_completion(
-            CanonicalMalformedCause::InvalidTextEscape,
-            text,
-            span,
-            offending.clone(),
-            CanonicalExpectedLexicalEvidence::TextEscape,
-            CanonicalActualLexicalEvidence::Token {
-                kind: CanonicalLexicalTokenKind::Other,
                 range: offending,
                 spelling: text[start..start + len].to_string(),
             },

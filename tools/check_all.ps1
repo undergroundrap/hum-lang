@@ -4972,6 +4972,21 @@ function Invoke-HumCompilerCorpusChecks {
   if ($SessionABH0901.ExitCode -ne 1 -or [regex]::Matches($SessionABH0901.Output, '"diagnostic_code": "H0901"').Count -ne 1) { throw 'Session AB variable separator without try must fail with exactly one H0901' }
   Assert-Json 'full-type-check Session AB variable separator JSON' $SessionABH0901.Output
 
+  # Session AB Part 1b: decision 0022 text-literal escapes (WO27 Part 1b).
+  # Unknown escapes and trailing backslashes are checker errors (H0638);
+  # stray empty text_split arguments are checker errors (H0636).
+  $SessionABH0638 = Read-NativeOutputWithExit 'full-type-check Session AB unknown escape' $Hum @('full-type-check', 'fixtures/diagnostics/text_invalid_escape_fail.hum')
+  if ($SessionABH0638.ExitCode -ne 1 -or [regex]::Matches($SessionABH0638.Output, 'diagnostic=H0638').Count -ne 1) { throw 'Session AB unknown escape must fail with exactly one H0638' }
+  $SessionABH0638Trail = Read-NativeOutputWithExit 'full-type-check Session AB trailing backslash' $Hum @('full-type-check', 'fixtures/diagnostics/text_trailing_backslash_fail.hum')
+  if ($SessionABH0638Trail.ExitCode -ne 1 -or [regex]::Matches($SessionABH0638Trail.Output, 'diagnostic=H0638').Count -ne 1) { throw 'Session AB trailing backslash must fail with exactly one H0638' }
+  $SessionABH0636Stray = Read-NativeOutputWithExit 'full-type-check Session AB stray empty argument' $Hum @('full-type-check', 'fixtures/diagnostics/text_split_stray_empty_argument_fail.hum')
+  if ($SessionABH0636Stray.ExitCode -ne 1 -or [regex]::Matches($SessionABH0636Stray.Output, 'diagnostic=H0636').Count -ne 1) { throw 'Session AB stray empty argument must fail with exactly one H0636' }
+  # Newline round trip: the \n literal in the decode fixture must survive
+  # the graph JSON emitter as an escaped \n, never a raw line break.
+  $SessionABGraphEscapes = Read-NativeOutput 'graph Session AB text escapes decode' $Hum @('graph', 'fixtures/text_escapes_decode.hum')
+  Assert-Json 'graph Session AB text escapes decode' $SessionABGraphEscapes
+  if (-not $SessionABGraphEscapes.Contains('a\\nb')) { throw 'Session AB graph output must contain the escaped newline literal' }
+
   $SessionAAPositive = 'examples/probes/runner_replay_clock.hum'
   foreach ($Command in @('resolve', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {
     $Surface = Read-NativeOutput "Session AA $Command positive" $Hum @($Command, '--format', 'json', $SessionAAPositive)

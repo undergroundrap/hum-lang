@@ -2008,6 +2008,7 @@ fn is_blocking_statement(statement: &TypedStatement) -> bool {
             | "rejected_invalid_stdout_write_call_v0"
             | "rejected_invalid_clock_replay_call_v0"
             | "rejected_invalid_files_read_text_call_v0"
+            | "rejected_invalid_text_escape_v0"
             | "unchecked_statement_type_v0"
             | "blocked_unsupported_statement_v0"
             | "not_checked_blocked_by_prior_errors_v0"
@@ -2065,6 +2066,7 @@ impl FullTypeCheckReport {
                         | "rejected_invalid_stdout_write_call_v0"
                         | "rejected_invalid_clock_replay_call_v0"
                         | "rejected_invalid_files_read_text_call_v0"
+                        | "rejected_invalid_text_escape_v0"
                 )
             })
             .count()
@@ -2102,6 +2104,7 @@ impl FullTypeCheckReport {
                         | "rejected_invalid_stdout_write_call_v0"
                         | "rejected_invalid_clock_replay_call_v0"
                         | "rejected_invalid_files_read_text_call_v0"
+                        | "rejected_invalid_text_escape_v0"
                 )
             })
             .count()
@@ -3358,5 +3361,59 @@ task probe(line: Text) -> Result Unit, ProbeError {
 "#,
         );
         assert_eq!(count_diagnostic_code(&unmasked, "H0901"), 0);
+    }
+
+    #[test]
+    fn h0638_span_marks_the_bad_escape_itself() {
+        // Decision 0022: the diagnostic's span marks the bad escape itself
+        // (the backslash and its following character), not the whole literal.
+        // Backslash inputs built without double-backslash literals
+        // (public-readiness).
+        let bs = char::from(92).to_string();
+        let source = format!(
+            "task bad() -> Text {{\n  does:\n    return {}bad{}qescape{}\n}}\n",
+            '"', bs, '"'
+        );
+        let program = Program {
+            files: vec![parse_source("h0638_span.hum", &source).file],
+        };
+        let report = build_report(&program, &[]);
+        assert!(full_type_check_has_errors(&program, &[]));
+        let statement = &report.items[0].statements[0];
+        assert_eq!(statement.status, "rejected_invalid_text_escape_v0");
+        assert_eq!(
+            statement.diagnostic_code,
+            Some(DiagnosticCode::INVALID_TEXT_ESCAPE.as_str())
+        );
+        // `return "bad\qescape"`: the backslash is at column 16 (1-based).
+        let span = statement.call_span.as_ref().expect("H0638 has a span");
+        assert_eq!(span.line, 3);
+        assert_eq!(span.column, 16);
+    }
+
+    #[test]
+    fn h0638_trailing_backslash_is_a_checker_error() {
+        // Decision 0022: a trailing backslash before the closing quote is a
+        // checker error (H0638, unterminated escape), not a silent accept.
+        let bs = char::from(92).to_string();
+        let source = format!(
+            "task trail() -> Text {{\n  does:\n    return {}ab{}{}\n}}\n",
+            '"', bs, '"'
+        );
+        let program = Program {
+            files: vec![parse_source("h0638_trailing.hum", &source).file],
+        };
+        let report = build_report(&program, &[]);
+        assert!(full_type_check_has_errors(&program, &[]));
+        let statement = &report.items[0].statements[0];
+        assert_eq!(statement.status, "rejected_invalid_text_escape_v0");
+        assert_eq!(
+            statement.diagnostic_code,
+            Some(DiagnosticCode::INVALID_TEXT_ESCAPE.as_str())
+        );
+        // `return "ab\"`: the backslash is at column 15 (1-based).
+        let span = statement.call_span.as_ref().expect("H0638 has a span");
+        assert_eq!(span.line, 3);
+        assert_eq!(span.column, 15);
     }
 }
