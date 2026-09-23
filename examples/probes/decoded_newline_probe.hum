@@ -1,0 +1,11 @@
+module examples.probes.decoded_newline_probe
+
+task decoded_newline_probe() -> Text {
+  why:
+    byte-level proof that a decision-0022 decoded newline escape reaches
+    stdout as U+000A: the runner renders a returned Text value raw, so the
+    process stdout for this probe must be exactly one 0x0A byte
+
+  does:
+    return "\n"
+}
