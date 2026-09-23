@@ -202,6 +202,33 @@ function Test-ProcessSurvived {
   return $Proc.StartTime -eq $ExpectedStartTime
 }
 
+# PID-reuse flake fix for capture children: a process "survives" only if a
+# process with the given PID exists AND its StartTime is not later than the
+# capture's recorded completion time. The original child must have started
+# before its capture completed; a process with StartTime later than the
+# completion is a PID reuse, not the original.
+function Test-ProcessSurvivedCaptureChild {
+  param(
+    [int] $ProcessId,
+    [string] $CaptureDirectory
+  )
+  $Proc = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+  if ($null -eq $Proc) { return $false }
+  $CompletedPath = Join-Path $CaptureDirectory 'completed_utc.txt'
+  if (-not [IO.File]::Exists($CompletedPath)) {
+    # No completion record; fall back to PID-only check.
+    return $true
+  }
+  $Completed = [DateTime]::ParseExact(
+    [IO.File]::ReadAllText($CompletedPath).Trim(),
+    'o',
+    [Globalization.CultureInfo]::InvariantCulture,
+    [Globalization.DateTimeStyles]::RoundtripKind)
+  # The original child started before the capture completed. If this process
+  # started after the completion, it's a different process that reused the PID.
+  return $Proc.StartTime.ToUniversalTime() -le $Completed.ToUniversalTime()
+}
+
 # Regression test for PID-reuse flake: same PID with different start time
 # must NOT be reported as survived.
 function Test-ProcessSurvivedPidReuseRegression {
@@ -223,6 +250,38 @@ function Test-ProcessSurvivedPidReuseRegression {
   Assert-True (Test-ProcessSurvived -ProcessId $PID) 'legacy PID-only check failed for existing process'
 
   Write-Output "ok - Test-ProcessSurvived PID-reuse regression"
+}
+
+# Regression test for the capture-child PID-reuse path: a process with a
+# recorded PID whose StartTime is later than the capture's completed_utc
+# must NOT be reported as survived.
+function Test-ProcessSurvivedCaptureChildRegression {
+  $TempDir = Join-Path ([IO.Path]::GetTempPath()) ("pidreusetest_" + [Guid]::NewGuid().ToString("N"))
+  $null = [IO.Directory]::CreateDirectory($TempDir)
+  try {
+    $Self = Get-Process -Id $PID
+    $SelfStartUtc = $Self.StartTime.ToUniversalTime()
+
+    # Case 1: completed_utc AFTER the process start -> could be the original.
+    $AfterPath = Join-Path $TempDir 'completed_utc.txt'
+    [IO.File]::WriteAllText($AfterPath, $SelfStartUtc.AddMinutes(5).ToString('o', [Globalization.CultureInfo]::InvariantCulture))
+    Assert-True (Test-ProcessSurvivedCaptureChild -ProcessId $PID -CaptureDirectory $TempDir) 'process started before completion not reported as survived'
+
+    # Case 2: completed_utc BEFORE the process start -> PID reuse, must NOT survive.
+    [IO.File]::WriteAllText($AfterPath, $SelfStartUtc.AddMinutes(-5).ToString('o', [Globalization.CultureInfo]::InvariantCulture))
+    Assert-True (-not (Test-ProcessSurvivedCaptureChild -ProcessId $PID -CaptureDirectory $TempDir)) 'PID reuse (start after completion) incorrectly reported as survived'
+
+    # Case 3: non-existent PID never survives.
+    Assert-True (-not (Test-ProcessSurvivedCaptureChild -ProcessId 999999 -CaptureDirectory $TempDir)) 'non-existent PID reported as survived'
+
+    # Case 4: missing completed_utc.txt falls back to PID-only check.
+    Remove-Item -LiteralPath $AfterPath -Force
+    Assert-True (Test-ProcessSurvivedCaptureChild -ProcessId $PID -CaptureDirectory $TempDir) 'missing completion record failed for existing process'
+
+    Write-Output "ok - Test-ProcessSurvivedCaptureChild PID-reuse regression"
+  } finally {
+    if (Test-Path -LiteralPath $TempDir) { Remove-Item -LiteralPath $TempDir -Recurse -Force }
+  }
 }
 
 function Assert-Throws {
@@ -1499,10 +1558,10 @@ function Assert-PreflightDiagnosticEvidence {
         if ($null -ne $Failure) { Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'failure.txt')).Contains($Failure.Exception.Message)) 'original failure lost during retention' }
       }
       if ($null -ne $Result -and $null -ne $Result.Pid) {
-        # Note: No start time recorded for this PID, so this is a PID-only check.
-        # The timeout-witness check above uses start-time verification to avoid
-        # PID-reuse flakes; this path retains legacy behavior.
-        Assert-True (-not (Test-ProcessSurvived -ProcessId $Result.Pid)) 'diagnostic child survived'
+        # PID-reuse flake fix: a process with this PID whose StartTime is later
+        # than the capture's recorded completion can't be the original child.
+        $Survived = Test-ProcessSurvivedCaptureChild -ProcessId $Result.Pid -CaptureDirectory $Result.CaptureDirectory
+        Assert-True (-not $Survived) 'diagnostic child survived'
       }
       Write-Output "ok - preflight diagnostic $Mode"
     }
@@ -1882,6 +1941,7 @@ Assert-ContainmentWeakeningRejected 'PersistedFacts' $false
 # PID-reuse flake regression: verify the start-time-aware survival check
 # before running the main test suite.
 Test-ProcessSurvivedPidReuseRegression
+Test-ProcessSurvivedCaptureChildRegression
 
 $OriginalHostIsWindows = $script:HumHostIsWindows
 try {
@@ -1911,6 +1971,10 @@ try {
   $script:HumHostIsWindows = $OriginalHostIsWindows
 }
 $CreatedPids = New-Object System.Collections.Generic.List[int]
+# PID -> CaptureDirectory mapping for PID-reuse flake fix. A process with a
+# recorded PID whose StartTime is later than the capture's completed_utc
+# can't be the original child.
+$CreatedPidCaptures = @{}
 $ValidCaptures = New-Object System.Collections.Generic.List[object]
 
 try {
@@ -2230,13 +2294,19 @@ try {
   foreach ($Capture in @($Preflight, $Success, $Exit23, $Empty, $Missing, $Interleaved, $Unicode, $Early, $Duplicate, $Nonzero, $Timeout) + $WindowsCaptures + $SetupCaptures) {
     $null = Read-HumCaptureRecord $Capture.CaptureDirectory
     $ValidCaptures.Add($Capture)
-    if ($null -ne $Capture.Pid) { $CreatedPids.Add([int] $Capture.Pid) }
+    if ($null -ne $Capture.Pid) {
+      $PidInt = [int]$Capture.Pid
+      $CreatedPids.Add($PidInt)
+      # Track the capture directory for PID-reuse detection. If multiple
+      # captures share a PID (unlikely), keep the latest completion.
+      $CreatedPidCaptures[$PidInt] = $Capture.CaptureDirectory
+    }
   }
   foreach ($CreatedPid in @($CreatedPids | Sort-Object -Unique)) {
-    # Note: No start times recorded for these PIDs (they come from capture
-    # records), so this retains PID-only checking. The timeout-witness path
-    # above uses start-time verification where the flake was observed.
-    Assert-True (-not (Test-ProcessSurvived -ProcessId $CreatedPid)) "test-created process survived: $CreatedPid"
+    # PID-reuse flake fix: use the capture's completed_utc to distinguish
+    # the original child from a PID reuse.
+    $CaptureDir = $CreatedPidCaptures[$CreatedPid]
+    Assert-True (-not (Test-ProcessSurvivedCaptureChild -ProcessId $CreatedPid -CaptureDirectory $CaptureDir)) "test-created process survived: $CreatedPid"
   }
 } finally {
   if (Test-Path -LiteralPath $ScratchRoot) { Remove-Item -LiteralPath $ScratchRoot -Recurse -Force }
