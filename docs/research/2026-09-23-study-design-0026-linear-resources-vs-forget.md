@@ -127,11 +127,14 @@ What this claims, labeled per 0026's evidence model:
 
 - **[Implemented, scoped]** For the recognized Transaction-shaped class,
   H0803 (linear resource not consumed) and H0804 (consumed twice) fire as
-  checker diagnostics, and the interpreter traps on the same violations
-  at runtime. A linear value that reaches a return, failure, or
-  fallthrough path without exactly one visible consume action is an
-  error — there is no `mem::forget` equivalent in the language, and
-  dropping is not accepted as settlement.
+  checker diagnostics — compile-time rejection, with the interpreter
+  trapping on the same violations as a runtime backstop. A linear value
+  that reaches a return, failure, or fallthrough path without exactly one
+  visible consume action is an error — there is no `mem::forget`
+  equivalent in the language, and dropping is not accepted as settlement.
+  For the recognized shape this is stronger than a drop-bomb and
+  comparable to the closure API's guarantee; for general linear types
+  there is no check today at all, weaker than a drop-bomb.
 - **[Requirement]** Settlement is one of two consuming operations,
   `commit` or `rollback`, each taking `consume txn: Transaction`.
   Transition *order* (no commit after rollback, no use after settle)
@@ -206,13 +209,17 @@ along than a pure sketch:
   source-visible linear resource marker before generalizing
   exactly-once checking beyond transaction probes") **[Proposed
   surface]**.
-- **The 0015 classifier is unimplemented** ("current Hum assigns none").
-  Under 0015's vocabulary the settlement obligation is `unproved` today:
-  statically diagnosed for the narrow shape, runtime-trapped otherwise.
-  The honest current-state Rust baseline for *this* is the drop-bomb
-  idiom (below), not the typestate stack — Hum today is at drop-bomb
-  parity on this axis, and the study measures the delta the general
-  checker would buy.
+- **The 0015 classifier is unimplemented** ("current Hum assigns none"),
+  so the study does not call the H0803 enforcement `proved` — it is
+  **checker-enforced**, and the vocabularies stay separate. Split by
+  scope: for the recognized Transaction shape, settlement is
+  checker-enforced at compile time — stronger than a drop-bomb and
+  comparable to the closure API's guarantee. For general linear types
+  there is no check today at all — weaker than a drop-bomb, which would
+  at least panic. The drop-bomb idiom (below) is the honest
+  current-state Rust baseline for the *general* case, not the
+  recognized shape; the study measures the delta the general checker
+  would buy.
 - **The linearity × 0016 question is open** (see above). Until it is
   decided, the study cannot claim Hum handles the failure path more
   economically than Rust's scoped-closure API — that is a measured
@@ -298,9 +305,11 @@ impl Drop for Transaction {
 ```
 
 This is a runtime check — fail-stop, not a compile error — and it is the
-honest current-state baseline for Hum's H0803 trap: Hum today is at
-drop-bomb parity on this axis, and the study measures the delta the
-general linear checker would buy. Weak points: defeated by
+honest current-state baseline for the *general* linear case: for the
+recognized Transaction shape Hum already rejects at compile time via
+H0803/H0804, past drop-bomb parity; for general linear types Hum has no
+check today, so the drop-bomb is ahead of Hum there. The study measures
+the delta the general linear checker would buy. Weak points: defeated by
 `mem::forget` (no `Drop` runs); the diagnostic is a panic message, not
 a source-site blame; panics are the wrong tool where aborting the
 process is unacceptable.
@@ -383,10 +392,12 @@ Encodings B and C):
      (panic); settlement happens — **trusted** (no `forget`); the
      process survives — **trusted** (a panic aborts the task at best).
    - *Hum sketch:* transition order and final settlement for the
-     Transaction-shaped class — `proved` by H0803/H0804 **[Implemented,
-     scoped]**; the general linear checker — **[Requirement,
-     unimplemented]**; today the general obligation is `unproved`
-     (0015: classifier assigns nothing).
+     Transaction-shaped class — checker-enforced by H0803/H0804
+     **[Implemented, scoped]** (not called `proved`: the 0015
+     classifier still assigns nothing); the general linear checker —
+     **[Requirement, unimplemented]**; today the general obligation is
+     `unproved` (0015: classifier assigns nothing), weaker than a
+     drop-bomb.
    The deliverable is the labeled table, not a winner's banner.
 6. **Adversarial matrix.** Each encoding faces: `mem::forget` on the
    guard; `ManuallyDrop::new` on the guard; `let _ =` settlement-skip;
@@ -459,4 +470,11 @@ declaration marked [Proposed surface]; (2) the linearity × 0016 failure
 propagation question named explicitly with three undecided options and a
 per-failure-path settlement-code measured dimension; (3) scoped closure
 API and drop-bomb idiom added as Rust encodings; (4) Encoding B's
-one-to-two-year cost labeled [Inference]. This revision applies all four.
+one-to-two-year cost labeled [Inference]. Revision 2 (7d29f8a) applied
+all four. Re-check: Claude, 2026-09-23 — passes, with one consistency
+fix applied here: the recognized-shape vs general-linear split (H0803 is
+compile-time checker rejection for the recognized shape, stronger than
+a drop-bomb and comparable to the closure API; no check at all for
+general linear types, weaker than a drop-bomb) and "checker-enforced"
+instead of `proved` for H0803, keeping the vocabularies separate from
+0015. No further review round needed.
