@@ -1,7 +1,7 @@
 # 0025: Close the CI Routing Gaps for Docs, Governance, and Tooling Changes
 
 Date: 2026-09-22
-Status: proposed 2026-09-22. BDFL rules and merges.
+Status: accepted 2026-09-23, BDFL ruling on the review at 06a4f85.
 
 ## Context
 

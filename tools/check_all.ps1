@@ -1192,9 +1192,9 @@ function Assert-Wo25EvidenceTierDispatcherContract { param([string] $Source, [sw
     $Total
   }
   $Validate = '[Validate' + 'Set(' + "'Language', 'Runtime', 'Compiler', 'Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation'" + ')]'; $Exhaustive = 'if (' + $Dollar + "EvidenceTier -eq 'Exhaustive') {"; $Dispatch = 'if (' + $Dollar + 'EvidenceTier -notin @(' + "'Language', 'Runtime', 'Compiler', 'Fast', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation'" + ')) {'
-  $BoundaryScript = 'test_workorder_' + 'status_boundary.ps1'; $FailClosed = 'throw "unsupported evidence-tier fallthrough: ' + $Dollar + 'EvidenceTier"'; $Wo25Return = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitBReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitB') { Invoke-Wo25UnitBFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitCReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $ToolchainInit='Initialize-Wo25'+'WindowsToolchain';$UnitCMutationCall='Invoke-Wo25UnitC'+'MutationEvidence -Cargo '+$Dollar+'Cargo';$Wo25UnitCMutationReturn='if ('+$Dollar+"EvidenceTier -eq 'Wo25UnitCMutation') { $ToolchainInit; Reset-ExactRustSelectorCredits; $UnitCMutationCall; return }";$UnitCFullOrder="  Invoke-Wo25UnitCFocusedEvidence -Cargo $($Dollar)Cargo`n  $UnitCMutationCall"; $FastStart = "Invoke-RepoScript 'Work Order status-boundary classifier tests' '$BoundaryScript'"
+  $BoundaryScript = 'test_workorder_' + 'status_boundary.ps1'; $FailClosed = 'throw "unsupported evidence-tier fallthrough: ' + $Dollar + 'EvidenceTier"'; $Wo25Return = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitBReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitB') { Invoke-Wo25UnitBFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitCReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $ToolchainInit='Initialize-Wo25'+'WindowsToolchain';$UnitCMutationCall='Invoke-Wo25UnitC'+'MutationEvidence -Cargo '+$Dollar+'Cargo';$Wo25UnitCMutationReturn='if ('+$Dollar+"EvidenceTier -eq 'Wo25UnitCMutation') { $ToolchainInit; Reset-ExactRustSelectorCredits; $UnitCMutationCall; return }";$UnitCFullOrder="  Invoke-Wo25UnitCFocusedEvidence -Cargo $($Dollar)Cargo`n  $UnitCMutationCall"; $HygieneBoundary = "Invoke-RepoScript 'Work Order status-boundary classifier tests' '$BoundaryScript'"
   $Audit = "'" + $Dispatch.Replace("'", "''") + "',"; $StaleDispatch = 'if (' + $Dollar + "EvidenceTier -ne 'Fast') {"; $StaleAudit = "'" + $StaleDispatch.Replace("'", "''") + "',"
-  $Required = @($Validate, $Exhaustive, ($Dollar + "env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'"), "  return`n}`n`n$Dispatch", "$Dispatch`n  $FailClosed`n}", "  $Wo25Return`n  $Wo25UnitBReturn`n  $Wo25UnitCReturn`n  $Wo25UnitCMutationReturn",$UnitCFullOrder, $FastStart, $Audit, ("Write-" + "Host 'All Hum preflight checks passed.'"))
+  $Required = @($Validate, $Exhaustive, ($Dollar + "env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'"), "  return`n}`n`n$Dispatch", "$Dispatch`n  $FailClosed`n}", "  $Wo25Return`n  $Wo25UnitBReturn`n  $Wo25UnitCReturn`n  $Wo25UnitCMutationReturn",$UnitCFullOrder, $HygieneBoundary, $Audit, ("Write-" + "Host 'All Hum preflight checks passed.'"))
   foreach ($Needle in $Required) { if ((& $Count $Source $Needle) -ne 1) { throw "Work Order 25 evidence-tier dispatcher contract drifted: $Needle" } }
   if ((& $Count $Source ('[Validate' + 'Set(')) -ne 1 -or (& $Count $Source $StaleAudit) -ne 0 -or (& $Count $Source $BoundaryScript) -ne 1) { throw 'Work Order 25 evidence-tier dispatcher retained a stale or additional admission rule or boundary invocation' }
   $Tokens = $null; $ParseErrors = $null
@@ -1226,8 +1226,8 @@ function Assert-Wo25EvidenceTierDispatcherContract { param([string] $Source, [sw
     if ($MalformedSource -ceq $Source) { throw 'Work Order 25 malformed dispatcher source corruption did not initialize' }
     $Cases = @(
       @('malformed dispatcher source', $MalformedSource),
-      @('removed boundary invocation', $Source.Replace($FastStart, '')),
-      @('duplicated boundary invocation', $Source.Replace($FastStart, "$FastStart`n  $FastStart")),
+      @('removed boundary invocation', $Source.Replace($HygieneBoundary, '')),
+      @('duplicated boundary invocation', $Source.Replace($HygieneBoundary, "$HygieneBoundary`n  $HygieneBoundary")),
       @('stale Fast-only audit expectation', $Source.Replace($Audit, $StaleAudit)),
       @('missing Unit C early return', (& $ReplaceOwned $Source ("  $Wo25UnitCReturn`n") '')),
       @('missing Unit A focused function', (& $ReplaceOwned $Source $FocusedExtent '')),
@@ -1698,6 +1698,10 @@ function Invoke-HumCoreCheck {
       Invoke-RepoScript 'fixed validation policy controls' 'test_ci_policy.ps1'
       Invoke-RepoScript 'validation bootstrap probe' 'test_validation_bootstrap.ps1'
       Invoke-RepoScript 'workorder discovery regression' 'test_workorder_discovery.ps1'
+      # Decision 0025: the status-boundary classifier is the consumer that lets
+      # workorders/ route at language rank. It must run in every profile's
+      # hygiene group, not just the Full tier.
+      Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
       Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
       Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'
       Invoke-RepoScript 'release readiness' 'check_release_readiness.ps1'
@@ -6163,7 +6167,8 @@ try {
   if ($EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -eq 'Wo25UnitCMutation') { Initialize-Wo25WindowsToolchain; Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -cin @('Language', 'Runtime', 'Compiler')) { Invoke-HumFixedProfile $EvidenceTier $Cargo; return }
-  Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
+  # Decision 0025: the status-boundary classifier runs in the hygiene group
+  # (every profile), not as a standalone Fast-tier invocation.
   $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
   $PwshApplications = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
   $Pwsh = Select-FirstApplicationSource $PwshApplications 'outer pwsh selection'

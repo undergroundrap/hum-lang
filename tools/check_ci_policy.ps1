@@ -327,11 +327,41 @@ function Get-HumCiOwnership {
   $Owners['examples/probes/word_count.hum'] = 0
   $Owners.Add('README.md', 0)
   $Owners.Add('docs/LANGUAGE_REFERENCE.md', 0)
+  # Decision 0025 exceptions: literal pins that outrank the prefix table below.
+  # docs/DIAGNOSTICS.md is compiled into the binary via include_str!, so it
+  # keeps a compiler-rank profile. tools/check_ci_policy.ps1 is the
+  # highest-sensitivity tooling path; it keeps a code-level profile whose
+  # hygiene group runs the classification's own real gates
+  # (test_ci_policy.ps1), not a re-implementation.
+  $Owners.Add('docs/DIAGNOSTICS.md', 2)
+  $Owners.Add('tools/check_ci_policy.ps1', 0)
   return ,$Owners
+}
+
+function Get-HumCiPrefixOwnership {
+  # Decision 0025 prefix ownership: documentation, tooling, and governance
+  # paths classify at language rank by path instead of defaulting to Full.
+  # A path's rank must include the checks that consume it; the consumers of
+  # these prefixes (public/release readiness, text hygiene, policy controls,
+  # bootstrap probe, discovery regression, work-order status boundary) all run
+  # in the hygiene group, which every profile executes. Any prefix not listed
+  # here still classifies Full: prefix ownership narrows the default, it does
+  # not make the unregistered cheap. Ordered longest-first for future nesting.
+  # The unary comma defeats return-value unrolling: without it PowerShell
+  # flattens the table to six scalars and prefix matching breaks. The trailing
+  # commas matter too: bare newlines inside @() separate statements and each
+  # inner array would unroll into the collection.
+  $Table = @(
+    @('docs/', 0),
+    @('tools/', 0),
+    @('workorders/', 0)
+  )
+  return ,$Table
 }
 
 function Get-HumCiProfile([string[]] $Paths) {
   $Owners = Get-HumCiOwnership
+  $Prefixes = Get-HumCiPrefixOwnership
   $Rank = 0
   $Seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
   if ($Paths.Count -eq 0) { return 'full' }
@@ -339,7 +369,13 @@ function Get-HumCiProfile([string[]] $Paths) {
     if ([string]::IsNullOrEmpty($Path) -or $Path -cmatch '[\x00-\x20\x7f\\:]' -or
         $Path.StartsWith('/') -or @($Path.Split('/') | Where-Object { $_ -in @('', '.', '..') }).Count -ne 0 -or
         -not $Seen.Add($Path)) { throw 'ci_policy: malformed or ambiguous inventory' }
-    $Current = if ($Owners.ContainsKey($Path)) { $Owners[$Path] } else { 3 }
+    $Current = if ($Owners.ContainsKey($Path)) { $Owners[$Path] } else {
+      $PrefixRank = 3
+      foreach ($Entry in $Prefixes) {
+        if ($Path.StartsWith($Entry[0], [StringComparison]::Ordinal)) { $PrefixRank = $Entry[1]; break }
+      }
+      $PrefixRank
+    }
     $Rank = [Math]::Max($Rank, $Current)
   }
   @('language', 'runtime', 'compiler', 'full')[$Rank]
@@ -400,11 +436,17 @@ function ConvertFrom-HumCiRawChanges([string] $Raw) {
 }
 
 function Get-HumCiChangeProfile([object[]] $Changes) {
-  # Additions/deletions (including both rename sides) require renewed ownership.
-  # Only ordinary, same-mode, registered file modifications are normal.
+  # Decision 0025: additions and deletions under owned prefixes classify by
+  # path, just like modifications. Renames surface as add+delete pairs (the
+  # diff runs --no-renames), so both sides take part and the max rank wins.
+  # Any mode/type change (symlink, gitlink, exec bit) or non-ordinary file
+  # stays Full: the registry vouches for 100644 content only.
   if ($Changes.Count -eq 0) { return 'full' }
   foreach ($Row in $Changes) {
-    if ($Row.Status -cne 'M' -or $Row.OldMode -cne '100644' -or $Row.NewMode -cne '100644') { return 'full' }
+    $OrdinaryAdd = $Row.Status -ceq 'A' -and $Row.OldMode -ceq '000000' -and $Row.NewMode -ceq '100644'
+    $OrdinaryDelete = $Row.Status -ceq 'D' -and $Row.OldMode -ceq '100644' -and $Row.NewMode -ceq '000000'
+    $OrdinaryModify = $Row.Status -ceq 'M' -and $Row.OldMode -ceq '100644' -and $Row.NewMode -ceq '100644'
+    if (-not ($OrdinaryAdd -or $OrdinaryDelete -or $OrdinaryModify)) { return 'full' }
   }
   Get-HumCiProfile @($Changes.Path)
 }
