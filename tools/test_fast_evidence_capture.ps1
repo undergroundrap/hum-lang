@@ -150,7 +150,9 @@ if ($SyntheticChild -ne '') {
       $Process.StartInfo.UseShellExecute = $false
       $Process.StartInfo.CreateNoWindow = $true
       if (-not $Process.Start()) { throw 'descendant did not launch' }
-      Write-ExactAscii $Stdout "parent_alive=$PID`ndescendant_pid=$($Process.Id)`nparent_partial_stdout`n"
+      $ParentStartTime = (Get-Process -Id $PID).StartTime.ToString('o')
+      $DescendantStartTime = $Process.StartTime.ToString('o')
+      Write-ExactAscii $Stdout "parent_alive=$PID`nparent_start=$ParentStartTime`ndescendant_pid=$($Process.Id)`ndescendant_start=$DescendantStartTime`nparent_partial_stdout`n"
       Write-ExactAscii $Stderr "parent_partial_stderr`n"
       $Process.WaitForExit()
       exit $Process.ExitCode
@@ -178,6 +180,50 @@ function Assert-Bytes {
   for ($Index = 0; $Index -lt $Actual.Length; $Index++) {
     Assert-True ($Actual[$Index] -eq $Expected[$Index]) "$Message byte $Index"
   }
+}
+
+# PID-reuse flake fix: A process "survives" only if a process with the given
+# PID exists AND its start time matches the expected start time. If the PID
+# exists but the start time differs, the PID was reused by a different process
+# after the original exited — the original did NOT survive.
+function Test-ProcessSurvived {
+  param(
+    [int] $ProcessId,
+    [Nullable[DateTime]] $ExpectedStartTime = $null
+  )
+  $Proc = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+  if ($null -eq $Proc) { return $false }
+  if ($null -eq $ExpectedStartTime) {
+    # No start time recorded; fall back to PID-only check (legacy behavior).
+    # Callers should record start times to avoid PID-reuse flakes.
+    return $true
+  }
+  # Compare start times with tick precision. A reused PID will have a
+  # different (newer) start time.
+  return $Proc.StartTime -eq $ExpectedStartTime
+}
+
+# Regression test for PID-reuse flake: same PID with different start time
+# must NOT be reported as survived.
+function Test-ProcessSurvivedPidReuseRegression {
+  # Non-existent PID never survives.
+  $FakePid = 999999
+  Assert-True (-not (Test-ProcessSurvived -ProcessId $FakePid)) 'non-existent PID reported as survived'
+  Assert-True (-not (Test-ProcessSurvived -ProcessId $FakePid -ExpectedStartTime ([DateTime]::UtcNow))) 'non-existent PID with start time reported as survived'
+
+  # Current process with correct start time survives.
+  $Self = Get-Process -Id $PID
+  Assert-True (Test-ProcessSurvived -ProcessId $PID -ExpectedStartTime $Self.StartTime) 'current process with matching start time not reported as survived'
+
+  # Current process with WRONG start time must NOT survive (simulates PID reuse:
+  # the original exited, a new process got the same PID with a different start).
+  $WrongStart = $Self.StartTime.AddHours(1)
+  Assert-True (-not (Test-ProcessSurvived -ProcessId $PID -ExpectedStartTime $WrongStart)) 'PID reuse (different start time) incorrectly reported as survived'
+
+  # Legacy PID-only check (no start time) still reports existing PID as survived.
+  Assert-True (Test-ProcessSurvived -ProcessId $PID) 'legacy PID-only check failed for existing process'
+
+  Write-Output "ok - Test-ProcessSurvived PID-reuse regression"
 }
 
 function Assert-Throws {
@@ -1426,7 +1472,17 @@ function Assert-PreflightDiagnosticEvidence {
           foreach ($Witness in @('parent_alive', 'descendant_pid')) {
             $Match = [regex]::Match($Text, "$Witness=([0-9]+)")
             Assert-True $Match.Success "timeout $Witness witness missing"
-            Assert-True ($null -eq (Get-Process -Id ([int]$Match.Groups[1].Value) -ErrorAction SilentlyContinue)) "timeout $Witness survived"
+            $WitnessPid = [int]$Match.Groups[1].Value
+            # PID-reuse flake fix: also parse the recorded start time. A process
+            # survives only if PID AND start time both match; a reused PID with
+            # a different start time means the original exited.
+            $StartField = if ($Witness -eq 'parent_alive') { 'parent_start' } else { 'descendant_start' }
+            $StartMatch = [regex]::Match($Text, "$StartField=(.+)")
+            $ExpectedStart = $null
+            if ($StartMatch.Success) {
+              $ExpectedStart = [DateTime]::Parse($StartMatch.Groups[1].Value.Trim())
+            }
+            Assert-True (-not (Test-ProcessSurvived -ProcessId $WitnessPid -ExpectedStartTime $ExpectedStart)) "timeout $Witness survived"
           }
           $Wrong = $Result.PSObject.Copy(); $Wrong.ContainmentKind = 'other'
           Assert-Rejected { Assert-TimeoutBackendRecord $Wrong } 'backend substitution accepted'
@@ -1443,7 +1499,12 @@ function Assert-PreflightDiagnosticEvidence {
         }
         if ($null -ne $Failure) { Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'failure.txt')).Contains($Failure.Exception.Message)) 'original failure lost during retention' }
       }
-      if ($null -ne $Result -and $null -ne $Result.Pid) { Assert-True ($null -eq (Get-Process -Id $Result.Pid -ErrorAction SilentlyContinue)) 'diagnostic child survived' }
+      if ($null -ne $Result -and $null -ne $Result.Pid) {
+        # Note: No start time recorded for this PID, so this is a PID-only check.
+        # The timeout-witness check above uses start-time verification to avoid
+        # PID-reuse flakes; this path retains legacy behavior.
+        Assert-True (-not (Test-ProcessSurvived -ProcessId $Result.Pid)) 'diagnostic child survived'
+      }
       Write-Output "ok - preflight diagnostic $Mode"
     }
     $Missing = Join-Path $Root 'absent-capture'
@@ -1859,6 +1920,10 @@ Assert-ContainmentWeakeningRejected 'SingleAbsoluteDeadline' $false
 Assert-ContainmentWeakeningRejected 'TerminationCount' 2
 Assert-ContainmentWeakeningRejected 'DescendantAbsence' $false
 Assert-ContainmentWeakeningRejected 'PersistedFacts' $false
+# PID-reuse flake regression: verify the start-time-aware survival check
+# before running the main test suite.
+Test-ProcessSurvivedPidReuseRegression
+
 $OriginalHostIsWindows = $script:HumHostIsWindows
 try {
   Assert-True ($OriginalHostIsWindows -eq ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT)) 'descendant validator platform differs from the native host'
@@ -2209,7 +2274,10 @@ try {
     if ($null -ne $Capture.Pid) { $CreatedPids.Add([int] $Capture.Pid) }
   }
   foreach ($CreatedPid in @($CreatedPids | Sort-Object -Unique)) {
-    Assert-True ($null -eq (Get-Process -Id $CreatedPid -ErrorAction SilentlyContinue)) "test-created process survived: $CreatedPid"
+    # Note: No start times recorded for these PIDs (they come from capture
+    # records), so this retains PID-only checking. The timeout-witness path
+    # above uses start-time verification where the flake was observed.
+    Assert-True (-not (Test-ProcessSurvived -ProcessId $CreatedPid)) "test-created process survived: $CreatedPid"
   }
 } finally {
   if (Test-Path -LiteralPath $ScratchRoot) { Remove-Item -LiteralPath $ScratchRoot -Recurse -Force }
