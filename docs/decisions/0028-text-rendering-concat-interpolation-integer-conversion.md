@@ -1,7 +1,7 @@
 # 0028: Text rendering — concatenation, interpolation, and integer-to-Text conversion
 
 Date: 2026-09-23
-Status: proposed 2026-09-23. BDFL rules and merges.
+Status: accepted 2026-09-23 (BDFL ruling on review at 5b57dbd), Option E.
 
 ## Context
 
@@ -13,8 +13,42 @@ as a pure `wordfreq_count` task instead. The ledger asks 0027's question: is
 concatenation/interpolation the GENERAL fix, or is the histogram an
 acceptable program shape? No surface was invented there.
 
-This record lays out the options. It does not choose — Ocean rules as
-BDFL; Claude reviews.
+Ocean ruled as BDFL on 2026-09-23 (review at 5b57dbd): adopt Option E. The
+full options analysis is kept below; D remains as the considered
+alternative.
+
+## Decision
+
+Adopted 2026-09-23 (BDFL ruling on review at 5b57dbd): **Option E**.
+
+- Ship integer-to-Text conversion now: one builtin per integer type
+  (`uint_to_text(n: UInt) -> Text`, `int_to_text(n: Int) -> Text`),
+  implementing the normative rendering below.
+- Defer concatenation until a program demonstrates the need.
+
+Rationale: 0027's motivating-evidence rule. wordfreq's friction ledger
+(entry #5) demonstrates number rendering — `hum 3` lines are emittable
+today via sequential `stdout_write` calls. Nothing has yet demonstrated
+text-as-value concatenation; the config parser's need is anticipated, not
+filed. E follows 0027's letter; D's early stake, though cheap, is still a
+bet on unfiled evidence.
+
+D's analysis is kept in this record as the considered alternative, not
+deleted: if the trigger below fires and the demonstrated need matches D's
+shape, the reasoning is already on file.
+
+Trigger reopening A: the config parser — or any program — files a friction
+entry showing it must build text as a value (returned, stored, or carried
+in a failure payload). When that entry lands, decide A's shape then, with
+that evidence in hand: binary vs list-of-parts (the 0024
+linear-vs-quadratic analysis above stands), builtin vs operator (F's
+analysis stands).
+
+Open question 2 is settled: one builtin per integer type. A single shared
+name would need overload resolution the checker does not have — Hum
+deliberately has no overloading story (operator overloading is explicitly
+delayed in LANGUAGE_REFERENCE) — and distinct names are explicit,
+greppable, and match the builtin style (`text_split`, not `split`).
 
 ## Constraints from prior decisions
 
@@ -210,7 +244,7 @@ Each piece is independently general (composition + rendering are not
 wordfreq's private needs), and the combination is exactly the demonstrated
 need, nothing more. D passes 0027's test where B strains it.
 
-## Option E: C now, A when the config parser demonstrates it
+## Option E: C now, A when the config parser demonstrates it (adopted)
 
 ### Surface
 
@@ -308,15 +342,18 @@ data structure that holds the counts.
 - Newline modes on `stdout_write`: ledger entry #10's separate question.
 - Multi-separator splitting: ledger entry #6, adjacent but separate.
 
-## Open questions for the ruling
+## Open questions
 
-1. If A: binary concat vs the list-of-parts variant — now also a 0024
-   linear-vs-quadratic question, not just spelling.
-2. If C: one builtin per integer type vs a single name.
-3. The ledger's original question still stands: is the histogram (no new
-   surface) actually acceptable? If yes, none of this ships.
-4. E vs D: is "C now, A on demonstrated need" the right application of
-   0027, or is D's small early stake the better bet?
-5. Is D a stable resting point, or does its verbosity for long lines
-   predict a future join-with-separator request — i.e., is D the general
-   fix or the first step toward the banned library?
+Resolved by the ruling:
+
+- Q2 (one builtin per type vs a single name): settled — one per type; see
+  Decision.
+- Q3 (is the histogram acceptable?): answered no — integer rendering
+  ships.
+- Q4 (E vs D): decided — E adopted; D kept as the considered alternative.
+
+Deferred to the trigger:
+
+- Q1 (binary vs list-of-parts): decided with the config parser's evidence,
+  when A reopens. The 0024 linear-vs-quadratic analysis above stands.
+- Q5 (is D a stable resting point?): moot unless A reopens; revisited then.
