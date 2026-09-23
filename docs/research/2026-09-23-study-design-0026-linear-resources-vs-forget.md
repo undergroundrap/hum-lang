@@ -1,8 +1,10 @@
 # Study Design: Exactly-Once Linear Resources vs Rust's Safe `mem::forget`
 
 Date: 2026-09-23
-Status: draft. Pre-issuance independent review requested before any PR.
-Recommendation only; the BDFL rules.
+Status: draft (revision 2). Pre-issuance review: Claude, 2026-09-23 —
+verdict accept with required fixes; all four applied (see Revision
+history). Re-check requested before any PR. Recommendation only; the
+BDFL rules.
 
 ## Why this study exists
 
@@ -51,66 +53,170 @@ settlement. The adversarial cases are a forgotten guard, a
 `ManuallyDrop`-wrapped guard, and a settlement decision that arrives via a
 destructor default instead of explicit code.
 
-## The Hum version (design sketch under 0014)
+## The Hum version (real surface, per the reference and the probe)
 
-Decision 0014 adopts linear resources as the first-class model for
-exactly-once protocols and gives the vocabulary: values are owned by
-default, `consume` transfers or closes linear authority **[Requirement]**
-(0014 §Decision items 1–2, 5). The sketch:
+The sketch below uses only surface that exists in
+`docs/LANGUAGE_REFERENCE.md` and `examples/probes/transaction_once.hum`.
+`consume` is a parameter permission (`consume txn: Transaction`) and a
+call-site argument marker (`rollback(consume txn)`), not an expression
+keyword; tasks carry sections (`why:`, `fails when:`, `does:`); prose lives
+in sections. Decision 0014 adopts linear resources as the first-class model
+for exactly-once protocols and gives the vocabulary **[Requirement]**
+(0014 §Decision items 1–2, 5):
 
 ```hum
-task transfer_funds(db: change Database, from: Text, to: Text, amount: Int)
-    fails when: InsufficientFunds | ConnectionLost
-{
-    let tx = begin(db)              # tx: linear Transaction
-    try debit(tx, from, amount)
-    try credit(tx, to, amount)
-    consume tx.commit()             # commit consumes linear authority
-    # any path that reaches the end of this task without consuming tx
-    # is a checker error, not a silent drop
+module study.transaction_settle
+
+type Transaction {
+  id: UInt
+}
+
+type TransferError {
+  code: Text
+}
+
+task begin_transaction() -> Transaction {
+  why:
+    open a transaction resource; the Transaction shape is recognized
+    as the first narrow linear-resource class
+
+  does:
+    return Transaction.open
+}
+
+task commit(consume txn: Transaction) -> Unit {
+  why:
+    settle by committing; consumes linear authority
+
+  does:
+    return
+}
+
+task rollback(consume txn: Transaction) -> Unit {
+  why:
+    settle by aborting; consumes linear authority
+
+  does:
+    return
+}
+
+task transfer_funds(amount: UInt) -> Result Text, TransferError {
+  why:
+    commit or roll back exactly once on every path
+
+  fails when:
+    debit fails
+    credit fails
+
+  does:
+    let txn: Transaction = begin_transaction()
+    if debit(change txn, amount) == false {
+      let settled: Unit = rollback(consume txn)
+      fail TransferError.debit_failed
+    }
+    if credit(change txn, amount) == false {
+      let settled: Unit = rollback(consume txn)
+      fail TransferError.credit_failed
+    }
+    let settled: Unit = commit(consume txn)
+    return "ok"
 }
 ```
 
-And the failure path makes the decision explicit rather than defaulted:
+What this claims, labeled per 0026's evidence model:
 
-```hum
-    let tx = begin(db)
-    let outcome = try debit(tx, from, amount) or fail InsufficientFunds.context
-    consume tx.rollback()           # abort is also an explicit settlement
-```
-
-What the sketch claims, labeled per 0026's evidence model:
-
-- **[Requirement]** A linear `Transaction` must be consumed exactly once on
-  every path; falling off the end of a task with a live linear value is a
-  checker error. There is no `mem::forget` equivalent in the language:
-  dropping is not a settlement, and the checker does not accept it as one.
+- **[Implemented, scoped]** For the recognized Transaction-shaped class,
+  H0803 (linear resource not consumed) and H0804 (consumed twice) fire as
+  checker diagnostics, and the interpreter traps on the same violations
+  at runtime. A linear value that reaches a return, failure, or
+  fallthrough path without exactly one visible consume action is an
+  error — there is no `mem::forget` equivalent in the language, and
+  dropping is not accepted as settlement.
 - **[Requirement]** Settlement is one of two consuming operations,
-  `commit` or `rollback`, each transferring linear authority. Transition
-  *order* (no commit after rollback, no use after settle) follows from
-  the same linearity.
+  `commit` or `rollback`, each taking `consume txn: Transaction`.
+  Transition *order* (no commit after rollback, no use after settle)
+  follows from the same linearity; use-after-consume traps with H0801.
+- **[Proposed surface]** How a type is *declared* linear. Today the
+  checker recognizes the Transaction shape (friction ledger: "recognize
+  Transaction-shaped type annotations as the first narrow
+  linear-resource class"); the source-visible linear resource marker
+  that generalizes exactly-once checking beyond transaction probes is
+  still a proposal ("design a source-visible linear resource marker
+  before generalizing"), not surface.
 - **[Inference]** The study's hypothesis: this is coherent (one concept —
   consumption — covers ordering and completion), default (no annotations
-  beyond declaring the type linear), teachable (the diagnostic names the
-  unconsumed value and the path that abandoned it), and economical (the
-  protocol author writes the two consuming operations; the client writes
-  no protocol machinery).
+  beyond the type and `consume` at the boundary), teachable (the
+  diagnostic names the unconsumed value and the path that abandoned
+  it), and economical (the protocol author writes the two consuming
+  operations; the client writes settlement calls, not protocol
+  machinery).
+
+### The central open question: linearity × 0016 failure propagation
+
+The probe above handles failure by branching on a `Bool` and settling
+explicitly before `fail`. With 0016's typed failure, the natural sketch is:
+
+```hum
+  does:
+    let txn: Transaction = begin_transaction()
+    let receipt: Receipt = try charge(change txn, amount)
+    let settled: Unit = commit(consume txn)
+    return "ok"
+```
+
+If `charge` fails, `try` propagates the failure out of the task while
+`txn` is live — violating the sketch's own exactly-once rule on that
+path. H0803 names failure paths explicitly, so today this is a checker
+error (and a runtime trap); the question is what the *designed* answer
+is. Rust's scoped-closure API handles this for free: the closure's `Err`
+return triggers the library's rollback with no per-path code. Hum's
+options, listed without deciding:
+
+1. **Reject `try` while a linear value is live.** The programmer keeps
+   the probe's shape: branch on results, settle explicitly, then `fail`.
+   Cost is explicit rollback code per failure path — see the measured
+   dimension below.
+2. **A settle-on-failure construct.** A scoped form that guarantees
+   settlement on the failure path. Shape undecided.
+3. **The failure carrier owns settlement.** The typed failure value takes
+   the linear resource with it as it propagates — settlement travels
+   with the error.
+
+**Measured dimension:** lines of explicit settlement code per failure
+path under each option, counted on the transfer client with N fallible
+calls. This is exactly where "economical" is won or lost: if option 1
+costs one rollback call per `try` site and option 2 costs one construct
+per task, the study reports both numbers. The Rust scoped-closure
+baseline for this dimension is zero per-path lines — the library pays
+once.
 
 ### What Hum has not implemented (honesty section)
 
 The comparison cannot be run as an implemented-vs-implemented experiment
-today. These are the dependencies:
+for the *general* linear checker. The narrow case, however, is further
+along than a pure sketch:
 
-- **Linear resource path checking is unimplemented** (0014 consequence
-  roadmap, item 2). It is the exact feature under study. Until it exists,
-  the Hum side is a design sketch, and the study's first deliverable is
-  the sketch plus the checker's acceptance criteria, not a measured
-  implementation.
+- **Narrow linear-resource checking exists; general checking does not.**
+  H0803 (linear resource not consumed) and H0804 (consumed twice) exist
+  as checker diagnostics and interpreter traps for the recognized
+  Transaction-shaped class **[Implemented, scoped]** (DIAGNOSTICS.md;
+  examples/probes/transaction_once.hum). What is unimplemented: the
+  static linear checker beyond the recognized shape, and the
+  source-visible linear resource marker (friction ledger: "design a
+  source-visible linear resource marker before generalizing
+  exactly-once checking beyond transaction probes") **[Proposed
+  surface]**.
 - **The 0015 classifier is unimplemented** ("current Hum assigns none").
-  Under 0015's vocabulary the settlement obligation is today `unproved` —
-  checked at runtime at best. The study must say this plainly: Hum's
-  current evidence for the transaction protocol is weaker than the Rust
-  typestate encoding's compile-time ordering guarantee.
+  Under 0015's vocabulary the settlement obligation is `unproved` today:
+  statically diagnosed for the narrow shape, runtime-trapped otherwise.
+  The honest current-state Rust baseline for *this* is the drop-bomb
+  idiom (below), not the typestate stack — Hum today is at drop-bomb
+  parity on this axis, and the study measures the delta the general
+  checker would buy.
+- **The linearity × 0016 question is open** (see above). Until it is
+  decided, the study cannot claim Hum handles the failure path more
+  economically than Rust's scoped-closure API — that is a measured
+  dimension, not an assumed win.
 - **Returned/stored views are unimplemented** (0014 §3, roadmap items
   3–5). If the transaction carries views into its connection's buffers,
   that half of a realistic implementation is also future work. The study
@@ -129,13 +235,40 @@ Ranked by strength, with each encoding's exact weak point. The study
 implements and measures against the strongest *implementable today*
 encoding, and separately costs the restricted-profile encoding.
 
-**Encoding A — typestate + `#[must_use]` + `clippy::mem_forget = "deny"` +
+**Encoding A1 — scoped closure API** (`db.transaction(|tx| { ... })`).
+The library owns the guard; the closure receives `&mut Transaction`; the
+library commits on `Ok` and rolls back on `Err`. Exactly-once by
+construction in safe Rust: the client never owns the guard, so
+`mem::forget` is unavailable to the client; the transaction cannot escape
+the closure (lifetime-bound) or be handed to another task; a panic inside
+the closure unwinds through the guard's `Drop`, which rolls back
+(fail-closed default). This is the strongest *practical* encoding — the
+one real Rust code uses today (Diesel, sqlx connection pools) — and
+omitting it would make the comparison a strawman.
+
+Its exact costs, each a measured dimension:
+
+1. **No handoff, no storage.** A transaction that must span tasks, be
+   stored, or be settled conditionally on values computed after the
+   closure returns is unrepresentable. The pattern must be
+   re-implemented per resource type — there is no language-level
+   linearity.
+2. **Settlement policy is the library's, tied to `Result`.** `Ok` maps
+   to commit, `Err` to rollback. Custom per-outcome settlement logic
+   (commit on one error kind, roll back on another) is unrepresentable
+   without a second API.
+3. **The library is the trusted settler.** Exactly-once holds because
+   one audited place owns the guard — the same shape as Hum's
+   conditional guarantee, with the trust concentrated in the library
+   rather than the checker.
+
+**Encoding A2 — typestate + `#[must_use]` + `clippy::mem_forget = "deny"` +
 `#[forbid(unsafe_code)]`, workspace lint config enforced in CI.**
 State as a type parameter, transitions consume `self` by value, per-state
 `impl` blocks so wrong-order calls are compile errors. This is the
-strongest stack stable Rust offers today **[External]** (typestate pattern
-docs; clippy `mem_forget` lint in the restriction group, allow-by-default;
-`#[must_use]`/`unused_must_use` semantics).
+strongest *type-level* stack stable Rust offers today **[External]**
+(typestate pattern docs; clippy `mem_forget` lint in the restriction
+group, allow-by-default; `#[must_use]`/`unused_must_use` semantics).
 
 Its exact weak points, each measured by the study's adversarial matrix:
 
@@ -153,19 +286,38 @@ Its exact weak points, each measured by the study's adversarial matrix:
    (rustc lint-level docs; 0026 revision 3). A dependency can forget the
    guard invisibly to the profile.
 
+**Encoding A3 — drop-bomb idiom.** A guard whose `Drop` panics if the
+resource was never explicitly settled:
+
+```rust
+impl Drop for Transaction {
+    fn drop(&mut self) {
+        if !self.settled { panic!("transaction dropped without settlement") }
+    }
+}
+```
+
+This is a runtime check — fail-stop, not a compile error — and it is the
+honest current-state baseline for Hum's H0803 trap: Hum today is at
+drop-bomb parity on this axis, and the study measures the delta the
+general linear checker would buy. Weak points: defeated by
+`mem::forget` (no `Drop` runs); the diagnostic is a panic message, not
+a source-site blame; panics are the wrong tool where aborting the
+process is unacceptable.
+
 **Encoding B — restricted compilation profile with a trusted checker.**
 A driver that forbids `mem::forget`, `ManuallyDrop::new`,
 `Box::leak`, and cycle-forming `Rc`/`Arc` use on admitted paths, binds
 evidence to the actual build inputs and artifact, and rejects stale or
 missing evidence — the enforced-profile steelman from 0026 **[Inference]**.
-This is the encoding that could, in principle, close Encoding A's holes.
+This is the encoding that could, in principle, close Encoding A2's holes.
 
 Its cost is the study's central measurement: it is a one-to-two-year
-project for a constrained profile (0026), and the study must price what it
-takes to enforce what Encoding A only suggests — the checker itself, the
-dependency-audit burden (every newly admitted crate is an admission
-decision), and the interop damage from rejecting `forget`/`ManuallyDrop`/
-`Box::leak` in admitted code.
+project for a constrained profile **[Inference]** (0026's estimate), and
+the study must price what it takes to enforce what Encoding A2 only
+suggests — the checker itself, the dependency-audit burden (every newly
+admitted crate is an admission decision), and the interop damage from
+rejecting `forget`/`ManuallyDrop`/`Box::leak` in admitted code.
 
 **Encoding C — whole-program verifier campaign** (Kani harnesses over the
 closed artifact, `forget` denied by the profile, dependencies audited).
@@ -183,47 +335,71 @@ typestate); proposed linear-types extensions (`?Leak` bound — unshipped,
 and the internals discussion itself flags linearity as "easy to defeat"
 at generic boundaries) **[External]**.
 
-The study's Rust baseline is Encoding A. Encoding B is costed as a design
-exercise (what must be built and audited), Encoding C as the verification
-upper bound.
+The study's Rust baseline is all three A encodings, implemented and
+measured. Encoding B is costed as a design exercise (what must be built
+and audited), Encoding C as the verification upper bound.
 
 ## What gets measured
 
-For Encoding A and the Hum sketch (and, as projections, Encodings B and C):
+For the three A encodings and the Hum sketch (and, as projections,
+Encodings B and C):
 
 1. **Lines.** Protocol implementation plus one representative client
    (the transfer above), counted identically on both sides. Includes
    everything the protocol author must write: state types, impl blocks,
-   lint configuration, wrapper types.
+   lint configuration, wrapper types, the closure-API library function.
 2. **Annotation burden.** Count of protocol-machinery annotations per
    client call site: `PhantomData` markers, state type parameters,
    `#[must_use]` placements, lint-config lines, and any
    `ManuallyDrop`-shaped defensive code. The hypothesis under test is
-   that Encoding A concentrates this burden on every client while the
-   Hum sketch concentrates it once in the linear type declaration.
-3. **Interop restrictions.** What the admitted code universe must give up:
-   for Encoding A — nothing enforced (advisory only); for Encoding B —
-   `mem::forget`, `ManuallyDrop::new`, `Box::leak`, and unaudited
-   dependency updates become admission decisions, each priced.
-   Measured as: the list of rejected constructs, and what breaks in a
-   realistic dependency closure when they are rejected.
-4. **Proved vs trusted** (0015's vocabulary). For each encoding, every
+   that Encoding A2 concentrates this burden on every client while the
+   Hum sketch concentrates it once in the linear type declaration —
+   while Encoding A1 concentrates it once in the library function.
+3. **Settlement code per failure path** (the linearity × 0016
+   dimension). Lines of explicit settlement/rollback code the client
+   writes per fallible call: zero for Encoding A1 (the library pays
+   once); N rollback branches for the Hum probe's option-1 shape; one
+   construct per task for option 2; to be counted once the 0016 question
+   is decided. This is where "economical" is won or lost.
+4. **Interop restrictions.** What the admitted code universe must give up:
+   for Encoding A2 — nothing enforced (advisory only); for Encoding A1 —
+   no handoff, no storage, no custom settlement policy (expressive
+   restriction, not a lint); for Encoding B — `mem::forget`,
+   `ManuallyDrop::new`, `Box::leak`, and unaudited dependency updates
+   become admission decisions, each priced. Measured as: the list of
+   rejected constructs, and what breaks in a realistic dependency
+   closure when they are rejected.
+5. **Proved vs trusted** (0015's vocabulary). For each encoding, every
    protocol property is labeled:
-   - *Encoding A:* transition order — `proved` (compile error otherwise);
-     final settlement happens — **trusted** (Drop + convention + lints);
-     no forget in dependencies — **trusted** (lint capping);
-     lint config applied — **trusted** (CI convention).
-   - *Hum sketch:* transition order and final settlement — `proved` by
-     the linear checker **[Requirement, unimplemented]**; today —
-     `unproved` (0015: classifier assigns nothing).
+   - *Encoding A1:* exactly-once settlement — `proved` by construction
+     (the library owns the guard; the client cannot name the owned
+     value); settlement *policy* — trusted to the library's
+     Ok→commit/Err→rollback mapping; no escape — `proved` (lifetime).
+   - *Encoding A2:* transition order — `proved` (compile error
+     otherwise); final settlement happens — **trusted** (Drop +
+     convention + lints); no forget in dependencies — **trusted**
+     (lint capping); lint config applied — **trusted** (CI convention).
+   - *Encoding A3:* unsettled drop detected — `proved` at runtime
+     (panic); settlement happens — **trusted** (no `forget`); the
+     process survives — **trusted** (a panic aborts the task at best).
+   - *Hum sketch:* transition order and final settlement for the
+     Transaction-shaped class — `proved` by H0803/H0804 **[Implemented,
+     scoped]**; the general linear checker — **[Requirement,
+     unimplemented]**; today the general obligation is `unproved`
+     (0015: classifier assigns nothing).
    The deliverable is the labeled table, not a winner's banner.
-5. **Adversarial matrix.** Each encoding faces: `mem::forget` on the
+6. **Adversarial matrix.** Each encoding faces: `mem::forget` on the
    guard; `ManuallyDrop::new` on the guard; `let _ =` settlement-skip;
    a dependency that forgets; a stale or missing lint configuration;
    settlement via destructor default instead of explicit code (the
    sqlx abort-on-drop shape — a fail-closed default, not an explicit
-   decision **[External]**). Each case records: caught by whom, at what
-   stage, with what diagnostic — or silently accepted.
+   decision **[External]**); a panic on the settlement path; an attempt
+   to hand the transaction to another task. Each case records: caught
+   by whom, at what stage, with what diagnostic — or silently
+   accepted. Expected honest outcomes: A1 is immune to client-side
+   forget (no owned value) but cannot represent handoff; A3 is
+   defeated by `mem::forget`; Hum's H0803 trap fires on the
+   `try`-propagation path today.
 
 ## Falsification criteria
 
@@ -234,11 +410,17 @@ The study is designed to be losable, per 0026's symmetric falsifier:
   do not damage ordinary library interop, then exactly-once settlement
   does not discriminate between the language and the profile — the
   investment argument for Hum's linear resources weakens to convenience.
+- If Encoding A1 covers the realistic program population at negligible
+  cost — in-task settlement with Ok/Err policy — and the study's
+  programs never need handoff or custom settlement policy, then the
+  remaining discriminator is cross-task settlement and the teachability
+  of one uniform concept versus per-library patterns. The study must
+  say which population it measured.
 - If the Hum sketch's annotation or diagnostic burden turns out
-  comparable to Encoding A's typestate machinery once real programs are
+  comparable to Encoding A2's typestate machinery once real programs are
   written (the friction ledger is the instrument), the "economical and
   teachable" claim fails on its own terms.
-- If the adversarial matrix shows Encoding A catching every realistic
+- If the adversarial matrix shows Encoding A2 catching every realistic
   misuse in practice (forget-lint deny + code review + CI), the study
   records that the residual risk is theoretical for the studied
   population — and says so.
@@ -263,6 +445,18 @@ study measures the cost of enforcement, not the metaphysics of bolt-on.
 Pre-issuance independent review of this study design before any PR, per
 the commissioning instruction. Reviewer checks: the protocol choice is
 the sharpest available discriminator; the Rust opponent is the strongest
-honest one (no strawman); every Hum claim is labeled with its
-implementation status; the falsification criteria can actually fire; the
-measurements are countable, not vibes.
+honest one (no strawman — the scoped closure API and drop-bomb are in);
+every Hum claim is labeled with its implementation status and uses real
+surface; the linearity × 0016 question is named with undecided options
+and a measured dimension; the falsification criteria can actually fire;
+the measurements are countable, not vibes.
+
+**Revision history.** Draft at f92c84b. Pre-issuance review: Claude,
+2026-09-23 — verdict accept with required fixes: (1) Hum sketch rewritten
+in real Hum surface (`consume` as parameter permission and call-site
+marker, sections, `fail`, no invented syntax), with the linear-type
+declaration marked [Proposed surface]; (2) the linearity × 0016 failure
+propagation question named explicitly with three undecided options and a
+per-failure-path settlement-code measured dimension; (3) scoped closure
+API and drop-bomb idiom added as Rust encodings; (4) Encoding B's
+one-to-two-year cost labeled [Inference]. This revision applies all four.
