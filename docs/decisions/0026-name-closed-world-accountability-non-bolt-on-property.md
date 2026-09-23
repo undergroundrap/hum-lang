@@ -1,9 +1,12 @@
 # 0026: Name Closed-World Accountability As Hum's Non-Bolt-On Property
 
 Date: 2026-09-22
-Status: proposed. Recommendation only; the BDFL rules. Independent
-pre-issuance review is required before any PR, by a reviewer who did not
-author or edit this record.
+Status: proposed (revision 2 — pre-issuance review fixes folded in).
+Recommendation only; the BDFL rules. Execution review: Claude, 2026-09-22
+— with disclosure that the thesis wording is Claude's, so that review
+covers execution accuracy only, not the truth of the thesis (see Ruling).
+A second reviewer independent of the thesis authorship should weigh the
+thesis itself before any PR.
 
 ## Evidence Labels
 
@@ -57,29 +60,34 @@ best-in-class parts **[External]**:
 > Take safe Rust. Forbid `unsafe` in every first-party crate via workspace
 > lints — a hard compiler gate, un-overridable, running on post-expansion
 > code, also catching `no_mangle`, `export_name`, and `link_section`. Vet
-> the dependency closure with cargo-vet plus `cargo geiger` in CI. Write
-> Creusot contracts for the critical functions (deductive, unbounded,
-> generic — no loop-bound caveats) and Kani harnesses where unsafe-adjacent
-> or algorithmic code needs exhaustive bounded checking (unwinding assertions
-> make passing proofs complete for their bounds; stubs are printed per
-> harness). Confine I/O code to cap-std voluntarily. Result: memory safety
-> from the compiler, functional correctness where specified, unsafe excluded
-> by the compiler, supply chain by vetting. Every obligation is
-> compiler-checked, proved, bounded, or explicitly stubbed/trusted. That
-> *is* the ledger — assembled from best-in-class parts.
+> the dependency closure with cargo-vet plus `cargo geiger` in CI. Verify
+> the critical core with Verus — whole-crate SMT verification with ghost
+> code and linear ghost permissions, the one tool that *can* reason about
+> unsafe code — and use Creusot contracts or Kani harnesses where each fits
+> best (deductive unbounded proofs; exhaustive bounded checking with
+> unwinding assertions; stubs printed per harness). Confine I/O code to
+> cap-std voluntarily. Result: memory safety from the compiler, functional
+> correctness where specified, unsafe code itself verified, supply chain by
+> vetting. Every obligation is compiler-checked, proved, bounded, or
+> explicitly trusted. That *is* the ledger — assembled from best-in-class
+> parts.
 
 Each part is real and each practitioner cited would endorse their part. The
 steelman is strong at the single-crate, single-tool level. It fails exactly
-at the thesis point.
+at the thesis point. (Flux and Aeneas were considered as steelman parts and
+are addressed under points 1, 4, and 6 below.)
 
 ## Where The Steelman Breaks
 
 **1. The ledger does not exist as an artifact.** "Explicitly trusted" is
-scattered across five mutually invisible places: `#[trusted]` attributes,
-hand-written `extern_spec!` axioms, `kani::assume()` calls,
-`#[kani::stub]`s, and the audited-but-unverified dependency set. No tool
-emits the unified list; a human assembles it by reading five dialects. Hum's
-thesis demands the *compiler* say it. The ecosystem requires a person to.
+scattered across mutually invisible places: `#[trusted]` attributes
+(Creusot, Flux), hand-written `extern_spec!` axioms, `kani::assume()`
+calls, `#[kani::stub]`s, Verus's `external_body` and
+`assume_specification` annotations, and the audited-but-unverified
+dependency set. No tool emits the unified list; a human assembles it by
+reading half a dozen dialects — real Verus projects each built their own
+manual "honesty" enumerations because Verus emits none. Hum's thesis
+demands the *compiler* say it. The ecosystem requires a person to.
 **[External]**
 
 **2. The unsafe ban is per-crate, not per-program.** The `unsafe_code` lint
@@ -106,15 +114,31 @@ std-verification goal doc states it flatly **[External]** — so foreign
 functions and std's unsafe interior are opaquely trusted via user-written
 axioms. Kani treats a reachable foreign call as an unsupported construct:
 verification *fails* unless the call is hand-stubbed, i.e. trusted
-**[External]** (Kani issue #3679; stubbing docs). The trusted base is not
-small or stable; it is all of std's unsafe plus every dependency's unsafe
-plus every stub.
+**[External]** (Kani issue #3679; stubbing docs). Verus is the honest best
+case: it *can* verify unsafe code through linear ghost permissions, and
+real verified systems (Anvil's Kubernetes controllers) are built on it
+**[External]**. But its trust doors are explicit and load-bearing:
+`external_body` assumes a specification without verifying the body
+("wrong specifications can subvert Verus's guarantees"), and
+`assume_specification` is carried under a CAUTION banner as unchecked
+**[External]**. A `--no-cheating` flag rejects all of them — and real
+projects cannot pass it (gale carries 133 `external_body` instances plus 2
+`assume_specification` calls, documented by hand) **[External]**. The
+trusted base is not small or stable: it is all of std's unsafe plus every
+dependency's unsafe plus every stub, plus the forked rustc driver, Z3, and
+vstd's assumed specs — with build scripts and proc macros executing outside
+verification entirely.
 
 **4. No composition rule.** A Creusot proof of `f` and a Kani bounded-proof
 of `g` do not combine into a program-level theorem. The trust bases are
 disjoint (Why3 plus SMT solvers vs. CBMC), the notions of "done" differ,
 and no checker consumes both outputs to certify coverage of the program's
-obligations. **[External + Inference]**
+obligations. Aeneas makes the point sharpest: the "account" is split
+across two systems (Rust source plus Lean proofs), the link between them
+— translation faithfulness — is the single largest trusted assumption and
+is itself unverified, and with no whole-program analysis at all a
+program-level ledger is not even representable in its architecture.
+**[External + Inference]**
 
 **5. The capability leg is fictional.** There is no production capability
 linter for Rust. cap-std is a voluntary library; nothing stops any crate in
@@ -126,11 +150,17 @@ anywhere in the closure.
 **6. Each tool admits soundness gaps a ledger would have to label.** Kani
 verifies sequential code only: no data races, no aliasing-model violations,
 no inline assembly **[External]** (Kani soundness docs). Creusot cannot
-track values written through pointers and its proofs are
-architecture-specific **[External]** (Creusot limitations; arXiv
-2510.01072); the full MIR-to-functional pipeline has no mechanized soundness
-proof **[External]** (Creusot ICFEM'22 paper). Both trust large unverified
-components: rustc's MIR construction, solver and CBMC correctness.
+reason about unsafe Rust **[External]** (rust-lang std-verification goals)
+and its proofs are architecture-specific **[External]** (Creusot
+limitations); the full MIR-to-functional pipeline has no mechanized
+soundness proof **[External]** (Creusot ICFEM'22 paper). Flux tracks
+pointer alignment and provenance but not values written through pointers
+**[External]**, and cannot distinguish logic errors from undefined
+behavior **[External]**; its refinements are restricted to a decidable
+quantifier-free fragment, so properties like sortedness are hard to
+specify **[External]**. Every tool trusts large unverified components:
+rustc's MIR construction, solver and CBMC correctness, the Charon
+translation.
 
 **7. "Bounded" is not compiler-tracked.** Kani's bound is a flag plus
 human-audited `assume`s — and `kani::assume()` that eliminates all paths
@@ -142,6 +172,22 @@ label the compiler assigns and defends, not a number in a harness file.
 The obstacles are structural — per-crate lints, tool-fragmented accounts,
 an unverifiable FFI floor, no composition — not matters of more annotation
 effort. **[Inference]**
+
+## Hum's Own Trusted Base
+
+The obvious counter, stated before a critic states it: the closed world is
+at the *Hum source* level. Below it sits Hum's own toolchain — checker,
+interpreter, JIT — written in Rust, with its own dependency closure
+**[Pinned]** (0002: Rust bootstrap until staged self-hosting is proven;
+0017: the main crate is a Rust crate held under `#![deny(unsafe_code)]`).
+**[Inference]** That is the same position as Rust trusting rustc. The
+thesis is about *the program's* obligations, not the absence of a trusted
+computing base: the ledger accounts for Hum programs; it does not account
+for the toolchain that computes it, and no Rust tool accounts for rustc
+either. What the thesis forbids is *unacknowledged* trust *inside* the
+program's world — which is why Hum's own `external-trust` label and the
+priced JIT exception sit at the boundary, named, rather than inside it,
+silent.
 
 ## Which Hum Decisions Carry The Property
 
@@ -291,9 +337,113 @@ the accountability demand bite the programmer? The try-rule question
 (design question #1) is downstream of this evidence — decide it with
 wordfreq's ledger, not taste.
 
+## What Acceptance Commits Us To
+
+Accepting this record is not free **[Inference]** (recommendation):
+
+- The 0015 classifier moves up in priority. It is the half of the property
+  Hum does not have at all — vocabulary without assignment.
+- Declared-only sections (`allocates:`, `cost:`, `calls:`) must either
+  become checked obligations or be explicitly labeled as unaccounted. A
+  promise-shaped hole is worse than no promise.
+- The priced-exception discipline becomes a tracked metric: the JIT
+  exception count and the growth of the `external-trust` label, reviewed
+  like a budget.
+- Programs 2 and 3 are chosen to stress the property (above), and their
+  friction ledgers feed back into the try-rule decision.
+
+## Sources
+
+Every **[External]** claim above is checkable at one of these primary
+sources (researched 2026-09-22):
+
+**Verus**
+
+- Verus paper (SMT verification, ghost code, linear ghost permissions,
+  unsafe reasoning): https://arxiv.org/abs/2303.05491
+- Anvil verified Kubernetes controllers:
+  https://github.com/anvil-verifier/anvil
+- `external_body` ("wrong specifications can subvert Verus's guarantees"):
+  https://github.com/verus-lang/verus/blob/HEAD/source/docs/guide/src/calling-unverified-from-verified.md
+- `assume_specification` (unchecked, CAUTION banner):
+  https://github.com/verus-lang/verus/blob/HEAD/source/docs/guide/src/reference-assume-specification.md
+- `--no-cheating` vs real-project trust inventories (gale: 133
+  `external_body` + 2 `assume_specification`):
+  https://github.com/pulseengine/gale/blob/HEAD/docs/research/verus-quickstart.md
+  and https://github.com/pulseengine/gale/blob/HEAD/docs/safety/verification-honesty.md
+
+**Flux**
+
+- PLDI 2023 paper (refinement types for Rust):
+  https://dl.acm.org/doi/10.1145/3591283 and http://arxiv.org/pdf/2207.04034
+- Tool summary (checks, `trusted`/`ignore`, unsafe limits,
+  quantifier-free ceiling):
+  https://github.com/model-checking/verify-rust-std/blob/HEAD/doc/src/tools/flux.md
+- `#[flux_rs::trusted]` ("simply *trust* that the specification is
+  correct"):
+  https://github.com/flux-rs/flux/blob/HEAD/book/src/guide/specifications.md
+
+**Aeneas**
+
+- ICFP 2022 paper (Rust-to-functional translation, no whole-program
+  analysis): https://arxiv.org/abs/2206.07185
+- Architecture overview:
+  https://github.com/aeneasverif/aeneas/blob/HEAD/documentation/aeneas-overview.md
+- Translation trust base (`#print axioms`, unverified translator):
+  https://github.com/pulseengine/ordeal/blob/HEAD/docs/formal-verification.md
+
+**Creusot**
+
+- "A deductive verifier for (safe) Rust code":
+  https://github.com/creusot-rs/creusot/blob/HEAD/ARCHITECTURE.md
+- Limitations (architecture-specific proofs):
+  https://github.com/creusot-rs/creusot/blob/HEAD/guide/src/limitations.md
+- ICFEM'22 paper (RustHornBelt mechanization gap):
+  https://jhjourdan.mketjh.fr/pdf/denis2022creusot.pdf
+- Community std-verification lessons (incl. the Flux pointer-write
+  limitation at §2.2): https://arxiv.org/pdf/2510.01072
+
+**Kani**
+
+- Soundness ("What Kani Does NOT Check"; CBMC caveats):
+  https://github.com/model-checking/kani/blob/HEAD/docs/src/soundness.md
+- RFC 0004 (no unbounded control flow):
+  https://github.com/model-checking/kani/blob/HEAD/rfc/src/rfcs/0004-loop-contract-synthesis.md
+- Issue #3679 (foreign function unsupported; aws-lc-sys):
+  https://github.com/model-checking/kani/issues/3679
+- Stubbing (`#[kani::stub]`, per-harness stub printing):
+  https://github.com/model-checking/kani/blob/HEAD/docs/src/reference/experimental/stubbing.md
+- Vacuous-`assume` guidance (`kani::cover!`):
+  https://github.com/strawgate/memagent/blob/HEAD/dev-docs/references/kani-verification.md
+
+**Lints, policy, capabilities**
+
+- rustc `unsafe_code` lint (catches `unsafe`, `no_mangle`,
+  `export_name`, `link_section`):
+  https://doc.rust-lang.org/stable/nightly-rustc/rustc_lint/builtin/static.UNSAFE_CODE.html
+- rust-lang 2024-H2 std-verification goal ("cannot reason about unsafe
+  Rust"): https://github.com/rust-lang/goals/blob/HEAD/src/2024h2/std-verification.md
+- aegaeon unsafe-code policy (per-crate geiger gate; deps scan for
+  visibility only; build scripts are separate crates):
+  https://github.com/codetakt/aegaeon/blob/HEAD/docs/policies/unsafe-code-policy.md
+- PL/Rust lint docs ("the administrator's responsibility to properly vet
+  external dependencies"): https://plrust.io/config-lints.html
+- cap-std README (`open_ambient_dir` not sandboxed; "not a sandbox"):
+  https://github.com/bytecodealliance/cap-std/blob/HEAD/README.md
+- Creusot project trust inventory ("What remains trusted"):
+  https://github.com/crumplecup/elicitation/blob/HEAD/CREUSOT_TRACKING.md
+
 ## Ruling
 
 Proposed. This record is a recommendation only: Ocean rules — accept,
 revise, or reject. It is his call whether Hum is a language project or a
-toolchain project. Pre-issuance review by an independent reviewer (one who
-did not author or edit this record) is required before any PR.
+toolchain project.
+
+**Review history.** Pre-issuance execution review: Claude, 2026-09-22 —
+with disclosure that the thesis wording is Claude's, so that review covers
+execution accuracy (pinned-claim spot checks, honesty of the gaps,
+falsifier specificity), not the truth of the thesis itself. Its required
+fixes are folded into this revision: Verus, Flux, and Aeneas in the
+steelman; Hum's own trusted base named; source URLs added. A second
+reviewer, independent of the thesis authorship, should weigh whether the
+thesis is true before acceptance. No PR until then.
