@@ -5137,7 +5137,9 @@ function Invoke-HumCompilerCorpusChecks {
     # Windows: positive exact granted file read with byte-exact stdout.
     # The fixture is 15 bytes; stdout must be exactly 13 bytes with three
     # 0x0A newlines and no 0x0D carriage returns.
-    $SessionAGFixture = 'fixtures/wordfreq/sample.txt'
+    # Native paths must be absolute (drive-rooted) — the Windows validator
+    # rejects relative paths, so resolve the fixture against $RepoRoot.
+    $SessionAGFixture = Join-Path $RepoRoot 'fixtures/wordfreq/sample.txt'
     $SessionAGPsi = New-Object System.Diagnostics.ProcessStartInfo
     $SessionAGPsi.FileName = $Hum
     foreach ($Argument in @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)) { $SessionAGPsi.ArgumentList.Add($Argument) }
