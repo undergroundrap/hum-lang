@@ -114,12 +114,13 @@ does not move the fix rate, the blame-style-help investment is unjustified.
   content hash, the `hum` binary version, and the date. A run without this
   record is not reproducible and not comparable across releases.
 - **Confidence intervals, never bare rates**: report Wilson 95% intervals
-  for every rate. At 5 items per class one item is 20 percentage points —
-  per-class rates are directional, not decisive (3/5 carries roughly a
-  23%–88% interval). Decisive comparisons pool across classes: at n=70 an
-  arm's rate carries roughly ±12pp, and arm-vs-arm differences below about
-  15pp are noise. If per-class decisiveness is ever needed, raise items per
-  class; the cost is linear.
+  for every rate. At 5 items × 5 runs per class (25 attempts per class per
+  condition), per-class arm-vs-arm differences below roughly 25–30pp are
+  noise — per-class rates are directional, not decisive. Decisive
+  comparisons pool across classes: at n=70 an arm's rate carries roughly
+  ±12pp, and arm-vs-arm differences below about 15pp are noise. If
+  per-class decisiveness is ever needed, raise items per class; the cost
+  is linear.
 - **Pre-registered loss thresholds with a margin**: a loss criterion fires
   only if the entire 95% interval clears the threshold (for ceilings) or
   the intervals do not overlap (for comparisons). Noise alone cannot fire
