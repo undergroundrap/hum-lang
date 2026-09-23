@@ -2800,7 +2800,7 @@ task malformed() -> UInt {
   Assert-Json 'diagnostic catalog JSON' $DiagnosticsJson
   $DiagnosticsCatalog = $DiagnosticsJson | ConvertFrom-Json
   $DiagnosticCodes = @($DiagnosticsCatalog.diagnostics | ForEach-Object { $_.code })
-  if ($DiagnosticsCatalog.count -ne 90 -or $DiagnosticCodes.Count -ne 90 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 90) { throw 'canonical diagnostic catalog must expose exactly 90 unique active codes' }
+  if ($DiagnosticsCatalog.count -ne 92 -or $DiagnosticCodes.Count -ne 92 -or @($DiagnosticCodes | Sort-Object -Unique).Count -ne 92) { throw 'canonical diagnostic catalog must expose exactly 92 unique active codes' }
   $H0634CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0634' -and $_.title -ceq 'canonical native program layout' })
   if ($H0634CatalogRows.Count -ne 1) { throw 'Work Order 23 H0634 catalog projection drifted' }
   $H0635CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0635' -and $_.title -ceq 'unsupported native program feature' })
@@ -4942,6 +4942,31 @@ function Invoke-HumCompilerCorpusChecks {
 
   $SessionZHelp = Read-NativeOutput 'Session Z help text' $Hum @('--help')
   if (-not $SessionZHelp.Contains('--allow stdout.write') -or -not $SessionZHelp.Contains('--deny stdout.write')) { throw 'Session Z help must document exact output grant and deny flags' }
+
+  # Session AB: text_split (WO27 Part 1a, decision 0021). Exact production-path
+  # evidence for the builtin: checker acceptance, app-path split, boundary
+  # pieces, the literal-only try exemption, and both misuse fixtures.
+  # Runtime TextSplitError.SepEmpty is covered by Rust tests (an empty CLI
+  # argument would not survive the channel runner's whitespace join).
+  $SessionABApp = 'examples/probes/text_split.hum'
+  $SessionABArgs = 'examples/probes/text_split_args.hum'
+  $SessionABCheck = Read-NativeOutputWithExit 'check Session AB text_split app probe' $Hum @('check', $SessionABApp)
+  if ($SessionABCheck.ExitCode -ne 0 -or -not $SessionABCheck.Output.Contains('0 error(s)')) { throw 'Session AB text_split app probe must check with zero errors' }
+  $SessionABArgsCheck = Read-NativeOutputWithExit 'check Session AB text_split args probe' $Hum @('check', $SessionABArgs)
+  if ($SessionABArgsCheck.ExitCode -ne 0 -or -not $SessionABArgsCheck.Output.Contains('0 error(s)')) { throw 'Session AB text_split args probe must check with zero errors' }
+  $SessionABRun = Read-NativeChannelsWithExit 'run Session AB text_split app positive' $Hum @('run', $SessionABApp, '--allow', 'stdout.write', '--args', 'a,b,c', ',')
+  if ($SessionABRun.ExitCode -ne 0 -or $SessionABRun.Stdout.Trim() -ne 'split-ok' -or $SessionABRun.Stderr -ne '') { throw 'Session AB app-path split must succeed and write the marker' }
+  $SessionABBoundary = Read-NativeChannelsWithExit 'run Session AB text_split boundary pieces' $Hum @('run', $SessionABArgs, '--entry', 'split_args', '--args', 'a,,b', ',')
+  if ($SessionABBoundary.ExitCode -ne 0 -or $SessionABBoundary.Stdout.Trim() -ne '[a, , b]') { throw 'Session AB must preserve the empty middle piece on the production path' }
+  $SessionABEdge = Read-NativeChannelsWithExit 'run Session AB text_split aaa/aa edge' $Hum @('run', $SessionABArgs, '--entry', 'split_args', '--args', 'aaa', 'aa')
+  if ($SessionABEdge.ExitCode -ne 0 -or $SessionABEdge.Stdout.Trim() -ne '[, a]') { throw 'Session AB must split aaa on aa into ["", "a"] without overlap' }
+  $SessionABLiteral = Read-NativeChannelsWithExit 'run Session AB text_split literal exemption' $Hum @('run', $SessionABApp, '--entry', 'split_literal_pure')
+  if ($SessionABLiteral.ExitCode -ne 0 -or $SessionABLiteral.Stdout.Trim() -ne '[a, b, c]') { throw 'Session AB direct-literal separator must split without try' }
+  $SessionABH0636 = Read-NativeOutputWithExit 'full-type-check Session AB literal empty separator' $Hum @('full-type-check', 'fixtures/diagnostics/text_split_literal_empty_separator_fail.hum')
+  if ($SessionABH0636.ExitCode -ne 1 -or [regex]::Matches($SessionABH0636.Output, 'diagnostic=H0636').Count -ne 1) { throw 'Session AB literal empty separator must fail with exactly one H0636' }
+  $SessionABH0901 = Read-NativeOutputWithExit 'full-type-check Session AB variable separator JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/diagnostics/text_split_variable_separator_needs_try_fail.hum')
+  if ($SessionABH0901.ExitCode -ne 1 -or [regex]::Matches($SessionABH0901.Output, '"diagnostic_code": "H0901"').Count -ne 1) { throw 'Session AB variable separator without try must fail with exactly one H0901' }
+  Assert-Json 'full-type-check Session AB variable separator JSON' $SessionABH0901.Output
 
   $SessionAAPositive = 'examples/probes/runner_replay_clock.hum'
   foreach ($Command in @('resolve', 'full-type-check', 'effect-check', 'ownership-check', 'resource-check', 'core-preview', 'core-lower', 'core-verify')) {

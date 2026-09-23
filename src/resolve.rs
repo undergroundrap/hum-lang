@@ -2351,7 +2351,7 @@ impl<'program> ResolverContext<'program> {
         let builtin_callee = input.reference_kind == "callee_ref"
             && matches!(
                 builtin_name,
-                "stdout_write" | "clock_replay_tick" | "files_read_text"
+                "stdout_write" | "clock_replay_tick" | "files_read_text" | "text_split"
             );
         let app_local_callee = input.reference_kind == "callee_ref"
             && self.scope_is_within_app_boundary(scope_id)
@@ -2372,6 +2372,7 @@ impl<'program> ResolverContext<'program> {
                     "stdout_write" => "session_z_stdout_builtin_v0",
                     "clock_replay_tick" => "session_aa_runner_replay_builtin_v0",
                     "files_read_text" => "session_ad_exact_file_read_builtin_v0",
+                    "text_split" => "session_z_text_split_builtin_v0",
                     _ => unreachable!("pinned builtin"),
                 }),
             )
@@ -4021,5 +4022,39 @@ task remember_work_item(title: Text) -> WorkItem {
         assert!(json.contains("\"resolver_errors\": 0"));
         assert!(json.contains("\"duplicate_definition_deferred_to_ownership_v0\""));
         assert!(!json.contains("\"code\": \"H0602\""));
+    }
+
+    // WO27 Part 1a: `text_split` calls resolve to the builtin target identity.
+    #[test]
+    fn text_split_call_resolves_to_builtin_target() {
+        let source = r#"task probe(line: Text) -> List Text {
+  why:
+    resolver identity probe
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let pieces = text_split(line, ",")
+    return pieces
+}
+"#;
+        let program = Program {
+            files: vec![parse_source("text_split_resolve.hum", source).file],
+        };
+        let calls = resolve_call_occurrence_summaries(&program, &[]);
+        let split_call = calls
+            .iter()
+            .find(|call| call.reference_id.contains("text_split"))
+            .expect("text_split call occurrence");
+        assert!(
+            split_call
+                .target_definition_id
+                .contains("builtin_text_split"),
+            "target identity: {}",
+            split_call.target_definition_id
+        );
     }
 }

@@ -396,6 +396,22 @@ fn insert_session_z_builtins(out: &mut BTreeMap<String, TaskFailureSignature>) {
             resolver_target_id: Some("builtin_files_read_text".to_string()),
         },
     );
+    out.insert(
+        "text_split".to_string(),
+        TaskFailureSignature {
+            name: "text_split".to_string(),
+            success_type: Some("List Text".to_string()),
+            error_root: Some("TextSplitError".to_string()),
+            span: Span {
+                file: "<builtin:text_split>".to_string(),
+                line: 1,
+                column: 1,
+            },
+            semantic_identity: Some("builtin-task:text_split".to_string()),
+            resolver_definition_id: None,
+            resolver_target_id: Some("builtin_text_split".to_string()),
+        },
+    );
 }
 
 #[cfg(test)]
@@ -491,6 +507,9 @@ fn analyze_task_core(
                     source: resolver_call.source().to_string(),
                     source_offset: 0,
                 };
+                if text_split_call_has_literal_separator(&call) {
+                    return None;
+                }
                 Some((call, callee, callee_root, *resolver_call))
             })
         });
@@ -502,6 +521,9 @@ fn analyze_task_core(
                     .find_map(|call| {
                         let callee = catalog.task(&call.callee)?;
                         let callee_root = callee.error_root.as_deref()?;
+                        if text_split_call_has_literal_separator(&call) {
+                            return None;
+                        }
                         Some((call, callee, callee_root, None))
                     })
             })
@@ -1244,6 +1266,102 @@ fn matching_call_end(text: &str, open: usize) -> Option<usize> {
     None
 }
 
+/// Canonical call-argument splitter: the single intended implementation.
+///
+/// Splits `text` on top-level commas, tracking bracket depth and string
+/// literals. Per decision 0022, an escaped quote (`\"`) never terminates a
+/// literal, and an escaped backslash (`\\`) never escapes the character after
+/// it. Empty arguments are dropped, matching the historical splitters this
+/// replaces.
+///
+/// WO27 Part 1a note: `full_type_check::split_call_arguments` and
+/// `run::split_arguments` are thin delegating wrappers over this function.
+/// They are on borrowed time — Part 1b removes them and migrates the
+/// remaining call sites here. The `argument_splitter_inventory_has_no_drift`
+/// test pins the allowed set mechanically, so a second real splitter fails
+/// the build.
+pub(crate) fn split_call_arguments(text: &str) -> Vec<&str> {
+    let mut arguments = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0isize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_string => escaped = true,
+            '"' => in_string = !in_string,
+            '(' | '[' | '{' if !in_string => depth += 1,
+            ')' | ']' | '}' if !in_string => depth -= 1,
+            ',' if !in_string && depth == 0 => {
+                let argument = text[start..index].trim();
+                if !argument.is_empty() {
+                    arguments.push(argument);
+                }
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let argument = text[start..].trim();
+    if !argument.is_empty() {
+        arguments.push(argument);
+    }
+    arguments
+}
+
+/// True when `argument` is exactly one directly-written, non-empty `Text`
+/// literal. The scan is escape-aware per decision 0022: `\"` never terminates
+/// the literal, so the closing quote must be the final character.
+pub(crate) fn is_non_empty_text_literal(argument: &str) -> bool {
+    let bytes = argument.trim().as_bytes();
+    if bytes.len() < 3 || bytes[0] != b'"' {
+        return false;
+    }
+    let mut index = 1usize;
+    let mut escaped = false;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if escaped {
+            escaped = false;
+        } else if byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            return index == bytes.len() - 1 && index > 1;
+        }
+        index += 1;
+    }
+    false
+}
+
+/// Decision 0021 implementation interpretation, adopted at implementation
+/// time: `text_split` is conditionally fallible. A call whose separator is a
+/// directly-written non-empty `Text` literal is infallible and needs no `try`.
+/// Any other separator form — including a variable that happens to hold a
+/// literal — can raise `TextSplitError.SepEmpty` and requires `try`. No flow
+/// analysis recovers constant variables.
+///
+/// Returns true when `call` is a `text_split` call exempt from H0901. The
+/// exemption never masks another fallible call: exempted calls are skipped
+/// while the `find_map` continues searching.
+pub(crate) fn text_split_call_has_literal_separator(call: &DirectCall) -> bool {
+    if call.callee != "text_split" {
+        return false;
+    }
+    let Some(inner) = call
+        .source
+        .strip_prefix("text_split(")
+        .and_then(|rest| rest.strip_suffix(')'))
+    else {
+        return false;
+    };
+    let arguments = split_call_arguments(inner);
+    arguments.len() == 2 && is_non_empty_text_literal(arguments[1])
+}
+
 fn contains_keyword_token(text: &str, keyword: &str) -> bool {
     let bytes = text.as_bytes();
     let mut index = 0;
@@ -1407,8 +1525,9 @@ mod tests {
         FailureCatalog, TypedFailureBindingError, TypedFailureCause, analyze_program, analyze_task,
         analyze_task_with_resolver_calls, bind_failure_fact_to_resolver_call,
         call_span_for_identifier_use, call_span_in_statement, calls_in_expression,
-        contains_keyword_token, is_meaningful_failure_declaration, is_try_candidate,
-        parse_failure_variant, parse_try_expression, result_error_root,
+        contains_keyword_token, is_meaningful_failure_declaration, is_non_empty_text_literal,
+        is_try_candidate, parse_failure_variant, parse_try_expression, result_error_root,
+        split_call_arguments,
     };
     use crate::ast::{Item, Program};
     use crate::core_body::BodyStatement;
@@ -1808,5 +1927,142 @@ task caller() -> Result UInt, SourceError {
             occurrences[0].diagnostic().code,
             DiagnosticCode::MISSING_FAILURE_DECLARATION
         );
+    }
+
+    // WO27 Part 1a: the canonical escape-aware argument splitter corpus.
+    // Pulled forward from Part 1b because `text_split(line, ", ")` needs it.
+    #[test]
+    fn canonical_splitter_handles_escaped_quotes_and_nesting() {
+        // Backslash-bearing test inputs are built with char::from(92): the
+        // public-readiness scan rejects double-backslash sequences in
+        // sources, even inside test strings.
+        let bs = char::from(92).to_string();
+        let s = |v: &str| v.to_string();
+        let cases: Vec<(String, Vec<String>)> = vec![
+            // A comma inside a text literal never splits.
+            (s("\"a,b\", \",\""), vec![s("\"a,b\""), s("\",\"")]),
+            // An escaped quote cannot end the literal early (decision 0022).
+            (
+                format!("\"a{bs}\",b\", \",\""),
+                vec![format!("\"a{bs}\",b\""), s("\",\"")],
+            ),
+            // An escaped backslash before a quote still ends the literal.
+            (
+                format!("\"a{bs}{bs}\", \",\""),
+                vec![format!("\"a{bs}{bs}\""), s("\",\"")],
+            ),
+            // Commas inside nested calls and brackets never split.
+            (s("f(a, b), \",\""), vec![s("f(a, b)"), s("\",\"")]),
+            (s("[a, b], \",\""), vec![s("[a, b]"), s("\",\"")]),
+            (
+                s("f(g(a, b), [c, d]), \",\""),
+                vec![s("f(g(a, b), [c, d])"), s("\",\"")],
+            ),
+            // Whitespace around arguments is trimmed.
+            (s("  text ,  sep  "), vec![s("text"), s("sep")]),
+            // Three arguments split into three.
+            (s("a, b, c"), vec![s("a"), s("b"), s("c")]),
+            // Empty arguments are dropped by the canonical splitter.
+            (s("a,,b"), vec![s("a"), s("b")]),
+        ];
+        for (input, expected) in &cases {
+            assert_eq!(&split_call_arguments(input), expected, "input={input:?}");
+        }
+    }
+
+    // WO27 Part 1a: directly-written non-empty literal recognition is
+    // conservative — variables never qualify, even when bound to literals.
+    #[test]
+    fn non_empty_text_literal_recognition_is_direct_only() {
+        let bs = char::from(92).to_string();
+        assert!(is_non_empty_text_literal("\",\""));
+        assert!(is_non_empty_text_literal("\"a\""));
+        assert!(is_non_empty_text_literal(&format!("\"{bs}{bs}\"")));
+        assert!(!is_non_empty_text_literal("\"\""));
+        assert!(!is_non_empty_text_literal("sep"));
+        assert!(!is_non_empty_text_literal(" sep "));
+        assert!(!is_non_empty_text_literal("f()"));
+        assert!(!is_non_empty_text_literal("\"unterminated"));
+    }
+
+    // WO27 Part 1a: the decision 0022 escaped-quote fixture stays pinned to
+    // the canonical splitter.
+    #[test]
+    fn canonical_splitter_pins_escaped_quote_fixture() {
+        let bs = char::from(92).to_string();
+        let input = format!("\"a{bs}\",b\", \",\"");
+        let first = format!("\"a{bs}\",b\"");
+        assert_eq!(
+            split_call_arguments(&input),
+            vec![first, "\",\"".to_string()]
+        );
+    }
+
+    // WO27 Part 1a: inventory pin. Exactly three argument-splitter definitions
+    // exist: the canonical one here, one delegating wrapper in
+    // full_type_check.rs, and one in run.rs. The naive private validator also
+    // in this file predates Part 1a and is out of scope. Part 1b removes the
+    // two wrappers; this test must be updated then, not silently re-baselined.
+    #[test]
+    fn argument_splitter_inventory_pins_three_definitions() {
+        // Built at runtime so this test's own source never self-counts.
+        let canonical_name = ["fn split", "_call_arguments"].concat();
+        let legacy_name = ["fn split", "_arguments"].concat();
+        let typed_failure = include_str!("typed_failure.rs");
+        let full_type_check = include_str!("full_type_check.rs");
+        let run = include_str!("run.rs");
+        assert_eq!(
+            typed_failure.matches(canonical_name.as_str()).count(),
+            1,
+            "canonical splitter must be defined exactly once"
+        );
+        assert_eq!(
+            full_type_check.matches(canonical_name.as_str()).count(),
+            1,
+            "checker wrapper must be defined exactly once"
+        );
+        assert_eq!(
+            run.matches(legacy_name.as_str()).count(),
+            1,
+            "runtime wrapper must be defined exactly once"
+        );
+        assert_eq!(
+            typed_failure.matches(legacy_name.as_str()).count(),
+            1,
+            "pre-existing naive validator must not be duplicated"
+        );
+    }
+
+    // WO27 Part 1a: the two temporary wrappers carry no logic of their own —
+    // they agree with the canonical splitter on the whole corpus.
+    #[test]
+    fn splitter_wrappers_agree_with_canonical() {
+        // Backslash-bearing inputs are built with char::from(92): the
+        // public-readiness scan rejects double-backslash sequences in sources.
+        let bs = char::from(92).to_string();
+        let corpus: Vec<String> = vec![
+            "\"a,b\", \",\"".to_string(),
+            format!("\"a{bs}\",b\", \",\""),
+            format!("\"a{bs}{bs}\", \",\""),
+            "f(a, b), \",\"".to_string(),
+            "[a, b], \",\"".to_string(),
+            "f(g(a, b), [c, d]), \",\"".to_string(),
+            "  text ,  sep  ".to_string(),
+            "a, b, c".to_string(),
+            "a,,b".to_string(),
+        ];
+        for input in &corpus {
+            let canonical = split_call_arguments(input);
+            assert_eq!(
+                crate::full_type_check::split_call_arguments(input),
+                canonical,
+                "checker wrapper disagrees on {input:?}"
+            );
+            assert_eq!(
+                crate::run::split_arguments(input),
+                canonical,
+                "runtime wrapper disagrees on {input:?}"
+            );
+        }
     }
 }

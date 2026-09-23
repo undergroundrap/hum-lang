@@ -1,0 +1,23 @@
+module fixtures.diagnostics.text_split_variable_separator_needs_try_fail
+
+type SplitError {
+  code: Text
+}
+
+task split_variable_no_try(sep: Text) -> Result List Text, SplitError {
+  why:
+    misuse fixture: a variable separator requires try even when bound to a literal
+
+  fails when:
+    splitting fails
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let comma = ","
+    let pieces = text_split("a,b,c", comma)
+    return pieces
+}

@@ -669,6 +669,43 @@ inputs. An in-memory increment-by-two corruption must fail at the helper's
 postcondition with H0703. The source `test`/`covers:` declarations describe
 coverage; graph links and `hum test-skeletons` do not execute those declarations.
 
+### `text_split`
+
+`text_split(text: Text, sep: Text) -> List Text` splits `text` on exact,
+left-to-right, non-overlapping substring matches of `sep`. It is the only
+string builtin in the executable subset; no other string builtins exist and no
+syntax changed to admit it.
+
+Normative edges (decision 0021):
+
+- `text_split("aaa", "aa")` is `["", "a"]` — matches never overlap.
+- A leading separator preserves the empty first piece: `text_split(",a,b", ",")`
+  is `["", "a", "b"]`.
+- A trailing separator preserves the empty last piece: `text_split("a,b,", ",")`
+  is `["a", "b", ""]`.
+- A repeated separator preserves the empty middle piece: `text_split("a,,b", ",")`
+  is `["a", "", "b"]`.
+- An absent separator returns the whole input: `text_split("abc", ",")` is `["abc"]`.
+- Empty input returns one empty piece: `text_split("", ",")` is `[""]`.
+
+Every piece is an owned copy, never a view into the source text. The honest
+allocation is one string per piece plus the list. Owned copies are deliberate
+performance debt (recorded as PD-001 in the research ledger), not a settled
+optimum; do not quote this as the final cost model.
+
+Fallibility is conditional on the separator's written form:
+
+- A directly-written non-empty literal separator is infallible and needs no
+  `try`: `text_split("a,b,c", ",")` type-checks as `List Text` without H0901.
+- Every other separator form requires `try`, including a variable bound to a
+  literal (`let sep = ","; text_split(text, sep)` still raises H0901 without
+  `try`). No constant-variable flow analysis recovers the literal.
+- A directly-written empty separator is a checker error, H0636.
+- A runtime-computed empty separator raises the typed failure
+  `TextSplitError.SepEmpty` through normal `try`/`fail`; it is not an H-code.
+- The checker also rejects wrong arity and non-`Text` arguments with H0636,
+  and a user task named `text_split` is rejected with H0637.
+
 ## Evidence Obligations
 
 Milestone 0 generates task `evidence_obligations` from meaningful lines in:
@@ -697,7 +734,7 @@ notes, review packets, sanitizer runs, and profile evidence.
 
 The `does:` block is executable only for the explicitly interpreted Milestone 1 subset, and remains future surface beyond that subset.
 
-Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source. With no `--entry`, one top-level app selects its directly nested structural start task; with no app, legacy single-task selection remains. Explicit `--entry` remains the direct task probe. The current tree-walking interpreter covers the forms required by the executable core fixtures: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, direct record field reads, direct field-place assignment with `set record.field = value`, direct numeric list element reads such as `items[0]`, local direct field-view bindings of the form `let view = borrow record.field`, local direct element-view bindings of the form `let view = borrow items[0]`, exact local writable field aliases of the form `let alias = change record.field`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, Predicate v2 `needs:`/`ensures:` checks including `old(...)`, `list_len(...)`, exact Text/ordered `List Text` equality, and contract-only `list_count(...)`, the simple list/record values needed by `count_completed`, the minimal list-growth operation `list_append(change list, item)`, the body-reachable list-length read `list_len(list)`, and the closed text view operation `slice_until(text, separator)`; `old(...)` and `list_count(...)` remain contract-only vocabulary and trap with a clear message if called from a body. It also enforces the current narrow ownership subset at runtime: writing through a default `borrow` parameter or one of its direct fields traps with `H0802`, using a local after it was moved by `consume` or by return traps with `H0801`, leaving recognized Transaction-shaped resources unconsumed traps with `H0803`, consuming them twice traps with `H0804`, violating the V0 returned-view `from parameter` rule traps with `H0805`, structurally appending to a list during active iteration traps with `H0806`, using a local field view after that exact field was written traps with `H0807`, and using a local element view after `list_append` grew that list also traps with `H0807`. Writable aliases read and write through the exact owner field; H0808 rejects live overlapping access and H0809 rejects escape or unsupported alias shapes before body mutation. Integer overflow and division by zero trap instead of wrapping; executable contract violations exit as runtime failures with caller/task blame diagnostics.
+Milestone 1 begins with `hum run <file> [--entry <task>] [--args ...]` over checked source. With no `--entry`, one top-level app selects its directly nested structural start task; with no app, legacy single-task selection remains. Explicit `--entry` remains the direct task probe. The current tree-walking interpreter covers the forms required by the executable core fixtures: Int/Bool literals, arithmetic, comparisons, `let`, `change`, `set`, direct record field reads, direct field-place assignment with `set record.field = value`, direct numeric list element reads such as `items[0]`, local direct field-view bindings of the form `let view = borrow record.field`, local direct element-view bindings of the form `let view = borrow items[0]`, exact local writable field aliases of the form `let alias = change record.field`, `if`, `for each`, `return`, `fail`, task calls, typed failure values, Predicate v2 `needs:`/`ensures:` checks including `old(...)`, `list_len(...)`, exact Text/ordered `List Text` equality, and contract-only `list_count(...)`, the simple list/record values needed by `count_completed`, the minimal list-growth operation `list_append(change list, item)`, the body-reachable list-length read `list_len(list)`, and the closed text view operation `slice_until(text, separator)`, and the exact-substring text splitter `text_split(text, sep) -> List Text` with conditional fallibility (a directly-written non-empty literal separator needs no `try`; any other separator form does; a directly-written empty separator is H0636 and a computed empty separator raises `TextSplitError.SepEmpty`); `old(...)` and `list_count(...)` remain contract-only vocabulary and trap with a clear message if called from a body. It also enforces the current narrow ownership subset at runtime: writing through a default `borrow` parameter or one of its direct fields traps with `H0802`, using a local after it was moved by `consume` or by return traps with `H0801`, leaving recognized Transaction-shaped resources unconsumed traps with `H0803`, consuming them twice traps with `H0804`, violating the V0 returned-view `from parameter` rule traps with `H0805`, structurally appending to a list during active iteration traps with `H0806`, using a local field view after that exact field was written traps with `H0807`, and using a local element view after `list_append` grew that list also traps with `H0807`. Writable aliases read and write through the exact owner field; H0808 rejects live overlapping access and H0809 rejects escape or unsupported alias shapes before body mutation. Integer overflow and division by zero trap instead of wrapping; executable contract violations exit as runtime failures with caller/task blame diagnostics.
 
 Session W adds only two explicit direct named-call failure forms: `let value =
 try fallible_call()` for equal nominal error roots, and `let value = try

@@ -156,6 +156,19 @@ fn check_task(parsed: &ParseOutput, item: &Item, task: &Task, diagnostics: &mut 
         );
     }
 
+    if task.name == "text_split" {
+        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(184), "task_name",
+            Diagnostic::error(
+                DiagnosticCode::RESERVED_TEXT_SPLIT_BUILTIN_NAME,
+                "task `text_split` redeclares Hum's reserved text-split built-in",
+                Some(task.span.clone()),
+            )
+            .with_help(
+                "Rename this user task; `text_split` is reserved for `text_split(text: Text, sep: Text) -> List Text`.",
+            ),
+        );
+    }
+
     if task.section("why").is_none() && task_missing_why_is_suspicious(task) {
         emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(61), "task_why",
             Diagnostic::warning(
@@ -1206,5 +1219,28 @@ mod tests {
             diagnostic.severity == Severity::Warning
                 && diagnostic.code == DiagnosticCode::SECTION_OUT_OF_ORDER
         }));
+    }
+
+    // WO27 Part 1a: the `text_split` name is reserved for the builtin.
+    #[test]
+    fn text_split_task_name_is_reserved() {
+        let source = r#"task text_split(text: Text, sep: Text) -> List Text {
+  why:
+    user task must not shadow the builtin
+
+  does:
+    return sep
+}
+"#;
+        let parsed = parse_source("reserved_text_split.hum", source);
+        let diagnostics = check_file(&parsed);
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == Severity::Error
+                && diagnostic.code == DiagnosticCode::RESERVED_TEXT_SPLIT_BUILTIN_NAME
+        }));
+        assert_eq!(
+            DiagnosticCode::RESERVED_TEXT_SPLIT_BUILTIN_NAME.as_str(),
+            "H0637"
+        );
     }
 }

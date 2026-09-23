@@ -1,0 +1,55 @@
+type SplitError {
+  code: Text
+}
+
+app text_split_probe {
+  why:
+    prove text_split runs on the app path and SepEmpty fails closed
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task run_tool(text: Text, sep: Text) -> Result Unit, SplitError {
+    why:
+      split on a runtime separator, then write a marker when it succeeds
+
+    uses:
+      stdout.write
+
+    fails when:
+      splitting or writing fails
+
+    cost:
+      time: O(text)
+      space: O(pieces)
+      check: warn
+
+    allocates:
+      one owned string per piece, plus the piece list
+
+    does:
+      let pieces = try text_split(text, sep) or fail SplitError.split
+      let marker = try stdout_write("split-ok") or fail SplitError.output
+      return marker
+  }
+}
+
+task split_literal_pure() -> List Text {
+  why:
+    prove a directly-written non-empty literal separator needs no try
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  allocates:
+    one owned string per piece, plus the piece list
+
+  does:
+    let pieces = text_split("a,b,c", ",")
+    return pieces
+}

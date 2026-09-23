@@ -1752,6 +1752,24 @@ diagnostic_causes!(
         "native_admission",
         "native_program_feature",
         "native_feature_admission_route"
+    ),
+    (
+        183,
+        "text_split_call_shape_v0",
+        INVALID_TEXT_SPLIT_CALL,
+        "front_end_semantics",
+        "full_type_check",
+        "builtin_call_relationship",
+        "builtin_call_route"
+    ),
+    (
+        184,
+        "reserved_text_split_builtin_name_v0",
+        RESERVED_TEXT_SPLIT_BUILTIN_NAME,
+        "front_end_semantics",
+        "check",
+        "intent_source_node",
+        "intent_check_route"
     )
 );
 
@@ -2080,6 +2098,8 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         87 => 87,
         88 => 88,
         89 => 89,
+        90 => 90,
+        91 => 91,
         _ => u16::MAX,
     }
 }
@@ -2801,6 +2821,24 @@ diagnostic_code_allocations!(
         FRONT_END_SEMANTICS,
         "native_program",
         "native_admission"
+    ),
+    (
+        90,
+        INVALID_TEXT_SPLIT_CALL,
+        "H0636",
+        "invalid text_split call",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "full_type_check"
+    ),
+    (
+        91,
+        RESERVED_TEXT_SPLIT_BUILTIN_NAME,
+        "H0637",
+        "reserved text-split built-in name redeclared",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "check"
     ),
     (
         60,
@@ -3602,6 +3640,18 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "A canonical native layout passed H0634, but its authenticated typed facts identify no currently supported native feature or identify more than one feature.",
         repair: "Use exactly one accepted typed native feature. Native admission does not use filenames, app names, or literal bytes as dispatch authority and never falls back to interpretation.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INVALID_TEXT_SPLIT_CALL,
+        default_severity: Severity::Error,
+        explanation: "A `text_split` call is rejected: it takes exactly two `Text` arguments and its separator must not be a directly-written empty literal.",
+        repair: "Pass exactly two `Text` arguments, use a non-empty separator, then handle `TextSplitError` with `try`/`fail` unless the separator is a directly-written non-empty literal.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::RESERVED_TEXT_SPLIT_BUILTIN_NAME,
+        default_severity: Severity::Error,
+        explanation: "A user task redeclares the exact `text_split` name reserved for Hum's text-splitting built-in, which would split callable identity across stages.",
+        repair: "Rename the user task and keep `text_split` reserved for `text_split(text: Text, sep: Text) -> List Text`.",
     },
 ];
 
@@ -4575,12 +4625,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 90);
+        assert_eq!(summary.active_codes, 92);
         assert_eq!(summary.retired_codes, 0);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 182);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 184);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
@@ -4637,7 +4687,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 90);
+        assert_eq!(all().len(), 92);
     }
 
     #[test]

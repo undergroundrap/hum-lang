@@ -92,6 +92,22 @@ decision 0016. This keeps the common case — `text_split(line, " ")` — free o
 `try` ceremony while keeping the genuinely dynamic case honest. A misuse
 fixture must cover both the literal-rejection and the runtime failure.
 
+#### Implementation-time interpretation: the literal exemption is literal-only (2026-09-22)
+
+The decision says "the common case — `text_split(line, " ")` — free of `try`
+ceremony". At implementation time this was interpreted conservatively: only a
+**directly-written, non-empty `Text` literal** separator is exempt from `try`.
+A variable bound to a literal (`let sep = ","; text_split(text, sep)`) still
+requires `try` and raises H0901 without it; no constant-variable flow analysis
+recovers the literal. The exemption is skipped inside H0901's implicit-call
+scan so an exempt call can never mask a later fallible call. A `try` on the
+exempt form is rejected by the pre-existing H0906 path (the private
+typed-failure argument validator splits at literal commas); the accepted
+evidence therefore exercises the exemption without `try` and the runtime-empty
+case through variable arguments. This interpretation is recorded here rather
+than left as tribal knowledge; weakening it (e.g. flow analysis for constant
+variables) needs its own decision.
+
 ### Ownership and cost (normative)
 
 `slice_until` is already a view-deriving operation: `first_word.hum` returns a
@@ -141,4 +157,8 @@ decision does not settle the mechanism; it records the dependency.
   outside the repo.
 - `docs/LANGUAGE_REFERENCE.md` gains an entry for `text_split`;
   `docs/DIAGNOSTICS.md` gains an entry for `SepEmpty`.
+- Owned copies are deliberate performance debt, recorded as **PD-001** in the
+  research-owned performance ledger (decision 0024). The Part 1a commit note
+  names PD-001 so the commit and the ledger stay in step; the ledger itself
+  remains research-owned and is not edited here.
 - This decision does not authorize the implementation; the Work Order does.
