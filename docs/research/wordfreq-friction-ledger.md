@@ -152,7 +152,7 @@ no new syntax, no general string library.
 - **Tests:** `hum resolve` / `full-type-check` on `wordfreq.hum` (0 resolver
   errors); `resolve::tests` for the new builtin targets.
 
-## 13. `for each` loop variables carry no type; builtins need `Text` (workaround, open)
+## 13. `for each` loop variables carry no type; the APP entry cannot execute (BLOCKING, open)
 
 - **Class:** open-language-question (type checker).
 - **Friction:** `for_each_header` is `unchecked_statement_type_v0`
@@ -160,12 +160,30 @@ no new syntax, no general string library.
   `List Text` has unknown type. `stdout_write(word)` and
   `text_split(line, " ")` are rejected (H0622, H0636) because the builtins
   require a checked `Text` argument.
-- **Workaround used:** route loop variables through helper tasks with typed
-  parameters (`write_word(word: Text)`, `split_spaces(line: Text)`). The
-  parameter type carries the proof the loop header cannot supply. This is a
-  program-shape workaround, not new surface.
-- **0027 question:** is loop-variable type inference the GENERAL fix? Not
-  decided here.
+- **Workaround used (partial):** route loop variables through helper tasks
+  with typed parameters (`write_word(word: Text)`, `split_spaces(line: Text)`).
+  The parameter type carries the proof the loop header cannot supply. This
+  unblocked the `--entry` paths (`wordfreq_count`, `wordfreq_words` run and
+  pass), but it does NOT unblock the APP entry.
+- **BLOCKING:** `hum run` of the APP entry (`run_tool`) is refused by the
+  full type-check gate: `recognized_core_body_type_gate_v0`,
+  `status: blocked_by_unchecked_body_types_v0`, `unchecked_statements=10`,
+  `execution_ready=0` (validation run 35918468834, Windows; reproduced on
+  Linux — the gate is platform-independent). The app path runs nowhere
+  today: Windows refuses at the gate, non-Windows never reaches it
+  (`files_read` grant unavailable, ledger #7). Consequence: wordfreq has
+  never run end-to-end as an app on any platform. The program is written;
+  app execution is gated on this entry.
+- **Disproven hypothesis:** the run-35914248940 Windows Session AG failure
+  was first attributed to a mixed-separator fixture path
+  (`Join-Path $RepoRoot 'fixtures/wordfreq/sample.txt'` keeping forward
+  slashes). Run 35918468834's enriched stderr showed the gate refusal, never
+  a path error. The path was never the cause; per-segment joins remain only
+  as canonical form.
+- **0027 question:** answered — loop-variable type inference is the GENERAL
+  fix. WO28 orders it first with done-condition "wordfreq runs end-to-end
+  on Windows", flipping the Session AG assertion back to the byte-exact
+  stdout success check.
 
 ## 14. `try` requires unannotated `let` bindings (by design, noted)
 
