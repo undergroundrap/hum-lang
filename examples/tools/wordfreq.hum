@@ -1,0 +1,190 @@
+module examples.tools.wordfreq
+
+type WordfreqError {
+  code: Text
+}
+
+app wordfreq {
+  why:
+    read a text file, split it into words, and write one word per line
+
+  uses:
+    files.read
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Result Unit, WordfreqError {
+    why:
+      compose the exact file boundary, the splitter, and bounded line output
+
+    uses:
+      files.read
+      stdout.write
+
+    fails when:
+      the file cannot be read or a line cannot be written
+
+    cost:
+      time: O(bytes)
+      space: O(words)
+      check: warn
+
+    allocates:
+      one owned string per word, plus the word list
+
+    does:
+      let text = try files_read_text(input) or fail WordfreqError.read
+      let words = wordfreq_words(text)
+      for each word in words {
+        let wrote = try write_word(word) or fail WordfreqError.output
+      }
+      let done = try stdout_write("") or fail WordfreqError.output
+      return done
+  }
+
+  task wordfreq_words(text: Text) -> List Text {
+    why:
+      split file text into words on newlines then spaces, dropping empties
+
+    cost:
+      time: O(text)
+      space: O(words)
+      check: warn
+
+    allocates:
+      one owned string per word, plus the word list
+
+    does:
+      change words: List Text = []
+      let lines = text_split(text, "\n")
+      for each line in lines {
+        let pieces = split_spaces(line)
+        for each piece in pieces {
+          if piece != "" {
+            let added = list_append(change words, piece)
+          }
+        }
+      }
+      return words
+  }
+
+  task split_spaces(line: Text) -> List Text {
+    why:
+      split one line on spaces; the typed parameter carries the Text
+      proof the for-each loop variable cannot supply
+
+    cost:
+      time: O(line)
+      space: O(pieces)
+      check: warn
+
+    allocates:
+      one owned string per piece, plus the piece list
+
+    does:
+      return text_split(line, " ")
+  }
+
+  task write_word(word: Text) -> Result Unit, WordfreqError {
+    why:
+      write one word followed by a newline; the typed parameter carries
+      the Text proof the for-each loop variable cannot supply
+
+    uses:
+      stdout.write
+
+    fails when:
+      the word or its newline cannot be written
+
+    cost:
+      time: O(word)
+      space: O(1)
+      check: warn
+
+    does:
+      let wrote_word = try stdout_write(word) or fail WordfreqError.output
+      let wrote_newline = try stdout_write("\n") or fail WordfreqError.output
+      return wrote_newline
+  }
+
+  task wordfreq_count(text: Text) -> UInt {
+    why:
+      count the words wordfreq_words would emit, one per line
+
+    cost:
+      time: O(text)
+      space: O(words)
+      check: warn
+
+    does:
+      return list_len(wordfreq_words(text))
+  }
+
+  test wordfreq_words splits words across lines unit {
+    why:
+      pin the two-pass tokenization on a mixed space/newline input
+
+    covers:
+      wordfreq_words splits text on newlines then spaces
+
+    does:
+      expect wordfreq_words("hum lang\nhum") returns ["hum", "lang", "hum"]
+  }
+
+  test wordfreq_words drops empty pieces boundary {
+    why:
+      pin double-space and empty-line filtering at the word boundary
+
+    covers:
+      wordfreq_words drops empty pieces
+
+    does:
+      expect wordfreq_words("hum  lang\n\nhum") returns ["hum", "lang", "hum"]
+  }
+
+  test wordfreq_words empty input boundary {
+    why:
+      pin the empty-file edge to an empty word list
+
+    covers:
+      wordfreq_words on empty text
+
+    does:
+      expect wordfreq_words("") returns []
+  }
+
+  test wordfreq_words single word boundary {
+    why:
+      pin the degenerate one-word input with no separators
+
+    covers:
+      wordfreq_words on text without separators
+
+    does:
+      expect wordfreq_words("hum") returns ["hum"]
+  }
+
+  test wordfreq_count counts occurrences unit {
+    why:
+      pin the count contract on repeated words
+
+    covers:
+      wordfreq_count counts the words wordfreq_words emits
+
+    does:
+      expect wordfreq_count("hum lang hum") returns 3
+  }
+
+  test wordfreq_count empty input boundary {
+    why:
+      pin the empty-file edge to a zero count
+
+    covers:
+      wordfreq_count on empty text
+
+    does:
+      expect wordfreq_count("") returns 0
+  }
+}
