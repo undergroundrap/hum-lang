@@ -1,8 +1,7 @@
 # 0023: Manually Dispatched Full Runs Count as Integration Health
 
 Date: 2026-09-22
-Status: proposed 2026-09-22. Independent review required before acceptance;
-BDFL rules and merges.
+Status: accepted 2026-09-22, BDFL ruling on the review at da58a58.
 
 ## Context
 
