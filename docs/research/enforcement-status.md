@@ -1,10 +1,10 @@
 # Enforcement status: doctrine claims vs implementation
 
-As of `origin/main` 6da22ff (2026-09-24).
+As of `origin/main` c3ed1ad (2026-09-24).
 Status: research snapshot (living document — update when a claim's status changes)
 
-Rows expected to move soon: 0022 → enforced when WO28 #4 lands; 0025 →
-complete with the boundary-forward fix; 0028/0029 move when implemented.
+Rows expected to move soon: 0022 → enforced when WO28 #4 lands;
+0028/0029 move when implemented.
 
 ## Purpose
 
@@ -280,7 +280,7 @@ borrowing), 0013's overflow diagnostics, and all of 0020.
 | Claim | Status | Enforcement evidence | Gap closer |
 |---|---|---|---|
 | Ownership registry: `docs/`+`workorders/` classify by path at language rank; renames take max rank; `tools/` hygiene scripts pinned at language rank; the eight `include_str!` docs keep compiler rank | enforced | `tools/check_ci_policy.ps1`; live on main via PR #14; validated by docs PRs #17/#18/#19/#25/#26 on the Language profile | — |
-| Skip the Work Order status-boundary suite when no consumer of a changed path changed (the 0025 amendment) | partial | `tools/check_ci_policy.ps1` computes `boundary_required`; but the classify step in `ci.yml` forwards it only when `HUM_CI_EVENT_NAME -ceq 'workflow_call'` — inside a reusable workflow `github.event_name` is the caller's event (`pull_request`), never `workflow_call`, so the forward never takes effect. Proven on PR #32's run 35961363986: plan published `boundary_required=false`, `normal_profile` received an empty value | Builder lane: PR #33 (`fix/boundary-forward`, head 6aca76c6) — forward when the event is not `push` and the input is exactly `true`/`false`; policy test executes the forward block under real caller events; CI watcher `pr33-boundary-fix-ci-watch` reporting |
+| Skip the Work Order status-boundary suite when no consumer of a changed path changed (the 0025 amendment) | enforced | PR #33 (`fix/boundary-forward`, merged as main 3853972) fixed the forward: classify now forwards `boundary_required` when the event is not `push` and the input is exactly `true`/`false`. Measured on PR #35's run 35967934714 — the first non-consumer `pull_request` validation run after #33 merged (docs/research/ only, Language profile): the "Skipping Work Order status-boundary classifier tests" line printed on both OSes; preflight wall-clock Ubuntu 3m44s, Windows 4m39s (Language docs PRs were ~8/15 min before #33). The suite is skipped exactly when no consumer changed, as the amendment requires | Closed by PR #33 (merged 2026-09-24) |
 
 ### 0026 — closed-world accountability as scoped design objective (accepted 2026-09-23)
 
@@ -403,8 +403,8 @@ doctrine appears here.
 
 | Status | Count | Where they cluster |
 |---|---|---|
-| enforced | 91 | 0002 trust roots, 0004 tests-as-evidence, 0010 V0 state rule, 0011–0013, 0016 typed failure, 0017 app authority (current rule), 0019 license, 0021 text_split, 0023 dispatch health, 0025 registry, 0027 program-driven process; SPEC ownership/effects/contracts/diagnostics/native (34 of 40) + no-macro-escape-hatch + no-hidden-effects |
-| partial | 31 | 0001/0005/0006/0007/0008/0009 evidence machinery; 0011 scope agreement (#15/#16); 0013 overflow diagnostics; 0014 linear resources; 0015 contract literals (#4); 0022 contract escapes (#4); 0024 perf-debt ledger; 0025 boundary-skip forward; SPEC: BOM, predicate-v2 contract text (#4), M1 subset check/run disagreement (#15) + block scoping (#16), blame semantics |
+| enforced | 92 | 0002 trust roots, 0004 tests-as-evidence, 0010 V0 state rule, 0011–0013, 0016 typed failure, 0017 app authority (current rule), 0019 license, 0021 text_split, 0023 dispatch health, 0025 registry + boundary-skip amendment (run 35967934714: skip on both OSes, Ubuntu 3m44s / Windows 4m39s), 0027 program-driven process; SPEC ownership/effects/contracts/diagnostics/native (34 of 40) + no-macro-escape-hatch + no-hidden-effects |
+| partial | 30 | 0001/0005/0006/0007/0008/0009 evidence machinery; 0011 scope agreement (#15/#16); 0013 overflow diagnostics; 0014 linear resources; 0015 contract literals (#4); 0022 contract escapes (#4); 0024 perf-debt ledger; SPEC: BOM, predicate-v2 contract text (#4), M1 subset check/run disagreement (#15) + block scoping (#16), blame semantics |
 | declared-only | 15 | 0005 receipts, 0006 comptime-adjacent, 0009 synonyms; 0015 classifier vocabulary + `needs:` policy; 0018 effect model; 0020 `may diverge:`; 0021 PD-001; 0024 north star; 0026 study; 0028 concat trigger; 0029 grant/virtio/labelled-evidence rulings |
 | not-started | 16 | 0002 self-hosting; 0006 comptime/interop; 0013→(0014 repairs); 0015 release elision; 0017 audit trail + portable file read (#7); 0020 all; 0028 int_to_text/uint_to_text; 0029 property proofs + grant; SPEC: visible unsafe boundaries, unsafe-task sections, build-task sandboxing |
 | unverified | 2 | 0012 test-name grammar pinning; 0013 Float-outside-core |
@@ -417,6 +417,10 @@ unassigned obligation — the next Work Order's raw material.
 
 ## Changelog
 
+- 2026-09-24: 0025's boundary-skip amendment → enforced. PR #33 merged;
+  measured on run 35967934714 (skip confirmed on both OSes, Language
+  preflight Ubuntu 3m44s / Windows 4m39s). Totals now 92 enforced / 30
+  partial; "as of" SHA updated to c3ed1ad.
 - 2026-09-24: added repo-root `SPEC.md` audit (6 claims; 2 enforced,
   1 partial, 3 not-started) per pre-issuance review. Totals now 155 claims.
 - 2026-09-24: initial snapshot (decisions 0001–0029 accepted; SPEC as of
