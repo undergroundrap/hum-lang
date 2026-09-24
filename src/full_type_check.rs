@@ -1096,6 +1096,44 @@ fn type_statement(
         return typed;
     }
 
+    // WO28 #13: a `for each` header over `List T` binds its loop variable
+    // as `T`. Every unprovable shape fails closed into the generic path,
+    // which keeps the current unchecked status.
+    if statement.kind == "for_each_header"
+        && let Some((binder, element_type)) =
+            for_each_binding(statement, environment, task_returns, field_types)
+    {
+        let actual = type_fact(element_type.clone(), "for_each_binding_v0");
+        environment.insert(name_key(&binder), actual.clone());
+        return typed_statement(
+            statement,
+            index,
+            expression_text_for_statement(statement).map(str::to_string),
+            None,
+            Some(actual),
+            "accepted_for_each_binding_v0",
+            None,
+        );
+    }
+
+    // WO28 #13: a test expectation proves when its call targets a known
+    // task and the expected value's type is compatible with the task's
+    // return type. Unprovable or mismatched shapes fail closed into the
+    // generic path, which keeps the current unchecked status.
+    if statement.kind == "test_expectation"
+        && let Some(fact) = test_expectation_fact(statement, task_returns, environment, field_types)
+    {
+        return typed_statement(
+            statement,
+            index,
+            expression_text_for_statement(statement).map(str::to_string),
+            None,
+            Some(fact),
+            "accepted_test_expectation_v0",
+            None,
+        );
+    }
+
     let expression_text = expression_text_for_statement(statement).map(str::to_string);
     let expected_type = expected_type_for_statement(item, statement, environment, field_types);
     let verified_actual = if let core_verify::CanonicalMinimalAddTypeLookup::Delivered(result) =
@@ -1145,6 +1183,43 @@ fn type_statement(
         status,
         reason,
     )
+}
+
+fn for_each_binding(
+    statement: &BodyStatement,
+    environment: &BTreeMap<String, TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<(String, String)> {
+    let header = header_body(&statement.text, "for each")?;
+    let (binder, iterated) = header.split_once(" in ")?;
+    let binder = binder.trim();
+    let iterated = iterated.trim();
+    if !element_place::is_value_ident(binder) || iterated.is_empty() {
+        return None;
+    }
+    let iterated_fact = infer_expression_type(iterated, environment, task_returns, field_types)?;
+    let element = element_place::list_element_type(&iterated_fact.type_text)?;
+    Some((binder.to_string(), element.to_string()))
+}
+
+fn test_expectation_fact(
+    statement: &BodyStatement,
+    task_returns: &BTreeMap<String, TypeFact>,
+    environment: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<TypeFact> {
+    let body = strip_keyword(&statement.text, "expect")?;
+    let (call, expected) = body.split_once(" returns ")?;
+    let (callee, _args) = split_call(call)?;
+    let return_fact = task_returns.get(&name_key(callee))?;
+    let expected_fact =
+        infer_expression_type(expected.trim(), environment, task_returns, field_types)?;
+    if types_compatible(&return_fact.type_text, &expected_fact.type_text) {
+        Some(type_fact("Bool", "test_expectation_v0"))
+    } else {
+        None
+    }
 }
 
 fn constant_text_stdout_write_binding(statement: &crate::ast::ParsedBodyStatement) -> Option<&str> {
@@ -1592,6 +1667,12 @@ fn session_z_builtin_return_types() -> BTreeMap<String, TypeFact> {
             name_key("text_split"),
             type_fact("List Text", "text_split_builtin_v0"),
         ),
+        // WO28 #13: list lengths are UInt (wordfreq_count declares -> UInt;
+        // counts are UInt like clock_replay_tick above).
+        (
+            name_key("list_len"),
+            type_fact("UInt", "list_len_builtin_v0"),
+        ),
     ])
 }
 
@@ -1705,7 +1786,22 @@ fn place_type_fact(
         let type_text = field_place::field_type(field_types, &root_fact.type_text, field)?;
         return Some(type_fact(type_text, "record_field_place_v0"));
     }
-    environment.get(&name_key(name)).cloned()
+    // The whole-text fallback is for plain name references only. Without
+    // the guard, any expression whose snake-normalized form collides with
+    // a bound name (e.g. `piece != ""` normalizing to `piece`) would take
+    // the bound name's type instead of its own inferred type (WO28 #13).
+    if is_plain_name(name) {
+        return environment.get(&name_key(name)).cloned();
+    }
+    None
+}
+
+fn is_plain_name(text: &str) -> bool {
+    let text = text.trim();
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 fn infer_expression_type(
@@ -2058,6 +2154,8 @@ impl FullTypeCheckReport {
                         | "accepted_writable_field_alias_candidate_deferred_to_ownership_v0"
                         | "accepted_no_expression_type_obligation_v0"
                         | "accepted_same_root_failure_propagation_v0"
+                        | "accepted_for_each_binding_v0"
+                        | "accepted_test_expectation_v0"
                         | "accepted_causal_failure_wrap_v0"
                         | "accepted_nominal_direct_failure_v0"
                         | "accepted_typed_failure_deferred_to_effect_v0"
@@ -2084,6 +2182,8 @@ impl FullTypeCheckReport {
                         | "accepted_writable_field_alias_candidate_deferred_to_ownership_v0"
                         | "accepted_no_expression_type_obligation_v0"
                         | "accepted_same_root_failure_propagation_v0"
+                        | "accepted_for_each_binding_v0"
+                        | "accepted_test_expectation_v0"
                         | "accepted_causal_failure_wrap_v0"
                         | "accepted_nominal_direct_failure_v0"
                         | "accepted_typed_failure_deferred_to_effect_v0"
@@ -3415,5 +3515,191 @@ task probe(line: Text) -> Result Unit, ProbeError {
         let span = statement.call_span.as_ref().expect("H0638 has a span");
         assert_eq!(span.line, 3);
         assert_eq!(span.column, 15);
+    }
+
+    #[test]
+    fn for_each_over_list_binds_element_type() {
+        let program = Program {
+            files: vec![
+                parse_source(
+                    "for_each_list.hum",
+                    r#"task each_positive(words: List Text) -> List Text {
+  does:
+    change out: List Text = []
+    for each word in words {
+      let added = list_append(change out, word)
+    }
+    return out
+}
+"#,
+                )
+                .file,
+            ],
+        };
+        let report = build_report(&program, &[]);
+        assert!(!full_type_check_has_errors(&program, &[]));
+        let header = report.items[0]
+            .statements
+            .iter()
+            .find(|s| s.statement_kind == "for_each_header")
+            .expect("for_each_header statement");
+        assert_eq!(header.status, "accepted_for_each_binding_v0");
+        assert_eq!(header.actual_type.as_deref(), Some("Text"));
+    }
+
+    #[test]
+    fn for_each_over_non_list_stays_unchecked() {
+        let program = Program {
+            files: vec![
+                parse_source(
+                    "for_each_non_list.hum",
+                    r#"task each_non_list(line: Text) -> List Text {
+  does:
+    change out: List Text = []
+    for each ch in line {
+      let added = list_append(change out, ch)
+    }
+    return out
+}
+"#,
+                )
+                .file,
+            ],
+        };
+        let report = build_report(&program, &[]);
+        assert!(full_type_check_has_errors(&program, &[]));
+        let header = report.items[0]
+            .statements
+            .iter()
+            .find(|s| s.statement_kind == "for_each_header")
+            .expect("for_each_header statement");
+        assert_eq!(header.status, "unchecked_statement_type_v0");
+        assert_eq!(
+            header.reason,
+            Some("iterator_type_checking_not_implemented")
+        );
+    }
+
+    #[test]
+    fn condition_text_comparison_does_not_collapse_to_name_fact() {
+        // Regression: place_type_fact used to snake-normalize the whole
+        // `piece != ""` condition to `piece` and return the bound Text fact
+        // before condition inference could return Bool, rejecting the `if`.
+        let program = Program {
+            files: vec![
+                parse_source(
+                    "condition_guard.hum",
+                    r#"task cond_probe(piece: Text) -> Text {
+  does:
+    if piece != "" {
+      return piece
+    }
+    return "empty"
+}
+"#,
+                )
+                .file,
+            ],
+        };
+        assert!(!full_type_check_has_errors(&program, &[]));
+        let json = full_type_check_json(&program, &[]);
+        assert!(json.contains("\"status\": \"recognized_core_body_types_checked_v0\""));
+    }
+
+    #[test]
+    fn test_expectation_matching_return_type_accepted() {
+        let program = Program {
+            files: vec![
+                parse_source(
+                    "expectation_match.hum",
+                    r#"app probeapp {
+  why:
+    probe
+
+  starts with:
+    start_here
+
+  task start_here() -> Unit {
+    does:
+      let n = probe_target()
+  }
+
+  task probe_target() -> UInt {
+    does:
+      return 7
+  }
+
+  test good_shape unit {
+    covers:
+      probe_target returns its value
+    does:
+      expect probe_target() returns 7
+  }
+}
+"#,
+                )
+                .file,
+            ],
+        };
+        let report = build_report(&program, &[]);
+        assert!(!full_type_check_has_errors(&program, &[]));
+        let expectation = report
+            .items
+            .iter()
+            .flat_map(|item| item.statements.iter())
+            .find(|s| s.statement_kind == "test_expectation")
+            .expect("test_expectation statement");
+        assert_eq!(expectation.status, "accepted_test_expectation_v0");
+        assert_eq!(expectation.actual_type.as_deref(), Some("Bool"));
+    }
+
+    #[test]
+    fn test_expectation_type_mismatch_stays_unchecked() {
+        let program = Program {
+            files: vec![
+                parse_source(
+                    "expectation_mismatch.hum",
+                    r#"app probeapp {
+  why:
+    probe
+
+  starts with:
+    start_here
+
+  task start_here() -> Unit {
+    does:
+      let n = probe_target()
+  }
+
+  task probe_target() -> UInt {
+    does:
+      return 7
+  }
+
+  test wrong_type unit {
+    covers:
+      probe_target type mismatch stays unchecked
+    does:
+      expect probe_target() returns "not a number"
+  }
+}
+"#,
+                )
+                .file,
+            ],
+        };
+        let report = build_report(&program, &[]);
+        assert!(full_type_check_has_errors(&program, &[]));
+        let expectation = report
+            .items
+            .iter()
+            .flat_map(|item| item.statements.iter())
+            .find(|s| s.statement_kind == "test_expectation")
+            .expect("test_expectation statement");
+        assert_eq!(expectation.status, "unchecked_statement_type_v0");
+        assert_eq!(
+            expectation.reason,
+            Some("test_expectation_typing_not_implemented")
+        );
     }
 }

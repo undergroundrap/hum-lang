@@ -26,7 +26,7 @@ pub(crate) fn list_element_type(type_text: &str) -> Option<&str> {
     (!inside.is_empty()).then_some(inside)
 }
 
-fn is_value_ident(text: &str) -> bool {
+pub(crate) fn is_value_ident(text: &str) -> bool {
     let mut chars = text.chars();
     let Some(first) = chars.next() else {
         return false;
