@@ -192,3 +192,20 @@ no new syntax, no general string library.
   `try_requires_unannotated_let_binding_v0`); Session W's exact form is
   `let wrote = try ...`. wordfreq uses unannotated bindings for all `try`
   lets. Recorded because the annotated form is the natural first attempt.
+
+## 15. `hum check` accepts contract-only `list_count` in task bodies (found by probe, open)
+
+- **Class:** tooling (checker) — fail-closed gap.
+- **Friction:** `list_count` is contract-only Predicate v2 vocabulary
+  (LANGUAGE_REFERENCE; `run.rs` refuses it at runtime with "list_count is
+  contract-only Predicate v2 vocabulary"). But `hum check` accepts a task
+  body that calls it — at module scope and at app scope. Probed 2026-09-23
+  with the merged main: both `check` runs exit 0 with 0 errors, while
+  `hum run` of the same file traps at runtime (exit 2). The resolver admits
+  it as `builtin_reference_v0` (`session_z_list_builtin_v0`) since the WO27
+  Part 2 app-scope fix (#12); the checker has no rule rejecting
+  contract-only builtins in executable bodies, so check-time and run-time
+  disagree.
+- **Fix (general, not list_count-specific):** the checker must reject any
+  contract-only builtin in a task body with a typed diagnostic. WO28 orders
+  this as #15, after #4.

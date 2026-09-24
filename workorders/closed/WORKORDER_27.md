@@ -1,10 +1,37 @@
 # Hum Work Order 27: text_split primitive and wordfreq — the first real program
 
 Date: 2026-09-22
-<!-- hum-active-workorder:v1 -->
-Status: ACTIVE. Supersedes WO26 as the active Work Order. WO26 closed with a
-STOP record: word tokenization proved inexpressible from the Milestone 0
-surface (see closure record in `workorders/closed/WORKORDER_26.md`).
+Status: CLOSED 2026-09-23. Superseded by WO28 (for-each loop-variable types
+and wordfreq completion).
+
+## Closure record
+
+WO27's three-part mission is complete: `text_split` shipped per decision
+0021 (Part 1a), text-literal escapes shipped per decision 0022 (Part 1b,
+including the runner decode fix), and the program is written —
+`examples/tools/wordfreq.hum` with positive, boundary, and misuse test
+blocks, `hum check` clean at 0 errors, and the classified friction ledger
+(`docs/research/wordfreq-friction-ledger.md`, 15 entries).
+
+The program is written; app execution is gated on ledger #13: the `for each`
+loop variable carries no type (`iterator_type_checking_not_implemented`), so
+the full type-check gate refuses the APP entry
+(`blocked_by_unchecked_body_types_v0`, `execution_ready=0`). wordfreq has
+never run end-to-end as an app on any platform. The `--entry` paths
+(`wordfreq_words`, `wordfreq_count`) run and pass; the Session AG corpus
+assertion is pinned to the fail-closed refusal until #13 lands, then flips
+back to the byte-exact stdout success check.
+
+The frequency summary is blocked on ledger #5 / decision 0028: wordfreq
+cannot emit conventional `word: count` lines — no concatenation and no
+integer-to-text conversion exist in the language. Decision 0028 (accepted
+2026-09-23, Option E) adopts `uint_to_text` / `int_to_text`, one builtin per
+integer type; concatenation stays deferred until a friction entry
+demonstrates the need. The honest output with today's surface is one word
+per line.
+
+Evidence: PR #24 green on the Full profile (run 35933087903 — Ubuntu
+25.4 min, Windows 25.3 min), final review passed, merged 2026-09-23.
 
 ## Mission and present authorization
 
