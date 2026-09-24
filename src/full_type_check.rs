@@ -429,8 +429,12 @@ pub fn full_type_check_text(program: &Program, diagnostics: &[Diagnostic]) -> St
             if let (Some(left), Some(right)) = (&fact.left_type, &fact.right_type) {
                 out.push_str(&format!(" left_type={left} right_type={right}"));
             }
-            if fact.blocks() {
-                out.push_str(&format!(" diagnostic=H0704 help={}", fact.repair()));
+            if let Some(diagnostic) = fact.diagnostic() {
+                out.push_str(&format!(
+                    " diagnostic={} help={}",
+                    diagnostic.code.as_str(),
+                    fact.repair()
+                ));
             }
             if let Some(span) = &fact.intent_span {
                 out.push_str(&format!(
@@ -2277,7 +2281,9 @@ fn push_predicates(out: &mut String, facts: &[PredicateFact], indent: usize, com
             out,
             indent + 4,
             "diagnostic_code",
-            if fact.blocks() { "H0704" } else { "none" },
+            fact.diagnostic()
+                .map(|diagnostic| diagnostic.code.as_str())
+                .unwrap_or("none"),
             true,
         );
         push_indent(out, indent + 4);

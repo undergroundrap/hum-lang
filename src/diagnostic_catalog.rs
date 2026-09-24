@@ -1779,6 +1779,15 @@ diagnostic_causes!(
         "full_type_check",
         "text_literal_relationship",
         "text_literal_route"
+    ),
+    (
+        186,
+        "invalid_text_escape_in_contract_v2",
+        INVALID_TEXT_ESCAPE,
+        "executable_contracts",
+        "predicate",
+        "predicate_relationship",
+        "predicate_place_route"
     )
 );
 
@@ -4655,7 +4664,7 @@ mod tests {
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 185);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 186);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {

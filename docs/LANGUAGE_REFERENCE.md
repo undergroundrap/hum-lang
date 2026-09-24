@@ -134,7 +134,10 @@ Any other escape sequence (e.g. `\q`, `\é`) is a checker error, H0638,
 spanning exactly the backslash plus the escaped character. A backslash at the
 end of the literal (before the closing quote) is an unterminated-escape error,
 also H0638. An escaped quote never terminates the literal: all quote-aware
-scanners agree that `\"` does not close the string.
+scanners agree that `\"` does not close the string. Contract text literals
+(`needs:`/`ensures:`) decode through the same decoder: contract text means
+the same thing as body text, and invalid escapes in contracts are H0638
+errors.
 
 ## Top-Level Forms
 

@@ -5132,6 +5132,10 @@ function Invoke-HumCompilerCorpusChecks {
   if ($SessionABH0638.ExitCode -ne 1 -or [regex]::Matches($SessionABH0638.Output, 'diagnostic=H0638').Count -ne 1) { throw 'Session AB unknown escape must fail with exactly one H0638' }
   $SessionABH0638Trail = Read-NativeOutputWithExit 'full-type-check Session AB trailing backslash' $Hum @('full-type-check', 'fixtures/diagnostics/text_trailing_backslash_fail.hum')
   if ($SessionABH0638Trail.ExitCode -ne 1 -or [regex]::Matches($SessionABH0638Trail.Output, 'diagnostic=H0638').Count -ne 1) { throw 'Session AB trailing backslash must fail with exactly one H0638' }
+  # WO28 #4: contract text literals decode through the production decoder
+  # (decision 0022); an unknown escape in `ensures:` is H0638, not H0704.
+  $SessionABH0638Contract = Read-NativeOutputWithExit 'full-type-check Session AB contract unknown escape' $Hum @('full-type-check', 'fixtures/diagnostics/contract_text_invalid_escape_fail.hum')
+  if ($SessionABH0638Contract.ExitCode -ne 1 -or [regex]::Matches($SessionABH0638Contract.Output, 'diagnostic=H0638').Count -ne 1) { throw 'Session AB contract unknown escape must fail with exactly one H0638' }
   $SessionABH0636Stray = Read-NativeOutputWithExit 'full-type-check Session AB stray empty argument' $Hum @('full-type-check', 'fixtures/diagnostics/text_split_stray_empty_argument_fail.hum')
   if ($SessionABH0636Stray.ExitCode -ne 1 -or [regex]::Matches($SessionABH0636Stray.Output, 'diagnostic=H0636').Count -ne 1) { throw 'Session AB stray empty argument must fail with exactly one H0636' }
   # Source-spelling coverage: the graph JSON emitter carries the source

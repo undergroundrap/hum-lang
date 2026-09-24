@@ -291,7 +291,7 @@ unallocated rather than implicitly free.
 | `H0635` | error | unsupported native program feature | A layout-valid native request has no supported typed feature (`native_feature_not_supported_v0`) or has an ambiguous typed match (`native_feature_ambiguous_v0`). Owner `native_program` emits it at `native_admission`, after semantic/H0634 blockers and before backend input, JIT, output, or readiness. |
 | `H0636` | error | invalid text_split call | A `text_split` call is rejected: it takes exactly two `Text` arguments, its separator must not be a directly-written empty literal, and it must not contain a stray empty argument. |
 | `H0637` | error | reserved text-split built-in name redeclared | A user task attempts to redeclare the exact `text_split` built-in name. |
-| `H0638` | error | invalid text escape | A text literal contains an unknown escape sequence or a trailing backslash. Only `\n`, `\t`, `\\`, and `\"` are accepted (decision 0022). |
+| `H0638` | error | invalid text escape | A text literal — in a task body or a `needs:`/`ensures:` contract predicate — contains an unknown escape sequence or a trailing backslash. Only `\n`, `\t`, `\\`, and `\"` are accepted (decision 0022). Contract literals decode identically to body literals. |
 
 Note: `TextSplitError.SepEmpty` is not a checker diagnostic and holds no H-code.
 It is a runtime typed failure variant raised when a computed (non-literal)
