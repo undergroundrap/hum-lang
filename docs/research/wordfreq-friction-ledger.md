@@ -209,3 +209,28 @@ no new syntax, no general string library.
 - **Fix (general, not list_count-specific):** the checker must reject any
   contract-only builtin in a task body with a typed diagnostic. WO28 orders
   this as #15, after #4.
+
+## 16. Block-scoped bindings leak in the checker and the runtime (found by probe, open)
+
+- **Class:** language (checker + runtime) — soundness gap, pre-existing (not
+  introduced by WO28 #13).
+- **Friction:** the resolver treats `if` blocks and `for each` headers as
+  scopes — a name bound inside one is `H0601` not-visible after the block
+  closes. But the full-type-check statement environment is flat per task: a
+  `let` inside an `if` block, and a `for each` loop variable, both persist
+  after the block and clobber outer same-name facts. Probed 2026-09-23
+  (WO28 #13 review): `let x = 3` then `if flag { let x = "s" }` then
+  `return x` in a `-> Text` task is ACCEPTED with `actual=Text` — a wrong
+  acceptance, since the resolver says `x` there is the outer `UInt` 3 — and
+  `hum run` returns `"s"`, a wrong-value execution from a dead scope.
+  Checker and runtime agree with each other and disagree with the
+  language's scoping rule. The `for each` binder behaves identically to the
+  existing block-scoped `let`s (probe: `let word = 3` + `for each word in
+  words` reports the leaked binder type after the loop), so #13 stands as
+  published; the gap predates it.
+- **Fix (general):** block scoping must match the resolver in both stages —
+  per-block environments in the checker (restore shadowed facts at block
+  close) and properly scoped `if`-block lets in the runtime, as the runtime
+  already scopes `for each` binders. Tests: leak and shadow probes across
+  `if` and `for each`; the probe program above must be rejected at check
+  time. WO28 orders this as #16, after #15, before #7.
