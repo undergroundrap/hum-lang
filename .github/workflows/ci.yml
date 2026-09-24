@@ -176,16 +176,22 @@ jobs:
           if ($SelectedProfile -cne 'full') { $Mode = 'normal' }
           "profile=$SelectedProfile" >> $env:GITHUB_OUTPUT
           "mode=$Mode" >> $env:GITHUB_OUTPUT
-          # Decision 0025 amendment (2026-09-23, boolean transport): on
-          # workflow_call the boundary_required boolean arrives as the reusable
-          # input (published by validation.yml's plan step from the accepted
-          # base policy); forward it to the step outputs so the fixed profiles
-          # can gate the status-boundary classifier tests. Push publishes its
-          # own boundary_required output above (from the accepted push-range
-          # selection), so this forwarding is workflow_call-only: a second
-          # boundary_required output would overwrite it (last wins). An empty
-          # input stays empty downstream and fails safe (the tests run).
-          if ($env:HUM_CI_EVENT_NAME -ceq 'workflow_call') {
+          # Decision 0025 amendment (2026-09-23, boolean transport; corrected
+          # 2026-09-24): when the boundary_required boolean arrives as the
+          # reusable input (published by validation.yml's plan step from the
+          # accepted base policy), forward it to the step outputs so the fixed
+          # profiles can gate the status-boundary classifier tests. Push
+          # publishes its own boundary_required output above (from the accepted
+          # push-range selection), so forwarding runs on every event EXCEPT
+          # push: a second boundary_required output would overwrite it (last
+          # wins). The input is forwarded only when it is exactly 'true' or
+          # 'false' — anything else stays empty downstream and fails safe
+          # (the tests run). Gate note: inside a reusable workflow
+          # github.event_name is the CALLER's event (pull_request, schedule,
+          # workflow_dispatch), never 'workflow_call'; the old
+          # -ceq 'workflow_call' gate therefore never fired and the skip never
+          # took effect.
+          if ($env:HUM_CI_EVENT_NAME -cne 'push' -and ($env:HUM_CI_BOUNDARY_REQUIRED_INPUT -ceq 'true' -or $env:HUM_CI_BOUNDARY_REQUIRED_INPUT -ceq 'false')) {
             "boundary_required=$env:HUM_CI_BOUNDARY_REQUIRED_INPUT" >> $env:GITHUB_OUTPUT
           }
           if ($Mode -ceq 'fast') {
