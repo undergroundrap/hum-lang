@@ -152,7 +152,7 @@ no new syntax, no general string library.
 - **Tests:** `hum resolve` / `full-type-check` on `wordfreq.hum` (0 resolver
   errors); `resolve::tests` for the new builtin targets.
 
-## 13. `for each` loop variables carry no type; the APP entry cannot execute (BLOCKING, open)
+## 13. `for each` loop variables carry no type; the APP entry cannot execute (RESOLVED, WO28 #13)
 
 - **Class:** open-language-question (type checker).
 - **Friction:** `for_each_header` is `unchecked_statement_type_v0`
@@ -165,7 +165,7 @@ no new syntax, no general string library.
   The parameter type carries the proof the loop header cannot supply. This
   unblocked the `--entry` paths (`wordfreq_count`, `wordfreq_words` run and
   pass), but it does NOT unblock the APP entry.
-- **BLOCKING:** `hum run` of the APP entry (`run_tool`) is refused by the
+- **BLOCKING (was):** `hum run` of the APP entry (`run_tool`) is refused by the
   full type-check gate: `recognized_core_body_type_gate_v0`,
   `status: blocked_by_unchecked_body_types_v0`, `unchecked_statements=10`,
   `execution_ready=0` (validation run 35918468834, Windows; reproduced on
@@ -174,6 +174,24 @@ no new syntax, no general string library.
   (`files_read` grant unavailable, ledger #7). Consequence: wordfreq has
   never run end-to-end as an app on any platform. The program is written;
   app execution is gated on this entry.
+- **RESOLVED (WO28 #13):** `for_each_binding` infers the loop variable's
+  type from the iterated expression — `for each word in words` where
+  `words: List Text` binds `word: Text`. Non-list and unprovable shapes
+  stay `unchecked_statement_type_v0`
+  (`iterator_type_checking_not_implemented`), fail-closed. Two adjacent
+  completions the acceptance command required: `list_len(...)` call
+  expressions type as `UInt` in return position, and `test_expectation`
+  accepts when the callee's declared return type matches the `returns`
+  literal shape (mismatches stay unchecked). Collateral fix:
+  `place_type_fact` no longer snake-normalizes a whole condition expression
+  to a bound name — `if piece != ""` was rejected; it is now accepted via
+  the inferred `Bool`. Local evidence (Linux): `hum full-type-check` on
+  `wordfreq.hum` is `recognized_core_body_types_checked_v0` with zero
+  blocking issues; `hum run` of the APP entry reaches the platform
+  boundary (`native_path_input_unavailable_on_non_windows_v0`, exit 2) —
+  the type gate is open. The Session AG assertion is flipped back to the
+  byte-exact stdout success check (digest pin recomputed). Final proof of
+  the done-condition (exit 0, 13 bytes, no CR) rests with Windows CI.
 - **Disproven hypothesis:** the run-35914248940 Windows Session AG failure
   was first attributed to a mixed-separator fixture path
   (`Join-Path $RepoRoot 'fixtures/wordfreq/sample.txt'` keeping forward
