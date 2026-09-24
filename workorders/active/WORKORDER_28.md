@@ -42,6 +42,20 @@ against contract-only vocabulary in executable bodies. The general fix: the
 checker rejects any contract-only builtin in a task body with a typed
 diagnostic, so check-time and run-time agree. Not list_count-specific.
 
+**#16 — block scoping must match the resolver.** Ledger #16: the resolver
+treats `if` blocks and `for each` headers as scopes, but the full-type-check
+statement environment is flat per task (block bindings persist and clobber
+outer same-name facts) and the runtime leaks `if`-block `let`s (the runtime
+already scopes `for each` binders correctly). Observed wrong acceptance:
+`let x = 3`, `if flag { let x = "s" }`, `return x` in a `-> Text` task is
+accepted with `actual=Text` and runs to `"s"`. The general fix: per-block
+environments in the checker (restore shadowed facts at block close) and
+scoped `if`-block lets in the runtime. Tests for leak and shadow across `if`
+and `for each`; the probe program above must be rejected at check time. This
+is a correctness item, not new language surface — the resolver already
+defines the rule; the checker and runtime must follow it. Executes after
+#15's review, before #7.
+
 **#7 — portable non-Windows file read.** Ledger #7: the `files_read_text`
 positive path is Windows-only; other platforms reject the grant
 (`native_path_input_unavailable_on_non_windows_v0`), so the wordfreq
@@ -72,8 +86,10 @@ future map/dictionary design question), which also need #13.
 ## Scope
 
 - Checker work for #13 (loop-variable inference), #4 (contract literal
-  decode / H0638), and #15 (contract-only builtin rejection in bodies).
-- Runtime / platform work for #7 as that item defines it.
+  decode / H0638), #15 (contract-only builtin rejection in bodies), and
+  #16 (block scoping in the checker).
+- Runtime work for #16 (block-scoped `if` lets), and platform work for #7
+  as that item defines it.
 - Two new builtins for decision 0028 (`uint_to_text`, `int_to_text`) with
   probes and fixtures.
 - The Session AG assertion flip in `tools/check_all.ps1` when #13 lands.
@@ -96,18 +112,23 @@ future map/dictionary design question), which also need #13.
 3. #15: `hum check` rejects `list_count` — and any contract-only builtin —
    in task bodies at both scopes with a typed diagnostic; `hum run`
    behavior stays fail-closed (now unreachable through checked code).
-4. #7: the wordfreq success path is provable on non-Windows.
-5. Decision 0028: `uint_to_text` / `int_to_text` probes pass; wordfreq
+4. #16: block-scoped bindings match the resolver in the checker and the
+   runtime — per-block checker environments restoring shadowed facts at
+   block close, `if`-block lets scoped in the runtime; leak and shadow
+   probes across `if` and `for each` pass, and the probe-3 program is
+   rejected at check time; both platforms green.
+5. #7: the wordfreq success path is provable on non-Windows.
+6. Decision 0028: `uint_to_text` / `int_to_text` probes pass; wordfreq
    prints `word: count` lines via sequential writes. The full frequency
    summary (unique words and counts) remains blocked on quadratic nested
    loops without a map type — 0028 out of scope, a separate ledger item.
-6. (Optional) Frequency summary: wordfreq prints `word: count` lines from
+7. (Optional) Frequency summary: wordfreq prints `word: count` lines from
    nested loops; quadratic cost declared honestly in `cost:` / `allocates:`
    with a perf-debt note, or a ledger entry if it proves awkward.
 
 ## Deliverables
 
-1. The five ordered items, each as review-sized atomic commits with tests;
+1. The six ordered items, each as review-sized atomic commits with tests;
    the optional frequency-summary item, if taken, gets its own commit too.
 2. Friction ledger entries as items resolve or expose more.
 3. `docs/LANGUAGE_REFERENCE.md` and `docs/DIAGNOSTICS.md` entries for every
