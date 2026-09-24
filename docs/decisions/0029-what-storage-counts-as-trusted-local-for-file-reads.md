@@ -1,11 +1,11 @@
 # Decision 0029 — What storage counts as trusted-local for file reads
 
-Status: proposed 2026-09-24 (revised draft; supersedes the 2026-09-23 draft on this branch).
+Status: accepted 2026-09-24 (BDFL ruling on review at 5c51053), Option D.
 
-> **Standing of this record.** This is a *proposed* decision. It contains a
-> *recommendation* for the ruler and does not rule. BDFL decision required
-> before any implementation. The locality crate is a security policy and
-> changes only by decision (see ledger entry 17).
+> **Standing of this record.** This decision is *accepted*. It records the
+> BDFL's ruling (§13) and the recommendation it adopted. The locality crate
+> is a security policy and changes only by decision (see ledger entry 17).
+> This record supersedes the 2026-09-23 draft on this branch.
 
 ## 1. The finding
 
@@ -88,6 +88,12 @@ and each platform should prove it its own way. A trusted-local read needs:
 - **P3 — No mid-read substitution (TOCTOU).** The backing chain observed
   before the candidate access is the backing chain during it; nothing
   remaps or rebinds between inspection and read.
+- **P4 — Ordinary file.** The target is an ordinary file: not a symlink,
+  reparse point, device, FIFO, or pipe. (Already checked today:
+  `is_ordinary_fixed_target` in
+  `crates/windows-drive-locality/src/lib.rs:257` requires the resolved
+  target to sit on `\Device\HarddiskVolume<N>` — an ordinary fixed volume,
+  excluding reparse targets and non-file devices.)
 
 Already in the design and noted for completeness (not locality properties):
 the read is bounded (1 MiB cap), read-only, and single-file. They stay
@@ -101,7 +107,7 @@ what each platform supplies.
 
 From the tasking; the options in §6 are judged against these:
 
-1. **Property first.** Define what a trusted read needs (P1–P3, §4); let
+1. **Property first.** Define what a trusted read needs (P1–P4, §4); let
    each platform prove it its own way. Bus-type lists are not the
    definition.
 2. **Explicit and labelled where unprovable.** Where the property cannot be
@@ -130,7 +136,7 @@ Windows; Linux/macOS remain without the capability.
 
 ### Option B — Property-based proof per platform
 
-Redefine the gate as P1–P3. Each platform supplies its own proof; the
+Redefine the gate as P1–P4. Each platform supplies its own proof; the
 Windows adapter becomes *one proof of the property*, not the definition of
 the rule. Concretely:
 
@@ -140,12 +146,17 @@ the rule. Concretely:
   media — P1 holds. One wrinkle the proof must handle: SD can be removable
   media, and removable media can be swapped — a P3 concern. The proof must
   show fixed/non-removable, or the storage falls through to the grant path.
+  Lane assignment (ruling): the eMMC/SD P3 argument is research-lane work —
+  written as evidence in the implementing Work Order; the proof code is
+  builder-lane.
 - **Linux:** the proof is new work — mount/filesystem evidence plus block
   device identity. The hard question is virtio-blk: virtual-but-host-local.
   P1 holds *if* the host disk is local, but the guest cannot observe the
   host's disk. A guest-side proof of host-locality may be impossible in
   principle (the same observation limit as §3.3); if so, virtio-blk is
-  unprovable from inside and falls through to the grant path.
+  unprovable from inside and falls through to the grant path. Ruling:
+  virtio-blk and other guest-invisible backing are **always grant, never
+  proof** — no guest-side argument can establish host-locality.
 - **macOS:** the classification surface is coarse. Either a coarse proof
   exists or the platform honestly declares the property unprovable and the
   grant path is the only route.
@@ -171,6 +182,10 @@ environment special cases).
   "trusted-by-operator" cannot be mistaken for "proven-local" by anyone
   reading it later, including an auditor (§8). The grant must also be
   unmistakable at the CLI surface so it cannot be mistaken for a default.
+- Grant acceptance criteria (ruling): the grant is **per-invocation and
+  per-path, command-line only** — NO environment variable, config file, or
+  persistent setting. In CI it therefore sits visibly in the workflow file
+  where review sees it; there is no silent ambient way to enable it.
 
 ### Option D — B + C: proofs where provable, labelled grants where not
 
@@ -179,7 +194,7 @@ desktop NVMe, fixed eMMC, and any other storage with real evidence —
 while the explicit grant (C) covers what cannot be proven: Azure's
 network-backed disks, unclassifiable macOS storage, virtio-blk if
 host-locality proves unobservable. No silent trust anywhere: every
-admission is either proven (P1–P3 evidenced) or labelled trusted
+admission is either proven (P1–P4 evidenced) or labelled trusted
 (operator-attested, external-trust).
 
 (The 2026-09-23 draft's "Option D: per-platform differences" is folded into
@@ -203,7 +218,7 @@ record's Option C.)
 IEC 62304-style audit does not ask whether the software is clever; it asks
 whether each claim is **traceable and its limits stated**:
 
-- **A documented requirement.** The property P1–P3 (§4) is auditable; a
+- **A documented requirement.** The property P1–P4 (§4) is auditable; a
   bus-type list is not — no auditor can trace "SATA" to a safety claim, but
   "not network-backed, stable identity, no mid-read substitution" traces
   directly to the hazard it controls.
@@ -281,12 +296,12 @@ Honest finding: **performance does not discriminate between the options.**
   the allowlisted set); IEC 62304 traceability and risk-management concepts
   (general software-lifecycle knowledge, applied here by analogy — not a
   clause-by-clause claim).
-- **Inference (this record's proposals):** the P1–P3 property formulation;
+- **Inference (this record's proposals):** the P1–P4 property formulation;
   the platform proof sketches (Windows eMMC widening, Linux virtio-blk,
   macOS coarseness); the auditor-needs application in §8; the evaluation
   judgments in §7; the recommendation in §12.
 
-## 12. Recommendation (for the ruler; this record does not rule)
+## 12. Recommendation (adopted by the ruling, §13)
 
 **Recommend Option D: property-based proofs per platform (B), with an
 explicit, labelled operator grant (C) for storage the property cannot be
@@ -307,16 +322,24 @@ proven for.**
   label unmissable in evidence and the grant unmistakable at the CLI — both
   should be acceptance criteria on the implementing work order.
 
-## 13. Open questions for the ruling
+## 13. Ruling (2026-09-24)
 
-1. Is P1–P3 the right property set, or is something missing (e.g. does
-   read-only-ness or the size bound belong in the locality property)?
-2. Under B, what evidence counts for widening the Windows proof to
-   eMMC/SD — and who writes the removable-media (P3) argument?
-3. For virtio-blk: is guest-side proof of host-locality possible at all,
-   or is it always a grant?
-4. Does the operator grant need a distinct CLI surface (e.g. a flag that
-   cannot be mistaken for a default) as an acceptance criterion?
-5. Under D, does labelled trusted-not-proven evidence satisfy WO28's
-   done-condition, or does the byte-exact success proof still require a
-   proven-local machine?
+**Option D is accepted: property-based proofs per platform (B), with an
+explicit, labelled operator grant (C) for storage the property cannot be
+proven for.** Pre-issuance review passed at 5c51053. The ruling answers the
+open questions as follows:
+
+1. **P4 added.** The target must be an ordinary file (not symlink, reparse
+   point, device, FIFO, or pipe) — §4. Today's hardening already checks
+   this (`is_ordinary_fixed_target`, `lib.rs:257`).
+2. **eMMC/SD P3 argument is research-lane**, written as evidence in the
+   implementing Work Order; the proof code is builder-lane.
+3. **virtio-blk and other guest-invisible backing are always grant, never
+   proof.** No guest-side argument can establish host-locality.
+4. **Grant acceptance criteria:** per-invocation and per-path, command-line
+   only — no environment variable, config file, or persistent setting — so
+   in CI it sits visibly in the workflow file where review sees it.
+5. **Labelled evidence satisfies WO28 #13.** The test proves wordfreq's
+   behaviour; under a grant the only trusted element is storage locality,
+   and the evidence must say so. Byte-exact output remains proven. This
+   resolves the "decision 0029 pending" caveat in §1's done-condition.
