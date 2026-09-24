@@ -51,13 +51,23 @@ platforms. If implementing portability requires new language surface or an
 unmade semantic choice, STOP and report to the BDFL instead of inventing
 it.
 
+**Optional — wordfreq prints the frequency summary.** Once #13 and
+decision 0028 land, wordfreq prints a `word: count` summary using nested
+loops, with the quadratic cost declared honestly in `cost:` / `allocates:`
+and a perf-debt note. If the loops prove awkward to express, record that
+as a friction ledger entry instead of contorting the program.
+
 **Decision 0028 — integer-to-Text conversion.** Implement `uint_to_text` /
 `int_to_text`, one builtin per integer type, per decision 0028 Option E
 (accepted 2026-09-23). Concatenation stays deferred until a friction entry
-demonstrates the need. The conversion builtins prove integer values are
-representable as Text; they do not by themselves enable conventional
-`word: count` summary lines (ledger #5), which additionally require
-concatenation — still deferred.
+demonstrates the need. Per 0028's correction ("C alone solves wordfreq's
+output"), output composes by sequential writes — `stdout_write(word);`
+`stdout_write(": ");` `stdout_write(uint_to_text(n));` `stdout_write("\n")`
+— so the conversion builtins DO enable printing conventional `word: count`
+lines; concatenation is needed only for text as a VALUE. What still blocks
+a real frequency summary is computing per-word counts without a
+map/dictionary type: quadratic nested loops (per 0028, out of scope — a
+future map/dictionary design question), which also need #13.
 
 ## Scope
 
@@ -87,13 +97,18 @@ concatenation — still deferred.
    in task bodies at both scopes with a typed diagnostic; `hum run`
    behavior stays fail-closed (now unreachable through checked code).
 4. #7: the wordfreq success path is provable on non-Windows.
-5. Decision 0028: `uint_to_text` / `int_to_text` probes pass; integer
-   values are expressible as Text. No claim is made about constructing
-   `word: count` lines until concatenation (or an equivalent) is authorized.
+5. Decision 0028: `uint_to_text` / `int_to_text` probes pass; wordfreq
+   prints `word: count` lines via sequential writes. The full frequency
+   summary (unique words and counts) remains blocked on quadratic nested
+   loops without a map type — 0028 out of scope, a separate ledger item.
+6. (Optional) Frequency summary: wordfreq prints `word: count` lines from
+   nested loops; quadratic cost declared honestly in `cost:` / `allocates:`
+   with a perf-debt note, or a ledger entry if it proves awkward.
 
 ## Deliverables
 
-1. The five items, each as review-sized atomic commits with tests.
+1. The five ordered items, each as review-sized atomic commits with tests;
+   the optional frequency-summary item, if taken, gets its own commit too.
 2. Friction ledger entries as items resolve or expose more.
 3. `docs/LANGUAGE_REFERENCE.md` and `docs/DIAGNOSTICS.md` entries for every
    new diagnostic and builtin.
