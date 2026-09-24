@@ -701,15 +701,52 @@ foreach ($Step in @('Generate evidence summary','Upload evidence summary','Uploa
 # against a policy-less base, asserting exit 0 and the bootstrap path.
 $ClassifyStep=[regex]::Match($Ci,'(?ms)^      - name: Classify CI evidence lane\n.*?(?=^      - name: |\z)').Value
 Assert-Policy ($ClassifyStep.Length -gt 0) 'classify step found in ci.yml'
-# Decision 0025 amendment (2026-09-23, boolean transport): on workflow_call
-# the classify step must forward the reusable boundary_required input (the
-# boolean published by validation.yml's plan step from the accepted base
-# policy) to its boundary_required output; the fixed profiles read
-# steps.classify.outputs.boundary_required. The forwarding is workflow_call-
-# gated so it cannot overwrite the push-published boolean output (step outputs
-# are last-wins); an empty input stays empty and fails safe downstream.
+# Decision 0025 amendment (2026-09-23, boolean transport; corrected 2026-09-24):
+# when the boundary_required boolean arrives as the reusable input (published
+# by validation.yml's plan step from the accepted base policy), the classify
+# step must forward it to its boundary_required output; the fixed profiles
+# read steps.classify.outputs.boundary_required. The 2026-09-23 version gated
+# the forward on $env:HUM_CI_EVENT_NAME -ceq 'workflow_call' -- but inside a
+# reusable workflow github.event_name is the CALLER's event (pull_request,
+# schedule, workflow_dispatch), never 'workflow_call', so the forward NEVER
+# ran and the status-boundary skip never took effect on a PR (PR #32, run
+# 35961363986: plan published false, input arrived, output stayed empty, the
+# suite ran fail-safe). The forward now runs on every event except 'push'
+# (push publishes its own boolean above; last-wins would overwrite it) and
+# only for the exact inputs 'true'/'false'; anything else stays empty and
+# fails safe downstream.
 Assert-Policy ($ClassifyStep -match 'HUM_CI_BOUNDARY_REQUIRED_INPUT: \$\{\{ inputs\.boundary_required \}\}') 'classify maps the reusable boundary_required input'
-Assert-Policy ($ClassifyStep -match "(?s)if \(\`$env:HUM_CI_EVENT_NAME -ceq 'workflow_call'\) \{.*?boundary_required=\`$env:HUM_CI_BOUNDARY_REQUIRED_INPUT") 'classify forwards the boundary_required input on workflow_call only'
+$ForwardProbe=[regex]::Match($ClassifyStep, '(?ms)^\s*if \(\s*\$env:HUM_CI_EVENT_NAME\s+-cne\s+''push''.*?\{\s*"boundary_required=\$env:HUM_CI_BOUNDARY_REQUIRED_INPUT" >> \$env:GITHUB_OUTPUT\s*\}').Value
+Assert-Policy ($ForwardProbe.Length -gt 0) 'classify forward block found in ci.yml'
+# Execute the extracted forward block under the REAL caller event values and
+# assert the forward fires exactly when it should.
+function Invoke-BoundaryForwardProbe {
+  param([string]$EventName, [string]$InputValue)
+  $SavedEvent=$env:HUM_CI_EVENT_NAME
+  $SavedInput=$env:HUM_CI_BOUNDARY_REQUIRED_INPUT
+  $SavedOutput=$env:GITHUB_OUTPUT
+  $TmpFile=$null
+  try {
+    $env:HUM_CI_EVENT_NAME=$EventName
+    $env:HUM_CI_BOUNDARY_REQUIRED_INPUT=$InputValue
+    $TmpFile=New-TemporaryFile
+    $env:GITHUB_OUTPUT=$TmpFile.FullName
+    Invoke-Expression $ForwardProbe
+    return Get-Content -LiteralPath $TmpFile.FullName -Raw
+  } finally {
+    $env:HUM_CI_EVENT_NAME=$SavedEvent
+    $env:HUM_CI_BOUNDARY_REQUIRED_INPUT=$SavedInput
+    $env:GITHUB_OUTPUT=$SavedOutput
+    if ($TmpFile) { Remove-Item -LiteralPath $TmpFile.FullName -Force -ErrorAction SilentlyContinue }
+  }
+}
+Assert-Policy ((Invoke-BoundaryForwardProbe 'pull_request' 'false') -cmatch '^boundary_required=false') 'forward fires on pull_request with false'
+Assert-Policy ((Invoke-BoundaryForwardProbe 'pull_request' 'true') -cmatch '^boundary_required=true') 'forward fires on pull_request with true'
+Assert-Policy ((Invoke-BoundaryForwardProbe 'schedule' 'false') -cmatch '^boundary_required=false') 'forward fires on schedule'
+Assert-Policy ((Invoke-BoundaryForwardProbe 'workflow_dispatch' 'true') -cmatch '^boundary_required=true') 'forward fires on workflow_dispatch'
+Assert-Policy (-not (Invoke-BoundaryForwardProbe 'push' 'false')) 'forward does not fire on push (push publishes its own boolean)'
+Assert-Policy (-not (Invoke-BoundaryForwardProbe 'pull_request' '')) 'empty input stays empty and fails safe'
+Assert-Policy (-not (Invoke-BoundaryForwardProbe 'pull_request' 'bogus')) 'unexpected input stays empty and fails safe'
 $ProbeStart=$ClassifyStep.IndexOf('$SavedPreference = $ErrorActionPreference')
 $ProbeEndMarker="} else { Write-Host 'Accepted pre-push policy unavailable: Full bootstrap required.' }"
 $ProbeEnd=$ClassifyStep.IndexOf($ProbeEndMarker)
