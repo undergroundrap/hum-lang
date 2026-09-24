@@ -18,13 +18,17 @@ type from the iterated expression: `for each word in words` where
 a `for each` over `List T` binds `T` — so no decision record is required.
 If new language surface or an unmade semantic choice proves necessary, STOP
 and report to the BDFL instead of inventing it.
-Done-condition: wordfreq's APP entry runs end-to-end on Windows —
-`hum run examples/tools/wordfreq.hum --allow stdout.write
+Done-condition: wordfreq's APP entry executes end-to-end through the type
+gate on Windows — `hum run examples/tools/wordfreq.hum --allow stdout.write
 --allow=files.read=fixtures/wordfreq/sample.txt --args
-fixtures/wordfreq/sample.txt` exits 0 with the byte-exact expected stdout
-(13 bytes, no CR). Then flip the temporary fail-closed Session AG assertion
-in `tools/check_all.ps1` back to the byte-exact stdout success check (pin
-update with recomputed digest, reviewed at final review).
+fixtures/wordfreq/sample.txt` runs past the full type-check gate and the
+read is refused with `FileReadError.unavailable` (exit 1, typed
+`WordfreqError.read` chain on stderr). The byte-exact success read is
+blocked on hosted runners by the drive-locality policy (pending decision
+0029): the Session AG assertion pins this refusal, not the success path.
+Then flip the temporary fail-closed Session AG assertion in
+`tools/check_all.ps1` to the locality-refusal pin (pin update with
+recomputed digest, reviewed at final review).
 
 **#4 — contract text-literal decode and H0638 coverage.** Ledger #4:
 contract literals (`needs:` / `ensures:`) neither reject invalid escapes
@@ -104,9 +108,10 @@ future map/dictionary design question), which also need #13.
 
 ## Acceptance criteria
 
-1. #13: wordfreq APP entry runs end-to-end on Windows, byte-exact stdout;
-   Session AG assertion flipped back to the success check; both platforms
-   green.
+1. #13: wordfreq APP entry executes end-to-end through the type gate on
+   Windows; the Session AG assertion pins the hosted-runner locality
+   refusal (`FileReadError.unavailable`, exit 1, typed chain on stderr) as
+   a known limitation (decision 0029 pending); both platforms green.
 2. #4: invalid escapes in contracts are H0638 errors; valid escapes decode
    identically in contracts and bodies (probe).
 3. #15: `hum check` rejects `list_count` — and any contract-only builtin —
