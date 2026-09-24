@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::ast::{App, Item, Program, SectionLine, Task};
 use crate::core_body;
-use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
+use crate::diagnostic::{Diagnostic, DiagnosticOccurrence, Span};
 use crate::field_place::{self, FieldTypeMap};
 use crate::graph::is_meaningful_line_text;
 use crate::node_id;
@@ -137,6 +137,7 @@ enum PredicateCause {
     IntegerLiteralOutOfRange,
     InvalidComparisonOperator,
     InvalidOperandStarter,
+    InvalidTextEscape,
     KnownCallRequiresNoGap,
     ListCountRequiresListText,
     ListCountRequiresTextMatch,
@@ -176,6 +177,7 @@ impl PredicateCause {
             Cause::IntegerLiteralOutOfRange => 127,
             Cause::InvalidComparisonOperator => 128,
             Cause::InvalidOperandStarter => 129,
+            Cause::InvalidTextEscape => 186,
             Cause::KnownCallRequiresNoGap => 130,
             Cause::ListCountRequiresListText => 131,
             Cause::ListCountRequiresTextMatch => 132,
@@ -208,6 +210,7 @@ impl PredicateCause {
             Cause::IntegerLiteralOutOfRange => "integer_literal_out_of_range_v2",
             Cause::InvalidComparisonOperator => "invalid_comparison_operator_v2",
             Cause::InvalidOperandStarter => "invalid_operand_starter_v2",
+            Cause::InvalidTextEscape => "invalid_text_escape_in_contract_v2",
             Cause::KnownCallRequiresNoGap => "known_call_requires_no_gap_v2",
             Cause::ListCountRequiresListText => "list_count_requires_list_text_v2",
             Cause::ListCountRequiresTextMatch => "list_count_requires_text_match_v2",
@@ -493,8 +496,15 @@ impl PredicateFact {
             .as_deref()
             .unwrap_or("one complete typed Predicate v2 comparison");
         let actual = self.actual.as_deref().unwrap_or("invalid predicate shape");
+        // The diagnostic code comes from the registered cause, not a hardcoded
+        // constant: every predicate cause maps to INVALID_EXECUTABLE_PREDICATE
+        // except InvalidTextEscape, which extends H0638 to contract sections
+        // (WO28 #4). DiagnosticOccurrence::registered enforces
+        // diagnostic.code == cause.code, so the Diagnostic must carry it.
+        let cause = crate::diagnostic_catalog::diagnostic_cause_for_key(cause_identity.key())
+            .expect("Predicate v2 typed cause must be registered");
         let mut diagnostic = Diagnostic::error(
-            DiagnosticCode::INVALID_EXECUTABLE_PREDICATE,
+            cause.code,
             format!(
                 "task `{}` has invalid executable {} predicate `{}`: {} (expected {expected}; actual {actual}; status={})",
                 self.task,
@@ -510,8 +520,6 @@ impl PredicateFact {
         if let Some(span) = &self.intent_span {
             diagnostic = diagnostic.with_related_span("executable predicate intent", span.clone());
         }
-        let cause = crate::diagnostic_catalog::diagnostic_cause_for_key(cause_identity.key())
-            .expect("Predicate v2 typed cause must be registered");
         let mut route = vec![
             format!("predicate_task={}", self.task_identity),
             format!("predicate_line={}", self.line_identity),
@@ -1369,29 +1377,83 @@ impl<'a> Parser<'a> {
         let start = self.pos;
         self.bump_char();
         let content_start = self.pos;
-        while let Some(ch) = self.peek_char() {
-            if ch == '"' {
-                let value = self.text[content_start..self.pos].to_string();
-                self.bump_char();
-                return Ok((
-                    value,
-                    SourceRange {
-                        start,
-                        end: self.pos,
-                    },
-                ));
+        loop {
+            match self.peek_char() {
+                // Decision 0022, quote-scanner agreement: an escaped quote
+                // never terminates the literal. Consume the backslash and its
+                // partner as one escape pair so `\"` cannot close the scan
+                // early; the production decoder validates the pair below.
+                Some('\\') => {
+                    self.bump_char();
+                    if self.peek_char().is_some() {
+                        self.bump_char();
+                    }
+                }
+                Some('"') => {
+                    let inner = &self.text[content_start..self.pos];
+                    let value = crate::parser::decode_text_escapes(inner)
+                        .map_err(|bad| Self::text_escape_error(content_start, inner, bad))?;
+                    self.bump_char();
+                    return Ok((
+                        value,
+                        SourceRange {
+                            start,
+                            end: self.pos,
+                        },
+                    ));
+                }
+                Some(_) => {
+                    self.bump_char();
+                }
+                None => {
+                    // Decision 0022 precedence, mirroring the body literal
+                    // path (parser.rs `projected_bad_text_escape`): the
+                    // escape check runs before the delimiter scan claims the
+                    // literal as unterminated. "Complete-looking" is purely
+                    // syntactic here as there — opening quote consumed at
+                    // `start`, line ends with `"` — so `"ab\"` reports the
+                    // trailing backslash as H0638, not as an unterminated
+                    // literal.
+                    let rest = &self.text[start..];
+                    if rest.len() >= 2 && rest.ends_with('"') {
+                        let inner = &rest[1..rest.len() - 1];
+                        if let Err(bad) = crate::parser::decode_text_escapes(inner) {
+                            return Err(Self::text_escape_error(start + 1, inner, bad));
+                        }
+                    }
+                    return Err(ParseError {
+                        cause: PredicateCause::UnterminatedTextLiteral,
+                        range: SourceRange {
+                            start,
+                            end: self.text.len(),
+                        },
+                        expected: "closing `\"`",
+                        actual: "end of line".to_string(),
+                    });
+                }
             }
-            self.bump_char();
         }
-        Err(ParseError {
-            cause: PredicateCause::UnterminatedTextLiteral,
+    }
+
+    /// Builds the H0638 parse error for a bad escape reported by the
+    /// production decoder. The span marks the bad escape itself (the
+    /// backslash plus its partner, or the lone trailing backslash), not the
+    /// whole literal — decision 0022, same as the body-literal diagnostic.
+    fn text_escape_error(
+        content_start: usize,
+        inner: &str,
+        bad: crate::parser::TextEscapeError,
+    ) -> ParseError {
+        let escape_start = content_start + bad.offset;
+        ParseError {
+            cause: PredicateCause::InvalidTextEscape,
             range: SourceRange {
-                start,
-                end: self.text.len(),
+                start: escape_start,
+                end: escape_start + bad.len,
             },
-            expected: "closing `\"`",
-            actual: "end of line".to_string(),
-        })
+            expected: "a decision-0022 escape sequence",
+            actual: format!("`{}`", &inner[bad.offset..bad.offset + bad.len]),
+        }
     }
 
     fn parse_integer(&mut self) -> Result<Expr, ParseError> {
@@ -1814,6 +1876,7 @@ fn repair_for(owner: PredicateDiagnosticOwner) -> String {
         PredicateDiagnosticOwner::Predicate(PredicateCause::CrossTypeComparison | PredicateCause::OperatorNotSupportedForOperandType) => "Compare operands of the same supported type; Text and List Text support only `==` and `!=`.".to_string(),
         PredicateDiagnosticOwner::Predicate(PredicateCause::ListCountRequiresListText | PredicateCause::ListCountRequiresTextMatch) => "Write `list_count(<List Text place or literal>, <Text place or literal>)`.".to_string(),
         PredicateDiagnosticOwner::Predicate(PredicateCause::ListTextComparisonRequiresLiteral) => "Compare a `List Text` place with one exact flat `List Text` literal.".to_string(),
+        PredicateDiagnosticOwner::Predicate(PredicateCause::InvalidTextEscape) => "Replace the bad escape with one of the accepted escapes (`\\n`, `\\t`, `\\\\`, `\\\"`).".to_string(),
         _ => "Use one complete Predicate v2 comparison, for example `result == \"parse\"`, `result == [\"parse\", \"check\", \"run\"]`, or `result == list_count(items, \"hum\")`.".to_string(),
     }
 }
@@ -1821,6 +1884,7 @@ fn repair_for(owner: PredicateDiagnosticOwner) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostic::DiagnosticCode;
     use crate::parser;
 
     fn fact(contract: &str, result: &str) -> PredicateFact {
@@ -1971,5 +2035,95 @@ mod tests {
         let invalid = fact(&invalid, "UInt");
         assert_eq!(invalid.status, RecognitionStatus::MalformedExecutable);
         assert_eq!(invalid.reason, "delimiter_depth_exceeded_v2");
+    }
+
+    #[test]
+    fn contract_invalid_escape_is_h0638() {
+        // WO28 #4: invalid escapes in contracts are H0638 errors
+        // (decision 0022). Backslash inputs built without double-backslash
+        // literals (public-readiness).
+        let bs = char::from(92);
+        // `result == "a\qb"`: the backslash is at 1-based column 17
+        // (4-space source indent + 12 trimmed-text bytes).
+        let bad = fact(&format!("result == \"a{bs}qb\""), "Text");
+        assert_eq!(bad.status, RecognitionStatus::MalformedExecutable);
+        assert_eq!(bad.reason, "invalid_text_escape_in_contract_v2");
+        let diagnostic = bad.diagnostic().expect("H0638 diagnostic");
+        assert_eq!(diagnostic.code, DiagnosticCode::INVALID_TEXT_ESCAPE);
+        assert_eq!(diagnostic.code.as_str(), "H0638");
+        let span = bad.offending_span.as_ref().expect("H0638 marks the escape");
+        assert_eq!(span.line, 3);
+        assert_eq!(span.column, 17);
+    }
+
+    #[test]
+    fn contract_valid_escapes_decode_through_production_decoder() {
+        // WO28 #4: contract text means the same thing as body text — the
+        // literal decodes through the single production decoder
+        // (decision 0022), so the contract value equals the body value.
+        let bs = char::from(92);
+        let decoded = fact(&format!("result == \"a{bs}tb\""), "Text");
+        assert_eq!(decoded.status, RecognitionStatus::RecognizedTyped);
+        let ast = decoded.ast.as_ref().expect("predicate ast");
+        let Expr::Text(value, _) = &ast.right else {
+            panic!("expected text literal on the right");
+        };
+        let expected = crate::parser::decode_text_escapes(&format!("a{bs}tb")).expect("decodes");
+        assert_eq!(value, &expected);
+        assert_eq!(value, "a\tb");
+    }
+
+    #[test]
+    fn contract_escaped_quote_does_not_terminate_literal() {
+        // Decision 0022 quote-scanner agreement, contract side:
+        // `\"` decodes to `"` and never closes the literal.
+        let bs = char::from(92);
+        let quoted = fact(&format!("result == \"a{bs}\"b\""), "Text");
+        assert_eq!(quoted.status, RecognitionStatus::RecognizedTyped);
+        let ast = quoted.ast.as_ref().expect("predicate ast");
+        let Expr::Text(value, _) = &ast.right else {
+            panic!("expected text literal on the right");
+        };
+        assert_eq!(value, "a\"b");
+    }
+
+    #[test]
+    fn contract_trailing_backslash_is_h0638_not_unterminated() {
+        // Decision 0022 precedence, mirroring the body literal path: a bad
+        // escape in a complete-looking literal is H0638, not a delimiter
+        // error. `result == "ab\"`: the backslash is at 1-based column 18
+        // (4-space source indent + 13 trimmed-text bytes).
+        let bs = char::from(92);
+        let trailing = fact(&format!("result == \"ab{bs}\""), "Text");
+        assert_eq!(trailing.status, RecognitionStatus::MalformedExecutable);
+        assert_eq!(trailing.reason, "invalid_text_escape_in_contract_v2");
+        let diagnostic = trailing.diagnostic().expect("H0638 diagnostic");
+        assert_eq!(diagnostic.code, DiagnosticCode::INVALID_TEXT_ESCAPE);
+        let span = trailing
+            .offending_span
+            .as_ref()
+            .expect("H0638 marks the backslash");
+        assert_eq!(span.line, 3);
+        assert_eq!(span.column, 18);
+    }
+
+    #[test]
+    fn contract_unterminated_literal_without_bad_escape_stays_unterminated() {
+        let unterminated = fact("result == \"ab", "Text");
+        assert_eq!(unterminated.status, RecognitionStatus::MalformedExecutable);
+        assert_eq!(unterminated.reason, "unterminated_text_literal_v2");
+    }
+
+    #[test]
+    fn contract_list_text_elements_decode() {
+        // List-text literal elements in contracts decode too.
+        let bs = char::from(92);
+        let listed = fact(&format!("result == [\"a{bs}tb\"]"), "List Text");
+        assert_eq!(listed.status, RecognitionStatus::RecognizedTyped);
+        let ast = listed.ast.as_ref().expect("predicate ast");
+        let Expr::ListText(values, _) = &ast.right else {
+            panic!("expected list text literal on the right");
+        };
+        assert_eq!(values, &vec!["a\tb".to_string()]);
     }
 }

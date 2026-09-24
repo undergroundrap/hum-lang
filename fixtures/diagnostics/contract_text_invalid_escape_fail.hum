@@ -1,0 +1,19 @@
+module fixtures.diagnostics.contract_text_invalid_escape_fail
+
+task contract_invalid_escape() -> Text {
+  why:
+    misuse fixture: an unknown escape in a contract text literal is a checker
+    error (H0638); contract literals decode through the production decoder,
+    exactly like body literals (decision 0022)
+
+  ensures:
+    result == "bad\qescape"
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return "x"
+}

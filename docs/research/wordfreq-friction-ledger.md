@@ -42,9 +42,9 @@ classified as program / tooling / documentation / open-language-question.
   `examples/probes/decoded_newline_probe.hum` with byte-level stdout
   assertions in `tools/check_all.ps1` on both platforms.
 
-## 4. Contract text literals: no H0638 coverage, no decode (found by wordfreq, open)
+## 4. Contract text literals: no H0638 coverage, no decode (found by wordfreq, resolved)
 
-- **Class:** open-language-question (checker + interpreter).
+- **Class:** open-language-question (checker + interpreter) → resolved by WO28 #4.
 - **Friction:** while fixing #3, probing showed `ensures: result == "a\qb"`
   (invalid escape) passes `hum check` with no H0638, and the contract
   predicate parser (`predicate.rs`) takes literal text verbatim. So contract
@@ -53,6 +53,21 @@ classified as program / tooling / documentation / open-language-question.
   sections and adding a decode-failure diagnostic to the predicate parser —
   checker work beyond wordfreq's authorization. Recorded for a follow-up;
   wordfreq uses no text literals in contracts.
+- **Resolution (WO28 #4):** `predicate.rs` now decodes contract text literals
+  through the production decoder (`parser::decode_text_escapes`), so contract
+  text means the same thing as body text. Invalid escapes are H0638 errors
+  (new predicate cause key 186, `invalid_text_escape_in_contract_v2`) with
+  the span on the bad escape; a trailing backslash in a complete-looking
+  literal reports H0638 rather than an unterminated-literal error, mirroring
+  the body literal precedence (decision 0022). Note: `hum check` still
+  reports nothing for contract predicates — it never ran predicate analysis
+  (pre-existing stage boundary, unchanged by #4). The end-to-end evidence is
+  `hum run`'s preflight, which rejects `ensures: result == "a\qb"` with
+  H0638 (exit 2); runtime probes show a contract asserting `"a\tb"` holds
+  against a body returning `"a\tb"` and a `"a\\tb"` contract holds against
+  a `"a\\tb"` body (decode parity — under the old verbatim behavior the
+  first would have failed), while a mismatched contract still fails with
+  H0703.
 
 ## 5. No way to render `word: count` lines (open)
 
@@ -272,3 +287,23 @@ no new syntax, no general string library.
   runners by the locality policy (decision 0029 pending)". The Session AG
   assertion pins this refusal. The locality crate is a security policy and
   changes only by decision — not touched.
+
+## 18. `hum check` never runs predicate analysis — contract errors are invisible to the agent loop (pre-existing, open)
+
+- **Class:** tooling / stage boundary, pre-existing (not introduced by WO28 #4).
+- **Friction:** `hum check` reports nothing for contract predicates — it never
+  runs predicate analysis. All contract errors (the H0704 family and the new
+  H0638 contract-escape case from #4) surface only in `hum full-type-check`
+  (human and JSON now render the predicate diagnostic's own code, #4) and in
+  `hum run`'s preflight (exit 2 with the accepted-escapes repair). Entry #4
+  noted the fact while resolving the escape gap; this entry records the
+  consequence.
+- **Why it matters:** the primary agent loop is `hum check --format json` — a
+  fast, cheap, structured signal agents run repeatedly. Anything only
+  full-type-check/run can see is effectively invisible during iteration: an
+  agent writing a contract with an invalid escape sees green checks until it
+  runs the much slower, capability-demanding full pipeline. #4 changed this
+  boundary nothing.
+- **0027 question:** is predicate analysis in `check` the GENERAL fix, or is
+  the cheap-check / full-pipeline boundary the right shape and the docs the
+  right fix? Not decided here — no surface invented.
