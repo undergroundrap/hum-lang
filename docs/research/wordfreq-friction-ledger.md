@@ -252,3 +252,23 @@ no new syntax, no general string library.
   already scopes `for each` binders. Tests: leak and shadow probes across
   `if` and `for each`; the probe program above must be rejected at check
   time. WO28 orders this as #16, after #15, before #7.
+
+## 17. Hosted-runner disks are refused by the drive-locality policy (found by probe, open)
+
+- **Class:** platform (hosted runners) — known limitation, pending decision 0029.
+- **Finding:** WO28 #13 worked: the wordfreq APP entry now runs past the
+  full type-check gate on Windows (before #13 the run was refused at the
+  gate, `blocked_by_unchecked_body_types_v0`, exit 2). The app entry
+  executes and reaches the file read — then the read is refused with
+  `FileReadError.unavailable` (exit 1, typed `WordfreqError.read` chain on
+  stderr). Cause: `crates/windows-drive-locality/src/lib.rs:204` classifies
+  a drive as fixed-local only for ATA/SATA/NVMe bus types; GitHub's Azure
+  runner disks are virtual/SCSI, so the drive classifies
+  `DriveLocality::Unknown` → `NativePathLocality::Unclassified` and the
+  fixed-local-not-proven branch fires
+  (`fixed_local_v0_not_proven_before_candidate_access_v0` in `run.rs`).
+- **Honest #13 done-condition:** "wordfreq's app entry executes end-to-end
+  through the type gate; the byte-exact success read is blocked on hosted
+  runners by the locality policy (decision 0029 pending)". The Session AG
+  assertion pins this refusal. The locality crate is a security policy and
+  changes only by decision — not touched.
