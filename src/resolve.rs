@@ -2365,6 +2365,8 @@ impl<'program> ResolverContext<'program> {
                     | "clock_replay_tick"
                     | "files_read_text"
                     | "text_split"
+                    | "uint_to_text"
+                    | "int_to_text"
                     | "list_append"
                     | "list_len"
                     | "list_count"
@@ -2389,6 +2391,8 @@ impl<'program> ResolverContext<'program> {
                     "clock_replay_tick" => "session_aa_runner_replay_builtin_v0",
                     "files_read_text" => "session_ad_exact_file_read_builtin_v0",
                     "text_split" => "session_z_text_split_builtin_v0",
+                    "uint_to_text" => "session_z_uint_to_text_builtin_v0",
+                    "int_to_text" => "session_z_int_to_text_builtin_v0",
                     "list_append" => "session_z_list_builtin_v0",
                     "list_len" => "session_z_list_builtin_v0",
                     "list_count" => "session_z_list_builtin_v0",
