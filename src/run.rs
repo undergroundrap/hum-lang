@@ -667,7 +667,7 @@ pub(crate) fn run_program_with_occurrences_and_test_adapters(
     )
 }
 
-#[cfg(all(test, windows))]
+#[cfg(all(test, any(windows, unix)))]
 pub(crate) fn run_program_with_file_adapters(
     program: &Program,
     entry: Option<&str>,
@@ -4609,6 +4609,8 @@ pub(crate) mod tests {
     use crate::file_read::FileReadAdapterError;
     #[cfg(windows)]
     use crate::file_read::{FileLocalityAdapter, FileLocalityError, FileReadAdapter};
+    #[cfg(unix)]
+    use crate::file_read::{HostFileLocalityAdapter, HostFileReadAdapter};
     #[cfg(windows)]
     use crate::native_path::ValidatedNativePath;
     use crate::operator_grant::OperatorGrantPolicy;
@@ -4622,7 +4624,9 @@ pub(crate) mod tests {
         runtime_occurrence_authority,
     };
     #[cfg(windows)]
-    use super::{RunReport, Value, parse_arg, run_program_with_file_adapters};
+    use super::{RunReport, Value, parse_arg};
+    #[cfg(any(windows, unix))]
+    use super::run_program_with_file_adapters;
 
     #[derive(Default)]
     struct RecordingOutput {
@@ -5638,6 +5642,59 @@ pub(crate) mod tests {
                 && event.source_route_spans.len() == 2
                 && event.source_policy_id.contains("clock-replay")
         }));
+    }
+
+    // Session AG unix (WO28 #7): property P1 (not network-backed) is
+    // unproven on every non-Windows platform, so the app entry executes
+    // through the type gate and refuses at the locality gate. The reason
+    // string is audit-only (the rendered failure is the typed
+    // FileReadError.unavailable chain), so this test pins the exact
+    // recorded reason on the interpreter's exercise event.
+    #[cfg(unix)]
+    #[test]
+    fn unix_p1_unproven_locality_refusal_records_exact_reason() {
+        let program = fixture_program(
+            "examples/probes/exact_file_read.hum",
+            include_str!("../examples/probes/exact_file_read.hum"),
+        );
+        // Lexically valid absolute unix path: the real host locality
+        // adapter revalidates it Ok(Unclassified), so the fixed-local gate
+        // refuses with the P1-unproven reason before any candidate access.
+        let input = OsString::from("/session-ag/input.txt");
+        let mut policy = allowed_stdout();
+        let mut grant = OsString::from("files.read=");
+        grant.push(&input);
+        policy.allow_os(&grant).expect("exact native file allow");
+        let mut output = RecordingOutput::default();
+        let mut replay = RecordingReplay::new(&[]);
+        let mut locality = HostFileLocalityAdapter;
+        let mut files = HostFileReadAdapter;
+        let report = run_program_with_file_adapters(
+            &program,
+            None,
+            std::slice::from_ref(&input),
+            &policy,
+            RunAdapters {
+                output: &mut output,
+                replay: &mut replay,
+                file_locality: &mut locality,
+                file: &mut files,
+            },
+        );
+        let RunOutcome::AppFailure(chain) = report.outcome else {
+            panic!("expected typed app failure, got {:?}", report.outcome);
+        };
+        assert!(chain.contains("FileReadError.unavailable"));
+        assert!(!chain.contains("runtime trap"));
+        let exercise = report
+            .authority_events
+            .iter()
+            .find(|event| {
+                event.capability_id == "files.read" && event.event_kind == "operation_exercise"
+            })
+            .expect("file exercise event");
+        assert_eq!(exercise.result, "p1_locality_unproven_on_this_platform_v0");
+        assert!(!exercise.adapter_called);
     }
 
     #[test]

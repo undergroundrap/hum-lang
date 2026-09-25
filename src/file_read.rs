@@ -225,9 +225,23 @@ fn read_checked_windows_file(path: &OsStr) -> Result<String, FileReadAdapterErro
 /// total. P1 (not network-backed) remains unproven on unix (decision 0029,
 /// pending its implementing Work Order), so the caller refuses at the
 /// locality gate before this adapter ever runs on a host program.
+/// P2 (stable file identity): the (dev, ino) pair fstat'ed from the opened
+/// handle must equal the walked final component's (dev, ino). `File::open`
+/// follows the final symlink, so the walk's `symlink_metadata` alone cannot
+/// prove the opened file is the walked one — a component swapped between
+/// walk and open would read a different file undetected. `File::metadata`
+/// is fstat on the open handle: no path lookup, no symlink following, no
+/// TOCTOU on the final open. Kept pure so the comparison itself is
+/// unit-testable; a real race cannot be tested deterministically.
+#[cfg(unix)]
+fn opened_file_matches_walked_target(walked: (u64, u64), opened: (u64, u64)) -> bool {
+    walked == opened
+}
+
 #[cfg(unix)]
 fn read_checked_unix_file(path: &OsStr) -> Result<String, FileReadAdapterError> {
     use std::fs::{self, File};
+    use std::os::unix::fs::MetadataExt;
     use std::path::{Component, Path, PathBuf};
 
     let path = Path::new(path);
@@ -245,9 +259,14 @@ fn read_checked_unix_file(path: &OsStr) -> Result<String, FileReadAdapterError> 
     }
 
     let mut evidence = Vec::with_capacity(prefixes.len());
+    let mut walked_identity: Option<(u64, u64)> = None;
     for (index, prefix) in prefixes.iter().enumerate() {
         let metadata = fs::symlink_metadata(prefix).map_err(map_host_error)?;
         let file_type = metadata.file_type();
+        let final_component = index + 1 == prefixes.len();
+        if final_component {
+            walked_identity = Some((metadata.dev(), metadata.ino()));
+        }
         evidence.push(ComponentEvidence {
             kind: if file_type.is_dir() {
                 ComponentKind::Directory
@@ -260,10 +279,24 @@ fn read_checked_unix_file(path: &OsStr) -> Result<String, FileReadAdapterError> 
             // and sockets land in `Other` and are rejected as non-files.
             reparse: file_type.is_symlink(),
             length: metadata.len(),
-            final_component: index + 1 == prefixes.len(),
+            final_component,
         });
     }
-    read_validated_content(&evidence, || File::open(path).map_err(map_host_error))
+    let walked = walked_identity.ok_or(FileReadAdapterError::UnsafePath)?;
+    read_validated_content(&evidence, || {
+        // P2: open, then take the metadata through the handle. The
+        // (dev, ino) pair must be the walked final component's identity;
+        // a mismatch means the path was swapped between walk and open.
+        let file = File::open(path).map_err(map_host_error)?;
+        let opened = file.metadata().map_err(map_host_error)?;
+        if !opened.is_file() {
+            return Err(FileReadAdapterError::NotFile);
+        }
+        if !opened_file_matches_walked_target(walked, (opened.dev(), opened.ino())) {
+            return Err(FileReadAdapterError::UnsafePath);
+        }
+        Ok(file)
+    })
 }
 
 #[cfg(any(windows, unix))]
@@ -282,6 +315,8 @@ mod tests {
         FileReadAdapterError, HostFileReadAdapter, read_bounded_utf8, read_validated_content,
         validate_component_evidence,
     };
+    #[cfg(unix)]
+    use super::opened_file_matches_walked_target;
 
     fn directory() -> ComponentEvidence {
         ComponentEvidence {
@@ -413,6 +448,17 @@ mod tests {
             adapter.read_text(path.as_os_str()),
             Ok("Hum reads exact UTF-8: lambda=λ\n".to_string())
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn p2_identity_comparison_requires_matching_dev_and_ino() {
+        // The handle is the walked file: both halves of the identity match.
+        assert!(opened_file_matches_walked_target((8, 4242), (8, 4242)));
+        // Swapped file on the same device: the inode differs.
+        assert!(!opened_file_matches_walked_target((8, 4242), (8, 4243)));
+        // Same inode number on a different device: the device differs.
+        assert!(!opened_file_matches_walked_target((8, 4242), (9, 4242)));
     }
 
     #[cfg(unix)]
