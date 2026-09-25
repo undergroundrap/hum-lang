@@ -310,13 +310,13 @@ fn map_host_error(error: std::io::Error) -> FileReadAdapterError {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use super::opened_file_matches_walked_target;
     use super::{
         ComponentEvidence, ComponentKind, FILE_READ_LIMIT_BYTES, FileReadAdapter,
         FileReadAdapterError, HostFileReadAdapter, read_bounded_utf8, read_validated_content,
         validate_component_evidence,
     };
-    #[cfg(unix)]
-    use super::opened_file_matches_walked_target;
 
     fn directory() -> ComponentEvidence {
         ComponentEvidence {
