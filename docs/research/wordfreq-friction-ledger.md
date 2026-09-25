@@ -354,3 +354,72 @@ no new syntax, no general string library.
 - **Recorded only; not fixed.** Any fix needs a semantic decision first
   (decision 0027: missing surface is a STOP, gaps become decision records
   before implementation).
+
+## 21. User-task calls have no static diagnostics for arity/type/sign misuse (found by probe, open)
+
+- **Class:** checker gap, pre-existing (not introduced by decision 0028).
+- **Finding:** probing the three misuse shapes against a user task
+  `task f(n: UInt) -> Text` shows `hum full-type-check` accepts all three
+  with zero diagnostics (`rejected_statements=0`, `blocking_issues=0`):
+  `f(-5)`, `f(1, 2)`, and `f("3")`. At runtime, `f(1, 2)` traps
+  (`task 'f' expects 1 argument(s), got 2`) while `f("3")` and `f(-5)`
+  silently complete. So the checker enforces the signature nowhere; arity
+  is fail-closed only at runtime, and type/sign mismatches are not caught
+  at all.
+- **Why it matters for decision 0028:** the BDFL ruling is that the new
+  conversion builtins must behave exactly like a user task with the same
+  signature. With no existing diagnostic to map to, no new H-code may be
+  allocated (STOP); `uint_to_text`/`int_to_text` misuse is checker-accepted
+  and runtime-trapped, exactly like the user-task shapes above. The
+  previously allocated H0640-H0643 were removed for this reason.
+- **Recorded only; not fixed.** Any static checking of call shapes needs a
+  semantic decision first (decision 0027: missing surface is a STOP).
+
+## 22. Negative values reach `UInt` positions through the runtime representation gap (found by probe, open)
+
+- **Class:** runtime representation gap, pre-existing (not introduced by
+  decision 0028).
+- **Finding:** integers are `Value::Int` at runtime, and negatives flow
+  into `UInt` positions unchecked: `let x: UInt = -5` is left unchecked by
+  the checker (`unchecked_statement_type_v0`,
+  `expression_type_unknown_v0`, blocking but not rejected), and
+  `task f(n: UInt)` called with `f(-5)` binds `-5` to `n`. Both reach
+  `uint_to_text(x)` / `uint_to_text(n)` as a negative `Value::Int`.
+- **Minimal repro** (`uint_to_text_negative.hum`):
+  ```hum
+  task main() -> Text {
+    does:
+      let x: UInt = -5
+      return uint_to_text(x)
+  }
+  ```
+  Before the decision-0028 rework this rendered the silent lie `"-5"`.
+  Per the BDFL ruling the builtin now traps with a clear invariant
+  violation instead:
+  `uint_to_text invariant violation: received negative value -5, but UInt cannot be negative`.
+  The checker-level infallibility of decision 0028 depends on `UInt`
+  never being negative; the trap is the runtime's fail-closed backstop
+  while the gap itself stays open.
+- **Recorded only; not fixed.** Closing the representation gap (stopping
+  negatives at `UInt` positions) needs a semantic decision first.
+
+## 23. `return -9223372036854775808` panics the parser (found by probe, open)
+
+- **Class:** parser panic, pre-existing on main.
+- **Repro:** checking or running
+  ```hum
+  task main() -> Int {
+    does:
+      return -9223372036854775808
+  }
+  ```
+  panics the compiler process:
+  `thread 'main' panicked at src/parser.rs:2272:14: parser H0010 visitor
+  requires a valid sealed canonical occurrence:
+  "canonical_occurrence_authority_mismatch_v0"`.
+- **Why it matters:** a panic violates fail-closed. Whatever is wrong with
+  the minimum-`Int` literal, the correct behavior is a diagnostic, never a
+  process panic. `hum run` on unchecked code must still fail closed; a
+  panic is the one failure mode the honesty locks forbid.
+- **Recorded only; not fixed.** The parser fix needs its own session; no
+  surface invented here.

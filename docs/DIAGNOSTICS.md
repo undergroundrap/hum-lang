@@ -293,10 +293,6 @@ unallocated rather than implicitly free.
 | `H0637` | error | reserved text-split built-in name redeclared | A user task attempts to redeclare the exact `text_split` built-in name. |
 | `H0638` | error | invalid text escape | A text literal — in a task body or a `needs:`/`ensures:` contract predicate — contains an unknown escape sequence or a trailing backslash. Only `\n`, `\t`, `\\`, and `\"` are accepted (decision 0022). Contract literals decode identically to body literals. |
 | `H0639` | error | invalid contract-only builtin call | A task body calls a contract-only Predicate v2 builtin (for example `list_count`), which has no executable meaning; the runner traps on it. Move the call into a `needs:`/`ensures:` contract predicate, or use an executable builtin such as `list_len`. |
-| `H0640` | error | invalid uint_to_text call | A `uint_to_text` call does not have exactly one `UInt` argument. Pass a `UInt` binding or a non-negative integer literal (decision 0028). |
-| `H0641` | error | reserved uint-to-text built-in name redeclared | A user task attempts to redeclare the exact `uint_to_text` built-in name. |
-| `H0642` | error | invalid int_to_text call | An `int_to_text` call does not have exactly one `Int` argument. Pass an `Int` binding or an optionally-signed integer literal (decision 0028). |
-| `H0643` | error | reserved int-to-text built-in name redeclared | A user task attempts to redeclare the exact `int_to_text` built-in name. |
 
 Note: `TextSplitError.SepEmpty` is not a checker diagnostic and holds no H-code.
 It is a runtime typed failure variant raised when a computed (non-literal)

@@ -694,9 +694,10 @@ coverage; graph links and `hum test-skeletons` do not execute those declarations
 ### `text_split`
 
 `text_split(text: Text, sep: Text) -> List Text` splits `text` on exact,
-left-to-right, non-overlapping substring matches of `sep`. It is the only
-string builtin in the executable subset; no other string builtins exist and no
-syntax changed to admit it.
+left-to-right, non-overlapping substring matches of `sep`. It is the string
+splitter in the executable subset; the integer renderers `uint_to_text` and
+`int_to_text` below are the other two string builtins, and no syntax changed
+to admit any of them.
 
 Normative edges (decision 0021):
 
@@ -727,6 +728,49 @@ Fallibility is conditional on the separator's written form:
   `TextSplitError.SepEmpty` through normal `try`/`fail`; it is not an H-code.
 - The checker also rejects wrong arity and non-`Text` arguments with H0636,
   and a user task named `text_split` is rejected with H0637.
+
+### `uint_to_text`
+
+`uint_to_text(n: UInt) -> Text` renders a `UInt` as decimal text with no sign
+(decision 0028). It is infallible: no `try` is needed and no H0901 fires on a
+valid call.
+
+Normative edges:
+
+- `uint_to_text(0)` is `"0"`.
+- `uint_to_text(42)` is `"42"`.
+- `uint_to_text(9223372036854775807)` is `"9223372036854775807"`.
+- The render is honest composition fuel for `word: count` lines via sequential
+  writes (`stdout_write(word)`, `stdout_write(": ")`,
+  `stdout_write(uint_to_text(n))`, `stdout_write("\n")`); concatenation stays
+  deferred per decision 0028.
+
+Call behavior matches a user task with the same signature exactly: the
+checker emits no diagnostics for wrong arity, a wrong-typed argument, or a
+`-`-prefixed literal — misuse traps at runtime, like a user-task call. A
+negative value reaching the builtin (through the pre-existing runtime
+representation gap where negatives flow into `UInt` positions, see the
+wordfreq friction ledger #22) is an invariant violation and traps with a
+clear message rather than rendering a signed lie:
+
+- `uint_to_text(0 - 5)` traps with
+  `uint_to_text invariant violation: received negative value -5, but UInt cannot be negative`.
+
+### `int_to_text`
+
+`int_to_text(n: Int) -> Text` renders an `Int` as decimal text with its sign
+(decision 0028). It is infallible: no `try` is needed and no H0901 fires on a
+valid call.
+
+Normative edges:
+
+- `int_to_text(0)` is `"0"`.
+- `int_to_text(-7)` is `"-7"`.
+- `int_to_text(9223372036854775807)` is `"9223372036854775807"`.
+
+Call behavior matches a user task with the same signature exactly: the
+checker emits no diagnostics for wrong arity or a wrong-typed argument —
+misuse traps at runtime, like a user-task call.
 
 ## Evidence Obligations
 
