@@ -163,6 +163,20 @@ struct TextSplitTypeIssue {
     reason: &'static str,
 }
 
+struct UintToTextTypeIssue {
+    call_source: String,
+    call_span: Span,
+    actual_type: Option<TypeFact>,
+    reason: &'static str,
+}
+
+struct IntToTextTypeIssue {
+    call_source: String,
+    call_span: Span,
+    actual_type: Option<TypeFact>,
+    reason: &'static str,
+}
+
 struct InvalidTextEscapeIssue {
     offending_span: Span,
     spelling: String,
@@ -1044,6 +1058,64 @@ fn type_statement(
         return typed;
     }
 
+    if let Some(issue) = uint_to_text_type_issue(statement, scopes, task_returns, field_types) {
+        let mut typed = typed_statement(
+            statement,
+            index,
+            Some(issue.call_source),
+            Some("Text".to_string()),
+            issue.actual_type,
+            "rejected_invalid_uint_to_text_call_v0",
+            Some(issue.reason),
+        );
+        typed.failure_form = Some("uint_to_text_builtin");
+        typed.call_span = Some(issue.call_span);
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::INVALID_UINT_TO_TEXT_CALL.as_str());
+        typed.help = Some(
+            "Pass exactly one `UInt` argument to `uint_to_text`. The builtin is infallible (decision 0028): no `try` needed."
+                .to_string(),
+        );
+        attach_builtin_occurrence(
+            &mut typed,
+            item_identity,
+            index,
+            DiagnosticCode::INVALID_UINT_TO_TEXT_CALL,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(188),
+            "uint_to_text_call_shape",
+        );
+        return typed;
+    }
+
+    if let Some(issue) = int_to_text_type_issue(statement, scopes, task_returns, field_types) {
+        let mut typed = typed_statement(
+            statement,
+            index,
+            Some(issue.call_source),
+            Some("Text".to_string()),
+            issue.actual_type,
+            "rejected_invalid_int_to_text_call_v0",
+            Some(issue.reason),
+        );
+        typed.failure_form = Some("int_to_text_builtin");
+        typed.call_span = Some(issue.call_span);
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::INVALID_INT_TO_TEXT_CALL.as_str());
+        typed.help = Some(
+            "Pass exactly one `Int` argument to `int_to_text`. The builtin is infallible (decision 0028): no `try` needed."
+                .to_string(),
+        );
+        attach_builtin_occurrence(
+            &mut typed,
+            item_identity,
+            index,
+            DiagnosticCode::INVALID_INT_TO_TEXT_CALL,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(190),
+            "int_to_text_call_shape",
+        );
+        return typed;
+    }
+
     if let Some(binding_name) = constant_text_stdout_write_binding(parsed) {
         let actual = type_fact("Unit", "constant_text_stdout_write_success_v0");
         scopes.insert(binding_name, actual.clone());
@@ -1441,6 +1513,126 @@ fn text_split_type_issue(
     None
 }
 
+// Decision 0028: one builtin per integer type, both infallible. The call
+// shape is checked here; the runtime re-checks arity and value kind
+// fail-closed. A bare integer literal is accepted for either builtin via
+// the language's own `types_compatible` rule (integer_literal is compatible
+// with int | uint); a value of the other integer type is rejected, so each
+// builtin takes exactly its declared type.
+// Decision 0028: `infer_expression_type` only recognizes unsigned digit
+// strings as `integer_literal`; a bare negative literal (e.g. `-7`) falls
+// through to unknown. For these two builtins an optionally-signed digit
+// string is unambiguously an integer literal, so the call-shape check
+// recognizes it directly instead of widening global inference.
+fn is_bare_integer_literal(argument: &str) -> bool {
+    let text = argument.trim();
+    let digits = text.strip_prefix('-').unwrap_or(text);
+    !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit())
+}
+
+/// Bare unsigned literal check for `uint_to_text`: decision 0028 renders UInt
+/// with no sign, so a `-`-prefixed literal is never a valid UInt argument.
+fn is_bare_uint_literal(argument: &str) -> bool {
+    let text = argument.trim();
+    !text.is_empty() && text.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn uint_to_text_type_issue(
+    statement: &BodyStatement,
+    scopes: &TypeScopeStack<TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<UintToTextTypeIssue> {
+    let expression = expression_text_for_statement(statement)?;
+    let expression_offset = statement.text.find(expression).unwrap_or(0);
+    let call = typed_failure::calls_in_expression(expression)
+        .into_iter()
+        .find(|call| call.callee == "uint_to_text")?;
+    let call_span = Span {
+        file: statement.span.file.clone(),
+        line: statement.span.line,
+        column: statement.span.column
+            + statement.text[..expression_offset + call.source_offset]
+                .chars()
+                .count(),
+    };
+    let args = call
+        .source
+        .strip_prefix("uint_to_text(")?
+        .strip_suffix(')')?;
+    let arguments = typed_failure::split_call_arguments(args);
+    if arguments.len() != 1 {
+        return Some(UintToTextTypeIssue {
+            call_source: call.source,
+            call_span,
+            actual_type: None,
+            reason: "uint_to_text_requires_exactly_one_argument_v0",
+        });
+    }
+    let actual_type = infer_expression_type(arguments[0], scopes, task_returns, field_types);
+    if actual_type
+        .as_ref()
+        .is_none_or(|actual| !types_compatible("UInt", &actual.type_text))
+        && !is_bare_uint_literal(arguments[0])
+    {
+        return Some(UintToTextTypeIssue {
+            call_source: call.source,
+            call_span,
+            actual_type,
+            reason: "uint_to_text_argument_must_be_uint_v0",
+        });
+    }
+    None
+}
+
+fn int_to_text_type_issue(
+    statement: &BodyStatement,
+    scopes: &TypeScopeStack<TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<IntToTextTypeIssue> {
+    let expression = expression_text_for_statement(statement)?;
+    let expression_offset = statement.text.find(expression).unwrap_or(0);
+    let call = typed_failure::calls_in_expression(expression)
+        .into_iter()
+        .find(|call| call.callee == "int_to_text")?;
+    let call_span = Span {
+        file: statement.span.file.clone(),
+        line: statement.span.line,
+        column: statement.span.column
+            + statement.text[..expression_offset + call.source_offset]
+                .chars()
+                .count(),
+    };
+    let args = call
+        .source
+        .strip_prefix("int_to_text(")?
+        .strip_suffix(')')?;
+    let arguments = typed_failure::split_call_arguments(args);
+    if arguments.len() != 1 {
+        return Some(IntToTextTypeIssue {
+            call_source: call.source,
+            call_span,
+            actual_type: None,
+            reason: "int_to_text_requires_exactly_one_argument_v0",
+        });
+    }
+    let actual_type = infer_expression_type(arguments[0], scopes, task_returns, field_types);
+    if actual_type
+        .as_ref()
+        .is_none_or(|actual| !types_compatible("Int", &actual.type_text))
+        && !is_bare_integer_literal(arguments[0])
+    {
+        return Some(IntToTextTypeIssue {
+            call_source: call.source,
+            call_span,
+            actual_type,
+            reason: "int_to_text_argument_must_be_int_v0",
+        });
+    }
+    None
+}
+
 // WO27 Part 1b: the thin `split_call_arguments` wrapper is removed; call
 // sites use `typed_failure::split_call_arguments` directly.
 
@@ -1673,6 +1865,16 @@ fn session_z_builtin_return_types() -> BTreeMap<String, TypeFact> {
         (
             name_key("text_split"),
             type_fact("List Text", "text_split_builtin_v0"),
+        ),
+        // Decision 0028: infallible integer rendering, one builtin per
+        // integer type. Both render to Text; no failure form, no `try`.
+        (
+            name_key("uint_to_text"),
+            type_fact("Text", "uint_to_text_builtin_v0"),
+        ),
+        (
+            name_key("int_to_text"),
+            type_fact("Text", "int_to_text_builtin_v0"),
         ),
         // WO28 #13: list lengths are UInt (wordfreq_count declares -> UInt;
         // counts are UInt like clock_replay_tick above).
@@ -3403,6 +3605,135 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         let args_json =
             text_split_probe_json(include_str!("../examples/probes/text_split_args.hum"));
         assert_eq!(count_diagnostic_code(&args_json, "H0636"), 0);
+    }
+
+    // Decision 0028: `uint_to_text` / `int_to_text` checker-shape tests.
+    // Both builtins are infallible: no `try`, no H0901 on valid calls.
+    fn int_render_probe_json(source: &str) -> String {
+        let program = text_split_probe_program(source);
+        full_type_check_json(&program, &[])
+    }
+
+    #[test]
+    fn uint_to_text_wrong_arity_is_h0640() {
+        let json = int_render_probe_json(
+            r#"task render_arity() -> Text {
+  does:
+    return uint_to_text(1, 2)
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 1);
+    }
+
+    #[test]
+    fn uint_to_text_non_uint_argument_is_h0640() {
+        let json = int_render_probe_json(
+            r#"task render_type() -> Text {
+  does:
+    return uint_to_text("3")
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 1);
+    }
+
+    #[test]
+    fn uint_to_text_int_binding_is_h0640() {
+        let json = int_render_probe_json(
+            r#"task render_cross(n: Int) -> Text {
+  does:
+    return uint_to_text(n)
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 1);
+    }
+
+    #[test]
+    fn uint_to_text_valid_calls_have_no_h0640_or_h0901() {
+        let program = text_split_probe_program(
+            r#"task render_valid(n: UInt) -> Text {
+  does:
+    let a = uint_to_text(42)
+    let b = uint_to_text(n)
+    let c = uint_to_text(0)
+    return c
+}
+"#,
+        );
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0901"), 0);
+        assert!(!full_type_check_has_errors(&program, &[]));
+    }
+
+    // Decision 0028: UInt renders with no sign, so a `-`-prefixed literal is
+    // never a valid `uint_to_text` argument. `int_to_text` keeps the sign.
+    #[test]
+    fn uint_to_text_negative_literal_is_h0640() {
+        let json = int_render_probe_json(
+            r#"task render_neg() -> Text {
+  does:
+    return uint_to_text(-5)
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 1);
+    }
+
+    #[test]
+    fn int_to_text_wrong_arity_is_h0642() {
+        let json = int_render_probe_json(
+            r#"task render_arity() -> Text {
+  does:
+    return int_to_text(1, 2)
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 1);
+    }
+
+    #[test]
+    fn int_to_text_non_int_argument_is_h0642() {
+        let json = int_render_probe_json(
+            r#"task render_type() -> Text {
+  does:
+    return int_to_text("3")
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 1);
+    }
+
+    #[test]
+    fn int_to_text_uint_binding_is_h0642() {
+        let json = int_render_probe_json(
+            r#"task render_cross(n: UInt) -> Text {
+  does:
+    return int_to_text(n)
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 1);
+    }
+
+    #[test]
+    fn int_to_text_valid_calls_have_no_h0642_or_h0901() {
+        let program = text_split_probe_program(
+            r#"task render_valid(n: Int) -> Text {
+  does:
+    let a = int_to_text(-7)
+    let b = int_to_text(n)
+    let c = int_to_text(0)
+    return c
+}
+"#,
+        );
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0901"), 0);
+        assert!(!full_type_check_has_errors(&program, &[]));
     }
 
     // WO27 Part 1a: a variable separator requires `try` even when bound to a

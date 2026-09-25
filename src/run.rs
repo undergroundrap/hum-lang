@@ -2513,6 +2513,13 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             if callee == "text_split" {
                 return self.eval_text_split(args, env, span, task_name);
             }
+            // Decision 0028: one infallible builtin per integer type.
+            if callee == "uint_to_text" {
+                return self.eval_uint_to_text(args, env, span, task_name);
+            }
+            if callee == "int_to_text" {
+                return self.eval_int_to_text(args, env, span, task_name);
+            }
             if return_dependency::is_closed_view_deriving_operation(callee) {
                 return self.eval_slice_until(args, env, span, task_name);
             }
@@ -2979,6 +2986,66 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             .map(Value::Text)
             .collect();
         Ok(Evaluated::Value(Value::List(pieces)))
+    }
+
+    // Decision 0028: infallible integer rendering. Base 10, `-` only for
+    // negative Int, no leading zeros, ASCII digits, locale-independent.
+    // Fail-closed on misuse: arity and value-type violations trap here even
+    // though the checker rejects them first.
+    fn eval_uint_to_text(
+        &self,
+        args: &str,
+        env: &mut Env,
+        statement_span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
+        let raw_args = crate::typed_failure::split_call_arguments(args);
+        if raw_args.len() != 1 {
+            return Err(format!(
+                "uint_to_text expects exactly 1 UInt argument, got {}",
+                raw_args.len()
+            ));
+        }
+        let value = match self.eval_expr(raw_args[0], env, statement_span, task_name)? {
+            Evaluated::Value(value) => value,
+            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+        };
+        let Value::Int(n) = value else {
+            return Err("uint_to_text expects a UInt value".to_string());
+        };
+        // Decision 0028: infallible rendering of the received value. A negative
+        // `n` here implies a negative already reached a `UInt` position through
+        // the pre-existing runtime representation gap (integers are `Value::Int`
+        // and the checker does not stop negatives flowing into `UInt` slots);
+        // that gap is out of scope, and trapping would break infallibility.
+        Ok(Evaluated::Value(Value::Text(n.to_string())))
+    }
+
+    fn eval_int_to_text(
+        &self,
+        args: &str,
+        env: &mut Env,
+        statement_span: &Span,
+        task_name: &str,
+    ) -> Result<Evaluated, String> {
+        let raw_args = crate::typed_failure::split_call_arguments(args);
+        if raw_args.len() != 1 {
+            return Err(format!(
+                "int_to_text expects exactly 1 Int argument, got {}",
+                raw_args.len()
+            ));
+        }
+        let value = match self.eval_expr(raw_args[0], env, statement_span, task_name)? {
+            Evaluated::Value(value) => value,
+            Evaluated::Failure(value) => return Ok(Evaluated::Failure(value)),
+            Evaluated::ContractViolation => return Ok(Evaluated::ContractViolation),
+        };
+        let Value::Int(n) = value else {
+            return Err("int_to_text expects an Int value".to_string());
+        };
+        // `i64::to_string` renders `i64::MIN` without negation overflow.
+        Ok(Evaluated::Value(Value::Text(n.to_string())))
     }
 
     fn next_file_policy(
@@ -7896,5 +7963,173 @@ task set_after_move() -> Int {
         };
         assert!(chain.contains("failure: SplitError.split"));
         assert!(chain.contains("caused by: TextSplitError.SepEmpty"));
+    }
+
+    // Decision 0028: infallible integer rendering. Normative cases: base 10,
+    // `-` prefix for negatives (Int only), no leading zeros, ASCII digits,
+    // deterministic. `i64::MIN` renders without negation overflow; it is
+    // reached here by computation because the parser cannot seal a bare
+    // `-9223372036854775808` literal (pre-existing, unrelated to this
+    // builtin: a plain `return -9223372036854775808` panics the parser on
+    // main).
+    #[test]
+    fn uint_to_text_renders_normative_cases() {
+        let program = fixture_program(
+            "decision_0028_uint_to_text.hum",
+            r#"app render_probe {
+  why:
+    decision 0028 normative rendering cases
+
+  uses:
+    stdout.write
+
+  starts with:
+    render
+
+  task render() -> Result Unit, OutputError {
+    why:
+      render normative uint cases
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output fails while running the app
+
+    does:
+      let t0 = uint_to_text(0)
+      let t1 = uint_to_text(42)
+      let t2 = uint_to_text(1000000)
+      let t3 = uint_to_text(9223372036854775807)
+      let w0 = try stdout_write(t0)
+      let w1 = try stdout_write(t1)
+      let w2 = try stdout_write(t2)
+      let w3 = try stdout_write(t3)
+  }
+}
+"#,
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(&program, None, &[], &allowed_stdout(), &mut output);
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        let text: Vec<String> = output
+            .writes
+            .iter()
+            .map(|bytes| String::from_utf8(bytes.clone()).expect("ascii output"))
+            .collect();
+        assert_eq!(text, vec!["0", "42", "1000000", "9223372036854775807"]);
+    }
+
+    #[test]
+    fn int_to_text_renders_normative_cases() {
+        let program = fixture_program(
+            "decision_0028_int_to_text.hum",
+            r#"app render_probe {
+  why:
+    decision 0028 normative rendering cases
+
+  uses:
+    stdout.write
+
+  starts with:
+    render
+
+  task render() -> Result Unit, OutputError {
+    why:
+      render normative int cases
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output fails while running the app
+
+    does:
+      let t0 = int_to_text(0)
+      let t1 = int_to_text(42)
+      let t2 = int_to_text(-7)
+      let t3 = int_to_text(9223372036854775807)
+      let t4 = int_to_text(-9223372036854775807 - 1)
+      let w0 = try stdout_write(t0)
+      let w1 = try stdout_write(t1)
+      let w2 = try stdout_write(t2)
+      let w3 = try stdout_write(t3)
+      let w4 = try stdout_write(t4)
+  }
+}
+"#,
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(&program, None, &[], &allowed_stdout(), &mut output);
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        let text: Vec<String> = output
+            .writes
+            .iter()
+            .map(|bytes| String::from_utf8(bytes.clone()).expect("ascii output"))
+            .collect();
+        assert_eq!(
+            text,
+            vec![
+                "0",
+                "42",
+                "-7",
+                "9223372036854775807",
+                "-9223372036854775808"
+            ]
+        );
+    }
+
+    #[test]
+    fn int_render_builtins_compose_via_sequential_writes() {
+        // Decision 0028's correction: "C alone solves wordfreq's output" —
+        // conventional `word: count` lines compose by sequential writes, no
+        // concatenation needed.
+        let program = fixture_program(
+            "decision_0028_word_count_line.hum",
+            r#"app word_count_probe {
+  why:
+    wordfreq prints word-count lines without concatenation
+
+  uses:
+    stdout.write
+
+  starts with:
+    render
+
+  task render(count: UInt) -> Result Unit, OutputError {
+    why:
+      print one word-count line
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output fails while running the app
+
+    does:
+      let tc = uint_to_text(count)
+      let w0 = try stdout_write("hum")
+      let w1 = try stdout_write(": ")
+      let w2 = try stdout_write(tc)
+      let w3 = try stdout_write("\n")
+  }
+}
+"#,
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(
+            &program,
+            None,
+            &["3".to_string()],
+            &allowed_stdout(),
+            &mut output,
+        );
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        let text: Vec<String> = output
+            .writes
+            .iter()
+            .map(|bytes| String::from_utf8(bytes.clone()).expect("ascii output"))
+            .collect();
+        assert_eq!(text, vec!["hum", ": ", "3", "\n"]);
     }
 }
