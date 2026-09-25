@@ -1,23 +1,23 @@
 use std::ffi::OsStr;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, unix, test))]
 use std::io::Read;
 
 use crate::native_path::{ValidatedNativePath, validate_native_path};
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, unix, test))]
 pub(crate) const FILE_READ_LIMIT_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FileReadAdapterError {
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, unix, test))]
     UnsafePath,
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     NotFound,
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, unix, test))]
     NotFile,
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, unix, test))]
     TooLarge,
-    #[cfg(any(windows, test))]
+    #[cfg(any(windows, unix, test))]
     InvalidUtf8,
     IoFailed,
 }
@@ -25,15 +25,15 @@ pub(crate) enum FileReadAdapterError {
 impl FileReadAdapterError {
     pub(crate) fn variant(self) -> &'static str {
         match self {
-            #[cfg(any(windows, test))]
+            #[cfg(any(windows, unix, test))]
             Self::UnsafePath => "unsafe_path",
-            #[cfg(windows)]
+            #[cfg(any(windows, unix))]
             Self::NotFound => "not_found",
-            #[cfg(any(windows, test))]
+            #[cfg(any(windows, unix, test))]
             Self::NotFile => "not_file",
-            #[cfg(any(windows, test))]
+            #[cfg(any(windows, unix, test))]
             Self::TooLarge => "too_large",
-            #[cfg(any(windows, test))]
+            #[cfg(any(windows, unix, test))]
             Self::InvalidUtf8 => "invalid_utf8",
             Self::IoFailed => "io_failed",
         }
@@ -41,15 +41,15 @@ impl FileReadAdapterError {
 
     pub(crate) fn result_reason(self) -> &'static str {
         match self {
-            #[cfg(any(windows, test))]
+            #[cfg(any(windows, unix, test))]
             Self::UnsafePath => "reparse_or_unsafe_component_rejected_v0",
-            #[cfg(windows)]
+            #[cfg(any(windows, unix))]
             Self::NotFound => "candidate_not_found_v0",
-            #[cfg(any(windows, test))]
+            #[cfg(any(windows, unix, test))]
             Self::NotFile => "candidate_is_not_one_regular_file_v0",
-            #[cfg(any(windows, test))]
+            #[cfg(any(windows, unix, test))]
             Self::TooLarge => "one_mibibyte_limit_exceeded_v0",
-            #[cfg(any(windows, test))]
+            #[cfg(any(windows, unix, test))]
             Self::InvalidUtf8 => "strict_utf8_decode_failed_v0",
             Self::IoFailed => "opaque_host_io_failure_v0",
         }
@@ -92,7 +92,7 @@ impl FileLocalityAdapter for HostFileLocalityAdapter {
 
 pub(crate) struct HostFileReadAdapter;
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, unix)))]
 impl FileReadAdapter for HostFileReadAdapter {
     fn read_text(&mut self, _path: &OsStr) -> Result<String, FileReadAdapterError> {
         Err(FileReadAdapterError::IoFailed)
@@ -106,7 +106,14 @@ impl FileReadAdapter for HostFileReadAdapter {
     }
 }
 
-#[cfg(any(windows, test))]
+#[cfg(unix)]
+impl FileReadAdapter for HostFileReadAdapter {
+    fn read_text(&mut self, path: &OsStr) -> Result<String, FileReadAdapterError> {
+        read_checked_unix_file(path)
+    }
+}
+
+#[cfg(any(windows, unix, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ComponentKind {
     Directory,
@@ -114,7 +121,7 @@ enum ComponentKind {
     Other,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, unix, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ComponentEvidence {
     kind: ComponentKind,
@@ -123,7 +130,7 @@ struct ComponentEvidence {
     final_component: bool,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, unix, test))]
 fn validate_component_evidence(evidence: &[ComponentEvidence]) -> Result<(), FileReadAdapterError> {
     let Some((last, parents)) = evidence.split_last() else {
         return Err(FileReadAdapterError::UnsafePath);
@@ -145,7 +152,7 @@ fn validate_component_evidence(evidence: &[ComponentEvidence]) -> Result<(), Fil
     Ok(())
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, unix, test))]
 fn read_validated_content<R, Open>(
     evidence: &[ComponentEvidence],
     open: Open,
@@ -158,7 +165,7 @@ where
     read_bounded_utf8(open()?)
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, unix, test))]
 fn read_bounded_utf8<R: Read>(reader: R) -> Result<String, FileReadAdapterError> {
     let mut bytes = Vec::new();
     reader
@@ -211,7 +218,55 @@ fn read_checked_windows_file(path: &OsStr) -> Result<String, FileReadAdapterErro
     read_validated_content(&evidence, || File::open(path).map_err(map_host_error))
 }
 
-#[cfg(windows)]
+/// Unix read: component walk with `symlink_metadata` (never follows links),
+/// reparse/pipe/device rejection, then the shared bounded UTF-8 read. The
+/// native path was already lexically validated, so `.`/`..` components are
+/// unreachable; the walk keeps the guard anyway so the evidence chain stays
+/// total. P1 (not network-backed) remains unproven on unix (decision 0029,
+/// pending its implementing Work Order), so the caller refuses at the
+/// locality gate before this adapter ever runs on a host program.
+#[cfg(unix)]
+fn read_checked_unix_file(path: &OsStr) -> Result<String, FileReadAdapterError> {
+    use std::fs::{self, File};
+    use std::path::{Component, Path, PathBuf};
+
+    let path = Path::new(path);
+    let mut prefixes = Vec::new();
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        match component {
+            Component::Prefix(_) | Component::RootDir => {}
+            Component::Normal(_) => prefixes.push(current.clone()),
+            Component::CurDir | Component::ParentDir => {
+                return Err(FileReadAdapterError::UnsafePath);
+            }
+        }
+    }
+
+    let mut evidence = Vec::with_capacity(prefixes.len());
+    for (index, prefix) in prefixes.iter().enumerate() {
+        let metadata = fs::symlink_metadata(prefix).map_err(map_host_error)?;
+        let file_type = metadata.file_type();
+        evidence.push(ComponentEvidence {
+            kind: if file_type.is_dir() {
+                ComponentKind::Directory
+            } else if file_type.is_file() {
+                ComponentKind::File
+            } else {
+                ComponentKind::Other
+            },
+            // P4: on unix a symlink is the reparse point; devices, FIFOs,
+            // and sockets land in `Other` and are rejected as non-files.
+            reparse: file_type.is_symlink(),
+            length: metadata.len(),
+            final_component: index + 1 == prefixes.len(),
+        });
+    }
+    read_validated_content(&evidence, || File::open(path).map_err(map_host_error))
+}
+
+#[cfg(any(windows, unix))]
 fn map_host_error(error: std::io::Error) -> FileReadAdapterError {
     match error.kind() {
         std::io::ErrorKind::NotFound => FileReadAdapterError::NotFound,
@@ -328,9 +383,11 @@ mod tests {
     }
 
     #[test]
-    fn adapter_source_has_one_read_only_open_and_no_widened_filesystem_surface() {
+    fn adapter_source_has_two_read_only_opens_and_no_widened_filesystem_surface() {
         let source = include_str!("file_read.rs");
-        assert_eq!(source.matches(concat!("File::", "open(")).count(), 1);
+        // One per platform walk: the Windows reparse-point walk and the
+        // unix symlink walk. Both are read-only `File::open` calls.
+        assert_eq!(source.matches(concat!("File::", "open(")).count(), 2);
         for forbidden in [
             concat!("Open", "Options"),
             concat!("File::", "create("),
@@ -346,7 +403,7 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     fn host_adapter_reads_the_checked_in_utf8_fixture_without_writing() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -358,9 +415,53 @@ mod tests {
         );
     }
 
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     #[test]
-    fn non_windows_host_adapter_is_unavailable_without_file_access() {
+    fn unix_adapter_rejects_symlinks_and_non_file_candidates() {
+        use std::os::unix::fs::symlink;
+
+        let scratch = std::env::temp_dir().join(format!("hum-unix-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch dir");
+        // Symlink target is the checked-in UTF-8 fixture (absolute), so the
+        // test creates no files of its own.
+        let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/file_read/session_ad_utf8.txt");
+        let link = scratch.join("link.txt");
+        symlink(&target, &link).expect("symlink");
+
+        let mut adapter = HostFileReadAdapter;
+        // P4: a symlink is a reparse point on unix and is rejected even
+        // though its target is an ordinary file.
+        assert_eq!(
+            adapter.read_text(link.as_os_str()),
+            Err(FileReadAdapterError::UnsafePath)
+        );
+        // A directory is not an ordinary file.
+        assert_eq!(
+            adapter.read_text(scratch.as_os_str()),
+            Err(FileReadAdapterError::NotFile)
+        );
+        assert_eq!(
+            adapter.read_text(target.as_os_str()),
+            Ok("Hum reads exact UTF-8: lambda=λ\n".to_string())
+        );
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_adapter_reports_missing_candidates_without_panic() {
+        let mut adapter = HostFileReadAdapter;
+        assert_eq!(
+            adapter.read_text(std::ffi::OsStr::new("/hum-definitely-absent-opaque")),
+            Err(FileReadAdapterError::NotFound)
+        );
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    #[test]
+    fn unsupported_host_adapter_is_unavailable_without_file_access() {
         let mut adapter = HostFileReadAdapter;
         assert_eq!(
             adapter.read_text(std::ffi::OsStr::new("/not-accessed")),

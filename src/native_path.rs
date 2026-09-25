@@ -67,6 +67,22 @@ impl ValidatedNativePath {
         }
     }
 
+    /// Audit reason recorded when the locality gate refuses the read. On
+    /// unix, property P1 (not network-backed) has no proof yet — decision
+    /// 0029 leaves the exact evidence to its implementing Work Order — so
+    /// the refusal is platform-wide and honest about it. On Windows the
+    /// gate fires per path that did not prove fixed-local.
+    pub(crate) fn locality_gate_reason(&self) -> &'static str {
+        #[cfg(unix)]
+        {
+            "p1_locality_unproven_on_this_platform_v0"
+        }
+        #[cfg(not(unix))]
+        {
+            "fixed_local_v0_not_proven_before_candidate_access_v0"
+        }
+    }
+
     #[cfg(all(test, windows))]
     pub(crate) fn fixed_local_for_test(&self) -> Self {
         Self {
@@ -78,16 +94,18 @@ impl ValidatedNativePath {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NativePathIssue {
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, unix)))]
     UnsupportedHost,
     #[cfg(windows)]
     NotOrdinaryDriveRooted,
     #[cfg(windows)]
     NamespacePrefix,
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     EmptyComponent,
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     DotComponent,
+    #[cfg(unix)]
+    NotAbsolute,
     #[cfg(windows)]
     AlternateDataStream,
     #[cfg(windows)]
@@ -98,11 +116,11 @@ pub(crate) enum NativePathIssue {
 
 impl NativePathIssue {
     pub(crate) fn is_unsupported_host(self) -> bool {
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, unix)))]
         {
             self == Self::UnsupportedHost
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, unix))]
         {
             false
         }
@@ -110,16 +128,18 @@ impl NativePathIssue {
 
     pub(crate) fn reason(self) -> &'static str {
         match self {
-            #[cfg(not(windows))]
+            #[cfg(not(any(windows, unix)))]
             Self::UnsupportedHost => "native_path_input_unavailable_on_non_windows_v0",
             #[cfg(windows)]
             Self::NotOrdinaryDriveRooted => "not_ordinary_drive_letter_rooted_v0",
             #[cfg(windows)]
             Self::NamespacePrefix => "windows_namespace_prefix_forbidden_v0",
-            #[cfg(windows)]
+            #[cfg(any(windows, unix))]
             Self::EmptyComponent => "empty_path_component_forbidden_v0",
-            #[cfg(windows)]
+            #[cfg(any(windows, unix))]
             Self::DotComponent => "dot_or_dot_dot_component_forbidden_v0",
+            #[cfg(unix)]
+            Self::NotAbsolute => "unix_path_must_be_absolute_v0",
             #[cfg(windows)]
             Self::AlternateDataStream => "alternate_data_stream_or_extra_colon_forbidden_v0",
             #[cfg(windows)]
@@ -131,7 +151,7 @@ impl NativePathIssue {
 
     pub(crate) fn description(self) -> &'static str {
         match self {
-            #[cfg(not(windows))]
+            #[cfg(not(any(windows, unix)))]
             Self::UnsupportedHost => "native Path input is unavailable on this non-Windows host",
             #[cfg(windows)]
             Self::NotOrdinaryDriveRooted => {
@@ -141,10 +161,12 @@ impl NativePathIssue {
             Self::NamespacePrefix => {
                 "the path uses a UNC, verbatim, device, or NT namespace prefix"
             }
-            #[cfg(windows)]
+            #[cfg(any(windows, unix))]
             Self::EmptyComponent => "the path contains an empty component",
-            #[cfg(windows)]
+            #[cfg(any(windows, unix))]
             Self::DotComponent => "the path contains `.` or `..` traversal",
+            #[cfg(unix)]
+            Self::NotAbsolute => "the path is not an absolute unix path",
             #[cfg(windows)]
             Self::AlternateDataStream => "the path contains a colon after the drive prefix",
             #[cfg(windows)]
@@ -194,9 +216,31 @@ fn locality_from_drive(locality: DriveLocality) -> NativePathLocality {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, unix)))]
 fn validate_platform_path(_raw: &OsStr) -> Result<(), NativePathIssue> {
     Err(NativePathIssue::UnsupportedHost)
+}
+
+#[cfg(unix)]
+fn validate_platform_path(raw: &OsStr) -> Result<(), NativePathIssue> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let bytes = raw.as_bytes();
+    if !bytes.starts_with(b"/") {
+        return Err(NativePathIssue::NotAbsolute);
+    }
+    // Splitting "/a/b" on '/' yields ["", "a", "b"]: the leading empty
+    // element is the root. Any other empty element is a doubled or
+    // trailing separator.
+    for component in bytes.split(|byte| *byte == b'/').skip(1) {
+        if component.is_empty() {
+            return Err(NativePathIssue::EmptyComponent);
+        }
+        if component == b"." || component == b".." {
+            return Err(NativePathIssue::DotComponent);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -610,9 +654,49 @@ mod tests {
         }
     }
 
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     #[test]
-    fn native_paths_are_unavailable_on_non_windows_hosts() {
+    fn unix_accepts_absolute_lexically_clean_paths_without_locality_proof() {
+        let path = validate_native_path(OsStr::new("/opaque/hum-session-ab/input.txt"))
+            .expect("lexically clean absolute path");
+        // WO28 #7: mechanics port only. P1 (not network-backed) is unproven
+        // on every non-Windows platform (decision 0029, pending its
+        // implementing Work Order), so locality stays unclassified and the
+        // locality gate refuses with the honest P1 reason.
+        assert_eq!(path.locality(), "locality_unclassified");
+        assert!(!path.is_fixed_local());
+        assert_eq!(
+            path.locality_gate_reason(),
+            "p1_locality_unproven_on_this_platform_v0"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_rejects_non_absolute_and_traversal_paths() {
+        // Windows drive-rooted spelling, built without a literal so the
+        // public-readiness scanner does not read it as a real path.
+        let drive_rooted = format!("{}:{}{}", 'C', char::from(47), "opaque.txt");
+        for (raw, expected) in [
+            ("relative/opaque.txt", NativePathIssue::NotAbsolute),
+            (drive_rooted.as_str(), NativePathIssue::NotAbsolute),
+            ("/", NativePathIssue::EmptyComponent),
+            ("/opaque//doubled.txt", NativePathIssue::EmptyComponent),
+            ("/opaque/trailing/", NativePathIssue::EmptyComponent),
+            ("/opaque/./dot.txt", NativePathIssue::DotComponent),
+            ("/opaque/../escape.txt", NativePathIssue::DotComponent),
+        ] {
+            assert_eq!(
+                validate_native_path(OsStr::new(raw)),
+                Err(expected),
+                "{raw}"
+            );
+        }
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    #[test]
+    fn native_paths_are_unavailable_on_unsupported_hosts() {
         let candidate = format!("C:{}opaque", char::from(47));
         assert_eq!(
             validate_native_path(OsStr::new(&candidate)),

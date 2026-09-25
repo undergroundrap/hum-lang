@@ -2877,6 +2877,10 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             }
         };
         if !revalidated.is_fixed_local() {
+            // On unix this is the P1-unproven refusal: property P1 (not
+            // network-backed) has no proof yet (decision 0029, pending its
+            // implementing Work Order). On Windows the path simply did not
+            // prove fixed-local. Either way, no candidate access happens.
             self.record_file_exercise(
                 &request_id,
                 &policy,
@@ -2885,7 +2889,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 true,
                 false,
                 0,
-                "fixed_local_v0_not_proven_before_candidate_access_v0",
+                revalidated.locality_gate_reason(),
             );
             return Ok(Evaluated::Failure(file_failure(
                 "unavailable",
