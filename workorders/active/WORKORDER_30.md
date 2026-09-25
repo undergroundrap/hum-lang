@@ -21,8 +21,9 @@ Teach the checker to reject, at check time, call shapes the declared
 signature already forbids: wrong arity, wrong argument type, and statically
 known negative values in `UInt` positions. Make the builtins
 (`uint_to_text`, `int_to_text`, `text_split`, `list_len`) subject to the same
-single check via a builtin signature table. Turn the parser panic on the
-exact `i64::MIN` literal spelling into a diagnostic.
+single check via a builtin signature table. Make the exact `i64::MIN`
+literal spelling a valid `Int` literal (it is in range; the panic was a
+seal bug) and give genuinely out-of-range literals the H0011 diagnostic.
 
 Queue: this Work Order executes **after WO28 closes, ahead of WO29** —
 Ocean's call. A draft Work Order changes nothing until it is activated.
@@ -173,12 +174,14 @@ reasons migrate to H0640/H0641; value-level reasons stay):
   value shapes). Existing arity/type tests migrate to H0640/H0641.
 - H0622 (`stdout_write`), H0626 (`clock_replay_tick`), H0632
   (`files_read_text`): pure signature-shape codes. Their reasons migrate to
-  the general check; the codes become unemitted. Per the catalog stability
-  rules they are retained and never reused for a different meaning.
-  Existing tests migrate to H0640/H0641.
+  the general check; the codes move to the catalog's formal **Retired**
+  status (`AllocationStatus::Retired` in `src/diagnostic_catalog.rs`,
+  recorded in the frozen retired registry so any reuse or mutation is a
+  validation error — `RetiredCodeReuseOrMutation`). Existing tests migrate
+  to H0640/H0641.
 - H0633/H0637 (reserved builtin names), H0638, H0639: untouched.
 
-## Item 5 — the parser panic becomes a diagnostic, never a panic
+## Item 5 — the parser panic becomes a valid literal or a diagnostic, never a panic
 
 **Verified shape (main at `a9ad460`, 2026-09-25):** the source text
 `-9223372036854775808` — exactly the `i64::MIN` spelling, `-` glued to the
@@ -189,33 +192,33 @@ binding, parenthesized, inside a binary expression) panics `hum check`:
 requires a valid sealed canonical occurrence:
 "canonical_occurrence_authority_mismatch_v0"``
 
-The H0010 retained-occurrence visitor (`.expect()` in
-`retain_validated_occurrence`) assumes every retained occurrence carries a
-valid seal; this literal corrupts the seal and the assumption becomes a
-process panic. Boundary probes: `-9223372036854775807` is fine;
-`- 9223372036854775808` (space) is fine; `-9223372036854775809` (out of
-range) and positive `9223372036854775808` are silently accepted with 0
-errors — separate gaps, noted here, not silently fixed.
+**Ruling (Claude, delegated):** `-9223372036854775808` is Int's minimum —
+it is IN range. The existing machinery treats a `-`-glued digit run as a
+signed literal, and `spelling.parse::<i64>()` on the signed text accepts it.
+The panic is a seal bug, not an out-of-range value: the H0010
+retained-occurrence visitor (`.expect()` in `retain_validated_occurrence`)
+assumes every retained occurrence carries a valid seal, and this literal's
+seal path corrupts it. The fix makes `-9223372036854775808` a valid `Int`
+literal with value `i64::MIN`, with **no diagnostic**. The `.expect()` →
+diagnostic-emission defense-in-depth stays: a corrupt seal is evidence of a
+bug, and the user-facing behavior is a diagnostic, never a panic.
 
-**Requirement:** the panic becomes a diagnostic. Never a panic — a panic is
-the one failure mode the honesty locks forbid.
+**H0011 "integer literal out of range"** covers the literals that genuinely
+do not fit: `-9223372036854775809` (below `i64::MIN`) and positive
+`9223372036854775808` (above `i64::MAX`) — the same digit-run overflow code
+path; these are not separate gaps. **UInt limitation, stated explicitly:**
+positive literals above `i64::MAX` are rejected under the current `i64`
+runtime representation (the parser files non-negative digit runs as
+`UIntLiteral` via `u64`, but the runtime stores every integer as
+`Value::Int(i64)` and saturates today — ledger #22's representation gap).
+Widening to a real `u64` representation is a later decision, not this Work
+Order.
 
-- The seal-building path for signed integer literals must fail closed: the
-  existing `IntegerLiteralOutOfRange` malformed-completion machinery
-  (`projected_out_of_range_integer` / `retained_out_of_range_integer`)
-  already understands `-`-glued digit runs, but its
-  `spelling.parse::<i64>()` check is blind to exactly this case (the signed
-  text parses as `i64::MIN` while the digit run `9223372036854775808` does
-  not fit `i64` — the sign and the digits are validated asymmetrically).
-  Fix the asymmetry so the literal takes the malformed-completion path
-  instead of corrupting the seal.
-- Defense in depth: `retain_validated_occurrence`'s `.expect()` becomes a
-  diagnostic emission. A corrupt seal is evidence of a bug; the user-facing
-  behavior is still a diagnostic, never a panic.
-- Violation code: **H0011** (new; see Item 6). The seal-internal
-  `integer_literal_out_of_range_v2` cause exists only in the predicate path
-  (mapped to H0704, contract predicates); no user-facing source-shape code
-  covers it.
+- Positive-evidence fixture: `int_to_text(-9223372036854775808)` renders
+  `"-9223372036854775808"` — the literal parses, type-checks as `Int`, and
+  round-trips. Declaration-only fixtures do not count.
+- Regression tests feed every previously panicking shape through the full
+  parse and assert no panic; out-of-range shapes assert H0011.
 
 ## Item 6 — diagnostics: mapping and authorized allocations
 
@@ -228,7 +231,7 @@ general fix, one code per violation shape, not per builtin):
 | `H0640` | `front_end_semantics` (H0600–H0699) | call argument count mismatch | A call passes a different number of arguments than the callee's declared signature (user task parameters or builtin signature-table entry). |
 | `H0641` | `front_end_semantics` (H0600–H0699) | call argument type mismatch | A call argument of known type does not match the declared parameter type. |
 | `H0642` | `front_end_semantics` (H0600–H0699) | negative integer literal in UInt position | A statically known negative integer literal reaches a `UInt` parameter or `UInt`-annotated binding. |
-| `H0011` | `source_shape` (H0000–H0099) | integer literal out of range | An integer literal (including a signed literal whose digit run overflows) does not fit the 64-bit range; the compiler emits this instead of panicking. |
+| `H0011` | `source_shape` (H0000–H0099) | integer literal out of range | A signed or unsigned integer literal whose value does not fit the 64-bit signed range (`-9223372036854775809`, `9223372036854775808`, positive literals above `i64::MAX` under the current i64 runtime representation). `-9223372036854775808` is `i64::MIN` — in range, no diagnostic. |
 
 Considered and rejected: H0606 (return expressions only), H0622/H0626/
 H0632/H0636 (per-builtin — Item 4 forbids extending that pattern), H1402
@@ -254,17 +257,22 @@ break was a digest pin on exactly this kind of change).
    H0642). Valid shapes — including `uint_to_text(42)`, `int_to_text(-7)`,
    `text_split` valid calls, and `list_len` on list-typed arguments — stay
    accepted.
-2. **`hum check` AND `full-type-check` agreement (ledger #18 boundary
-   noted).** The call-shape check lives in `full-type-check`, the stage
-   that owns expression checking. `hum check` (`src/type_check.rs`) is
-   unchanged: its non-claims already state "no call, overload, field, or
-   operator type checking" and "no generic arity validation". Agreement
-   means: `full-type-check` rejects each fixture with the new code, while
-   `hum check` emits no call-shape diagnostic for the same fixtures —
-   silence by declared design, asserted in the fixture expectations — so
-   the two stages never contradict (the ledger #18 boundary: `hum check`
-   claims nothing about calls, and continues to claim nothing). `hum run`'s
-   preflight behavior is unchanged; the runtime traps stay the backstop.
+2. **Stage facts and the ledger #18 boundary, stated accurately.** The
+   call-shape check lives in `hum full-type-check`
+   (`src/full_type_check.rs`), the stage that owns expression checking.
+   `hum check` is the `check.rs` pipeline (main.rs `"check"` arm:
+   intent/target checks) and performs no call-shape checking; the
+   quoted non-claims ("no call, overload, field, or operator type
+   checking", "no generic arity validation") belong to `hum type-check`
+   (`src/type_check.rs`), a different command. The ledger #18 boundary:
+   the new diagnostics surface in `hum full-type-check` but not in
+   `hum check`'s pipeline — `hum check` stays silent on call shapes by
+   pipeline design, asserted in the fixture expectations, never
+   contradicting. The mitigation is `hum run`'s preflight, which runs
+   `type_check` then `full_type_check` (main.rs shared orchestration) and
+   refuses with exit 1 before execution — so a misuse shape the checker
+   rejects can never silently execute, even though the fast `hum check`
+   loop does not flag it.
 3. **The PR #44 characterization tests flip from "accepted" to "rejected".**
    `uint_to_text_misuse_shapes_are_checker_accepted_like_user_tasks` and
    `int_to_text_misuse_shapes_are_checker_accepted_like_user_tasks`
@@ -274,14 +282,25 @@ break was a digest pin on exactly this kind of change).
    with `n: UInt`) → H0641, negative-literal shapes → H0642. The valid-call
    tests stay green; the runtime trap tests (`uint_to_text_negative_value_traps`,
    normative rendering) stay green — the backstop is not removed.
-4. **Item 5:** `return -9223372036854775808` (and the `let`, parenthesized,
-   and binary-expression variants) produce H0011 and a check failure —
-   never a panic. A regression test feeds every previously panicking shape
-   through the full parse and asserts no panic.
+4. **Item 5:** `-9223372036854775808` in every previously panicking
+   position (`return`, `let`, parenthesized, binary expression) is a valid
+   `Int` literal — no diagnostic, no panic — and
+   `int_to_text(-9223372036854775808)` renders `"-9223372036854775808"`.
+   Genuinely out-of-range literals (`-9223372036854775809`,
+   `9223372036854775808`, positives above `i64::MAX`) produce H0011.
+   Regression tests feed every previously panicking shape through the
+   full parse and assert no panic.
 5. **Catalog integrity:** `docs/DIAGNOSTICS.md` mirrors the four new codes;
-   the H-code checklist (Item 6) is complete; H0622/H0626/H0632 are marked
-   unemitted-but-reserved; H0636's row reflects the narrowed meaning. The
+   the H-code checklist (Item 6) is complete; H0622/H0626/H0632 carry the
+   formal Retired status; H0636's row reflects the narrowed meaning. The
    full test suite passes with no new false positives on existing fixtures.
+6. **Exactly one diagnostic per misuse shape — no double-firing.** Every
+   rejected fixture produces exactly one diagnostic with the specified
+   code. Masking notes per migrated builtin: `text_split("a")` fires H0640
+   only (the H0636 arity reason is gone); `text_split(1, ",")` fires H0641
+   only (the H0636 type reason is gone); `text_split("a", "")` fires H0636
+   only (value reason — the general check is satisfied); the retired
+   H0622/H0626/H0632 never fire alongside H0640/H0641.
 
 ## Lane assignments and STOP conditions
 
@@ -294,16 +313,21 @@ break was a digest pin on exactly this kind of change).
   catalog changes only by decision or Work Order; this Work Order is that
   authorization for the four allocations above.
 - **STOP:** if implementing any Item requires new language surface or an
-  unmade semantic choice (e.g. the `set`-target sign shape, the
-  silently-accepted positive-overflow gap), STOP and report to the BDFL
-  instead of inventing it. If a per-builtin migration cannot be done
-  without changing the code's user-facing meaning beyond the narrowing
-  specified in Item 4, report it — do not silently widen it.
+  unmade semantic choice (e.g. the `set`-target sign shape), STOP and
+  report to the BDFL instead of inventing it. If a per-builtin migration
+  cannot be done without changing the code's user-facing meaning beyond
+  the narrowing specified in Item 4, report it — do not silently widen
+  it.
 
 ## Review and evidence requirements
 
-- Independent pre-issuance review of this draft (Claude) before any PR.
-  No PR is opened until that review lands.
+- Independent pre-issuance review of this draft (Claude) landed
+  2026-09-25 with four delegated rulings, all incorporated above
+  (i64::MIN is in range; H0011 covers the genuinely out-of-range
+  literals; formal Retired status for H0622/H0626/H0632; corrected stage
+  facts). The review authorized opening a normal (non-draft) PR; the
+  Work Order's Status stays DRAFT with no active-workorder marker until
+  WO28 closes and activation is separately authorized.
 - Honesty locks (decision 0014): no diagnostic may claim more than the
   implementation proves — hence unknown argument types stay silent (Item
   2), and the decidable sign set is closed (Item 3).
