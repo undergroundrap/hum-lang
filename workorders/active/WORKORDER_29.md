@@ -101,14 +101,21 @@ symlink target and the disk name pattern.
 - **Proven by this Work Order:**
   - `nvme*n*` **and** the controller's `transport` attribute reads exactly
     `pcie`. NVMe-oF (tcp/rdma/fc) presents the same `nvme*n*` device nodes
-    and is network storage, so the name pattern alone is not proof. The
-    attribute is `/sys/class/nvme/nvmeX/transport` — resolve the controller
-    directory as the parent of the `<disk>/device` symlink target and read
-    `transport` there. Source: the stable sysfs ABI
-    (`Documentation/ABI/stable/sysfs-nvme`: "transport: Shows the transport
-    type string. Possible values: 'pcie', 'tcp', 'rdma', 'fc', 'loop'"),
+    and is network storage, so the name pattern alone is not proof. For NVMe
+    namespaces the disk's parent device IS the controller
+    (`device_add_disk(ctrl->device, ...)` in the kernel's
+    `drivers/nvme/host/core.c`), so read `<disk>/device/transport` directly
+    — not the parent of the `device` symlink target. Source for the
+    attribute: the stable sysfs ABI (`Documentation/ABI/stable/sysfs-nvme`:
+    "transport: Shows the transport type string. Possible values: 'pcie',
+    'tcp', 'rdma', 'fc', 'loop'"),
     https://docs.kernel.org/admin-guide/abi-stable.html. A missing or
-    unreadable `transport` attribute is `Unproven` — fail closed.
+    unreadable `transport` attribute is `Unproven` — fail closed. (This
+    explicitly includes NVMe multipath heads: their disk is parented to the
+    subsystem device, not a controller
+    (`device_add_disk(&head->subsys->dev, ...)` in
+    `drivers/nvme/host/multipath.c`), so they expose no `transport`
+    attribute and are `Unproven`.)
   - `sd*` on a positively-identified local host bus adapter: walk the sysfs
     device chain from `<disk>/device` upward, collecting driver names from
     the `driver` symlinks. P1 is proven **iff** a driver in the chain is in
