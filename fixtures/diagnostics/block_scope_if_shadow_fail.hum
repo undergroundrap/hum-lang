@@ -1,0 +1,11 @@
+task if_shadow_leak(flag: Bool) -> Text {
+  why:
+    WO28 #16 probe-3: if-block let must not leak its type fact
+
+  does:
+    let x = 3
+    if flag {
+      let x = "s"
+    }
+    return x
+}

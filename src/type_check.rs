@@ -17,6 +17,7 @@ use crate::resolve::{
 };
 use crate::return_dependency;
 use crate::type_env::{self, TypeDeclaration, TypeEnvReport};
+use crate::type_scopes::TypeScopeStack;
 use crate::version;
 
 pub const TYPE_CHECK_SCHEMA: &str = "hum.type_check.v0";
@@ -1538,15 +1539,20 @@ fn checked_returns_for_task(
             .canonical_core_expectation(item, section)
             .expect("live type-check task must have parser authority"),
     );
-    let mut environment = initial_task_type_environment(task);
+    let mut scopes = TypeScopeStack::new(initial_task_type_environment(task));
     let mut checked_returns = Vec::new();
 
     for statement in &body.statements {
+        // WO28 #16: block scoping must match the resolver. The shared
+        // TypeScopeStack pushes a new scope for block openers and pops on
+        // block close, so `let` bindings inside if/for-each/while/loop
+        // blocks don't leak out and shadowed outer facts are restored.
+        scopes.handle_block_boundary(statement.kind);
         if statement.kind == "return" {
-            checked_returns.push(checked_return(task, statement, &environment, blocked));
+            checked_returns.push(checked_return(task, statement, &scopes, blocked));
         }
-        if let Some((name, fact)) = binding_type_fact(statement, &environment) {
-            environment.insert(name_key(&name), fact);
+        if let Some((name, fact)) = binding_type_fact(statement, &scopes) {
+            scopes.insert(&name, fact);
         }
     }
 
@@ -1573,7 +1579,7 @@ fn initial_task_type_environment(task: &Task) -> BTreeMap<String, TypeFact> {
 fn checked_return(
     task: &Task,
     statement: &BodyStatement,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     blocked: bool,
 ) -> CheckedReturn {
     let expression_text = strip_keyword(&statement.text, "return")
@@ -1582,7 +1588,7 @@ fn checked_return(
         .to_string();
     let expected_type = task.result.as_ref().map(|result| result.trim().to_string());
     let expected_value_type = expected_type.as_deref().map(expected_return_value_type);
-    let actual = infer_expression_type(&expression_text, environment);
+    let actual = infer_expression_type(&expression_text, scopes);
     let (status, reason) = if blocked {
         (
             "not_checked_blocked_by_prior_errors_v0",
@@ -1652,7 +1658,7 @@ impl From<&CheckedReturn> for CheckedReturnSummary {
 
 fn binding_type_fact(
     statement: &BodyStatement,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
 ) -> Option<(String, TypeFact)> {
     let keyword = match statement.kind {
         "let_binding" => "let",
@@ -1668,7 +1674,7 @@ fn binding_type_fact(
             source: "binding_annotation_v0",
         }
     } else {
-        infer_expression_type(value.trim(), environment)?
+        infer_expression_type(value.trim(), scopes)?
     };
     Some((name, fact))
 }
@@ -1692,7 +1698,7 @@ fn binding_left_parts(left: &str) -> Option<(String, Option<String>)> {
 
 fn infer_expression_type(
     expression_text: &str,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
 ) -> Option<TypeFact> {
     let text = expression_text.trim();
     if text.is_empty() {
@@ -1737,7 +1743,7 @@ fn infer_expression_type(
             source: "path_root_type_v0",
         });
     }
-    environment.get(&name_key(text)).cloned()
+    scopes.lookup(text)
 }
 
 fn record_literal_type_name(text: &str) -> Option<String> {
@@ -2861,5 +2867,88 @@ task remember_work_item(title: Text) -> Result WorkItem, WorkError {
             });
             assert_eq!(actual, "IntegrityFailure", "{case}");
         }
+    }
+
+    // WO28 #16: block scoping must match the resolver. A `let` inside an
+    // if-block that shadows an outer binding must not leak its type fact;
+    // after the block closes, the outer fact is restored.
+    #[test]
+    fn if_block_shadow_does_not_leak_type_fact() {
+        // Probe-3: `x` is UInt outside, Text inside the if-block. The return
+        // must see UInt, so `-> Text` is a mismatch.
+        let program = parse_program(
+            r#"task probe3(flag: Bool) -> Text {
+  does:
+    let x = 3
+    if flag {
+      let x = "s"
+    }
+    return x
+}
+"#,
+        );
+        let json = type_check_json(&program, &[]);
+
+        assert!(type_check_has_errors(&program, &[]));
+        assert!(json.contains("\"status\": \"type_errors_v0\""));
+        assert!(json.contains("\"rejected_returns\": 1"));
+    }
+
+    #[test]
+    fn if_block_shadow_with_matching_type_is_accepted() {
+        // Shadowing with the same type is fine; the outer fact is restored
+        // but the types agree, so the return checks out.
+        let program = parse_program(
+            r#"task shadow_ok(flag: Bool) -> UInt {
+  does:
+    let x = 3
+    if flag {
+      let x = 4
+    }
+    return x
+}
+"#,
+        );
+
+        assert!(!type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn if_block_inner_let_does_not_pollute_outer_scope() {
+        // A `let` that only exists inside the if-block must not be visible
+        // after the block closes.
+        let program = parse_program(
+            r#"task inner_only(flag: Bool) -> UInt {
+  does:
+    if flag {
+      let y = 1
+    }
+    return y
+}
+"#,
+        );
+
+        assert!(type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn foreach_body_let_does_not_leak_type_fact() {
+        // Same scoping rule applies to for-each bodies: the inner `let`
+        // shadows per iteration and must not leak. Uses distinct types
+        // (UInt outer, Text inner) so the test fails without the fix:
+        // a leaked Text would make `return x` (expected UInt) an error.
+        let program = parse_program(
+            r#"task fshadow(items: List UInt) -> UInt {
+  does:
+    let x = 3
+    for each n in items {
+      let x = "s"
+    }
+    return x
+}
+"#,
+        );
+
+        assert!(!type_check_has_errors(&program, &[]));
     }
 }

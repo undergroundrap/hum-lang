@@ -1,0 +1,11 @@
+task if_scope_rt(flag: Bool) -> UInt {
+  why:
+    WO28 #16 runtime: if-block let must not leak; returns outer x
+
+  does:
+    let x = 3
+    if flag {
+      let x = 99
+    }
+    return x
+}

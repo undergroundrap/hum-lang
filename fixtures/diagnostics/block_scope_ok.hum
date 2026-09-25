@@ -1,0 +1,15 @@
+task block_scope_ok(flag: Bool, items: List UInt) -> UInt {
+  why:
+    WO28 #16 positive: shadowing with matching types is accepted
+
+  does:
+    let x = 3
+    if flag {
+      let x = 4
+    }
+    let total = x
+    for each n in items {
+      let total = n
+    }
+    return total
+}

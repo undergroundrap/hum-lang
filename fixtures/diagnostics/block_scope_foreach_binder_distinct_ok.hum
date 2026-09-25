@@ -1,0 +1,10 @@
+task foreach_binder_distinct_ok(words: List Text) -> UInt {
+  why:
+    WO28 #16: for-each binder must not leak into the outer statement env
+
+  does:
+    let word = 3
+    for each word in words {
+    }
+    return word
+}

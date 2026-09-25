@@ -5159,6 +5159,45 @@ function Invoke-HumCompilerCorpusChecks {
   # Positive: `list_count` in `ensures:` is accepted with zero diagnostics.
   $SessionABH0639Positive = Read-NativeOutputWithExit 'check Session AB contract-only builtin ensures positive' $Hum @('check', 'fixtures/diagnostics/contract_only_builtin_ensures_ok.hum')
   if ($SessionABH0639Positive.ExitCode -ne 0 -or -not $SessionABH0639Positive.Output.Contains('0 error(s), 0 warning(s)')) { throw "Session AB contract-only builtin in ensures must check clean, got: $($SessionABH0639Positive.Output)" }
+  # WO28 #16: block scoping must match the resolver. A `let` inside an
+  # if-block or for-each body that shadows an outer binding must not leak
+  # its type fact; the outer fact is restored after the block closes.
+  # `hum full-type-check` rejects the probe-3 shadow (type_errors=1, exit 1).
+  $SessionABBlockIf = Read-NativeOutputWithExit 'full-type-check Session AB if-block shadow' $Hum @('full-type-check', 'fixtures/diagnostics/block_scope_if_shadow_fail.hum')
+  if ($SessionABBlockIf.ExitCode -ne 1 -or -not $SessionABBlockIf.Output.Contains('type_errors=1')) { throw "Session AB if-block shadow must fail full-type-check with type_errors=1, got exit $($SessionABBlockIf.ExitCode): $($SessionABBlockIf.Output)" }
+  $SessionABBlockForEach = Read-NativeOutputWithExit 'full-type-check Session AB for-each body shadow' $Hum @('full-type-check', 'fixtures/diagnostics/block_scope_foreach_shadow_fail.hum')
+  if ($SessionABBlockForEach.ExitCode -ne 1 -or -not $SessionABBlockForEach.Output.Contains('type_errors=1')) { throw "Session AB for-each body shadow must fail full-type-check with type_errors=1, got exit $($SessionABBlockForEach.ExitCode): $($SessionABBlockForEach.Output)" }
+  # Positive: shadowing with matching types is accepted.
+  $SessionABBlockOk = Read-NativeOutputWithExit 'full-type-check Session AB block scope positive' $Hum @('full-type-check', 'fixtures/diagnostics/block_scope_ok.hum')
+  if ($SessionABBlockOk.ExitCode -ne 0 -or -not $SessionABBlockOk.Output.Contains('type_errors=0')) { throw "Session AB block scope positive must pass with type_errors=0, got: $($SessionABBlockOk.Output)" }
+  # WO28 #16: distinct-type shadow is accepted; the return fact shows the
+  # outer type (integer_literal), proving the inner Text did not leak.
+  # Before the fix the leaked Text would have made this a rejection.
+  $SessionABBlockDistinctOk = Read-NativeOutputWithExit 'full-type-check Session AB if-block distinct-type shadow' $Hum @('full-type-check', 'fixtures/diagnostics/block_scope_if_shadow_distinct_ok.hum')
+  if ($SessionABBlockDistinctOk.ExitCode -ne 0 -or -not $SessionABBlockDistinctOk.Output.Contains('type_errors=0')) { throw "Session AB if-block distinct-type shadow must pass with type_errors=0, got exit $($SessionABBlockDistinctOk.ExitCode): $($SessionABBlockDistinctOk.Output)" }
+  if (-not $SessionABBlockDistinctOk.Output.Contains('return `x` expected=UInt actual=integer_literal')) { throw "Session AB if-block distinct-type shadow return fact must show outer integer_literal, got: $($SessionABBlockDistinctOk.Output)" }
+  # Runtime: if-block `let` must not leak the inner value; the outer x=3
+  # is returned even when the block executes.
+  $SessionABBlockRt = Read-NativeOutputWithExit 'run Session AB if-block scope' $Hum @('run', 'fixtures/diagnostics/block_scope_if_runtime.hum', '--entry', 'if_scope_rt', '--args', 'true')
+  if ($SessionABBlockRt.ExitCode -ne 0 -or $SessionABBlockRt.Output.Trim() -ne '3') { throw "Session AB if-block runtime must return outer x=3, got exit $($SessionABBlockRt.ExitCode): $($SessionABBlockRt.Output)" }
+  # Rejection regression: the binder shadow probe is rejected with
+  # type_errors=1. This fixture does not test the binder leak (see below).
+  $SessionABBlockBinder = Read-NativeOutputWithExit 'full-type-check Session AB for-each binder shadow' $Hum @('full-type-check', 'fixtures/diagnostics/block_scope_foreach_binder_shadow_fail.hum')
+  if ($SessionABBlockBinder.ExitCode -ne 1 -or -not $SessionABBlockBinder.Output.Contains('type_errors=1')) { throw "Session AB for-each binder shadow must fail full-type-check with type_errors=1, got exit $($SessionABBlockBinder.ExitCode): $($SessionABBlockBinder.Output)" }
+  # Rejection regression only: this fixture does not test the binder leak.
+  # type_check.rs has no for-each binder handling, so the return checker
+  # never sees the binder; type_errors=1 happens with or without #16.
+  if (-not $SessionABBlockBinder.Output.Contains('not_checked_blocked_by_prior_errors_v0')) { throw "Session AB for-each binder shadow statements must show blocked (stage precedence), got: $($SessionABBlockBinder.Output)" }
+  # WO28 #16: the binder leak is proven by the distinct-ok fixture instead.
+  # The for-each binder must not leak into the outer statement env: on main
+  # this was rejected with actual=Text (leaked binder); fixed it is accepted
+  # with the outer actual=integer_literal.
+  $SessionABBlockBinderOk = Read-NativeOutputWithExit 'full-type-check Session AB for-each binder distinct-type' $Hum @('full-type-check', 'fixtures/diagnostics/block_scope_foreach_binder_distinct_ok.hum')
+  if ($SessionABBlockBinderOk.ExitCode -ne 0 -or -not $SessionABBlockBinderOk.Output.Contains('type_errors=0')) { throw "Session AB for-each binder distinct-type must pass with type_errors=0, got exit $($SessionABBlockBinderOk.ExitCode): $($SessionABBlockBinderOk.Output)" }
+  if (-not $SessionABBlockBinderOk.Output.Contains('return `word` expected=UInt actual=integer_literal')) { throw "Session AB for-each binder distinct-type return fact must show outer integer_literal, got: $($SessionABBlockBinderOk.Output)" }
+  # Runtime: for-each body `let` must not leak; outer total=0 is returned.
+  $SessionABBlockForEachRt = Read-NativeOutputWithExit 'run Session AB for-each body scope' $Hum @('run', 'fixtures/diagnostics/block_scope_foreach_runtime.hum', '--entry', 'foreach_body_runtime', '--args', '[1,2,3]')
+  if ($SessionABBlockForEachRt.ExitCode -ne 0 -or $SessionABBlockForEachRt.Output.Trim() -ne '0') { throw "Session AB for-each runtime must return outer total=0, got exit $($SessionABBlockForEachRt.ExitCode): $($SessionABBlockForEachRt.Output)" }
   # Source-spelling coverage: the graph JSON emitter carries the source
   # spelling `a\nb` (backslash-n), not the decoded value. The decoded
   # TextDecodedValue lives in the canonical seal path (Rust-tested); no

@@ -1,0 +1,10 @@
+task foreach_binder_shadow(words: List Text) -> Text {
+  why:
+    WO28 #16 ledger binder probe: for-each binder must not leak its type fact
+
+  does:
+    let word = 3
+    for each word in words {
+    }
+    return word
+}

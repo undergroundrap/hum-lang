@@ -1,0 +1,11 @@
+task foreach_body_runtime(items: List UInt) -> UInt {
+  why:
+    WO28 #16: for-each body let must not leak at runtime
+
+  does:
+    let total = 0
+    for each n in items {
+      let total = n
+    }
+    return total
+}

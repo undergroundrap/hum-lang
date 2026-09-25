@@ -13,6 +13,7 @@ use crate::field_place::{self, FieldTypeMap};
 use crate::predicate::{self, PredicateFact};
 use crate::return_dependency;
 use crate::type_check;
+use crate::type_scopes::TypeScopeStack;
 use crate::typed_failure::{self, FailureFact, ProgramFailureAnalysis};
 use crate::version;
 use crate::writable_field_alias;
@@ -813,7 +814,7 @@ fn type_item(
             .canonical_core_expectation(item, does)
             .expect("live typed item must have parser authority"),
     );
-    let mut environment = initial_environment(item_params(item));
+    let mut scopes = TypeScopeStack::new(initial_environment(item_params(item)));
     let mut statements = Vec::new();
     for (index, (statement, parsed)) in body
         .statements
@@ -821,12 +822,16 @@ fn type_item(
         .zip(does.body_syntax.iter().flatten())
         .enumerate()
     {
+        // WO28 #16: block scoping must match the resolver. Push a scope for
+        // block openers before typing the statement, so the for-each binder
+        // and block-local lets land in the pushed scope; pop on block_close.
+        scopes.handle_block_boundary(statement.kind);
         let typed = type_statement(
             &item_identity,
             item,
             index,
             statement,
-            &mut environment,
+            &mut scopes,
             task_returns,
             field_types,
             blocked,
@@ -860,7 +865,7 @@ fn type_statement(
     item: &Item,
     index: usize,
     statement: &BodyStatement,
-    environment: &mut BTreeMap<String, TypeFact>,
+    scopes: &mut TypeScopeStack<TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
     blocked: bool,
@@ -923,8 +928,7 @@ fn type_statement(
         return typed;
     }
 
-    if let Some(issue) = stdout_write_type_issue(statement, environment, task_returns, field_types)
-    {
+    if let Some(issue) = stdout_write_type_issue(statement, scopes, task_returns, field_types) {
         let mut typed = typed_statement(
             statement,
             index,
@@ -982,7 +986,7 @@ fn type_statement(
         return typed;
     }
 
-    if let Some(issue) = file_read_type_issue(statement, environment, task_returns, field_types) {
+    if let Some(issue) = file_read_type_issue(statement, scopes, task_returns, field_types) {
         let mut typed = typed_statement(
             statement,
             index,
@@ -1011,7 +1015,7 @@ fn type_statement(
         return typed;
     }
 
-    if let Some(issue) = text_split_type_issue(statement, environment, task_returns, field_types) {
+    if let Some(issue) = text_split_type_issue(statement, scopes, task_returns, field_types) {
         let mut typed = typed_statement(
             statement,
             index,
@@ -1042,7 +1046,7 @@ fn type_statement(
 
     if let Some(binding_name) = constant_text_stdout_write_binding(parsed) {
         let actual = type_fact("Unit", "constant_text_stdout_write_success_v0");
-        environment.insert(name_key(binding_name), actual.clone());
+        scopes.insert(binding_name, actual.clone());
         let mut typed = typed_statement(
             statement,
             index,
@@ -1095,7 +1099,7 @@ fn type_statement(
             && (fact.diagnostic_code.is_none() || effect_owned_missing_declaration)
             && let Some((name, type_fact)) = binding_type_fact(statement, actual.as_ref())
         {
-            environment.insert(name_key(&name), type_fact);
+            scopes.insert(&name, type_fact);
         }
         return typed;
     }
@@ -1105,10 +1109,10 @@ fn type_statement(
     // which keeps the current unchecked status.
     if statement.kind == "for_each_header"
         && let Some((binder, element_type)) =
-            for_each_binding(statement, environment, task_returns, field_types)
+            for_each_binding(statement, scopes, task_returns, field_types)
     {
         let actual = type_fact(element_type.clone(), "for_each_binding_v0");
-        environment.insert(name_key(&binder), actual.clone());
+        scopes.insert(&binder, actual.clone());
         return typed_statement(
             statement,
             index,
@@ -1125,7 +1129,7 @@ fn type_statement(
     // return type. Unprovable or mismatched shapes fail closed into the
     // generic path, which keeps the current unchecked status.
     if statement.kind == "test_expectation"
-        && let Some(fact) = test_expectation_fact(statement, task_returns, environment, field_types)
+        && let Some(fact) = test_expectation_fact(statement, task_returns, scopes, field_types)
     {
         return typed_statement(
             statement,
@@ -1139,7 +1143,7 @@ fn type_statement(
     }
 
     let expression_text = expression_text_for_statement(statement).map(str::to_string);
-    let expected_type = expected_type_for_statement(item, statement, environment, field_types);
+    let expected_type = expected_type_for_statement(item, statement, scopes, field_types);
     let verified_actual = if let core_verify::CanonicalMinimalAddTypeLookup::Delivered(result) =
         core_verify_access.canonical_minimal_add_type_for(item, parsed)
     {
@@ -1167,7 +1171,7 @@ fn type_statement(
     };
     let actual = verified_actual.or(callable_actual).or_else(|| {
         expression_text.as_deref().and_then(|expression| {
-            infer_expression_type(expression, environment, task_returns, field_types)
+            infer_expression_type(expression, scopes, task_returns, field_types)
         })
     });
     let (status, reason) = statement_status(statement, expected_type.as_deref(), actual.as_ref());
@@ -1175,7 +1179,7 @@ fn type_statement(
     if matches!(statement.kind, "let_binding" | "mutable_binding")
         && let Some((name, fact)) = binding_type_fact(statement, actual.as_ref())
     {
-        environment.insert(name_key(&name), fact);
+        scopes.insert(&name, fact);
     }
 
     typed_statement(
@@ -1191,7 +1195,7 @@ fn type_statement(
 
 fn for_each_binding(
     statement: &BodyStatement,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<(String, String)> {
@@ -1202,7 +1206,7 @@ fn for_each_binding(
     if !element_place::is_value_ident(binder) || iterated.is_empty() {
         return None;
     }
-    let iterated_fact = infer_expression_type(iterated, environment, task_returns, field_types)?;
+    let iterated_fact = infer_expression_type(iterated, scopes, task_returns, field_types)?;
     let element = element_place::list_element_type(&iterated_fact.type_text)?;
     Some((binder.to_string(), element.to_string()))
 }
@@ -1210,15 +1214,14 @@ fn for_each_binding(
 fn test_expectation_fact(
     statement: &BodyStatement,
     task_returns: &BTreeMap<String, TypeFact>,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
     let body = strip_keyword(&statement.text, "expect")?;
     let (call, expected) = body.split_once(" returns ")?;
     let (callee, _args) = split_call(call)?;
     let return_fact = task_returns.get(&name_key(callee))?;
-    let expected_fact =
-        infer_expression_type(expected.trim(), environment, task_returns, field_types)?;
+    let expected_fact = infer_expression_type(expected.trim(), scopes, task_returns, field_types)?;
     if types_compatible(&return_fact.type_text, &expected_fact.type_text) {
         Some(type_fact("Bool", "test_expectation_v0"))
     } else {
@@ -1251,7 +1254,7 @@ fn constant_text_stdout_write_binding(statement: &crate::ast::ParsedBodyStatemen
 
 fn stdout_write_type_issue(
     statement: &BodyStatement,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<StdoutWriteTypeIssue> {
@@ -1281,7 +1284,7 @@ fn stdout_write_type_issue(
             reason: "stdout_write_requires_exactly_one_argument_v0",
         });
     }
-    let actual_type = infer_expression_type(arguments[0], environment, task_returns, field_types);
+    let actual_type = infer_expression_type(arguments[0], scopes, task_returns, field_types);
     if actual_type
         .as_ref()
         .is_some_and(|actual| actual.type_text == "Text")
@@ -1323,7 +1326,7 @@ fn replay_tick_type_issue(statement: &BodyStatement) -> Option<ReplayTickTypeIss
 
 fn file_read_type_issue(
     statement: &BodyStatement,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<FileReadTypeIssue> {
@@ -1353,7 +1356,7 @@ fn file_read_type_issue(
             reason: "files_read_text_requires_exactly_one_argument_v0",
         });
     }
-    let actual_type = infer_expression_type(arguments[0], environment, task_returns, field_types);
+    let actual_type = infer_expression_type(arguments[0], scopes, task_returns, field_types);
     if actual_type
         .as_ref()
         .is_some_and(|actual| actual.type_text == "Path")
@@ -1370,7 +1373,7 @@ fn file_read_type_issue(
 
 fn text_split_type_issue(
     statement: &BodyStatement,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TextSplitTypeIssue> {
@@ -1411,7 +1414,7 @@ fn text_split_type_issue(
         });
     }
     for argument in &arguments {
-        let actual_type = infer_expression_type(argument, environment, task_returns, field_types);
+        let actual_type = infer_expression_type(argument, scopes, task_returns, field_types);
         if actual_type
             .as_ref()
             .is_none_or(|actual| actual.type_text != "Text")
@@ -1444,7 +1447,7 @@ fn text_split_type_issue(
 fn expected_type_for_statement(
     item: &Item,
     statement: &BodyStatement,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<String> {
     match statement.kind {
@@ -1453,7 +1456,7 @@ fn expected_type_for_statement(
         "if_header" | "while_header" => Some("Bool".to_string()),
         "let_binding" | "mutable_binding" => binding_annotation(statement),
         "set_place" => set_place_name(statement)
-            .and_then(|name| place_type_fact(name, environment, field_types))
+            .and_then(|name| place_type_fact(name, scopes, field_types))
             .map(|fact| fact.type_text),
         _ => None,
     }
@@ -1777,16 +1780,16 @@ fn set_place_name(statement: &BodyStatement) -> Option<&str> {
 
 fn place_type_fact(
     name: &str,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
     if let Some((root, _index)) = element_place::split_element_place(name) {
-        let root_fact = environment.get(&name_key(root))?;
+        let root_fact = scopes.lookup(root)?;
         let type_text = element_place::list_element_type(&root_fact.type_text)?;
         return Some(type_fact(type_text, "list_element_place_v0"));
     }
     if let Some((root, field)) = field_place::split_field_place(name) {
-        let root_fact = environment.get(&name_key(root))?;
+        let root_fact = scopes.lookup(root)?;
         let type_text = field_place::field_type(field_types, &root_fact.type_text, field)?;
         return Some(type_fact(type_text, "record_field_place_v0"));
     }
@@ -1795,7 +1798,7 @@ fn place_type_fact(
     // a bound name (e.g. `piece != ""` normalizing to `piece`) would take
     // the bound name's type instead of its own inferred type (WO28 #13).
     if is_plain_name(name) {
-        return environment.get(&name_key(name)).cloned();
+        return scopes.lookup(name);
     }
     None
 }
@@ -1810,7 +1813,7 @@ fn is_plain_name(text: &str) -> bool {
 
 fn infer_expression_type(
     expression_text: &str,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
@@ -1819,7 +1822,7 @@ fn infer_expression_type(
         return Some(type_fact("Unit", "unit_expression_v0"));
     }
     if let Some(argument) = strip_permission_expression(text) {
-        return infer_expression_type(argument, environment, task_returns, field_types);
+        return infer_expression_type(argument, scopes, task_returns, field_types);
     }
     if text == "true" || text == "false" {
         return Some(type_fact("Bool", "bool_literal_v0"));
@@ -1836,7 +1839,7 @@ fn infer_expression_type(
     if text.chars().all(|ch| ch.is_ascii_digit()) {
         return Some(type_fact("integer_literal", "integer_literal_v0"));
     }
-    if let Some(fact) = place_type_fact(text, environment, field_types) {
+    if let Some(fact) = place_type_fact(text, scopes, field_types) {
         return Some(fact);
     }
     if is_condition_expression(text) {
@@ -1848,12 +1851,11 @@ fn infer_expression_type(
     if let Some(root) = path_root_type_name(text) {
         return Some(type_fact(root, "path_root_type_v0"));
     }
-    if let Some(fact) = infer_additive_expression_type(text, environment, task_returns, field_types)
-    {
+    if let Some(fact) = infer_additive_expression_type(text, scopes, task_returns, field_types) {
         return Some(fact);
     }
     if let Some(fact) =
-        infer_multiplicative_expression_type(text, environment, task_returns, field_types)
+        infer_multiplicative_expression_type(text, scopes, task_returns, field_types)
     {
         return Some(fact);
     }
@@ -1863,18 +1865,18 @@ fn infer_expression_type(
         }
         return task_returns.get(&name_key(callee)).cloned();
     }
-    place_type_fact(text, environment, field_types)
+    place_type_fact(text, scopes, field_types)
 }
 
 fn infer_additive_expression_type(
     text: &str,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
     let (left, right) = text.split_once(" + ")?;
-    let left = infer_expression_type(left, environment, task_returns, field_types)?;
-    let right = infer_expression_type(right, environment, task_returns, field_types)?;
+    let left = infer_expression_type(left, scopes, task_returns, field_types)?;
+    let right = infer_expression_type(right, scopes, task_returns, field_types)?;
     if right.type_text == "integer_literal" || left.type_text == right.type_text {
         Some(TypeFact {
             type_text: left.type_text,
@@ -1887,13 +1889,13 @@ fn infer_additive_expression_type(
 
 fn infer_multiplicative_expression_type(
     text: &str,
-    environment: &BTreeMap<String, TypeFact>,
+    scopes: &TypeScopeStack<TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
     field_types: &FieldTypeMap,
 ) -> Option<TypeFact> {
     let (left, right) = text.split_once(" * ")?;
-    let left = infer_expression_type(left, environment, task_returns, field_types)?;
-    let right = infer_expression_type(right, environment, task_returns, field_types)?;
+    let left = infer_expression_type(left, scopes, task_returns, field_types)?;
+    let right = infer_expression_type(right, scopes, task_returns, field_types)?;
     if right.type_text == "integer_literal" || left.type_text == right.type_text {
         Some(TypeFact {
             type_text: left.type_text,
