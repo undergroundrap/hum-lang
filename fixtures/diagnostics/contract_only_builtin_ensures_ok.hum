@@ -1,0 +1,18 @@
+task contract_probe(items: List Text) -> UInt {
+  why:
+    probe for contract-only builtin in ensures
+
+  needs:
+    items is a list
+
+  ensures:
+    list_count(items, "x") >= 0
+
+  cost:
+    time: O(n)
+    space: O(1)
+    check: warn
+
+  does:
+    return list_len(items)
+}

@@ -18,6 +18,16 @@ use crate::writable_field_alias;
 pub const RESOLVE_REPORT_SCHEMA: &str = "hum.resolve.v0";
 pub const RESOLVE_MODE: &str = "source_analysis_only_no_type_or_borrow_check";
 
+// WO28 #15: the builtins the resolver admits as `*_builtin_v0` references
+// that have no executable meaning in task bodies. The tree-walking runner
+// traps on them ("contract-only Predicate v2 vocabulary") and the checker
+// rejects them in bodies with H0639, so check-time and run-time agree.
+// The set is defined once here: adding a future contract-only builtin is a
+// one-line change, not a hunt across the checker and the runtime.
+pub(crate) fn contract_only_builtin_names() -> &'static [&'static str] {
+    &["list_count"]
+}
+
 struct ResolveReport {
     files: usize,
     items: usize,

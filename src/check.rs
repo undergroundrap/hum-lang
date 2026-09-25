@@ -5,6 +5,7 @@ use crate::core_body;
 use crate::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticOccurrence, Span};
 use crate::graph::hollow_contract_reason;
 use crate::parser::ParseOutput;
+use crate::typed_failure;
 use crate::{syntax, target_facts, writable_field_alias};
 
 #[cfg(test)]
@@ -229,6 +230,52 @@ fn check_task(parsed: &ParseOutput, item: &Item, task: &Task, diagnostics: &mut 
     check_declared_mutation(parsed, item, task, diagnostics);
     check_cost_contract(task, diagnostics);
     check_security_contracts(task, diagnostics);
+    check_contract_only_builtins(task, diagnostics);
+}
+
+// WO28 #15: contract-only builtins (e.g. `list_count`) are Predicate v2
+// vocabulary with no executable meaning in task bodies; the runner traps
+// on them, so `hum check` rejects them here with H0639. The rule is driven
+// by the shared inventory from `crate::resolve::contract_only_builtin_names`
+// — the same set the runner traps on — so the rule is not `list_count`-
+// specific and the two stages cannot drift.
+fn check_contract_only_builtins(task: &Task, diagnostics: &mut CheckCollector) {
+    let Some(does) = task.section("does") else {
+        return;
+    };
+    let contract_only = crate::resolve::contract_only_builtin_names();
+    for line in meaningful_lines(does) {
+        let Some(call) = typed_failure::calls_in_expression(&line.text)
+            .into_iter()
+            .find(|call| contract_only.contains(&call.callee.as_str()))
+        else {
+            continue;
+        };
+        // Compute the call's column from the line's starting column plus the
+        // byte offset of the call within the line text.
+        let call_span = Span {
+            file: line.span.file.clone(),
+            line: line.span.line,
+            column: line.span.column + line.text[..call.source_offset].chars().count(),
+        };
+        emit(
+            diagnostics,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(187),
+            "contract_only_builtin_call",
+            Diagnostic::error(
+                DiagnosticCode::INVALID_CONTRACT_ONLY_BUILTIN_CALL,
+                format!(
+                    "contract-only builtin `{}` called in task body; it has no executable meaning",
+                    call.callee
+                ),
+                Some(call_span),
+            )
+            .with_help(format!(
+                "Move the `{}` call into a `needs:`/`ensures:` contract predicate; contract-only builtins cannot execute in task bodies.",
+                call.callee
+            )),
+        );
+    }
 }
 
 fn check_test(test: &Test, diagnostics: &mut CheckCollector) {
@@ -1242,5 +1289,87 @@ mod tests {
             DiagnosticCode::RESERVED_TEXT_SPLIT_BUILTIN_NAME.as_str(),
             "H0637"
         );
+    }
+
+    // WO28 #15: contract-only builtins (e.g. `list_count`) are rejected in
+    // task bodies at both scopes with H0639, and stay accepted in contracts.
+    #[test]
+    fn contract_only_builtin_in_body_is_h0639() {
+        let source = include_str!("../fixtures/diagnostics/contract_only_builtin_body_fail.hum");
+        let parsed = parse_source("contract_only_builtin_body_fail.hum", source);
+        let diagnostics = check_file(&parsed);
+        let h0639_count = diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::INVALID_CONTRACT_ONLY_BUILTIN_CALL)
+            .count();
+        assert_eq!(h0639_count, 1);
+        assert_eq!(
+            DiagnosticCode::INVALID_CONTRACT_ONLY_BUILTIN_CALL.as_str(),
+            "H0639"
+        );
+    }
+
+    #[test]
+    fn contract_only_builtin_in_app_body_is_h0639() {
+        let source =
+            include_str!("../fixtures/diagnostics/contract_only_builtin_app_body_fail.hum");
+        let parsed = parse_source("contract_only_builtin_app_body_fail.hum", source);
+        let diagnostics = check_file(&parsed);
+        let h0639_count = diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::INVALID_CONTRACT_ONLY_BUILTIN_CALL)
+            .count();
+        assert_eq!(h0639_count, 1);
+    }
+
+    #[test]
+    fn contract_only_builtin_in_contract_is_not_h0639() {
+        let source = r#"task contract_probe(items: List Text) -> UInt {
+  why:
+    probe
+
+  cost:
+    time: O(n)
+    space: O(1)
+    check: warn
+
+  ensures:
+    list_count(items, "x") >= 0
+
+  does:
+    return list_len(items)
+}
+"#;
+        let parsed = parse_source("contract_probe.hum", source);
+        let diagnostics = check_file(&parsed);
+        let h0639_count = diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::INVALID_CONTRACT_ONLY_BUILTIN_CALL)
+            .count();
+        assert_eq!(h0639_count, 0);
+    }
+
+    #[test]
+    fn executable_list_builtin_in_body_is_not_h0639() {
+        let source = r#"task len_probe(items: List Text) -> UInt {
+  why:
+    probe
+
+  cost:
+    time: O(n)
+    space: O(1)
+    check: warn
+
+  does:
+    return list_len(items)
+}
+"#;
+        let parsed = parse_source("len_probe.hum", source);
+        let diagnostics = check_file(&parsed);
+        let h0639_count = diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::INVALID_CONTRACT_ONLY_BUILTIN_CALL)
+            .count();
+        assert_eq!(h0639_count, 0);
     }
 }

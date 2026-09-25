@@ -1,0 +1,15 @@
+module fixtures.diagnostics.contract_only_builtin_body_fail
+
+task count_matches(items: List Text) -> UInt {
+  why:
+    misuse fixture: `list_count` is contract-only Predicate v2 vocabulary;
+    calling it in a task body is a checker error (H0639)
+
+  cost:
+    time: O(n)
+    space: O(1)
+    check: warn
+
+  does:
+    return list_count(items, "hum")
+}
