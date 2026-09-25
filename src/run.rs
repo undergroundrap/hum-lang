@@ -2493,8 +2493,11 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             if callee == "list_len" {
                 return self.eval_list_len(args, env, span, task_name);
             }
-            if callee == "list_count" {
-                return Err("list_count is contract-only Predicate v2 vocabulary".to_string());
+            // WO28 #15: contract-only builtins share one canonical set with
+            // the checker (`crate::resolve::contract_only_builtin_names`), so
+            // check-time rejection and run-time trapping cannot drift.
+            if crate::resolve::contract_only_builtin_names().contains(&callee) {
+                return Err(format!("{callee} is contract-only Predicate v2 vocabulary"));
             }
             let Some(task) = self.find_task(callee) else {
                 return Err(format!("task `{callee}` was not found"));

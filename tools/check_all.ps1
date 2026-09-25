@@ -2957,7 +2957,7 @@ task malformed() -> UInt {
   $CatalogTotal = $DiagnosticsCatalog.count
   $CodeTotal = $DiagnosticCodes.Count
   $UniqueTotal = @($DiagnosticCodes | Sort-Object -Unique).Count
-  if ($CatalogTotal -ne 93 -or $CodeTotal -ne 93 -or $UniqueTotal -ne 93) { throw "canonical diagnostic catalog must expose exactly 93 unique active codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
+  if ($CatalogTotal -ne 94 -or $CodeTotal -ne 94 -or $UniqueTotal -ne 94) { throw "canonical diagnostic catalog must expose exactly 94 unique active codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
   $H0634CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0634' -and $_.title -ceq 'canonical native program layout' })
   if ($H0634CatalogRows.Count -ne 1) { throw 'Work Order 23 H0634 catalog projection drifted' }
   $H0635CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0635' -and $_.title -ceq 'unsupported native program feature' })
@@ -5138,6 +5138,27 @@ function Invoke-HumCompilerCorpusChecks {
   if ($SessionABH0638Contract.ExitCode -ne 1 -or [regex]::Matches($SessionABH0638Contract.Output, 'diagnostic=H0638').Count -ne 1) { throw 'Session AB contract unknown escape must fail with exactly one H0638' }
   $SessionABH0636Stray = Read-NativeOutputWithExit 'full-type-check Session AB stray empty argument' $Hum @('full-type-check', 'fixtures/diagnostics/text_split_stray_empty_argument_fail.hum')
   if ($SessionABH0636Stray.ExitCode -ne 1 -or [regex]::Matches($SessionABH0636Stray.Output, 'diagnostic=H0636').Count -ne 1) { throw 'Session AB stray empty argument must fail with exactly one H0636' }
+  # WO28 #15: contract-only builtins (e.g. `list_count`) are Predicate v2
+  # vocabulary with no executable meaning. The checker rejects any of them
+  # in task bodies at both scopes with H0639; the runner stays fail-closed
+  # through the shared contract-only builtin set.
+  # `hum check` is the production path: both misuse fixtures must fail here.
+  $SessionABH0639Check = Read-NativeOutputWithExit 'check Session AB contract-only builtin body' $Hum @('check', 'fixtures/diagnostics/contract_only_builtin_body_fail.hum')
+  if ($SessionABH0639Check.ExitCode -ne 1 -or [regex]::Matches($SessionABH0639Check.Output, '\[H0639\]').Count -ne 1) { throw 'Session AB contract-only builtin in body must fail hum check with exactly one H0639' }
+  $SessionABH0639CheckApp = Read-NativeOutputWithExit 'check Session AB contract-only builtin app body' $Hum @('check', 'fixtures/diagnostics/contract_only_builtin_app_body_fail.hum')
+  if ($SessionABH0639CheckApp.ExitCode -ne 1 -or [regex]::Matches($SessionABH0639CheckApp.Output, '\[H0639\]').Count -ne 1) { throw 'Session AB contract-only builtin in app body must fail hum check with exactly one H0639' }
+  # `hum full-type-check` inherits the check-stage H0639 (no duplicate).
+  $SessionABH0639 = Read-NativeOutputWithExit 'full-type-check Session AB contract-only builtin body' $Hum @('full-type-check', 'fixtures/diagnostics/contract_only_builtin_body_fail.hum')
+  if ($SessionABH0639.ExitCode -ne 1 -or [regex]::Matches($SessionABH0639.Output, '\[H0639\]').Count -ne 1) { throw 'Session AB contract-only builtin in body must fail with exactly one H0639' }
+  $SessionABH0639App = Read-NativeOutputWithExit 'full-type-check Session AB contract-only builtin app body' $Hum @('full-type-check', 'fixtures/diagnostics/contract_only_builtin_app_body_fail.hum')
+  if ($SessionABH0639App.ExitCode -ne 1 -or [regex]::Matches($SessionABH0639App.Output, '\[H0639\]').Count -ne 1) { throw 'Session AB contract-only builtin in app body must fail with exactly one H0639' }
+  # `hum run` fails at preflight with H0639, not the runtime trap.
+  $SessionABH0639Run = Read-NativeOutputWithExit 'run Session AB contract-only builtin preflight' $Hum @('run', 'fixtures/diagnostics/contract_only_builtin_body_fail.hum')
+  if ($SessionABH0639Run.ExitCode -ne 1 -or [regex]::Matches($SessionABH0639Run.Output, '\[H0639\]').Count -ne 1) { throw "Session AB contract-only builtin run must fail at preflight with exactly one H0639, got exit $($SessionABH0639Run.ExitCode): $($SessionABH0639Run.Output)" }
+  if ($SessionABH0639Run.Output.Contains('list_count is contract-only')) { throw 'Session AB contract-only builtin run must not reach the runtime trap; preflight H0639 must fire first' }
+  # Positive: `list_count` in `ensures:` is accepted with zero diagnostics.
+  $SessionABH0639Positive = Read-NativeOutputWithExit 'check Session AB contract-only builtin ensures positive' $Hum @('check', 'fixtures/diagnostics/contract_only_builtin_ensures_ok.hum')
+  if ($SessionABH0639Positive.ExitCode -ne 0 -or -not $SessionABH0639Positive.Output.Contains('0 error(s), 0 warning(s)')) { throw "Session AB contract-only builtin in ensures must check clean, got: $($SessionABH0639Positive.Output)" }
   # Source-spelling coverage: the graph JSON emitter carries the source
   # spelling `a\nb` (backslash-n), not the decoded value. The decoded
   # TextDecodedValue lives in the canonical seal path (Rust-tested); no

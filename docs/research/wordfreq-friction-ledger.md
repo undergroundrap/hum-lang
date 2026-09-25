@@ -307,3 +307,19 @@ no new syntax, no general string library.
 - **0027 question:** is predicate analysis in `check` the GENERAL fix, or is
   the cheap-check / full-pipeline boundary the right shape and the docs the
   right fix? Not decided here — no surface invented.
+
+## 19. A user task named `list_count` still gets builtin treatment (found by probe, open)
+
+- **Class:** open-language-question.
+- **Finding:** WO28 #15 rejects contract-only builtin calls (e.g.
+  `list_count`) in task bodies with H0639, driven by the shared inventory
+  in `resolve.rs`. A probe confirms that a user-defined `task list_count`
+  does NOT shadow the builtin: calls to it in task bodies are still
+  rejected with H0639, because builtin recognition precedes user-definition
+  resolution. The task can be declared, but it cannot be called from a body.
+- **Unmade choice:** whether to reserve `list_count` (and future
+  contract-only builtins) like H0637 reserves `text_split`, `stdout_write`,
+  etc. — i.e., reject the declaration itself with a reserved-name
+  diagnostic — or to allow user shadowing. Nothing was changed; the probe
+  only records the current behavior. This needs a semantic decision before
+  any reservation surface is built.

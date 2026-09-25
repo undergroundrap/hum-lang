@@ -1,0 +1,24 @@
+module fixtures.diagnostics.contract_only_builtin_app_body_fail
+
+app contract_only_builtin_app {
+  why:
+    misuse fixture: `list_count` in an app-scope task body is a checker
+    error (H0639), exactly like module scope
+
+  starts with:
+    run_tool
+
+  task run_tool(items: List Text) {
+    why:
+      app-scope task body misuse
+
+    cost:
+      time: O(n)
+      space: O(1)
+      check: warn
+
+    does:
+      let matches = list_count(items, "hum")
+      return
+  }
+}
