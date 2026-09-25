@@ -5290,11 +5290,27 @@ function Invoke-HumCompilerCorpusChecks {
     if ($SessionAGDenied.ExitCode -ne 1 -or -not $SessionAGDenied.Stderr.Contains('WordfreqError.read') -or -not $SessionAGDenied.Stderr.Contains('FileReadError.denied') -or $SessionAGDenied.Stderr.Contains('panicked')) { throw "Session AG ungranted app entry must fail closed with typed WordfreqError.read caused by FileReadError.denied, got exit $($SessionAGDenied.ExitCode); stderr: $($SessionAGDenied.Stderr)" }
     $global:LASTEXITCODE = 0
   } else {
-    # Non-Windows: native Path input is unavailable by platform design;
-    # the positive file-read path is Windows-only. Assert the fail-closed
-    # unavailability instead of claiming file-read coverage.
-    $SessionAGUnavailable = Read-NativeArgumentListWithExit 'run Session AG wordfreq native path unavailable' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', '--allow=files.read=fixtures/wordfreq/sample.txt', '--args', 'fixtures/wordfreq/sample.txt')
-    if ($SessionAGUnavailable.ExitCode -eq 0 -or -not ($SessionAGUnavailable.Stdout.Contains('native_path_input_unavailable_on_non_windows_v0') -or $SessionAGUnavailable.Stderr.Contains('native_path_input_unavailable_on_non_windows_v0'))) { throw 'Session AG non-Windows must fail closed with native path unavailability' }
+    # Non-Windows (unix): WO28 #7 ports the read mechanics (component walk,
+    # P4 ordinary-file enforcement, P2 identity, exact 1 MiB cap, strict
+    # UTF-8), but property P1 (not network-backed) is unproven on every
+    # non-Windows platform (decision 0029, pending its implementing Work
+    # Order). The app entry therefore executes through the type gate and
+    # refuses at the locality gate with FileReadError.unavailable -- the
+    # same typed refusal shape as Windows, up to the locality gate. The
+    # byte-exact success path becomes provable on non-Windows when WO29
+    # lands (labelled grant per 0029 ruling 5, or proof).
+    $SessionAGFixture = Join-Path (Join-Path (Join-Path $RepoRoot 'fixtures') 'wordfreq') 'sample.txt'
+    $SessionAGFileRead = Read-NativeBytesWithExit 'run Session AG wordfreq app entry P1-unproven refusal' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)
+    $SessionAGStderr = $SessionAGFileRead.Stderr
+    if ($SessionAGFileRead.ExitCode -ne 1) { throw "Session AG wordfreq app entry must exit 1 on the P1-unproven locality refusal, got $($SessionAGFileRead.ExitCode); stderr: $SessionAGStderr" }
+    if ($SessionAGFileRead.Bytes.Count -ne 0) { throw "Session AG wordfreq app entry must write no stdout before the refused read; stderr: $SessionAGStderr" }
+    if (-not $SessionAGStderr.Contains('WordfreqError.read') -or -not $SessionAGStderr.Contains('FileReadError.unavailable')) { throw "Session AG wordfreq app entry must fail closed with typed WordfreqError.read caused by FileReadError.unavailable (P1 locality unproven on non-Windows, pending 0029 Work Order), got exit $($SessionAGFileRead.ExitCode); stderr: $SessionAGStderr" }
+    if ($SessionAGStderr.Contains('panicked')) { throw "Session AG wordfreq app entry must fail closed without panicking; stderr: $SessionAGStderr" }
+    # Non-Windows misuse: without the files.read grant the APP entry fails
+    # closed with the typed denial (WordfreqError.read caused by
+    # FileReadError.denied), never a panic or generic trap.
+    $SessionAGDenied = Read-NativeArgumentListWithExit 'run Session AG wordfreq ungranted app entry denial' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', '--args', $SessionAGFixture)
+    if ($SessionAGDenied.ExitCode -ne 1 -or -not $SessionAGDenied.Stderr.Contains('WordfreqError.read') -or -not $SessionAGDenied.Stderr.Contains('FileReadError.denied') -or $SessionAGDenied.Stderr.Contains('panicked')) { throw "Session AG ungranted app entry must fail closed with typed WordfreqError.read caused by FileReadError.denied, got exit $($SessionAGDenied.ExitCode); stderr: $($SessionAGDenied.Stderr)" }
     $global:LASTEXITCODE = 0
   }
 

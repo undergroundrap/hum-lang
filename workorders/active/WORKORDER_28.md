@@ -63,11 +63,24 @@ defines the rule; the checker and runtime must follow it. Executes after
 **#7 — portable non-Windows file read.** Ledger #7: the `files_read_text`
 positive path is Windows-only; other platforms reject the grant
 (`native_path_input_unavailable_on_non_windows_v0`), so the wordfreq
-success path is provable nowhere but Windows. Define and implement the
-portable non-Windows file read so the success path is provable on all
-platforms. If implementing portability requires new language surface or an
-unmade semantic choice, STOP and report to the BDFL instead of inventing
-it.
+success path is provable nowhere but Windows. Port the read mechanics
+under `cfg(unix)` with no macOS-specific code: component walk, P4
+ordinary-file enforcement (reject symlinks, devices, FIFOs, and other
+non-regular files), P2 identity (the opened file is the file read),
+exact 1 MiB cap, strict UTF-8. Do NOT define or implement a Linux P1
+locality proof (writing the proof is security policy, reserved to the
+BDFL/research lane), do NOT add the decision-0029 operator-grant escape
+hatch, and do NOT weaken the Windows locality crate. P1 remains unproven
+on every non-Windows platform, so execution still refuses with
+`FileReadError.unavailable` at the locality gate; the
+`native_path_input_unavailable_on_non_windows_v0` reason is replaced
+with an honest P1-unproven reason (decision 0029, pending its
+implementing Work Order). Acceptance: #7 delivers portable read
+mechanics exercised on Ubuntu CI up to the locality gate; the success
+path becomes provable on non-Windows when WO29 lands (labelled grant
+per 0029 ruling 5, or proof). If implementing portability requires new
+language surface or an unmade semantic choice, STOP and report to the
+BDFL instead of inventing it.
 
 **Optional — wordfreq prints the frequency summary.** Once #13 and
 decision 0028 land, wordfreq prints a `word: count` summary using nested
@@ -122,7 +135,11 @@ future map/dictionary design question), which also need #13.
    block close, `if`-block lets scoped in the runtime; leak and shadow
    probes across `if` and `for each` pass, and the probe-3 program is
    rejected at check time; both platforms green.
-5. #7: the wordfreq success path is provable on non-Windows.
+5. #7: portable read mechanics are exercised on Ubuntu CI up to the
+   locality gate (exit 1, `WordfreqError.read` caused by
+   `FileReadError.unavailable`, no panic); the wordfreq success path
+   becomes provable on non-Windows when WO29 lands (labelled grant per
+   0029 ruling 5, or proof).
 6. Decision 0028: `uint_to_text` / `int_to_text` probes pass; wordfreq
    prints `word: count` lines via sequential writes. The full frequency
    summary (unique words and counts) remains blocked on quadratic nested
