@@ -52,6 +52,25 @@ detection so both names participate. Its parents must match base/head. Record
 those SHAs, integration SHA/tree, profile and run/attempt. Base changes require
 fresh integration evidence.
 
+### Pre-push gates (BDFL ruling, 2026-09-25)
+
+The local pre-push gates are:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --bin hum`
+- `tools/test_ci_policy.ps1`
+- hand-running the exact commands behind any added or changed Session AB
+  assertions, and inspecting their output
+
+The local `tools/check_all.ps1 -EvidenceTier Fast` is not a pre-push
+requirement. The implementer VM is Linux-only, so a local run never covered
+Windows; the CI fixed profile (Full for `src/` changes) is the gate.
+
+Code PRs open as drafts. Red CI on a draft is expected and acceptable: `main`
+is protected and nothing merges on red. A PR is marked ready only once CI is
+green, with the run ID reported.
+
 ### Workflow and trust boundary
 
 `validation.yml` runs on PR updates, nightly schedule, or separately authorized
