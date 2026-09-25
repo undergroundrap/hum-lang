@@ -4616,6 +4616,8 @@ pub(crate) mod tests {
     use crate::operator_grant::OperatorGrantPolicy;
     use crate::parser;
 
+    #[cfg(any(windows, unix))]
+    use super::run_program_with_file_adapters;
     use super::{
         OUTPUT_LIMIT_BYTES, OutputAdapter, OutputAdapterError, ReplayAdapter, RunAdapters,
         RunOutcome, run_native_constant_text, run_native_integer_sign, run_program,
@@ -4625,8 +4627,6 @@ pub(crate) mod tests {
     };
     #[cfg(windows)]
     use super::{RunReport, Value, parse_arg};
-    #[cfg(any(windows, unix))]
-    use super::run_program_with_file_adapters;
 
     #[derive(Default)]
     struct RecordingOutput {
