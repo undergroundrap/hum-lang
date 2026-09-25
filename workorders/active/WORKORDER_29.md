@@ -18,24 +18,35 @@ authorization.
 
 Implement decision 0029's per-platform property proofs (P1–P4) plus the
 explicit operator grant, with evidence labelled per decision 0015, and flip
-Session AG to the grant-path byte-exact success on both platforms.
+Session AG to the trust-path byte-exact success on both platforms.
 
-Queue: this Work Order executes **after WO28 #7**. WO28 #7 (in progress,
-builder lane) ports the read mechanics fail-closed with a `P1 unproven`
-refusal. WO29 turns the capability on. #7 builds the mechanics and the
-fail-closed refusal against the proof specification in Item 1 below; WO29
-supplies the proof itself, the Windows widening, the macOS declaration, the
-grant surface, and the Session AG flip.
+Queue: this Work Order is specified to execute **after WO28 #7**, once
+activated. WO28 #7 (in progress, builder lane; PR #42 open) proceeds under
+the earlier ruling. A draft Work Order changes nothing until it is
+activated; the proof specification in Item 1 below is proposed for WO29 and
+is not in force for #7.
 
-## What the grant does and does not waive
+## The trust attestation: what it waives and what it does not
 
-The operator grant waives **proof of P1** (the backing is not network-backed)
-and the physical-swap leg of P3 (no mid-read substitution). It does **not**
-waive: P4 (ordinary file, via `is_ordinary_fixed_target`), the component walk,
-`O_NOFOLLOW`, the before/after fstat observations, the 1 MiB read bound, or
-UTF-8 validation. Those stay wherever the gate ends up (decision 0029, §4).
-Evidence on the grant path must say exactly this: locality is
-`trusted-not-proven` / `external-trust`; the read hardening still ran.
+Decision 0029 ruling 4 requires a distinct, unmistakable operator
+attestation. Reusing the 0017 capability-consent flag (`--allow
+files.read=<path>`) for locality would make every existing read permission
+silently waive P1 — the smuggling 0029 §3.1 warns about ("Admitting it
+silently would smuggle an external-trust dependency into a grant the
+operator believes is local"). Ocean's ruling: the locality attestation is a
+**separate flag**, `--trust-locality files.read=<path>`.
+
+The `--trust-locality` attestation waives **proof of P1** (the backing is not
+network-backed) and the physical-swap leg of P3 (no mid-read substitution).
+It does **not** waive: the 0017 capability consent (a matching `--allow
+files.read=<path>` for the same path is still required — the trust flag is
+valid only with it, never instead of it), P4 (ordinary file, via
+`is_ordinary_fixed_target`), the component walk, `O_NOFOLLOW`, the
+before/after fstat observations, the 1 MiB read bound, or UTF-8 validation.
+Those stay wherever the gate ends up (decision 0029, §4). Without the trust
+flag, unproven storage is refused exactly as today. Evidence on the trust
+path must say exactly this: locality is `trusted-not-proven` /
+`external-trust`; the read hardening still ran.
 
 ---
 
@@ -57,7 +68,7 @@ https://www.kernel.org/doc/Documentation/filesystems/proc.rst).
 
 Select the entry with the **longest mount-point prefix** of P. Record the
 filesystem type, the mount source, and the `major:minor` device. Refuse
-(`Unproven`, grant path) when the filesystem type is:
+(`Unproven`, trust path) when the filesystem type is:
 
 - a network protocol: `nfs`, `nfs4`, `cifs`, `smb3`/`smb`, `ncpfs`, `afp`,
   `ceph`; or
@@ -88,9 +99,25 @@ symlink target and the disk name pattern.
   grant-only. The classifier must *detect and decline*; it must never argue
   host-locality from guest-visible data.
 - **Proven by this Work Order:**
-  - `nvme*n*` — NVMe, PCIe-attached local media;
-  - `sd*` on a local HBA (SATA/SAS via libata; the `<disk>/device` chain
-    terminates in a local ATA/SAS host);
+  - `nvme*n*` **and** the controller's `transport` attribute reads exactly
+    `pcie`. NVMe-oF (tcp/rdma/fc) presents the same `nvme*n*` device nodes
+    and is network storage, so the name pattern alone is not proof. The
+    attribute is `/sys/class/nvme/nvmeX/transport` — resolve the controller
+    directory as the parent of the `<disk>/device` symlink target and read
+    `transport` there. Source: the stable sysfs ABI
+    (`Documentation/ABI/stable/sysfs-nvme`: "transport: Shows the transport
+    type string. Possible values: 'pcie', 'tcp', 'rdma', 'fc', 'loop'"),
+    https://docs.kernel.org/admin-guide/abi-stable.html. A missing or
+    unreadable `transport` attribute is `Unproven` — fail closed.
+  - `sd*` on a positively-identified local host bus adapter: walk the sysfs
+    device chain from `<disk>/device` upward, collecting driver names from
+    the `driver` symlinks. P1 is proven **iff** a driver in the chain is in
+    the positive allowlist of local HBA drivers — seeded with the libata
+    family (e.g. `ahci`, `ata_piix`) and named local SAS HBA drivers. The
+    exact list is the builder's choice, reviewed at implementation; widening
+    it is a decision, not an implementation detail. **Everything else is
+    `Unproven`**, explicitly including virtio-scsi, iSCSI, Fibre Channel,
+    USB mass storage, Hyper-V storvsc, and VMware PVSCSI.
   - `mmcblk*` with `removable == 0` **and** `device/type` of `MMC` (eMMC) or
     `SD` — this incorporates the eMMC/SD P3 research argument (commit
     `c3ed1adcd36b18b2827f202d570edc7662504052`, research lane) by reference:
@@ -99,7 +126,7 @@ symlink target and the disk name pattern.
     argument — the removable bit is the only kernel witness to physical
     fixity, so trusting a `1` to mean "fixed" would be the claim proving
     itself).
-- **Not proven by this Work Order (grant path):** `dm-*` (device-mapper,
+- **Not proven by this Work Order (trust path):** `dm-*` (device-mapper,
   including LUKS), `md*` (MD RAID), `loop*`, `nbd`, `rbd`, `drbd`, and any
   device the classifier cannot resolve. These are honest `Unproven`, not
   refusals of the concept — a later decision may widen the admission with its
@@ -118,6 +145,12 @@ requires.
 What this proof does **not** claim: it does not prove the absence of a
 hypervisor — ruling 3 handles that by forcing the grant. It proves the
 guest-visible storage stack terminates in locally-attached media.
+
+**Stated limitations** (decision 0029 §8: limitations written down, not
+discovered in an incident): anonymous-device filesystems — overlay, tmpfs —
+whose mountinfo device is `0:0` or otherwise does not resolve under
+`/sys/dev/block` fail step 2 and are grant-only; btrfs spanning multiple
+devices fails the single-device identity check and is grant-only.
 
 ## Item 2 — Windows: widen proof admission to fixed, non-removable eMMC/SD
 
@@ -180,7 +213,7 @@ auditable):
   stability contract (driver-reported keys change across releases), is fragile
   under sandboxing, and collapses to the grant on VMs per ruling 3 anyway: it
   buys proof only on bare-metal Macs at high maintenance cost.
-- The grant path is the same mechanism on every platform (decision 0029,
+- The trust path is the same mechanism on every platform (decision 0029,
   principle 3: no environment special cases), and CI's macOS runs are hosted
   runners — grant regardless. The cost of the honest declaration is one
   visible flag on the command line.
@@ -188,42 +221,41 @@ auditable):
 A future decision may admit a coarse macOS proof if its holes are closed;
 that widening is a decision, not an implementation detail.
 
-## Item 4 — the operator grant: exact spelling, no ambient construction, labelled evidence
+## Item 4 — the trust attestation: exact spelling, no ambient construction, labelled evidence
 
-- **Exact CLI spelling (pinned):** `--allow files.read=<path>` and the
-  joined form `--allow=files.read=<path>`. These are the only spellings. Both
-  exist today (the `--allow` / `--allow=` argv handling in `src/main.rs`
-  feeding `OperatorGrantPolicy` in `src/operator_grant.rs`); this Item pins
-  them as the grant's surface and forbids synonyms.
+The locality attestation is a **distinct flag**, not a reuse of the 0017
+capability consent. Ocean's ruling: `--trust-locality files.read=<path>`.
+
+- **Exact CLI spelling (pinned):** `--trust-locality files.read=<path>`.
+  This is the only spelling the Work Order pins. (The builder defines
+  whether the `=`-joined form is also accepted; the space form must work.)
 - **Per-invocation, per-path, command-line only** (decision 0029, ruling 4):
-  the grant is constructed fresh from `argv` on each `hum run` invocation —
-  today `OperatorGrantPolicy::allow_os`/`deny_os` in `src/operator_grant.rs`,
-  fed from the `--allow` / `--allow=` argv handling in `src/main.rs` (~line
-  1956). The granted path must exactly match the requested native path, and
-  at most one distinct native `files.read=<path>` grant exists per
-  invocation (exact duplicates are idempotent — today's
-  `OperatorGrantPolicy` invariant); `--deny files.read` overrides allow
-  (today's `exact_deny_overrides_allow_v0` precedence). **No environment
-  variable, config file, or persistent setting may confer the grant.**
-  Acceptance includes a negative test: setting a plausible env var (e.g.
-  `HUM_ALLOW_FILES_READ`) must not grant anything, and the only construction
-  site of the grant policy stays argv parsing (grep-level: `allow_os` is
-  called only from argv handling).
+  the attestation is given fresh on `argv` on each `hum run` invocation, for
+  one exact native path. It is **valid only with a matching `--allow
+  files.read=<path>` for the same path** — capability consent (0017) and
+  locality attestation (0029) are separate facts, and the read requires
+  both. The trust flag is never a substitute for `--allow`. **No
+  environment variable, config file, or persistent setting may confer the
+  attestation.** Acceptance includes negative tests: setting a plausible env
+  var (e.g. `HUM_TRUST_LOCALITY`) must not attest anything, and `--allow`
+  alone on unprovable storage still refuses exactly as today (no silent P1
+  waiver — the smuggling 0029 §3.1 warns about).
 - **Evidence labels (decision 0015 vocabulary):** the file-read authority
   event's locality classification is one of 0015's classes —
   - `proved` — P1–P4 evidenced by the platform proof, evidence bundle
     attached;
-  - `external-trust` — admitted by operator grant; the evidence records
-    `operator_allow_present: true`, the classifier's `Unproven` reason, and
-    the grant facts: exact path, scope (`one_run`), lifetime
-    (`exact_native_path`), and the literal human label below.
+  - `external-trust` — admitted by operator attestation; the evidence
+    records `trust_locality_present: true`, the attested path, the matching
+    `--allow` path, the classifier's `Unproven` reason, and the literal
+    human label below.
   - Human output must contain the literal string `trusted-not-proven`,
     unmissable — e.g. a stderr evidence line
-    `files.read <path>: trusted-not-proven (operator grant, external-trust;
-    classifier: <reason>)`. Exact line format is the builder's choice; the
-    acceptance is the literal string.
-  - JSON output must contain the classification value `external-trust` (field
-    name builder's choice, value pinned) alongside the grant facts above.
+    `files.read <path>: trusted-not-proven (operator attestation,
+    external-trust; classifier: <reason>)`. Exact line format is the
+    builder's choice; the acceptance is the literal string.
+  - JSON output must contain the classification value `external-trust`
+    (field name builder's choice, value pinned) alongside the attestation
+    facts above.
 
 ## Item 5 — evidence surfaces (human + JSON)
 
@@ -239,44 +271,48 @@ evidence`, or a run-evidence flag) is the builder's choice; the pinned
 content is the label strings from Item 4. Session AG (Item 6) pins both
 surfaces, so this Item's acceptance is the AG test, not a screenshot.
 
-## Item 6 — Session AG end state: byte-exact success under the grant, visibly labelled, both platforms
+## Item 6 — Session AG end state: byte-exact success under the trust attestation, visibly labelled, both platforms
 
 Replace the current pins: the Windows hosted-runner locality-refusal pin
 (from the PR #30 follow-up) and the non-Windows native-path-unavailable pin
 (from WO28 #7). The new assertions, on **both** Windows and Ubuntu:
 
 - `hum run examples/tools/wordfreq.hum --allow stdout.write
-  --allow=files.read=<fixture path> --args <fixture path>` exits 0, where the
+  --allow=files.read=<fixture path> --trust-locality
+  files.read=<fixture path> --args <fixture path>` exits 0, where the
   fixture path is spelled per-OS as the current pins do (repo-relative on
-  Ubuntu, absolute on Windows) and the grant path exactly matches the
+  Ubuntu, absolute on Windows) and the attested path exactly matches the
   requested path.
 - Stdout is byte-exact `hum\nlang\nhum\n` (12 bytes) for
   `fixtures/wordfreq/sample.txt` (15 bytes: `hum␣␣lang\n\nhum\n`).
 - The evidence is asserted on both surfaces: the human output contains the
   literal `trusted-not-proven`; the JSON output contains the `external-trust`
-  classification with the grant facts. On CI both platforms' storage is
+  classification with the attestation facts. On CI both platforms' storage is
   unprovable (Azure runners are virtual/SCSI), so these assertions exercise
-  the grant path, not the proof path — the proof paths are covered by unit
+  the trust path, not the proof path — the proof paths are covered by unit
   tests with fixtures/mocks.
-- The misuse pins stay: without the grant, the read fails closed with
-  `FileReadError.denied` (the existing pin is not removed).
+- The misuse pins stay, plus the new one: without the trust flag, the read
+  fails closed with `FileReadError.denied` even when `--allow` is present
+  (the existing no-grant pin is not removed).
 
-The grant flag sits in `check_all.ps1`'s Session AG invocation — a
+The trust flag sits in `check_all.ps1`'s Session AG invocation — a
 version-controlled, reviewed file. That satisfies decision 0029 ruling 4's
 "in CI it sits visibly in the workflow file": visible means reviewable, not
 ambient.
 
-## Resolution of WO28 #7's open semantic questions
+## Proposed answers to WO28 #7's open semantic questions
 
-WO28 #7's cold-start map (2026-09-25) stopped on four questions. This Work
-Order answers all four; #7's STOP is lifted:
+WO28 #7's cold-start map (2026-09-25) stopped on four questions. This draft
+**proposes** answers for WO29; they take effect only if and when WO29 is
+activated. #7 proceeds under the earlier ruling (PR #42 is open) — a draft
+Work Order changes nothing until it is activated:
 
-- **Q1 (what is the Linux P1 proof?):** Item 1 defines it exactly. #7 builds
-  the fail-closed `P1 unproven` refusal against this specification.
+- **Q1 (what is the Linux P1 proof?):** Item 1 defines it exactly.
 - **Q2 (macOS scope):** grant only — Item 3.
-- **Q3 (proof-vs-grant ordering):** the proof *definition* lives in WO29; #7
-  is mechanical portability plus the honest refusal. Confirmed.
-- **Q4 (does Session AG use the Ubuntu grant?):** yes — Item 6.
+- **Q3 (proof-vs-grant ordering):** the proof *definition* belongs to WO29;
+  #7 is mechanical portability plus the honest refusal.
+- **Q4 (does Session AG use the Ubuntu grant?):** yes — Item 6, with the
+  distinct trust flag.
 
 ## Lane assignments and STOP conditions
 
