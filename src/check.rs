@@ -170,32 +170,6 @@ fn check_task(parsed: &ParseOutput, item: &Item, task: &Task, diagnostics: &mut 
         );
     }
 
-    if task.name == "uint_to_text" {
-        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(189), "task_name",
-            Diagnostic::error(
-                DiagnosticCode::RESERVED_UINT_TO_TEXT_BUILTIN_NAME,
-                "task `uint_to_text` redeclares Hum's reserved integer-rendering built-in",
-                Some(task.span.clone()),
-            )
-            .with_help(
-                "Rename this user task; `uint_to_text` is reserved for `uint_to_text(n: UInt) -> Text`.",
-            ),
-        );
-    }
-
-    if task.name == "int_to_text" {
-        emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(191), "task_name",
-            Diagnostic::error(
-                DiagnosticCode::RESERVED_INT_TO_TEXT_BUILTIN_NAME,
-                "task `int_to_text` redeclares Hum's reserved integer-rendering built-in",
-                Some(task.span.clone()),
-            )
-            .with_help(
-                "Rename this user task; `int_to_text` is reserved for `int_to_text(n: Int) -> Text`.",
-            ),
-        );
-    }
-
     if task.section("why").is_none() && task_missing_why_is_suspicious(task) {
         emit(diagnostics, crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(61), "task_why",
             Diagnostic::warning(
@@ -1314,52 +1288,6 @@ mod tests {
         assert_eq!(
             DiagnosticCode::RESERVED_TEXT_SPLIT_BUILTIN_NAME.as_str(),
             "H0637"
-        );
-    }
-
-    // Decision 0028: the `uint_to_text` name is reserved for the builtin.
-    #[test]
-    fn uint_to_text_task_name_is_reserved() {
-        let source = r#"task uint_to_text(n: UInt) -> Text {
-  why:
-    user task must not shadow the builtin
-
-  does:
-    return "0"
-}
-"#;
-        let parsed = parse_source("reserved_uint_to_text.hum", source);
-        let diagnostics = check_file(&parsed);
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic.severity == Severity::Error
-                && diagnostic.code == DiagnosticCode::RESERVED_UINT_TO_TEXT_BUILTIN_NAME
-        }));
-        assert_eq!(
-            DiagnosticCode::RESERVED_UINT_TO_TEXT_BUILTIN_NAME.as_str(),
-            "H0641"
-        );
-    }
-
-    // Decision 0028: the `int_to_text` name is reserved for the builtin.
-    #[test]
-    fn int_to_text_task_name_is_reserved() {
-        let source = r#"task int_to_text(n: Int) -> Text {
-  why:
-    user task must not shadow the builtin
-
-  does:
-    return "0"
-}
-"#;
-        let parsed = parse_source("reserved_int_to_text.hum", source);
-        let diagnostics = check_file(&parsed);
-        assert!(diagnostics.iter().any(|diagnostic| {
-            diagnostic.severity == Severity::Error
-                && diagnostic.code == DiagnosticCode::RESERVED_INT_TO_TEXT_BUILTIN_NAME
-        }));
-        assert_eq!(
-            DiagnosticCode::RESERVED_INT_TO_TEXT_BUILTIN_NAME.as_str(),
-            "H0643"
         );
     }
 

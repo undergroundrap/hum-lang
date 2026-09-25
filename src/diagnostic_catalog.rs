@@ -1797,42 +1797,6 @@ diagnostic_causes!(
         "check",
         "builtin_call_relationship",
         "builtin_call_route"
-    ),
-    (
-        188,
-        "uint_to_text_call_shape_v0",
-        INVALID_UINT_TO_TEXT_CALL,
-        "front_end_semantics",
-        "full_type_check",
-        "builtin_call_relationship",
-        "builtin_call_route"
-    ),
-    (
-        189,
-        "reserved_uint_to_text_builtin_name_v0",
-        RESERVED_UINT_TO_TEXT_BUILTIN_NAME,
-        "front_end_semantics",
-        "check",
-        "intent_source_node",
-        "intent_check_route"
-    ),
-    (
-        190,
-        "int_to_text_call_shape_v0",
-        INVALID_INT_TO_TEXT_CALL,
-        "front_end_semantics",
-        "full_type_check",
-        "builtin_call_relationship",
-        "builtin_call_route"
-    ),
-    (
-        191,
-        "reserved_int_to_text_builtin_name_v0",
-        RESERVED_INT_TO_TEXT_BUILTIN_NAME,
-        "front_end_semantics",
-        "check",
-        "intent_source_node",
-        "intent_check_route"
     )
 );
 
@@ -2165,10 +2129,6 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         91 => 91,
         92 => 92,
         93 => 93,
-        94 => 94,
-        95 => 95,
-        96 => 96,
-        97 => 97,
         _ => u16::MAX,
     }
 }
@@ -2923,42 +2883,6 @@ diagnostic_code_allocations!(
         INVALID_CONTRACT_ONLY_BUILTIN_CALL,
         "H0639",
         "invalid contract-only builtin call",
-        FRONT_END_SEMANTICS,
-        "front_end_semantics",
-        "check"
-    ),
-    (
-        94,
-        INVALID_UINT_TO_TEXT_CALL,
-        "H0640",
-        "invalid uint_to_text call",
-        FRONT_END_SEMANTICS,
-        "front_end_semantics",
-        "full_type_check"
-    ),
-    (
-        95,
-        RESERVED_UINT_TO_TEXT_BUILTIN_NAME,
-        "H0641",
-        "reserved uint-to-text built-in name redeclared",
-        FRONT_END_SEMANTICS,
-        "front_end_semantics",
-        "check"
-    ),
-    (
-        96,
-        INVALID_INT_TO_TEXT_CALL,
-        "H0642",
-        "invalid int_to_text call",
-        FRONT_END_SEMANTICS,
-        "front_end_semantics",
-        "full_type_check"
-    ),
-    (
-        97,
-        RESERVED_INT_TO_TEXT_BUILTIN_NAME,
-        "H0643",
-        "reserved int-to-text built-in name redeclared",
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "check"
@@ -3787,30 +3711,6 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "A task body calls a contract-only Predicate v2 builtin (for example `list_count`), which has no executable meaning; the runner traps on it.",
         repair: "Move the call into a `needs:`/`ensures:` contract predicate, or replace it with an executable builtin such as `list_len`.",
-    },
-    DiagnosticInfo {
-        code: DiagnosticCode::INVALID_UINT_TO_TEXT_CALL,
-        default_severity: Severity::Error,
-        explanation: "A `uint_to_text` call is rejected: it takes exactly one argument compatible with `UInt` (a `UInt` value or an integer literal).",
-        repair: "Pass exactly one `UInt` argument. The builtin is infallible (decision 0028): every `UInt` has a decimal rendering, so no `try` is needed.",
-    },
-    DiagnosticInfo {
-        code: DiagnosticCode::RESERVED_UINT_TO_TEXT_BUILTIN_NAME,
-        default_severity: Severity::Error,
-        explanation: "A user task redeclares the exact `uint_to_text` name reserved for Hum's integer-rendering built-in, which would split callable identity across stages.",
-        repair: "Rename the user task and keep `uint_to_text` reserved for `uint_to_text(n: UInt) -> Text`.",
-    },
-    DiagnosticInfo {
-        code: DiagnosticCode::INVALID_INT_TO_TEXT_CALL,
-        default_severity: Severity::Error,
-        explanation: "An `int_to_text` call is rejected: it takes exactly one argument compatible with `Int` (an `Int` value or an integer literal).",
-        repair: "Pass exactly one `Int` argument. The builtin is infallible (decision 0028): every `Int` has a decimal rendering, so no `try` is needed.",
-    },
-    DiagnosticInfo {
-        code: DiagnosticCode::RESERVED_INT_TO_TEXT_BUILTIN_NAME,
-        default_severity: Severity::Error,
-        explanation: "A user task redeclares the exact `int_to_text` name reserved for Hum's integer-rendering built-in, which would split callable identity across stages.",
-        repair: "Rename the user task and keep `int_to_text` reserved for `int_to_text(n: Int) -> Text`.",
     },
 ];
 
@@ -4784,12 +4684,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 98);
+        assert_eq!(summary.active_codes, 94);
         assert_eq!(summary.retired_codes, 0);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 191);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 187);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
@@ -4846,7 +4746,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 98);
+        assert_eq!(all().len(), 94);
     }
 
     #[test]

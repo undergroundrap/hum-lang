@@ -3014,11 +3014,17 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         let Value::Int(n) = value else {
             return Err("uint_to_text expects a UInt value".to_string());
         };
-        // Decision 0028: infallible rendering of the received value. A negative
-        // `n` here implies a negative already reached a `UInt` position through
-        // the pre-existing runtime representation gap (integers are `Value::Int`
-        // and the checker does not stop negatives flowing into `UInt` slots);
-        // that gap is out of scope, and trapping would break infallibility.
+        // Decision 0028 (rework): the checker's infallibility promise rests
+        // on `UInt` never being negative. A negative reaching this builtin
+        // (via the pre-existing runtime representation gap: integers are
+        // `Value::Int` and negatives flow into `UInt` positions, ledger #22)
+        // is an invariant violation, so trap like division by zero rather
+        // than rendering a silent "-5" lie.
+        if n < 0 {
+            return Err(format!(
+                "uint_to_text invariant violation: received negative value {n}, but UInt cannot be negative"
+            ));
+        }
         Ok(Evaluated::Value(Value::Text(n.to_string())))
     }
 
@@ -8018,6 +8024,52 @@ task set_after_move() -> Int {
             .map(|bytes| String::from_utf8(bytes.clone()).expect("ascii output"))
             .collect();
         assert_eq!(text, vec!["0", "42", "1000000", "9223372036854775807"]);
+    }
+
+    // Decision 0028 (rework): a negative reaching `uint_to_text` is an
+    // invariant violation and traps (like division by zero) instead of
+    // rendering "-5". The checker accepts the call exactly like a user-task
+    // call, so the trap is the runtime's fail-closed backstop.
+    #[test]
+    fn uint_to_text_negative_value_traps() {
+        let program = fixture_program(
+            "decision_0028_uint_to_text_negative.hum",
+            r#"app render_probe {
+  why:
+    decision 0028 negative uint traps
+
+  uses:
+    stdout.write
+
+  starts with:
+    render
+
+  task render() -> Result Unit, OutputError {
+    why:
+      negative reaching uint_to_text traps
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output fails while running the app
+
+    does:
+      let t = uint_to_text(0 - 5)
+      let w0 = try stdout_write(t)
+  }
+}
+"#,
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(&program, None, &[], &allowed_stdout(), &mut output);
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap(
+                "uint_to_text invariant violation: received negative value -5, but UInt cannot be negative"
+                    .to_string()
+            )
+        );
     }
 
     #[test]
