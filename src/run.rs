@@ -1944,9 +1944,29 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
             if let Some(condition) = header_body(text, "if") {
                 let close = matching_close(lines, index)?;
+                // WO28 #16: scope if-block `let`/`change` bindings like
+                // for-each binders — save shadowed bindings, restore after
+                // the block on every path.
+                let block_names = block_binding_names(lines, index + 1, close);
+                let saved: Vec<(String, Option<RuntimeBinding>)> = block_names
+                    .iter()
+                    .map(|name| (name.clone(), env.get(name).cloned()))
+                    .collect();
+                let restore_block_bindings = |env: &mut Env| {
+                    for (name, previous) in &saved {
+                        restore_binding(env, name, previous.clone());
+                    }
+                };
                 match self.eval_expr(condition, env, &line.span, task_name)? {
                     Evaluated::Value(value) if as_bool(&value)? => {
-                        let flow = self.eval_block(lines, index + 1, close, env, task_name)?;
+                        let flow = match self.eval_block(lines, index + 1, close, env, task_name) {
+                            Ok(flow) => flow,
+                            Err(error) => {
+                                restore_block_bindings(env);
+                                return Err(error);
+                            }
+                        };
+                        restore_block_bindings(env);
                         if flow != Flow::Continue {
                             return Ok(flow);
                         }
@@ -1981,11 +2001,28 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                     .map(|root| self.push_active_iteration(root, line.span.clone()));
                 let name = name.trim();
                 let previous = env.get(name).cloned();
+                // WO28 #16: scope for-each body `let`/`change` bindings per
+                // iteration, like if-block bindings. The binder itself is
+                // managed separately below.
+                let body_names: Vec<String> = block_binding_names(lines, index + 1, close)
+                    .into_iter()
+                    .filter(|n| n != name)
+                    .collect();
+                let body_saved: Vec<(String, Option<RuntimeBinding>)> = body_names
+                    .iter()
+                    .map(|n| (n.clone(), env.get(n).cloned()))
+                    .collect();
+                let restore_body_bindings = |env: &mut Env| {
+                    for (n, prev) in &body_saved {
+                        restore_binding(env, n, prev.clone());
+                    }
+                };
                 for value in values {
                     env.insert(name.to_string(), RuntimeBinding::local(value, false));
                     let flow = match self.eval_block(lines, index + 1, close, env, task_name) {
                         Ok(flow) => flow,
                         Err(error) => {
+                            restore_body_bindings(env);
                             restore_binding(env, name, previous.clone());
                             if active_iteration.is_some() {
                                 self.pop_active_iteration();
@@ -1993,6 +2030,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                             return Err(error);
                         }
                     };
+                    restore_body_bindings(env);
                     if flow != Flow::Continue {
                         restore_binding(env, name, previous);
                         if active_iteration.is_some() {
@@ -4357,6 +4395,40 @@ fn restore_binding(env: &mut Env, name: &str, previous: Option<RuntimeBinding>) 
     } else {
         env.remove(name);
     }
+}
+
+/// WO28 #16: collect the names bound by `let`/`change` at the top level of a
+/// block's line range, so an if-block can save/restore them like for-each
+/// binders. Nested blocks manage their own bindings.
+fn block_binding_names(lines: &[ExecLine], start: usize, end: usize) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut depth = 0usize;
+    for line in &lines[start..end.min(lines.len())] {
+        let text = line.text.trim();
+        if text == "}" {
+            depth = depth.saturating_sub(1);
+            continue;
+        }
+        if depth == 0 {
+            for keyword in ["let", "change"] {
+                if let Some(rest) = strip_keyword(text, keyword) {
+                    // Mirror eval_binding's name extraction: `name` or `name: Type`.
+                    let left = rest.split('=').next().unwrap_or("").trim();
+                    let name = left.split(':').next().unwrap_or("").trim();
+                    if !name.is_empty() && !names.iter().any(|n| n == name) {
+                        names.push(name.to_string());
+                    }
+                    break;
+                }
+            }
+        }
+        // The runtime executes `if` and `for each` blocks; track their
+        // openers so nested lets are not attributed to the outer block.
+        if header_body(text, "if").is_some() || header_body(text, "for each").is_some() {
+            depth += 1;
+        }
+    }
+    names
 }
 
 fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {

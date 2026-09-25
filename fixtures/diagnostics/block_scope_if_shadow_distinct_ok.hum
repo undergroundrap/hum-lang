@@ -1,0 +1,11 @@
+task if_shadow_distinct_ok(flag: Bool) -> UInt {
+  why:
+    WO28 #16: if-block shadow with distinct types; the outer fact survives
+
+  does:
+    let x = 3
+    if flag {
+      let x = "s"
+    }
+    return x
+}

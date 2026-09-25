@@ -243,10 +243,10 @@ no new syntax, no general string library.
   contract-only builtin in a task body with a typed diagnostic. WO28 orders
   this as #15, after #4.
 
-## 16. Block-scoped bindings leak in the checker and the runtime (found by probe, open)
+## 16. Block-scoped bindings leak in the checker and the runtime (found by probe, resolved)
 
 - **Class:** language (checker + runtime) — soundness gap, pre-existing (not
-  introduced by WO28 #13).
+  introduced by WO28 #13) → resolved by WO28 #16.
 - **Friction:** the resolver treats `if` blocks and `for each` headers as
   scopes — a name bound inside one is `H0601` not-visible after the block
   closes. But the full-type-check statement environment is flat per task: a
@@ -267,6 +267,17 @@ no new syntax, no general string library.
   already scopes `for each` binders. Tests: leak and shadow probes across
   `if` and `for each`; the probe program above must be rejected at check
   time. WO28 orders this as #16, after #15, before #7.
+- **Resolution (WO28 #16):** the full-type-check statement environment
+  (`src/full_type_check.rs`) is now a scope stack shared with the return
+  checker (`src/type_check.rs`) via `src/type_scopes.rs` — block headers
+  push a scope, `block_close` pops it, and the for-each binder lands in the
+  pushed scope. The runtime (`src/run.rs`) scopes `if`-block and for-each
+  body `let`/`change` bindings, restoring outer values on every path.
+  Probe-3 is now rejected with `type_errors=1`; the per-statement fact for
+  `return x` shows `actual=integer_literal` (outer UInt), not Text. The
+  binder probe (`let word = 3` + `for each word in words`) is rejected with
+  the return fact showing the outer type. Session AB asserts all of these
+  plus runtime probes returning the outer values.
 
 ## 17. Hosted-runner disks are refused by the drive-locality policy (found by probe, open)
 
@@ -323,3 +334,23 @@ no new syntax, no general string library.
   diagnostic — or to allow user shadowing. Nothing was changed; the probe
   only records the current behavior. This needs a semantic decision before
   any reservation surface is built.
+
+## 20. The return checker has no for-each binder typing; the two checkers disagree on types inside loops (found during #16 review, open)
+
+- **Class:** checker / stage disagreement, pre-existing (not introduced by
+  WO28 #16).
+- **Finding:** WO28 #16's review found that the binder-shadow fail fixture
+  does not prove the binder fix: `src/type_check.rs` (the return checker)
+  contains no for-each binder handling at all (no `for_each`/binder
+  anywhere in the file), so the return checker never sees the binder and
+  `type_errors=1` on that fixture happens with or without #16. The actual
+  leak lived in `full_type_check.rs`'s statement environment, which a
+  type-error fixture cannot observe under the restored stage precedence.
+- **Why it matters:** `full_type_check.rs` types the for-each binder (from
+  WO28 #13), while `type_check.rs` does not — the two checkers still
+  disagree on types inside loops. The disagreement is unobservable in the
+  current fixtures only because the shared `TypeScopeStack` in #16 keeps
+  the statement env honest; nothing in `type_check.rs` was changed.
+- **Recorded only; not fixed.** Any fix needs a semantic decision first
+  (decision 0027: missing surface is a STOP, gaps become decision records
+  before implementation).
