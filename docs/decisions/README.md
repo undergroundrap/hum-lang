@@ -37,6 +37,16 @@ standard library direction, backend strategy, or release posture.
 | [0018](0018-adopt-effect-polymorphism-model.md) | accepted under delegated authority (BDFL veto open) | Adopt open row-polymorphic effects with explicit capture guards. |
 | [0019](0019-relicense-apache-2.0.md) | accepted (BDFL reserved matter) | Relicense from AGPL-3.0 to Apache-2.0; add a trademark/name policy. |
 | [0020](0020-adopt-termination-measures-and-loop-bounds.md) | accepted (design only; authorizes no implementation) | Separate termination measures from quantitative loop bounds; pin a post-ownership termination stage; defer public `may diverge:`. |
+| [0021](0021-adopt-text-split-primitive.md) | accepted | Adopt `text_split` as the single text tokenization primitive. |
+| [0022](0022-text-literal-escape-sequences.md) | accepted | Adopt escape sequences in text literals. |
+| [0023](0023-dispatched-full-counts-as-integration-health.md) | accepted | Manually dispatched Full runs count as integration health. |
+| [0024](0024-state-performance-north-star.md) | accepted | State the performance north star; check and CI time are a performance budget too. |
+| [0025](0025-ci-routing-docs-governance-tooling-gaps.md) | accepted | Close the CI routing gaps for docs, governance, and tooling changes. |
+| [0026](0026-closed-world-accountability-as-a-scoped-design-objective.md) | accepted (scoped design objective) | Closed-world accountability as a scoped design objective and research plan. |
+| [0027](0027-adopt-program-driven-language-development.md) | accepted | Adopt program-driven language development: friction ledgers, general-vs-specific test. |
+| [0028](0028-text-rendering-concat-interpolation-integer-conversion.md) | accepted, Option E | Adopt integer-to-Text conversion now; defer concatenation until friction demands it. |
+| [0029](0029-what-storage-counts-as-trusted-local-for-file-reads.md) | accepted, Option D | Trusted-local file reads: per-platform property proofs plus explicit operator grant. |
+| [0030](0030-what-hum-check-reports.md) | accepted, Option B | `hum check` reports everything the static checker knows, gated on a clean cost measurement. |
 
 ## Template
 
