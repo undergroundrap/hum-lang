@@ -1015,6 +1015,32 @@ pub(crate) fn unknown_type_diagnostics(
         .collect()
 }
 
+/// Decision 0030 Option B: the `hum check` type-check stage. Consumes the
+/// COMPLETE type-check report diagnostics — unknown-type references (H0605)
+/// AND return-type mismatches (H0606) — not just H0605. Preserves diagnostic
+/// ownership (the public conversion carries each finding's help text), the
+/// report's internal precedence (returns are only checked when no unknown-
+/// type diagnostics exist), and the callable-parameter deduplication (H0605
+/// findings owned by a callable parameter span stay suppressed; H0606 spans
+/// are return statements and never match that filter).
+pub(crate) fn check_stage_diagnostics(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Vec<Diagnostic> {
+    build_report(program, diagnostics)
+        .diagnostics
+        .into_iter()
+        .filter(|diagnostic| {
+            if diagnostic.code == DiagnosticCode::UNKNOWN_TYPE_NAME {
+                !callable_parameter_owns_span(program, &diagnostic.source_span)
+            } else {
+                true
+            }
+        })
+        .map(|diagnostic| public_type_diagnostic(&diagnostic))
+        .collect()
+}
+
 pub(crate) fn diagnostic_occurrence_set(
     program: &Program,
     diagnostics: &[Diagnostic],

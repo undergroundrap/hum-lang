@@ -214,25 +214,92 @@ pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic])
 }
 
 /// Decision 0030 Option B: the `hum check` full-type-check stage. Reuses the
-/// full-type-check report and converts the blocking findings that carry
-/// diagnostic codes — rejected statements (H0636/H0638/H0640-H0642/H0901-H0906)
-/// and rejected predicates (H0701/H0704) — to the shared `Diagnostic` list.
-/// Findings without codes (unchecked/unsupported statements) stay report-only.
-/// No new analysis, no new codes.
-pub(crate) fn check_stage_diagnostics(
+/// full-type-check report. Returns the blocking findings that carry diagnostic
+/// codes — rejected statements (H0636/H0638/H0640-H0642/H0901-H0906) and
+/// rejected predicates (H0701/H0704) — as the shared `Diagnostic` list, PLUS
+/// the rejected statements that carry no code (as `UncodedRejection`).
+///
+/// ADAPTER BOUNDARY AUDIT (Codex review, 2026-09-26): status is evaluated
+/// FIRST; a rejected status is never dropped merely for lacking a code.
+/// - `rejected_typed_failure_relationship_v0`: always carries a code
+///   (H0901-H0906, assigned by typed_failure::issue_fact). Converted.
+/// - `rejected_invalid_text_escape_v0` (H0638),
+///   `rejected_invalid_call_arity_v0` (H0640),
+///   `rejected_invalid_call_argument_type_v0` (H0641),
+///   `rejected_negative_integer_literal_in_uint_position_v0` (H0642),
+///   `rejected_invalid_text_split_call_v0` (H0636): codes assigned explicitly
+///   at their rejection sites. Converted.
+/// - `rejected_statement_type_mismatch_v0`: MAY lack a code. When the
+///   full-type checker proves a mismatch the type_check stage left unchecked
+///   (return/fail/if_header/while_header/let_binding/set_place), the statement
+///   is rejected with `diagnostic_code: None`. These are returned as
+///   `UncodedRejection` and surfaced truthfully by the `hum check` arm (exit 1
+///   with an explicit message) — never hidden, never given an invented code.
+/// - `rejected_invalid_stdout_write_call_v0`,
+///   `rejected_invalid_clock_replay_call_v0`,
+///   `rejected_invalid_files_read_text_call_v0`: dead statuses, never assigned
+///   (the WO30 general call-shape probe replaced the per-builtin probes).
+///   Listed for completeness; they cannot occur.
+/// - `unchecked_statement_type_v0`, `blocked_unsupported_statement_v0`,
+///   `not_checked_blocked_by_prior_errors_v0`: not rejections; correctly
+///   excluded (report-only, per Decision 0030).
+///
+/// PRECISE REQUIREMENT: surfacing an uncoded `rejected_statement_type_mismatch_v0`
+/// as a named `hum check` diagnostic requires a new registered diagnostic code.
+/// H0606 (RETURN_TYPE_MISMATCH) cannot be reused: its registered explanation
+/// scopes it to "a trivial source-visible type" detected by the type_check
+/// stage, while these are full-type-proved mismatches via core_verify.
+/// Registering the code is a BDFL/catalog decision (new H-code in the 600-699
+/// front_end_semantics family, owned by full_type_check) outside the Decision
+/// 0030 builder scope. No new analysis, no new codes in this change.
+/// A full-type-check rejection with no registered diagnostic code. The `hum
+/// check` arm reports these explicitly (they are demonstrated errors) without
+/// inventing a code.
+pub(crate) struct UncodedRejection {
+    pub span: Span,
+    pub statement_kind: String,
+    pub expression_text: Option<String>,
+    pub expected_type: Option<String>,
+    pub actual_type: Option<String>,
+    pub reason: Option<String>,
+}
+
+pub(crate) struct CheckStageOutcome {
+    pub diagnostics: Vec<Diagnostic>,
+    pub uncoded_rejections: Vec<UncodedRejection>,
+}
+
+pub(crate) fn check_stage_outcome(
     program: &Program,
     diagnostics: &[Diagnostic],
-) -> Vec<Diagnostic> {
+) -> CheckStageOutcome {
     let report = build_report(program, diagnostics);
-    let mut out = Vec::new();
+    let mut out = CheckStageOutcome {
+        diagnostics: Vec::new(),
+        uncoded_rejections: Vec::new(),
+    };
     for item in &report.items {
         for statement in &item.statements {
-            let Some(code_spelling) = statement.diagnostic_code else {
-                continue;
-            };
+            // Status first: a rejected statement is a demonstrated error
+            // regardless of whether it carries a diagnostic code.
             if !is_rejected_statement_status(statement.status) {
                 continue;
             }
+            let Some(code_spelling) = statement.diagnostic_code else {
+                // Uncoded rejection (audit: only
+                // `rejected_statement_type_mismatch_v0` can reach here).
+                // Collected for truthful surfacing by the `hum check` arm;
+                // never silently dropped.
+                out.uncoded_rejections.push(UncodedRejection {
+                    span: statement.span.clone(),
+                    statement_kind: statement.statement_kind.to_string(),
+                    expression_text: statement.expression_text.clone(),
+                    expected_type: statement.expected_type.clone(),
+                    actual_type: statement.actual_type.clone(),
+                    reason: statement.reason.map(str::to_string),
+                });
+                continue;
+            };
             let Some(code) = diagnostic_code_from_spelling(code_spelling) else {
                 continue;
             };
@@ -258,10 +325,10 @@ pub(crate) fn check_stage_diagnostics(
                 }
             };
             let diagnostic = Diagnostic::error(code, message, Some(statement.span.clone()));
-            out.push(diagnostic);
+            out.diagnostics.push(diagnostic);
         }
     }
-    out.extend(
+    out.diagnostics.extend(
         report
             .predicates
             .iter()
@@ -3417,7 +3484,7 @@ mod tests {
     use crate::parser::parse_source;
 
     use super::{
-        build_report, check_stage_diagnostics, full_type_check_has_errors, full_type_check_json,
+        build_report, check_stage_outcome, full_type_check_has_errors, full_type_check_json,
         full_type_check_text,
     };
     use crate::diagnostic::{Diagnostic, DiagnosticCode};
@@ -4719,7 +4786,8 @@ app probe {
     // through the exact adapter the check arm calls.
     fn check_stage_codes(source: &str) -> Vec<String> {
         let program = text_split_probe_program(source);
-        check_stage_diagnostics(&program, &[])
+        check_stage_outcome(&program, &[])
+            .diagnostics
             .iter()
             .map(|diagnostic| diagnostic.code.as_str().to_string())
             .collect()

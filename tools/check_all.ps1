@@ -2752,7 +2752,15 @@ function Invoke-HumCompilerFrontChecks {
   $F4Fixture = 'fixtures/foundation/pre_ar_canonical_seal_inventory_pass.hum'
   $F4First = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI proof' $Hum @('check', $F4Fixture)
   $F4Second = Read-NativeChannelsWithExit 'Replacement F4 complete inventory CLI repeatability proof' $Hum @('check', $F4Fixture)
-  if ($F4First.ExitCode -ne 0 -or $F4First.ExitCode -ne $F4Second.ExitCode -or $F4First.Stdout -cne $F4Second.Stdout -or $F4First.Stderr -cne $F4Second.Stderr) { throw 'Replacement F4 complete inventory public check path is not successful and deterministic' }
+  # Decision 0030 Option B: `hum check` now runs the complete static pipeline
+  # including type-check. This fixture is a parser/seal stress-test with
+  # intentional type mismatches (it inventories parser shapes, not type
+  # correctness), so exit 0 is not expected. What F4 verifies: the public
+  # check path is deterministic (identical exit/output across runs) and does
+  # not leak private seal transport. The canonical-inventory coverage is the
+  # fixture's parser shapes; repeatability is the determinism predicates below;
+  # private-transport is the leak check below.
+  if ($F4First.ExitCode -ne $F4Second.ExitCode -or $F4First.Stdout -cne $F4Second.Stdout -or $F4First.Stderr -cne $F4Second.Stderr) { throw 'Replacement F4 complete inventory public check path is not deterministic' }
   if (($F4First.Stdout + $F4First.Stderr).Contains('canonical_core_')) { throw 'Replacement F4 private seal transport leaked into public complete-inventory output' }
   foreach ($F4Surface in @(
     @{ Name = 'core-preview'; Schema = 'hum.core_preview.v0' },
