@@ -163,6 +163,12 @@ function Read-NativeChannelsWithExit {
   $StartInfo.CreateNoWindow = $true
   $StartInfo.RedirectStandardOutput = $true
   $StartInfo.RedirectStandardError = $true
+  # Explicit UTF-8 decoding at the Hum capture boundary. The hum compiler
+  # emits UTF-8; without this, .NET decodes using the system default
+  # (e.g., Windows-1252), corrupting non-ASCII diagnostics like U+00E9.
+  # This is scoped to the capture, not a global console/env change.
+  $StartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+  $StartInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
   $Process = New-Object System.Diagnostics.Process
   $Process.StartInfo = $StartInfo
   if (-not $Process.Start()) {
@@ -193,6 +199,10 @@ function Read-NativeArgumentListWithExit {
   $StartInfo.CreateNoWindow = $true
   $StartInfo.RedirectStandardOutput = $true
   $StartInfo.RedirectStandardError = $true
+  # Explicit UTF-8 decoding at the Hum capture boundary (see
+  # Read-NativeChannelsWithExit). Scoped to the capture, not global.
+  $StartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+  $StartInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
   $Process = New-Object System.Diagnostics.Process
   $Process.StartInfo = $StartInfo
   if (-not $Process.Start()) {

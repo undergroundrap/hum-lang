@@ -309,3 +309,65 @@ fn cli_d3_mixed_input_stages_via_production_binary() {
         "app_entry must not appear for mixed inputs (did not run for all files): {stdout}"
     );
 }
+#[test]
+fn cli_result_multiword_success_type_positive() {
+    let path = write_cli_fixture(
+        "result_multiword_positive",
+        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text) -> Result List Text, SplitError {\n  does:\n    let pieces = text_split(text)\n    return pieces\n}\n",
+    );
+    let out = run_hum_check(&path, false);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !combined.contains("H0643"),
+        "positive must not have H0643: {combined}"
+    );
+}
+
+#[test]
+fn cli_result_multiword_success_type_negative() {
+    // Negative: genuine mismatch with multiword Result success type must
+    // still be rejected. The diagnostic (H0606 at type-check or H0643 at
+    // full-type-check) must name the complete expected type "List Text",
+    // proving the projection preserves multiword success types.
+    let path = write_cli_fixture(
+        "result_multiword_negative",
+        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text) -> Result List Text, SplitError {\n  does:\n    return text\n}\n",
+    );
+    let out = run_hum_check(&path, false);
+    assert_eq!(out.status.code(), Some(1));
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        combined.contains("H0606") || combined.contains("H0643"),
+        "negative must be rejected with H0606 or H0643: {combined}"
+    );
+    assert!(
+        combined.contains("List Text"),
+        "diagnostic must name the complete expected type List Text: {combined}"
+    );
+}
+
+#[test]
+fn cli_result_scalar_unchanged() {
+    let path = write_cli_fixture(
+        "result_scalar",
+        "type WorkError {\n  code: Text\n}\n\ntask get_value() -> Result UInt, WorkError {\n  does:\n    return 42\n}\n",
+    );
+    let out = run_hum_check(&path, false);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !combined.contains("error["),
+        "scalar must have no errors: {combined}"
+    );
+}

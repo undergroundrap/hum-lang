@@ -2579,10 +2579,16 @@ fn is_type_like_name(text: &str) -> bool {
 
 fn expected_return_value_type(expected_type: &str) -> String {
     let expected_type = return_dependency::result_type_without_return_dependency(expected_type);
+    // For Result, use the existing typed_failure decomposition which preserves
+    // multiword success types (e.g., "List Text" from "Result List Text, SplitError").
+    // The token-based projection below loses all but the first success token.
+    if let Some(success) = typed_failure::result_success_type(&expected_type) {
+        return success;
+    }
     let tokens = type_tokens(&expected_type);
     if matches!(
         tokens.first().map(String::as_str),
-        Some("Result" | "Option" | "Maybe" | "Slice" | "Span")
+        Some("Option" | "Maybe" | "Slice" | "Span")
     ) && tokens.len() >= 2
     {
         tokens[1].clone()
@@ -2593,12 +2599,13 @@ fn expected_return_value_type(expected_type: &str) -> String {
 
 fn expected_error_value_type(expected_type: &str) -> Option<String> {
     let expected_type = return_dependency::result_type_without_return_dependency(expected_type);
-    let tokens = type_tokens(&expected_type);
-    if matches!(tokens.first().map(String::as_str), Some("Result")) && tokens.len() >= 3 {
-        Some(tokens[2].clone())
-    } else {
-        None
+    // For Result, use the existing typed_failure decomposition which selects
+    // the correct error root (e.g., "SplitError" from "Result List Text, SplitError").
+    // The token-based projection incorrectly selected tokens[2] ("Text,").
+    if let Some(error) = typed_failure::result_error_root(&expected_type) {
+        return Some(error);
     }
+    None
 }
 
 fn types_compatible(expected_type: &str, actual_type: &str) -> bool {
