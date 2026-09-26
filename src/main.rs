@@ -440,6 +440,14 @@ fn run() -> Result<ExitCode, String> {
     let program = loaded.program;
     let mut diagnostic_occurrences = loaded.diagnostic_occurrences;
     let mut diagnostics = loaded.diagnostics;
+    // Decision 0030 D3: machine-readable stage scope for `hum check`.
+    // parse, source_check (check.rs per-file), and app_entry always ran to
+    // produce `loaded`; later stages are pushed as they actually run.
+    let track_check_stages = options.command == "check";
+    let mut check_stages: Vec<&'static str> = Vec::new();
+    if track_check_stages {
+        check_stages.extend(["parse", "source_check", "app_entry"]);
+    }
     if !diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -448,6 +456,9 @@ fn run() -> Result<ExitCode, String> {
         diagnostic_occurrences
             .extend_owned(&path_boundary::diagnostic_occurrence_set(&program))
             .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        if track_check_stages {
+            check_stages.push("path_boundary");
+        }
     }
     if options.command == "check"
         && !diagnostics
@@ -456,6 +467,7 @@ fn run() -> Result<ExitCode, String> {
     {
         let callable_diagnostics = callable::diagnostics(&program, &diagnostics);
         diagnostics.extend(callable_diagnostics);
+        check_stages.push("callable");
     }
     if !diagnostics
         .iter()
@@ -466,6 +478,40 @@ fn run() -> Result<ExitCode, String> {
         diagnostic_occurrences
             .extend_owned(&capability_analysis.diagnostic_occurrences)
             .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        if track_check_stages {
+            check_stages.push("capability_root");
+        }
+    }
+    // Decision 0030 Option B: `hum check` reports the complete static pipeline.
+    // Stage precedence mirrors `hum run`'s preflight (resolve -> type-check ->
+    // full-type-check, predicate analysis included). Each stage is gated on no
+    // earlier errors, so a blocked stage pays no analysis cost.
+    if options.command == "check"
+        && !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        diagnostics.extend(resolve::check_stage_diagnostics(&program, &diagnostics));
+        check_stages.push("resolve");
+    }
+    if options.command == "check"
+        && !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        diagnostics.extend(type_check::unknown_type_diagnostics(&program, &diagnostics));
+        check_stages.push("type_check");
+    }
+    if options.command == "check"
+        && !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        diagnostics.extend(full_type_check::check_stage_diagnostics(
+            &program,
+            &diagnostics,
+        ));
+        check_stages.push("full_type_check");
     }
     validate_aq_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
     let has_errors = diagnostics
@@ -493,7 +539,10 @@ fn run() -> Result<ExitCode, String> {
                             .count()
                     );
                 }
-                CheckFormat::Json => print!("{}", diagnostics::check_json(&program, &diagnostics)),
+                CheckFormat::Json => print!(
+                    "{}",
+                    diagnostics::check_json(&program, &diagnostics, &check_stages)
+                ),
             }
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);

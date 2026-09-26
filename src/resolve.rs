@@ -419,6 +419,28 @@ pub fn resolve_has_errors(program: &Program, source_diagnostics: &[Diagnostic]) 
     report.source_errors > 0 || report.error_count() > 0
 }
 
+/// Decision 0030 Option B: the `hum check` resolve stage. Reuses the resolve
+/// report and converts its error-severity findings (H0601-H0604) to the shared
+/// `Diagnostic` list. No new analysis, no new codes.
+pub(crate) fn check_stage_diagnostics(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+) -> Vec<Diagnostic> {
+    build_report(program, source_diagnostics)
+        .diagnostics
+        .into_iter()
+        .filter(|diagnostic| diagnostic.severity == Severity::Error)
+        .map(|diagnostic| {
+            Diagnostic::error(
+                diagnostic.code,
+                diagnostic.message,
+                Some(diagnostic.source_span),
+            )
+            .with_help(diagnostic.help)
+        })
+        .collect()
+}
+
 pub fn resolve_readiness_summary(
     program: &Program,
     source_diagnostics: &[Diagnostic],
@@ -3652,9 +3674,10 @@ mod tests {
     use crate::parser::parse_source;
 
     use super::{
-        TenB2ResolverBoundaryCorruption, diagnostic_occurrence_set_from_source,
-        parser_precedence_relationships, resolve_call_occurrence_summaries, resolve_json,
-        resolve_text, with_ten_b2_resolver_boundary_corruption,
+        TenB2ResolverBoundaryCorruption, check_stage_diagnostics,
+        diagnostic_occurrence_set_from_source, parser_precedence_relationships,
+        resolve_call_occurrence_summaries, resolve_json, resolve_text,
+        with_ten_b2_resolver_boundary_corruption,
     };
 
     fn ten_b2_resolver_boundary_observation(program: &Program) -> Vec<String> {
@@ -4120,5 +4143,42 @@ task remember_work_item(title: Text) -> WorkItem {
                 call.target_definition_id
             );
         }
+    }
+
+    // Decision 0030 Option B: the `hum check` resolve stage surfaces the
+    // resolver's error diagnostics (the control_flow.hum sketch shape:
+    // `uses:` colliding with a parameter name).
+    #[test]
+    fn check_stage_surfaces_duplicate_name_errors() {
+        let source = r#"task run_tool(sessions: UInt) -> UInt {
+  uses:
+    sessions
+  does:
+    return sessions
+}
+"#;
+        let program = Program {
+            files: vec![parse_source("sketch_probe.hum", source).file],
+        };
+        let diagnostics = check_stage_diagnostics(&program, &[]);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].code,
+            crate::diagnostic::DiagnosticCode::DUPLICATE_NAME_IN_SCOPE
+        );
+        assert_eq!(diagnostics[0].severity, crate::diagnostic::Severity::Error);
+    }
+
+    #[test]
+    fn check_stage_is_clean_for_valid_names() {
+        let source = r#"task run_tool(sessions: UInt) -> UInt {
+  does:
+    return sessions
+}
+"#;
+        let program = Program {
+            files: vec![parse_source("valid_probe.hum", source).file],
+        };
+        assert!(check_stage_diagnostics(&program, &[]).is_empty());
     }
 }
