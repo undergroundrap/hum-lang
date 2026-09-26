@@ -1,9 +1,11 @@
 # Hum Work Order 30: the checker enforces declared task signatures
 
 Date: 2026-09-25
-Status: DRAFT — pre-issuance review. Not active. WO28 remains the active Work
-Order. (The active-workorder marker comment is intentionally absent from this
-file; it is added only when this Work Order is activated.)
+<!-- hum-active-workorder:v1 -->
+Status: ACTIVE. Supersedes WO28 as the active Work Order. WO28 closed with
+its full mission complete — all six items, the decision-0028 builtins, and
+the optional `word: count` summary (see closure record in
+`workorders/closed/WORKORDER_28.md`).
 
 ## Authorization
 
@@ -25,13 +27,13 @@ single check via a builtin signature table. Make the exact `i64::MIN`
 literal spelling a valid `Int` literal (it is in range; the panic was a
 seal bug) and give genuinely out-of-range literals the H0011 diagnostic.
 
-Queue: this Work Order executes **after WO28 closes, ahead of WO29** —
-Ocean's call. A draft Work Order changes nothing until it is activated.
+Queue: this Work Order is **active** and executes ahead of **WO29** —
+Ocean's call.
 
 ## Evidence base
 
-Ledger #21, #22, #23 (wordfreq friction ledger; landing on main via PR #44,
-"WO28 decision 0028: uint_to_text / int_to_text builtins", currently open).
+Ledger #21, #22, #23 (wordfreq friction ledger; landed on main via PR #44,
+"WO28 decision 0028: uint_to_text / int_to_text builtins", merged 2026-09-25).
 Pre-issuance probes below were verified on main at `a9ad460` on 2026-09-25
 unless noted.
 
@@ -304,7 +306,7 @@ break was a digest pin on exactly this kind of change).
 
 ## Lane assignments and STOP conditions
 
-- **Research lane (this draft):** the Work Order text, the evidence
+- **Research lane (authored this Work Order):** the Work Order text, the evidence
   characterization (ledger #21/#22/#23 plus the pre-issuance probes), the
   diagnostics mapping, and the migration dispositions.
 - **Builder lane:** the general call-shape check in `full-type-check`, the
@@ -325,9 +327,8 @@ break was a digest pin on exactly this kind of change).
   2026-09-25 with four delegated rulings, all incorporated above
   (i64::MIN is in range; H0011 covers the genuinely out-of-range
   literals; formal Retired status for H0622/H0626/H0632; corrected stage
-  facts). The review authorized opening a normal (non-draft) PR; the
-  Work Order's Status stays DRAFT with no active-workorder marker until
-  WO28 closes and activation is separately authorized.
+  facts). The review authorized opening a normal (non-draft) PR; PR #45
+  merged 2026-09-25, and this close-out PR activates the Work Order.
 - Honesty locks (decision 0014): no diagnostic may claim more than the
   implementation proves — hence unknown argument types stay silent (Item
   2), and the decidable sign set is closed (Item 3).
