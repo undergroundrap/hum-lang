@@ -1842,6 +1842,15 @@ diagnostic_causes!(
         "full_type_check",
         "builtin_call_relationship",
         "builtin_call_route"
+    ),
+    (
+        193,
+        "statement_expression_type_mismatch_v0",
+        STATEMENT_TYPE_MISMATCH,
+        "front_end_semantics",
+        "full_type_check",
+        "statement_type_relationship",
+        "statement_type_route"
     )
 );
 
@@ -2179,6 +2188,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         96 => 96,
         97 => 97,
         98 => 98,
+        99 => 99,
         _ => u16::MAX,
     }
 }
@@ -2990,6 +3000,15 @@ diagnostic_code_allocations!(
         NEGATIVE_UINT_LITERAL,
         "H0642",
         "negative integer literal in UInt position",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "full_type_check"
+    ),
+    (
+        99,
+        STATEMENT_TYPE_MISMATCH,
+        "H0643",
+        "statement expression type mismatch",
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "full_type_check"
@@ -3848,6 +3867,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "A statically known negative integer literal reaches a `UInt` parameter (of a user task or one of the seven builtins) or a `UInt`-annotated `let`/`change` binding. Only literals seen through `Group` nodes are decidable; variables, arithmetic such as `0 - 5`, and calls stay runtime-trapped.",
         repair: "Replace the negative literal with a non-negative value, or change the parameter or binding type to `Int`.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::STATEMENT_TYPE_MISMATCH,
+        default_severity: Severity::Error,
+        explanation: "The full-type checker proved a statement's expression type does not match the type its position requires (return, fail, if/while header, let binding, or set place). This is a deeper proof than the type_check stage's source-visible checks; H0606 covers only the trivial return-type case detected by type_check.",
+        repair: "Change the expression to produce the required type, or change the declared type to match what the expression produces.",
     },
 ];
 
@@ -4870,12 +4895,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 96);
+        assert_eq!(summary.active_codes, 97);
         assert_eq!(summary.retired_codes, 3);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 192);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 193);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
@@ -4932,7 +4957,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 99);
+        assert_eq!(all().len(), 100);
     }
 
     #[test]
@@ -5440,7 +5465,7 @@ mod tests {
         assert_eq!(cause.key.ordinal(), 192);
 
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 96);
+        assert_eq!(summary.active_codes, 97);
         assert_eq!(summary.retired_codes, 3);
     }
 

@@ -511,20 +511,17 @@ fn run() -> Result<ExitCode, String> {
         diagnostics.extend(type_check::check_stage_diagnostics(&program, &diagnostics));
         check_stages.push("type_check");
     }
-    // Decision 0030 Option B, Codex review: the full-type stage can reject with
-    // findings that carry no registered diagnostic code (uncoded
-    // `rejected_statement_type_mismatch_v0`). Those rejections are demonstrated
-    // errors and must surface truthfully: `hum check` exits 1 with an explicit
-    // message rather than hiding them or inventing a code. See the PRECISE
-    // REQUIREMENT on `full_type_check::check_stage_outcome`.
-    let mut full_type_uncoded_rejections: Vec<full_type_check::UncodedRejection> = Vec::new();
+    // Decision 0030 Option B, Codex review (BDFL-authorized H0643, 2026-09-26):
+    // the full-type stage reports demonstrated rejections through the ordinary
+    // diagnostic pipeline. H0643 (statement expression type mismatch) names the
+    // full-type-proved mismatch; H0606 remains the type_check-stage trivial
+    // return-type diagnostic with its existing meaning and precedence.
     if options.command == "check"
         && !diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
         let outcome = full_type_check::check_stage_outcome(&program, &diagnostics);
-        full_type_uncoded_rejections = outcome.uncoded_rejections;
         diagnostics.extend(outcome.diagnostics);
         check_stages.push("full_type_check");
     }
@@ -532,7 +529,6 @@ fn run() -> Result<ExitCode, String> {
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
-    let has_uncoded_rejections = !full_type_uncoded_rejections.is_empty();
     let callable_stage = options.command.replace('-', "_");
     let has_callable_errors =
         options.command != "run" && callable::stage_blockers(&program, &callable_stage) > 0;
@@ -554,38 +550,6 @@ fn run() -> Result<ExitCode, String> {
                             .filter(|diagnostic| diagnostic.severity == Severity::Warning)
                             .count()
                     );
-                    // Truthful surfacing for uncoded rejections: the stage
-                    // proved an error but no registered code exists to name it.
-                    // This is a tool gap (requires a BDFL/catalog decision for
-                    // a new code), not a clean program.
-                    if has_uncoded_rejections {
-                        println!(
-                            "error: hum check found {} rejection(s) with no registered diagnostic code:",
-                            full_type_uncoded_rejections.len()
-                        );
-                        for rejection in &full_type_uncoded_rejections {
-                            let subject = match &rejection.expression_text {
-                                Some(text) => format!("`{text}`"),
-                                None => rejection.statement_kind.clone(),
-                            };
-                            println!(
-                                "  {}:{}:{}: {} {subject} rejected: expected {}, found {}{}",
-                                rejection.span.file,
-                                rejection.span.line,
-                                rejection.span.column,
-                                rejection.statement_kind,
-                                rejection.expected_type.as_deref().unwrap_or("none"),
-                                rejection.actual_type.as_deref().unwrap_or("unknown"),
-                                match &rejection.reason {
-                                    Some(reason) => format!(" ({reason})"),
-                                    None => String::new(),
-                                },
-                            );
-                        }
-                        println!(
-                            "  help: naming this rejection requires a new diagnostic code (BDFL/catalog decision); the program is NOT clean."
-                        );
-                    }
                 }
                 CheckFormat::Json => print!(
                     "{}",
@@ -595,11 +559,7 @@ fn run() -> Result<ExitCode, String> {
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            // Note: JSON output does not name uncoded rejections (no schema
-            // field exists for codeless findings); the exit code and the
-            // `stages` list (which includes `full_type_check`) are the
-            // machine-readable signal that the stage ran and rejected.
-            Ok(if has_errors || has_uncoded_rejections {
+            Ok(if has_errors {
                 ExitCode::from(1)
             } else {
                 ExitCode::SUCCESS
