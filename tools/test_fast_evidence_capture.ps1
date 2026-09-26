@@ -2100,11 +2100,18 @@ try {
   $SetupCaptures = @()
   if ($env:OS -eq 'Windows_NT') {
     $ContainedDescendantDeadlineSeconds = 4
-    $Inherited = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'inherited-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'inherited-parent') $ContainedDescendantDeadlineSeconds 2 -CaseName 'inherited-parent')
+    # The inherited-parent case runs its absolute deadline against the slowest pre-launch
+    # path: job-object creation plus two nested pwsh starts. On loaded Windows runners the
+    # setup alone can spend the whole 4 s budget ("absolute deadline expired before process
+    # creation" at run_fast_evidence.ps1:1034), turning a timeout-disposition case into a
+    # prelaunch failure. This case gets headroom while its descendant still sleeps 12 s, so
+    # the absolute-deadline semantics under test are unchanged. Seen in the wild: run 36173619493.
+    $InheritedParentDeadlineSeconds = 8
+    $Inherited = Assert-LaunchedCapture (Invoke-HumBinaryCapture $Shell ($BaseArguments + @('-SyntheticChild', 'inherited-parent')) $BeforeDirectory (Join-Path $ScratchRoot 'inherited-parent') $InheritedParentDeadlineSeconds 2 -CaseName 'inherited-parent')
     Assert-True ($Inherited.FinalDescendantTree -cmatch '^terminated_quiescent;pretermination=members;active=[1-9][0-9]*;') 'controlled survivor set was not retained'
     Assert-HumFinalDescendantTree $Inherited.FinalDescendantTree
     Assert-WindowsContainmentLifecycle $Inherited 'inherited-pipe'
-    Assert-True ($Inherited.DeadlineTicks -eq [Int64] $ContainedDescendantDeadlineSeconds * $Inherited.StopwatchFrequency) 'inherited-pipe absolute deadline'
+    Assert-True ($Inherited.DeadlineTicks -eq [Int64] $InheritedParentDeadlineSeconds * $Inherited.StopwatchFrequency) 'inherited-pipe absolute deadline'
     Assert-True ($Inherited.TimedOut -and $Inherited.DeadlineDisposition -ceq 'deadline_expired' -and
       $Inherited.TerminationRequested -and $Inherited.TerminationCount -eq 1 -and
       $Inherited.KillAttemptCount -eq 1 -and $Inherited.FinalDescendantTree -cmatch '^terminated_quiescent;pretermination=(members|quiescent_race)') 'inherited-pipe timeout disposition'
