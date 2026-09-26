@@ -446,7 +446,16 @@ fn run() -> Result<ExitCode, String> {
     let track_check_stages = options.command == "check";
     let mut check_stages: Vec<&'static str> = Vec::new();
     if track_check_stages {
-        check_stages.extend(["parse", "source_check", "app_entry"]);
+        // Decision 0030 (Codex review): the `stages` list reflects actual
+        // execution using intersection semantics. Parse and source-check
+        // always run for every file. App-entry analysis is skipped per file
+        // when that file has parse/source errors, so it is listed only if it
+        // ran for every file (false for single-file failures and mixed
+        // multi-file inputs).
+        check_stages.extend(["parse", "source_check"]);
+        if loaded.app_entry_ran_for_all_files {
+            check_stages.push("app_entry");
+        }
     }
     if !diagnostics
         .iter()
@@ -499,24 +508,31 @@ fn run() -> Result<ExitCode, String> {
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        diagnostics.extend(type_check::unknown_type_diagnostics(&program, &diagnostics));
+        diagnostics.extend(type_check::check_stage_diagnostics(&program, &diagnostics));
         check_stages.push("type_check");
     }
+    // Decision 0030 Option B, Codex review: the full-type stage can reject with
+    // findings that carry no registered diagnostic code (uncoded
+    // `rejected_statement_type_mismatch_v0`). Those rejections are demonstrated
+    // errors and must surface truthfully: `hum check` exits 1 with an explicit
+    // message rather than hiding them or inventing a code. See the PRECISE
+    // REQUIREMENT on `full_type_check::check_stage_outcome`.
+    let mut full_type_uncoded_rejections: Vec<full_type_check::UncodedRejection> = Vec::new();
     if options.command == "check"
         && !diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        diagnostics.extend(full_type_check::check_stage_diagnostics(
-            &program,
-            &diagnostics,
-        ));
+        let outcome = full_type_check::check_stage_outcome(&program, &diagnostics);
+        full_type_uncoded_rejections = outcome.uncoded_rejections;
+        diagnostics.extend(outcome.diagnostics);
         check_stages.push("full_type_check");
     }
     validate_aq_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
+    let has_uncoded_rejections = !full_type_uncoded_rejections.is_empty();
     let callable_stage = options.command.replace('-', "_");
     let has_callable_errors =
         options.command != "run" && callable::stage_blockers(&program, &callable_stage) > 0;
@@ -538,6 +554,38 @@ fn run() -> Result<ExitCode, String> {
                             .filter(|diagnostic| diagnostic.severity == Severity::Warning)
                             .count()
                     );
+                    // Truthful surfacing for uncoded rejections: the stage
+                    // proved an error but no registered code exists to name it.
+                    // This is a tool gap (requires a BDFL/catalog decision for
+                    // a new code), not a clean program.
+                    if has_uncoded_rejections {
+                        println!(
+                            "error: hum check found {} rejection(s) with no registered diagnostic code:",
+                            full_type_uncoded_rejections.len()
+                        );
+                        for rejection in &full_type_uncoded_rejections {
+                            let subject = match &rejection.expression_text {
+                                Some(text) => format!("`{text}`"),
+                                None => rejection.statement_kind.clone(),
+                            };
+                            println!(
+                                "  {}:{}:{}: {} {subject} rejected: expected {}, found {}{}",
+                                rejection.span.file,
+                                rejection.span.line,
+                                rejection.span.column,
+                                rejection.statement_kind,
+                                rejection.expected_type.as_deref().unwrap_or("none"),
+                                rejection.actual_type.as_deref().unwrap_or("unknown"),
+                                match &rejection.reason {
+                                    Some(reason) => format!(" ({reason})"),
+                                    None => String::new(),
+                                },
+                            );
+                        }
+                        println!(
+                            "  help: naming this rejection requires a new diagnostic code (BDFL/catalog decision); the program is NOT clean."
+                        );
+                    }
                 }
                 CheckFormat::Json => print!(
                     "{}",
@@ -547,7 +595,11 @@ fn run() -> Result<ExitCode, String> {
             if options.show_timings {
                 print_timings(&loaded.timings, loaded.total);
             }
-            Ok(if has_errors {
+            // Note: JSON output does not name uncoded rejections (no schema
+            // field exists for codeless findings); the exit code and the
+            // `stages` list (which includes `full_type_check`) are the
+            // machine-readable signal that the stage ran and rejected.
+            Ok(if has_errors || has_uncoded_rejections {
                 ExitCode::from(1)
             } else {
                 ExitCode::SUCCESS
@@ -1198,6 +1250,7 @@ where
         mut reanalyzable_projections,
         timings,
         total,
+        ..
     } = loaded;
 
     if !diagnostics
@@ -1974,6 +2027,12 @@ struct LoadedProgram {
     reanalyzable_projections: BTreeMap<DiagnosticOccurrenceId, ReanalyzableProjection>,
     timings: Vec<FileTiming>,
     total: Duration,
+    // Decision 0030 (Codex review): app-entry analysis is skipped per file
+    // when that file has parse/source errors. The `stages` list uses
+    // intersection semantics: a per-file stage is listed only if it ran for
+    // every file. This is false for mixed inputs (one clean file, one with
+    // errors) and for single-file parse/source failures.
+    app_entry_ran_for_all_files: bool,
 }
 
 struct FileTiming {
@@ -3477,6 +3536,7 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     let mut diagnostic_occurrences = DiagnosticOccurrenceSet::default();
     let mut reanalyzable_projections = BTreeMap::new();
     let mut timings = Vec::new();
+    let mut app_entry_ran_for_all_files = true;
 
     for (semantic_file_index, path) in paths.iter().enumerate() {
         let read_start = Instant::now();
@@ -3498,12 +3558,12 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
         diagnostic_occurrences
             .extend_owned(&checked.diagnostic_occurrences)
             .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
-        if !parsed
+        let file_has_errors = parsed
             .diagnostics
             .iter()
             .chain(&file_diagnostics)
-            .any(|diagnostic| diagnostic.severity == Severity::Error)
-        {
+            .any(|diagnostic| diagnostic.severity == Severity::Error);
+        if !file_has_errors {
             let (app_diagnostics, app_occurrences) =
                 app_entry::diagnostics_for_file_with_semantic_index(
                     &parsed.file,
@@ -3544,6 +3604,11 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
             diagnostic_occurrences
                 .extend_owned(&app_occurrences)
                 .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+        } else {
+            // App-entry analysis is skipped for files with parse/source
+            // errors. The `stages` list uses intersection semantics (see the
+            // `LoadedProgram` field).
+            app_entry_ran_for_all_files = false;
         }
         let check = check_start.elapsed();
 
@@ -3565,6 +3630,7 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
         reanalyzable_projections,
         timings,
         total: total_start.elapsed(),
+        app_entry_ran_for_all_files,
     })
 }
 
