@@ -1,10 +1,54 @@
 # Hum Work Order 28: for-each loop-variable types and wordfreq completion
 
 Date: 2026-09-23
-<!-- hum-active-workorder:v1 -->
-Status: ACTIVE. Supersedes WO27 as the active Work Order. WO27 closed with
-the program written; app execution gated on ledger #13 (see closure record
-in `workorders/closed/WORKORDER_27.md`).
+Status: CLOSED 2026-09-25. Superseded by WO30 (the checker enforces declared
+task signatures).
+
+## Closure record
+
+WO28's full mission is complete. Each item landed as a review-sized PR:
+
+- #13 — `for each` loop-variable type inference (`List T` binds `T`): PR #30.
+  wordfreq's APP entry executes end-to-end through the type gate on Windows;
+  the Session AG assertion pins the hosted-runner locality refusal
+  (`FileReadError.unavailable`, exit 1), not the success path.
+- #4 — contract text literals decode through the production decoder;
+  H0638 extended to contract sections: PR #37.
+- #15 — the checker rejects contract-only builtins in task bodies (H0639):
+  PR #38.
+- #16 — block scoping matches the resolver in the checker and the runtime:
+  PR #39.
+- #7 — portable unix read mechanics exercised on Ubuntu CI up to the
+  locality gate (P2 identity via handle fstat; P1 refusal audit-pinned):
+  PR #42.
+- Decision 0028 — `uint_to_text` / `int_to_text` builtins, reworked to
+  behave exactly like user tasks (the H0640–H0643 allocations removed):
+  PR #44.
+- Optional — wordfreq prints the `word: count` summary with honestly
+  declared quadratic cost and a perf-debt note (ledger #24): PR #46.
+- The parked capture-harness flake — the self-test `inherited-parent`
+  case's 4 s absolute deadline got 8 s of headroom: PR #47.
+
+(PRs #40 and #41 in the same range were process/docs items — the
+BDFL-accepted pre-push gates record and the docs/research branch
+recovery — not WO28 sessions.)
+
+What stayed open, and where it now lives:
+
+- Ledger #21, #22, #23 (call-shape diagnostics, negatives in `UInt`
+  positions, the `i64::MIN` parser panic): WO30, in scope (H0640/H0641/
+  H0642/H0011).
+- Ledger #18 (`hum check` never runs predicate analysis) and #19 (a user
+  task named `list_count` still gets builtin treatment): referenced in
+  WO30 — #18 as the accurately stated stage boundary (`hum check` stays
+  silent on call shapes by pipeline design), #19 as unchanged and out of
+  scope (name-resolution precedence untouched).
+- Ledger #20 (the return checker has no for-each binder typing): carried
+  into WO30 as an open checker/stage-disagreement question.
+- The wordfreq byte-exact success read on hosted runners (ledger #17,
+  locality refusal): WO29 — the Session AG end state flips to the
+  trust-path byte-exact success when the decision-0029 implementation
+  lands.
 
 ## Mission and present authorization
 
