@@ -69,9 +69,10 @@ classified as program / tooling / documentation / open-language-question.
   first would have failed), while a mismatched contract still fails with
   H0703.
 
-## 5. No way to render `word: count` lines (open)
+## 5. No way to render `word: count` lines (resolved by decision 0028's builtins)
 
-- **Class:** open-language-question.
+- **Class:** open-language-question → resolved for rendering; the
+  concatenation question stays open.
 - **Friction:** wordfreq cannot emit conventional `hum 3` summary lines:
   there is no text concatenation, no formatting/interpolation, and no
   UInt-to-Text conversion in the language. The honest output with today's
@@ -80,6 +81,16 @@ classified as program / tooling / documentation / open-language-question.
 - **0027 question:** is concatenation/interpolation the GENERAL fix, or is
   the histogram an acceptable program shape? Not decided here — no surface
   invented.
+- **Resolution (WO28, decision 0028 builtins):** `uint_to_text` closes the
+  rendering half — `examples/tools/wordfreq.hum` now emits `word: count`
+  summary lines (`wordfreq_summary`, first-seen order) by composing each
+  line on stdout from four bounded writes (`word`, `": "`,
+  `uint_to_text(n)`, `"\n"`). Concatenation/interpolation stays
+  uninvented (LANGUAGE_REFERENCE: "concatenation stays"), so a `word: count`
+  line still cannot exist as a single `Text` value — stdout is the only
+  composition point. The residual 0027 question (is concatenation the
+  GENERAL fix?) is untouched. The summary's honest quadratic cost is
+  recorded as performance debt in entry #24.
 
 ## 6. Single-separator `text_split` forces N passes (open)
 
@@ -423,3 +434,20 @@ no new syntax, no general string library.
   panic is the one failure mode the honesty locks forbid.
 - **Recorded only; not fixed.** The parser fix needs its own session; no
   surface invented here.
+
+## 24. `word: count` summary ships with honest quadratic cost (performance debt, open)
+
+- **Class:** program (performance debt, recorded not fixed).
+- **Finding:** `wordfreq_summary` emits one line per distinct word via two
+  nested scans — `wordfreq_is_new` (exact-text scan of the seen set) and
+  `wordfreq_count_occurrences` (full scan of the word list) — so summary
+  time is O(words^2). The `cost:`/`allocates:` contracts on
+  `wordfreq_summary`, `wordfreq_is_new`, and
+  `wordfreq_count_occurrences` state this honestly; the loops were kept as
+  plain nested scans rather than contorted into a cheaper shape the
+  language cannot express (no maps, no concatenation).
+- **Why debt, not a fix:** a linear summary wants a word->count map or at
+  least single-pass counting, neither of which is language surface today.
+  Inventing one for wordfreq alone would be the program-specific special
+  case decision 0027 rejects by default. Recorded so the cost is visible;
+  closing it needs a semantic decision first.

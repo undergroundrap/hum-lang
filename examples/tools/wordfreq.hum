@@ -40,6 +40,7 @@ app wordfreq {
       for each word in words {
         let wrote = try write_word(word) or fail WordfreqError.output
       }
+      let summarized = try wordfreq_summary(words) or fail WordfreqError.output
       let done = try stdout_write("") or fail WordfreqError.output
       return done
   }
@@ -122,6 +123,104 @@ app wordfreq {
       return list_len(wordfreq_words(text))
   }
 
+  task wordfreq_summary(words: List Text) -> Result Unit, WordfreqError {
+    why:
+      emit word: count summary lines, one per distinct word in first-seen
+      order; each line is composed on stdout from bounded writes because
+      text concatenation is not a language surface (friction ledger #5)
+
+    uses:
+      stdout.write
+
+    fails when:
+      a summary line cannot be written
+
+    cost:
+      time: O(words^2)
+      space: O(distinct words)
+      check: warn
+
+    allocates:
+      one owned string per distinct word for the seen set, plus one owned
+      count rendering per summary line
+
+    does:
+      change seen: List Text = []
+      for each word in words {
+        if wordfreq_is_new(seen, word) {
+          let n = wordfreq_count_occurrences(words, word)
+          let wrote = try write_summary_line(word, n) or fail WordfreqError.output
+          let marked = list_append(change seen, word)
+        }
+      }
+      let done = try stdout_write("") or fail WordfreqError.output
+      return done
+  }
+
+  task wordfreq_is_new(seen: List Text, word: Text) -> Bool {
+    why:
+      report whether word has no exact-text match in seen; this inner scan
+      is the nested loop that makes wordfreq_summary quadratic
+
+    cost:
+      time: O(seen)
+      space: O(1)
+      check: warn
+
+    does:
+      for each prior in seen {
+        if prior == word {
+          return false
+        }
+      }
+      return true
+  }
+
+  task wordfreq_count_occurrences(words: List Text, word: Text) -> UInt {
+    why:
+      count exact-text occurrences of word with a full scan; this nested
+      scan is the other half of wordfreq_summary's quadratic cost
+
+    cost:
+      time: O(words)
+      space: O(1)
+      check: warn
+
+    does:
+      change n: UInt = 0
+      for each candidate in words {
+        if candidate == word {
+          set n = n + 1
+        }
+      }
+      return n
+  }
+
+  task write_summary_line(word: Text, n: UInt) -> Result Unit, WordfreqError {
+    why:
+      write one summary line as four bounded writes: the word, the
+      separator, the decimal count, and a newline
+
+    uses:
+      stdout.write
+
+    fails when:
+      any of the four writes cannot be completed
+
+    cost:
+      time: O(word)
+      space: O(1)
+      check: warn
+
+    does:
+      let wrote_word = try stdout_write(word) or fail WordfreqError.output
+      let wrote_sep = try stdout_write(": ") or fail WordfreqError.output
+      let count_text = uint_to_text(n)
+      let wrote_count = try stdout_write(count_text) or fail WordfreqError.output
+      let wrote_newline = try stdout_write("\n") or fail WordfreqError.output
+      return wrote_newline
+  }
+
   test wordfreq_words splits words across lines unit {
     why:
       pin the two-pass tokenization on a mixed space/newline input
@@ -186,5 +285,49 @@ app wordfreq {
 
     does:
       expect wordfreq_count("") returns 0
+  }
+
+  test wordfreq_is_new reports unseen words unit {
+    why:
+      pin the distinct-word scan on a first occurrence
+
+    covers:
+      wordfreq_is_new reports true for a word absent from seen
+
+    does:
+      expect wordfreq_is_new(["lang"], "hum") returns true
+  }
+
+  test wordfreq_is_new reports seen words unit {
+    why:
+      pin the distinct-word scan on a repeat occurrence
+
+    covers:
+      wordfreq_is_new reports false for a word already in seen
+
+    does:
+      expect wordfreq_is_new(["hum", "lang"], "hum") returns false
+  }
+
+  test wordfreq_count_occurrences counts repeats unit {
+    why:
+      pin the occurrence scan on repeated words
+
+    covers:
+      wordfreq_count_occurrences counts exact-text matches
+
+    does:
+      expect wordfreq_count_occurrences(["hum", "lang", "hum"], "hum") returns 2
+  }
+
+  test wordfreq_count_occurrences misses absent words boundary {
+    why:
+      pin the zero-occurrence edge
+
+    covers:
+      wordfreq_count_occurrences returns 0 for an absent word
+
+    does:
+      expect wordfreq_count_occurrences(["hum", "lang"], "zzz") returns 0
   }
 }
