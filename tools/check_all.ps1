@@ -2957,7 +2957,7 @@ task malformed() -> UInt {
   $CatalogTotal = $DiagnosticsCatalog.count
   $CodeTotal = $DiagnosticCodes.Count
   $UniqueTotal = @($DiagnosticCodes | Sort-Object -Unique).Count
-  if ($CatalogTotal -ne 97 -or $CodeTotal -ne 97 -or $UniqueTotal -ne 97) { throw "canonical diagnostic catalog must expose exactly 97 unique active codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
+  if ($CatalogTotal -ne 98 -or $CodeTotal -ne 98 -or $UniqueTotal -ne 98) { throw "canonical diagnostic catalog must expose exactly 98 unique codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
   $H0634CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0634' -and $_.title -ceq 'canonical native program layout' })
   if ($H0634CatalogRows.Count -ne 1) { throw 'Work Order 23 H0634 catalog projection drifted' }
   $H0635CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0635' -and $_.title -ceq 'unsupported native program feature' })
@@ -5078,8 +5078,8 @@ function Invoke-HumCompilerCorpusChecks {
   if ($SessionZWrongType.ExitCode -ne 1) { throw 'Session Z wrong output argument must block full type' }
   Assert-Json 'full type Session Z wrong output argument' $SessionZWrongType.Output
   $SessionZWrongTypeParsed = $SessionZWrongType.Output | ConvertFrom-Json
-  $SessionZWrongTypeRow = @($SessionZWrongTypeParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0622' })[0]
-  if ($null -eq $SessionZWrongTypeRow -or $SessionZWrongTypeRow.expected_type -ne 'Text' -or $SessionZWrongTypeRow.actual_type -ne 'integer_literal') { throw 'Session Z H0622 must pin the exact Text argument signature' }
+  $SessionZWrongTypeRow = @($SessionZWrongTypeParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0641' })[0]
+  if ($null -eq $SessionZWrongTypeRow -or $SessionZWrongTypeRow.expected_type -ne 'Text' -or $SessionZWrongTypeRow.actual_type -ne 'integer_literal') { throw 'Session Z H0641 must pin the exact Text argument signature' }
 
   $SessionZImplicit = 'fixtures/full_type_check/session_z_implicit_stdout_fail.hum'
   $SessionZImplicitType = Read-NativeOutputWithExit 'full type Session Z implicit output failure' $Hum @('full-type-check', '--format', 'json', $SessionZImplicit)
@@ -5364,10 +5364,10 @@ function Invoke-HumCompilerCorpusChecks {
   if ($SessionAAInvalidHuman.ExitCode -ne 1 -or $SessionAAInvalidType.ExitCode -ne 1) { throw 'Session AA invalid replay call must block full type human and JSON' }
   Assert-Json 'full type Session AA invalid replay call' $SessionAAInvalidType.Output
   $SessionAAInvalidParsed = $SessionAAInvalidType.Output | ConvertFrom-Json
-  $SessionAAInvalidRow = @($SessionAAInvalidParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0626' })[0]
-  if ($null -eq $SessionAAInvalidRow -or $SessionAAInvalidRow.expected_type -ne 'no arguments' -or $SessionAAInvalidRow.reason -ne 'clock_replay_tick_requires_zero_arguments_v0' -or $SessionAAInvalidType.Output.Contains('H0907') -or -not $SessionAAInvalidHuman.Output.Contains('diagnostic=H0626') -or -not $SessionAAInvalidHuman.Output.Contains($SessionAAInvalidRow.help)) { throw 'Session AA H0626 must agree in human/JSON, pin the exact zero-argument signature, and precede missing fails-when blame' }
+  $SessionAAInvalidRow = @($SessionAAInvalidParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0640' })[0]
+  if ($null -eq $SessionAAInvalidRow -or $SessionAAInvalidRow.reason -ne 'call_argument_count_mismatch_v0' -or $null -ne $SessionAAInvalidRow.expected_type -or $SessionAAInvalidType.Output.Contains('H0907') -or -not $SessionAAInvalidHuman.Output.Contains('diagnostic=H0640') -or -not $SessionAAInvalidHuman.Output.Contains($SessionAAInvalidRow.help)) { throw 'Session AA H0640 must agree in human/JSON, pin the arity mismatch with a null statement-expected type, and precede missing fails-when blame' }
   $SessionAAInvalidRun = Read-NativeChannelsWithExit 'run Session AA invalid replay call' $Hum @('run', $SessionAAInvalid, '--allow', 'clock.replay', '--replay-tick', '1')
-  if ($SessionAAInvalidRun.ExitCode -ne 1 -or $SessionAAInvalidRun.Stdout -ne '' -or -not $SessionAAInvalidRun.Stderr.Contains('diagnostic=H0626') -or $SessionAAInvalidRun.Stderr.Contains('H0907') -or $SessionAAInvalidRun.Stderr.Contains('runtime trap')) { throw 'Session AA H0626 must block before replay adapter execution and missing fails-when blame' }
+  if ($SessionAAInvalidRun.ExitCode -ne 1 -or $SessionAAInvalidRun.Stdout -ne '' -or -not $SessionAAInvalidRun.Stderr.Contains('diagnostic=H0640') -or $SessionAAInvalidRun.Stderr.Contains('H0907') -or $SessionAAInvalidRun.Stderr.Contains('runtime trap')) { throw 'Session AA H0640 must block before replay adapter execution and missing fails-when blame' }
 
   $SessionAAImplicit = 'fixtures/full_type_check/session_aa_implicit_replay_fail.hum'
   $SessionAAImplicitType = Read-NativeOutputWithExit 'full type Session AA implicit replay failure' $Hum @('full-type-check', '--format', 'json', $SessionAAImplicit)
@@ -5569,7 +5569,7 @@ function Invoke-HumCompilerCorpusChecks {
 
   foreach ($Misuse in @(
     @{ Name = 'missing file source'; Path = 'fixtures/app_entry/session_ad_missing_file_source_fail.hum'; Surface = 'check'; Code = 'H0631' },
-    @{ Name = 'wrong file argument type'; Path = 'fixtures/full_type_check/session_ad_file_read_wrong_type_fail.hum'; Surface = 'full-type-check'; Code = 'H0632' },
+    @{ Name = 'wrong file argument type'; Path = 'fixtures/full_type_check/session_ad_file_read_wrong_type_fail.hum'; Surface = 'full-type-check'; Code = 'H0641' },
     @{ Name = 'reserved file builtin'; Path = 'fixtures/app_entry/session_ad_reserved_file_read_name_fail.hum'; Surface = 'check'; Code = 'H0633' }
   )) {
     $Human = Read-NativeOutputWithExit "Session AD $($Misuse.Name) human" $Hum @($Misuse.Surface, $Misuse.Path)

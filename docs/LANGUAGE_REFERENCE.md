@@ -239,7 +239,8 @@ unavailable.
 Session AD permits the otherwise opaque Path to appear only as the sole
 argument of `files_read_text(path: Path) -> Result Text, FileReadError` on the
 structural start task. H0631 requires complete `files.read` source closure;
-H0632 owns the exact Path signature; and H0633 reserves the builtin name.
+H0641 owns the exact Path argument type (H0632 retired); and H0633 reserves
+the builtin name.
 Default or exact operator denial returns `FileReadError.denied`, while a
 different exact native grant returns `FileReadError.outside_grant`, before
 candidate access. Lexical or reparse rejection is `unsafe_path`; unsupported or
@@ -726,8 +727,8 @@ Fallibility is conditional on the separator's written form:
 - A directly-written empty separator is a checker error, H0636.
 - A runtime-computed empty separator raises the typed failure
   `TextSplitError.SepEmpty` through normal `try`/`fail`; it is not an H-code.
-- The checker also rejects wrong arity and non-`Text` arguments with H0636,
-  and a user task named `text_split` is rejected with H0637.
+- The checker rejects wrong arity with H0640 and non-`Text` arguments with
+  H0641, and a user task named `text_split` is rejected with H0637.
 
 ### `uint_to_text`
 

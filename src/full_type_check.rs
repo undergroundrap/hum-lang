@@ -136,25 +136,9 @@ struct TypeFact {
     source: &'static str,
 }
 
-struct StdoutWriteTypeIssue {
-    call_source: String,
-    call_span: Span,
-    actual_type: Option<TypeFact>,
-    reason: &'static str,
-}
-
-struct ReplayTickTypeIssue {
-    call_source: String,
-    call_span: Span,
-    reason: &'static str,
-}
-
-struct FileReadTypeIssue {
-    call_source: String,
-    call_span: Span,
-    actual_type: Option<TypeFact>,
-    reason: &'static str,
-}
+// WO30 Item 2: H0622/H0626/H0632 retired. Their arity/type reasons moved to
+// the general H0640/H0641 probe; the per-builtin probe structs below are
+// removed. `text_split` keeps its value-level H0636 probe (narrowed).
 
 struct TextSplitTypeIssue {
     call_source: String,
@@ -952,17 +936,29 @@ fn type_statement(
     // probe rejects never reaches the narrower probes below.
     if let Some(issue) = call_shape_issue(parsed, task_signatures) {
         let expected = issue.signature.params.len();
+        // WO30 Item 2 (Claude review): `expected` is the type the statement
+        // expects, never the callee's return type. The signature already
+        // appears in the help text.
+        let statement_expected = expected_type_for_statement(item, statement, scopes, field_types);
         let mut typed = typed_statement(
             statement,
             index,
             expression_text_for_statement(statement).map(str::to_string),
-            issue.signature.return_type.clone(),
+            statement_expected,
             None,
             "rejected_invalid_call_arity_v0",
             Some("call_argument_count_mismatch_v0"),
         );
-        if issue.is_builtin && issue.callee == "text_split" {
-            typed.failure_form = Some("text_split_builtin");
+        if issue.is_builtin {
+            // WO30 Item 2: the migrated builtins keep the failure forms
+            // their retired per-builtin diagnostics carried.
+            typed.failure_form = match issue.callee.as_str() {
+                "text_split" => Some("text_split_builtin"),
+                "stdout_write" => Some("bounded_output_builtin"),
+                "clock_replay_tick" => Some("runner_replay_builtin"),
+                "files_read_text" => Some("hardened_exact_file_read_builtin"),
+                _ => None,
+            };
         }
         typed.call_span = Some(issue.call_span);
         typed.caller_span = Some(item.span().clone());
@@ -986,94 +982,58 @@ fn type_statement(
         return typed;
     }
 
-    if let Some(issue) = stdout_write_type_issue(statement, scopes, task_returns, field_types) {
+    // WO30 Item 2: the argument-type probe runs after the arity probe, so
+    // arity mismatches keep H0640 precedence. The first call with a
+    // statically known argument type that mismatches its parameter type is
+    // H0641; unknown argument types stay silent.
+    if let Some(issue) =
+        call_argument_type_issue(parsed, task_signatures, scopes, task_returns, field_types)
+    {
+        let actual_name = canonical_argument_type_name(&issue.actual_type);
         let mut typed = typed_statement(
             statement,
             index,
-            Some(issue.call_source),
-            Some("Text".to_string()),
-            issue.actual_type,
-            "rejected_invalid_stdout_write_call_v0",
-            Some(issue.reason),
+            expression_text_for_statement(statement).map(str::to_string),
+            Some(issue.expected_type.clone()),
+            Some(type_fact(&actual_name, "call_argument_type_v0")),
+            "rejected_invalid_call_argument_type_v0",
+            Some("call_argument_type_mismatch_v0"),
         );
-        typed.failure_form = Some("bounded_output_builtin");
+        if issue.is_builtin {
+            typed.failure_form = match issue.callee.as_str() {
+                "text_split" => Some("text_split_builtin"),
+                "stdout_write" => Some("bounded_output_builtin"),
+                "clock_replay_tick" => Some("runner_replay_builtin"),
+                "files_read_text" => Some("hardened_exact_file_read_builtin"),
+                _ => None,
+            };
+        }
         typed.call_span = Some(issue.call_span);
         typed.caller_span = Some(item.span().clone());
-        typed.diagnostic_code = Some(DiagnosticCode::INVALID_STDOUT_WRITE_CALL.as_str());
-        typed.help = Some(
-            "Pass exactly one checked `Text` argument to `stdout_write`, then handle its `OutputError` explicitly."
-                .to_string(),
-        );
+        typed.diagnostic_code = Some(DiagnosticCode::INVALID_CALL_ARGUMENT_TYPE.as_str());
+        typed.help = Some(format!(
+            "Call `{}` with `{}` for argument {} ({}); found `{}`.",
+            issue.callee,
+            issue.expected_type,
+            issue.argument_index + 1,
+            signature_help_text(&issue.callee, &issue.signature),
+            actual_name,
+        ));
         attach_builtin_occurrence(
             &mut typed,
             item_identity,
             index,
-            DiagnosticCode::INVALID_STDOUT_WRITE_CALL,
-            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(100),
-            "stdout_write_call_shape",
+            DiagnosticCode::INVALID_CALL_ARGUMENT_TYPE,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(191),
+            "call_argument_type",
         );
         return typed;
     }
 
-    if let Some(issue) = replay_tick_type_issue(statement) {
-        let mut typed = typed_statement(
-            statement,
-            index,
-            Some(issue.call_source),
-            Some("no arguments".to_string()),
-            None,
-            "rejected_invalid_clock_replay_call_v0",
-            Some(issue.reason),
-        );
-        typed.failure_form = Some("runner_replay_builtin");
-        typed.call_span = Some(issue.call_span);
-        typed.caller_span = Some(item.span().clone());
-        typed.diagnostic_code = Some(DiagnosticCode::INVALID_CLOCK_REPLAY_CALL.as_str());
-        typed.help = Some(
-            "Call `clock_replay_tick()` with no arguments, then handle its `ReplayClockError` explicitly."
-                .to_string(),
-        );
-        attach_builtin_occurrence(
-            &mut typed,
-            item_identity,
-            index,
-            DiagnosticCode::INVALID_CLOCK_REPLAY_CALL,
-            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(101),
-            "clock_replay_call_shape",
-        );
-        return typed;
-    }
-
-    if let Some(issue) = file_read_type_issue(statement, scopes, task_returns, field_types) {
-        let mut typed = typed_statement(
-            statement,
-            index,
-            Some(issue.call_source),
-            Some("Path".to_string()),
-            issue.actual_type,
-            "rejected_invalid_files_read_text_call_v0",
-            Some(issue.reason),
-        );
-        typed.failure_form = Some("hardened_exact_file_read_builtin");
-        typed.call_span = Some(issue.call_span);
-        typed.caller_span = Some(item.span().clone());
-        typed.diagnostic_code = Some(DiagnosticCode::INVALID_FILE_READ_CALL.as_str());
-        typed.help = Some(
-            "Pass exactly the runner-owned opaque `Path` to `files_read_text`, then handle its `FileReadError` explicitly."
-                .to_string(),
-        );
-        attach_builtin_occurrence(
-            &mut typed,
-            item_identity,
-            index,
-            DiagnosticCode::INVALID_FILE_READ_CALL,
-            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(102),
-            "files_read_call_shape",
-        );
-        return typed;
-    }
-
-    if let Some(issue) = text_split_type_issue(statement, scopes, task_returns, field_types) {
+    // WO30 Item 2: narrowed to value-level H0636 reasons only (stray empty
+    // argument, directly written empty separator); arity/type reasons moved
+    // to the general H0640/H0641 probe above.
+    if let Some(issue) = text_split_type_issue(statement) {
         let mut typed = typed_statement(
             statement,
             index,
@@ -1088,7 +1048,7 @@ fn type_statement(
         typed.caller_span = Some(item.span().clone());
         typed.diagnostic_code = Some(DiagnosticCode::INVALID_TEXT_SPLIT_CALL.as_str());
         typed.help = Some(
-            "Pass exactly two `Text` arguments to `text_split`, use a non-empty separator, then handle its `TextSplitError` explicitly unless the separator is a directly-written non-empty literal."
+            "Pass no stray empty arguments and a non-empty separator to `text_split`, then handle its `TextSplitError` explicitly unless the separator is a directly-written non-empty literal."
                 .to_string(),
         );
         attach_builtin_occurrence(
@@ -1310,131 +1270,12 @@ fn constant_text_stdout_write_binding(statement: &crate::ast::ParsedBodyStatemen
     .then_some(name.name.as_str())
 }
 
-fn stdout_write_type_issue(
-    statement: &BodyStatement,
-    scopes: &TypeScopeStack<TypeFact>,
-    task_returns: &BTreeMap<String, TypeFact>,
-    field_types: &FieldTypeMap,
-) -> Option<StdoutWriteTypeIssue> {
-    let expression = expression_text_for_statement(statement)?;
-    let expression_offset = statement.text.find(expression).unwrap_or(0);
-    let call = typed_failure::calls_in_expression(expression)
-        .into_iter()
-        .find(|call| call.callee == "stdout_write")?;
-    let call_span = Span {
-        file: statement.span.file.clone(),
-        line: statement.span.line,
-        column: statement.span.column
-            + statement.text[..expression_offset + call.source_offset]
-                .chars()
-                .count(),
-    };
-    let args = call
-        .source
-        .strip_prefix("stdout_write(")?
-        .strip_suffix(')')?;
-    let arguments = typed_failure::split_call_arguments(args);
-    if arguments.len() != 1 {
-        return Some(StdoutWriteTypeIssue {
-            call_source: call.source,
-            call_span,
-            actual_type: None,
-            reason: "stdout_write_requires_exactly_one_argument_v0",
-        });
-    }
-    let actual_type = infer_expression_type(arguments[0], scopes, task_returns, field_types);
-    if actual_type
-        .as_ref()
-        .is_some_and(|actual| actual.type_text == "Text")
-    {
-        return None;
-    }
-    Some(StdoutWriteTypeIssue {
-        call_source: call.source,
-        call_span,
-        actual_type,
-        reason: "stdout_write_argument_must_be_text_v0",
-    })
-}
-
-fn replay_tick_type_issue(statement: &BodyStatement) -> Option<ReplayTickTypeIssue> {
-    let expression = expression_text_for_statement(statement)?;
-    let expression_offset = statement.text.find(expression).unwrap_or(0);
-    let call = typed_failure::calls_in_expression(expression)
-        .into_iter()
-        .find(|call| call.callee == "clock_replay_tick")?;
-    let call_span = Span {
-        file: statement.span.file.clone(),
-        line: statement.span.line,
-        column: statement.span.column
-            + statement.text[..expression_offset + call.source_offset]
-                .chars()
-                .count(),
-    };
-    let args = call
-        .source
-        .strip_prefix("clock_replay_tick(")?
-        .strip_suffix(')')?;
-    (!args.trim().is_empty()).then_some(ReplayTickTypeIssue {
-        call_source: call.source,
-        call_span,
-        reason: "clock_replay_tick_requires_zero_arguments_v0",
-    })
-}
-
-fn file_read_type_issue(
-    statement: &BodyStatement,
-    scopes: &TypeScopeStack<TypeFact>,
-    task_returns: &BTreeMap<String, TypeFact>,
-    field_types: &FieldTypeMap,
-) -> Option<FileReadTypeIssue> {
-    let expression = expression_text_for_statement(statement)?;
-    let expression_offset = statement.text.find(expression).unwrap_or(0);
-    let call = typed_failure::calls_in_expression(expression)
-        .into_iter()
-        .find(|call| call.callee == "files_read_text")?;
-    let call_span = Span {
-        file: statement.span.file.clone(),
-        line: statement.span.line,
-        column: statement.span.column
-            + statement.text[..expression_offset + call.source_offset]
-                .chars()
-                .count(),
-    };
-    let args = call
-        .source
-        .strip_prefix("files_read_text(")?
-        .strip_suffix(')')?;
-    let arguments = typed_failure::split_call_arguments(args);
-    if arguments.len() != 1 {
-        return Some(FileReadTypeIssue {
-            call_source: call.source,
-            call_span,
-            actual_type: None,
-            reason: "files_read_text_requires_exactly_one_argument_v0",
-        });
-    }
-    let actual_type = infer_expression_type(arguments[0], scopes, task_returns, field_types);
-    if actual_type
-        .as_ref()
-        .is_some_and(|actual| actual.type_text == "Path")
-    {
-        return None;
-    }
-    Some(FileReadTypeIssue {
-        call_source: call.source,
-        call_span,
-        actual_type,
-        reason: "files_read_text_argument_must_be_opaque_path_v0",
-    })
-}
-
-fn text_split_type_issue(
-    statement: &BodyStatement,
-    scopes: &TypeScopeStack<TypeFact>,
-    task_returns: &BTreeMap<String, TypeFact>,
-    field_types: &FieldTypeMap,
-) -> Option<TextSplitTypeIssue> {
+/// WO30 Item 2: narrowed to value-level H0636 reasons only. Arity and
+/// argument-type reasons moved to the general H0640/H0641 probe, which runs
+/// before this probe — so a `text_split` call seen here already has exactly
+/// two arguments. Retained: stray empty argument, directly written empty
+/// separator literal.
+fn text_split_type_issue(statement: &BodyStatement) -> Option<TextSplitTypeIssue> {
     let expression = expression_text_for_statement(statement)?;
     let expression_offset = statement.text.find(expression).unwrap_or(0);
     let call = typed_failure::calls_in_expression(expression)
@@ -1449,9 +1290,6 @@ fn text_split_type_issue(
                 .count(),
     };
     let args = call.source.strip_prefix("text_split(")?.strip_suffix(')')?;
-    // Escape-aware per decision 0022: the canonical splitter, so an escaped
-    // quote inside a separator literal can never produce a spurious arity
-    // error here.
     let arguments = typed_failure::split_call_arguments(args);
     // Decision 0022: a stray empty argument (e.g. `text_split(line,, ",")`)
     // is a checker error, not a silently-dropped segment.
@@ -1463,32 +1301,12 @@ fn text_split_type_issue(
             reason: "text_split_rejects_stray_empty_argument_v0",
         });
     }
-    if arguments.len() != 2 {
-        return Some(TextSplitTypeIssue {
-            call_source: call.source,
-            call_span,
-            actual_type: None,
-            reason: "text_split_requires_exactly_two_arguments_v0",
-        });
-    }
-    for argument in &arguments {
-        let actual_type = infer_expression_type(argument, scopes, task_returns, field_types);
-        if actual_type
-            .as_ref()
-            .is_none_or(|actual| actual.type_text != "Text")
-        {
-            return Some(TextSplitTypeIssue {
-                call_source: call.source,
-                call_span,
-                actual_type,
-                reason: "text_split_arguments_must_be_text_v0",
-            });
-        }
-    }
     // A literal empty separator is a checker error (decision 0021). Only a
     // directly-written `""` is caught here; a runtime-computed empty
     // separator raises `TextSplitError.SepEmpty` through `try`/`fail`.
-    if arguments[1].trim() == "\"\"" {
+    // The index is guarded: the H0640 probe runs before this probe, so a
+    // call seen here has exactly two arguments — but never index blindly.
+    if arguments.len() == 2 && arguments[1].trim() == "\"\"" {
         return Some(TextSplitTypeIssue {
             call_source: call.source,
             call_span,
@@ -1781,9 +1599,26 @@ struct TaskSignature {
 }
 
 fn builtin_task_signatures() -> BTreeMap<String, TaskSignature> {
-    // WO30 Item 4: the single builtin signature table. These four builtins
-    // are checked exactly like user tasks with the same signatures.
+    // WO30 Item 4: the single builtin signature table. These builtins are
+    // checked exactly like user tasks with the same signatures. WO30 Item 2:
+    // `stdout_write`, `clock_replay_tick`, and `files_read_text` carry their
+    // parameter signatures here so their arity/type reasons are owned by the
+    // general H0640/H0641 probe (H0622/H0626/H0632 retired).
     BTreeMap::from([
+        (
+            name_key("clock_replay_tick"),
+            TaskSignature {
+                params: Vec::new(),
+                return_type: Some("UInt".to_string()),
+            },
+        ),
+        (
+            name_key("files_read_text"),
+            TaskSignature {
+                params: vec!["Path".to_string()],
+                return_type: Some("Text".to_string()),
+            },
+        ),
         (
             name_key("uint_to_text"),
             TaskSignature {
@@ -1810,6 +1645,13 @@ fn builtin_task_signatures() -> BTreeMap<String, TaskSignature> {
             TaskSignature {
                 params: vec!["List".to_string()],
                 return_type: Some("UInt".to_string()),
+            },
+        ),
+        (
+            name_key("stdout_write"),
+            TaskSignature {
+                params: vec!["Text".to_string()],
+                return_type: Some("Unit".to_string()),
             },
         ),
     ])
@@ -1906,24 +1748,7 @@ fn call_shape_issue(
                 });
             }
         }
-        let children: Vec<&crate::ast::CanonicalExpression> = match &expression.kind {
-            crate::ast::CanonicalExpressionKind::Field { base, .. } => vec![base],
-            crate::ast::CanonicalExpressionKind::ElementPlace { base, .. } => vec![base],
-            crate::ast::CanonicalExpressionKind::ListLiteral(items) => items.iter().collect(),
-            crate::ast::CanonicalExpressionKind::RecordLiteral { fields, .. } => {
-                fields.iter().map(|(_, value)| value).collect()
-            }
-            crate::ast::CanonicalExpressionKind::Call { callee, arguments } => {
-                std::iter::once(callee.as_ref())
-                    .chain(arguments.iter())
-                    .collect()
-            }
-            crate::ast::CanonicalExpressionKind::Permission { value, .. } => vec![value],
-            crate::ast::CanonicalExpressionKind::Try { value, .. } => vec![value],
-            crate::ast::CanonicalExpressionKind::Binary { left, right, .. } => vec![left, right],
-            crate::ast::CanonicalExpressionKind::Group(inner) => vec![inner],
-            _ => Vec::new(),
-        };
+        let children = canonical_child_expressions(expression);
         children
             .into_iter()
             .find_map(|child| walk(child, builtins, task_signatures))
@@ -1937,6 +1762,265 @@ fn call_shape_issue(
     expressions
         .into_iter()
         .find_map(|expression| walk(&expression.canonical, &builtins, task_signatures))
+}
+
+/// The canonical child expressions of a canonical expression, shared by the
+/// call-shape (H0640) and call-argument-type (H0641) walks so both probes see
+/// the same tree through `Try`/`Group` wrappers.
+fn canonical_child_expressions(
+    expression: &crate::ast::CanonicalExpression,
+) -> Vec<&crate::ast::CanonicalExpression> {
+    match &expression.kind {
+        crate::ast::CanonicalExpressionKind::Field { base, .. } => vec![base],
+        crate::ast::CanonicalExpressionKind::ElementPlace { base, .. } => vec![base],
+        crate::ast::CanonicalExpressionKind::ListLiteral(items) => items.iter().collect(),
+        crate::ast::CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+            fields.iter().map(|(_, value)| value).collect()
+        }
+        crate::ast::CanonicalExpressionKind::Call { callee, arguments } => {
+            std::iter::once(callee.as_ref())
+                .chain(arguments.iter())
+                .collect()
+        }
+        crate::ast::CanonicalExpressionKind::Permission { value, .. } => vec![value],
+        crate::ast::CanonicalExpressionKind::Try { value, .. } => vec![value],
+        crate::ast::CanonicalExpressionKind::Binary { left, right, .. } => vec![left, right],
+        crate::ast::CanonicalExpressionKind::Group(inner) => vec![inner],
+        _ => Vec::new(),
+    }
+}
+
+/// WO30 Item 2: the statically known type of a call argument, classified
+/// from the canonical AST — never from source text. Literals classify by
+/// their canonical form (the parser files every non-negative digit run as
+/// `UIntLiteral`, so a negative literal always arrives as `IntLiteral` with
+/// a negative value); identifiers and places use their lexical scope facts;
+/// calls use the callee's resolved return type. Anything else is unknown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CanonicalArgumentType {
+    Unknown,
+    TextLiteral,
+    BoolLiteral,
+    NonNegativeIntLiteral,
+    NegativeIntLiteral,
+    ListLiteral,
+    Named(String),
+}
+
+fn classify_argument_type(
+    argument: &crate::ast::CanonicalExpression,
+    scopes: &TypeScopeStack<TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> CanonicalArgumentType {
+    match &argument.kind {
+        crate::ast::CanonicalExpressionKind::TextLiteral(_) => CanonicalArgumentType::TextLiteral,
+        crate::ast::CanonicalExpressionKind::BoolLiteral(_) => CanonicalArgumentType::BoolLiteral,
+        crate::ast::CanonicalExpressionKind::UIntLiteral(_) => {
+            CanonicalArgumentType::NonNegativeIntLiteral
+        }
+        crate::ast::CanonicalExpressionKind::IntLiteral(value) => {
+            if *value < 0 {
+                CanonicalArgumentType::NegativeIntLiteral
+            } else {
+                CanonicalArgumentType::NonNegativeIntLiteral
+            }
+        }
+        crate::ast::CanonicalExpressionKind::ListLiteral(_) => CanonicalArgumentType::ListLiteral,
+        crate::ast::CanonicalExpressionKind::Identifier(name) => scopes
+            .lookup(name)
+            .map_or(CanonicalArgumentType::Unknown, |fact| {
+                CanonicalArgumentType::Named(fact.type_text)
+            }),
+        crate::ast::CanonicalExpressionKind::Field { base, field } => {
+            if let crate::ast::CanonicalExpressionKind::Identifier(root) = &base.kind
+                && let Some(root_fact) = scopes.lookup(root)
+                && let Some(field_type) =
+                    field_place::field_type(field_types, &root_fact.type_text, field)
+            {
+                CanonicalArgumentType::Named(field_type.to_string())
+            } else {
+                CanonicalArgumentType::Unknown
+            }
+        }
+        crate::ast::CanonicalExpressionKind::ElementPlace { base, .. } => {
+            if let crate::ast::CanonicalExpressionKind::Identifier(root) = &base.kind
+                && let Some(root_fact) = scopes.lookup(root)
+                && let Some(element_type) = element_place::list_element_type(&root_fact.type_text)
+            {
+                CanonicalArgumentType::Named(element_type.to_string())
+            } else {
+                CanonicalArgumentType::Unknown
+            }
+        }
+        crate::ast::CanonicalExpressionKind::Call { callee, .. } => {
+            if let crate::ast::CanonicalExpressionKind::Identifier(name) = &callee.kind {
+                // Builtin-table-first, matching the call-shape probe and
+                // runtime dispatch (ledger #19): the builtin return type
+                // wins over a same-named user task's declared return.
+                if let Some(signature) = builtin_task_signatures().get(&name_key(name))
+                    && let Some(return_type) = &signature.return_type
+                {
+                    return CanonicalArgumentType::Named(return_type.clone());
+                }
+                if let Some(fact) = task_returns.get(&name_key(name)) {
+                    return CanonicalArgumentType::Named(fact.type_text.clone());
+                }
+            }
+            CanonicalArgumentType::Unknown
+        }
+        // Transparent wrappers: the argument's type is the inner type.
+        crate::ast::CanonicalExpressionKind::Group(inner)
+        | crate::ast::CanonicalExpressionKind::Permission { value: inner, .. }
+        | crate::ast::CanonicalExpressionKind::Try { value: inner, .. } => {
+            classify_argument_type(inner, scopes, task_returns, field_types)
+        }
+        _ => CanonicalArgumentType::Unknown,
+    }
+}
+
+/// WO30 Item 2: exact type-compatibility — no inference beyond this table.
+/// Unknown argument types are compatible (they stay silent per decision
+/// 0014 honesty). A negative integer literal is *not* rejected for `UInt`
+/// here; that rejection is WO30 Item 3 (H0642).
+fn argument_type_compatible(expected: &str, actual: &CanonicalArgumentType) -> bool {
+    match actual {
+        CanonicalArgumentType::Unknown => true,
+        CanonicalArgumentType::TextLiteral => expected == "Text",
+        CanonicalArgumentType::BoolLiteral => expected == "Bool",
+        CanonicalArgumentType::NonNegativeIntLiteral => expected == "Int" || expected == "UInt",
+        // WO30 Item 3 owns the negative-literal-to-UInt rejection (H0642);
+        // Item 2 treats the negative literal as compatible with Int and
+        // silent for UInt.
+        CanonicalArgumentType::NegativeIntLiteral => expected == "Int" || expected == "UInt",
+        CanonicalArgumentType::ListLiteral => expected == "List" || expected.starts_with("List "),
+        CanonicalArgumentType::Named(name) => {
+            if expected == "List" {
+                // The only width rule: a bare `List` parameter accepts any
+                // list-typed argument. It exists so `list_len` accepts every
+                // list the runtime accepts.
+                name == "List" || name.starts_with("List ")
+            } else {
+                name == expected
+            }
+        }
+    }
+}
+
+/// The machine-readable argument type name for the H0641 diagnostic, using
+/// the historical `infer_expression_type` vocabulary (`integer_literal`,
+/// `list_literal`) for literals whose language type is contextual.
+fn canonical_argument_type_name(actual: &CanonicalArgumentType) -> String {
+    match actual {
+        CanonicalArgumentType::Unknown => "unknown".to_string(),
+        CanonicalArgumentType::TextLiteral => "Text".to_string(),
+        CanonicalArgumentType::BoolLiteral => "Bool".to_string(),
+        CanonicalArgumentType::NonNegativeIntLiteral
+        | CanonicalArgumentType::NegativeIntLiteral => "integer_literal".to_string(),
+        CanonicalArgumentType::ListLiteral => "list_literal".to_string(),
+        CanonicalArgumentType::Named(name) => name.clone(),
+    }
+}
+
+struct CallArgumentTypeIssue {
+    callee: String,
+    is_builtin: bool,
+    signature: TaskSignature,
+    argument_index: usize,
+    expected_type: String,
+    actual_type: CanonicalArgumentType,
+    call_span: Span,
+}
+
+/// WO30 Item 2: the AST-driven argument-type probe (H0641). Runs after the
+/// arity probe so arity mismatches keep H0640 precedence: walks the
+/// statement's canonical expressions in pre-order; the first call whose
+/// callee resolves to a declared signature with a matching argument count,
+/// but which has a statically known argument type that mismatches its
+/// parameter type, is H0641. Unknown argument types produce no diagnostic.
+fn call_argument_type_issue(
+    parsed: &crate::ast::ParsedBodyStatement,
+    task_signatures: &BTreeMap<String, TaskSignature>,
+    scopes: &TypeScopeStack<TypeFact>,
+    task_returns: &BTreeMap<String, TypeFact>,
+    field_types: &FieldTypeMap,
+) -> Option<CallArgumentTypeIssue> {
+    let builtins = builtin_task_signatures();
+    fn walk(
+        expression: &crate::ast::CanonicalExpression,
+        builtins: &BTreeMap<String, TaskSignature>,
+        task_signatures: &BTreeMap<String, TaskSignature>,
+        scopes: &TypeScopeStack<TypeFact>,
+        task_returns: &BTreeMap<String, TypeFact>,
+        field_types: &FieldTypeMap,
+    ) -> Option<CallArgumentTypeIssue> {
+        if let crate::ast::CanonicalExpressionKind::Call { callee, arguments } = &expression.kind
+            && let crate::ast::CanonicalExpressionKind::Identifier(name) = &callee.kind
+        {
+            // Builtin-table-first, matching the call-shape probe and runtime
+            // dispatch (ledger #19). An unknown callee is not a type issue —
+            // the resolver owns it (H0601) — so keep walking for nested calls.
+            let resolved = builtins
+                .get(&name_key(name))
+                .map(|signature| (true, signature))
+                .or_else(|| {
+                    task_signatures
+                        .get(&name_key(name))
+                        .map(|signature| (false, signature))
+                });
+            // Arity mismatches belong to the H0640 probe, which runs first;
+            // only arity-clean calls are type-checked here.
+            if let Some((is_builtin, signature)) = resolved
+                && arguments.len() == signature.params.len()
+            {
+                for (argument_index, (argument, expected)) in
+                    arguments.iter().zip(signature.params.iter()).enumerate()
+                {
+                    let actual =
+                        classify_argument_type(argument, scopes, task_returns, field_types);
+                    if !argument_type_compatible(expected, &actual) {
+                        return Some(CallArgumentTypeIssue {
+                            callee: name.clone(),
+                            is_builtin,
+                            signature: signature.clone(),
+                            argument_index,
+                            expected_type: expected.clone(),
+                            actual_type: actual,
+                            call_span: expression.range.start.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        canonical_child_expressions(expression)
+            .into_iter()
+            .find_map(|child| {
+                walk(
+                    child,
+                    builtins,
+                    task_signatures,
+                    scopes,
+                    task_returns,
+                    field_types,
+                )
+            })
+    }
+
+    let expressions: Vec<&crate::ast::ParsedExpression> = match &parsed.kind {
+        crate::ast::ParsedBodyStatementKind::Return(expression) => vec![expression],
+        crate::ast::ParsedBodyStatementKind::Binding { value, .. } => value.iter().collect(),
+        crate::ast::ParsedBodyStatementKind::Other { expressions } => expressions.iter().collect(),
+    };
+    expressions.into_iter().find_map(|expression| {
+        walk(
+            &expression.canonical,
+            &builtins,
+            task_signatures,
+            scopes,
+            task_returns,
+            field_types,
+        )
+    })
 }
 
 fn initial_environment(params: &[Param]) -> BTreeMap<String, TypeFact> {
@@ -2451,6 +2535,7 @@ impl FullTypeCheckReport {
                         | "rejected_invalid_files_read_text_call_v0"
                         | "rejected_invalid_text_escape_v0"
                         | "rejected_invalid_call_arity_v0"
+                        | "rejected_invalid_call_argument_type_v0"
                 )
             })
             .count()
@@ -3627,8 +3712,11 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         assert_eq!(count_diagnostic_code(&json, "H0636"), 0);
     }
 
+    // WO30 Item 2: argument-type mismatches moved from H0636 to H0641.
+    // H0636 is narrowed to value-level reasons only (stray empty argument,
+    // directly-written empty separator).
     #[test]
-    fn text_split_non_text_argument_is_h0636() {
+    fn text_split_non_text_argument_is_h0641() {
         let json = text_split_probe_json(
             r#"task split_types(count: UInt) -> List Text {
   does:
@@ -3637,7 +3725,9 @@ task remember(title: Text) -> Result WorkItem, WorkError {
 }
 "#,
         );
-        assert_eq!(count_diagnostic_code(&json, "H0636"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0636"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 0);
     }
 
     #[test]
@@ -3656,8 +3746,11 @@ task remember(title: Text) -> Result WorkItem, WorkError {
     // checker level: no `try`, no H0901.
     // WO30 Item 4: the arity shape now fires H0640 via the general
     // call-shape probe, so it leaves this checker-accepted set.
+    // WO30 Item 2: wrong-type and cross-type argument shapes now fire H0641
+    // via the general argument-type probe. The negative-literal-to-UInt
+    // shape stays checker-accepted here; WO30 Item 3 (H0642) owns it.
     #[test]
-    fn uint_to_text_misuse_shapes_are_checker_accepted_like_user_tasks() {
+    fn uint_to_text_wrong_type_shapes_are_h0641() {
         for source in [
             r#"task render_type() -> Text {
   does:
@@ -3669,20 +3762,33 @@ task remember(title: Text) -> Result WorkItem, WorkError {
     return uint_to_text(n)
 }
 "#,
-            r#"task render_neg() -> Text {
-  does:
-    return uint_to_text(-5)
-}
-"#,
         ] {
             let program = text_split_probe_program(source);
             let json = full_type_check_json(&program, &[]);
-            assert_eq!(count_diagnostic_code(&json, "H0901"), 0);
+            assert_eq!(count_diagnostic_code(&json, "H0641"), 1, "{source}");
+            assert_eq!(count_diagnostic_code(&json, "H0640"), 0, "{source}");
+            assert_eq!(count_diagnostic_code(&json, "H0901"), 0, "{source}");
             assert!(
-                !full_type_check_has_errors(&program, &[]),
-                "misuse shape must be checker-accepted: {source}"
+                full_type_check_has_errors(&program, &[]),
+                "wrong-type shape must be rejected: {source}"
             );
         }
+    }
+
+    // WO30 Item 2 leaves the negative-literal-to-UInt shape checker-accepted;
+    // WO30 Item 3 (H0642) owns its rejection.
+    #[test]
+    fn uint_to_text_negative_literal_stays_checker_accepted() {
+        let source = r#"task render_neg() -> Text {
+  does:
+    return uint_to_text(-5)
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
+        assert!(!full_type_check_has_errors(&program, &[]));
     }
 
     #[test]
@@ -3702,11 +3808,10 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         assert!(!full_type_check_has_errors(&program, &[]));
     }
 
-    // Decision 0028 (rework), WO30 Item 4: the arity shape now fires H0640
-    // via the general call-shape probe, so it leaves this checker-accepted
-    // set; argument-type shapes stay accepted until WO30 Item 2.
+    // WO30 Item 2: wrong-type and cross-type argument shapes now fire H0641
+    // via the general argument-type probe.
     #[test]
-    fn int_to_text_misuse_shapes_are_checker_accepted_like_user_tasks() {
+    fn int_to_text_wrong_type_shapes_are_h0641() {
         for source in [
             r#"task render_type() -> Text {
   does:
@@ -3721,12 +3826,284 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         ] {
             let program = text_split_probe_program(source);
             let json = full_type_check_json(&program, &[]);
-            assert_eq!(count_diagnostic_code(&json, "H0901"), 0);
+            assert_eq!(count_diagnostic_code(&json, "H0641"), 1, "{source}");
+            assert_eq!(count_diagnostic_code(&json, "H0640"), 0, "{source}");
+            assert_eq!(count_diagnostic_code(&json, "H0901"), 0, "{source}");
             assert!(
-                !full_type_check_has_errors(&program, &[]),
-                "misuse shape must be checker-accepted: {source}"
+                full_type_check_has_errors(&program, &[]),
+                "wrong-type shape must be rejected: {source}"
             );
         }
+    }
+
+    // WO30 Item 2: focused H0641 coverage — exactly one diagnostic for the
+    // first mismatch, nested calls, module/app scope, builtin precedence,
+    // unknown-type silence, list width rules, H0640 masking, user-task
+    // mismatches, field/element places, and migrated builtin failure forms.
+    #[test]
+    fn h0641_reports_only_the_first_mismatch() {
+        let json = text_split_probe_json(
+            r#"task f() -> Text {
+  does:
+    return text_split(42, true)
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 0);
+    }
+
+    #[test]
+    fn h0641_fires_for_nested_call_mismatch() {
+        let json = text_split_probe_json(
+            r#"task f() -> Text {
+  does:
+    return text_split(uint_to_text(1), uint_to_text("x"))
+}
+"#,
+        );
+        // The outer text_split args are both Text (builtin return); the
+        // inner uint_to_text("x") is the Text-vs-UInt mismatch.
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
+        assert!(full_type_check_has_errors(
+            &text_split_probe_program(
+                r#"task f() -> Text {
+  does:
+    return text_split(uint_to_text(1), uint_to_text("x"))
+}
+"#,
+            ),
+            &[]
+        ));
+    }
+
+    #[test]
+    fn h0641_fires_in_module_and_app_scope() {
+        let json = text_split_probe_json(
+            r#"module tests.wo30
+
+task helper(x: UInt) -> UInt {
+  does:
+    return helper("s")
+}
+
+app probe {
+  task start() -> Text {
+    does:
+      return uint_to_text("s")
+  }
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 2);
+    }
+
+    #[test]
+    fn h0641_builtin_signature_wins_over_same_named_user_task() {
+        let json = text_split_probe_json(
+            r#"task uint_to_text(x: Text) -> Text {
+  does:
+    return x
+}
+
+task f() -> Text {
+  does:
+    return uint_to_text("s")
+}
+"#,
+        );
+        // Builtin-table-first (ledger #19): the builtin uint_to_text takes
+        // UInt, so the Text literal is H0641 despite the user task's Text
+        // parameter.
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
+    }
+
+    #[test]
+    fn h0641_unknown_argument_type_stays_silent() {
+        // An element place on a non-list type has no static element type;
+        // the call stays silent per decision 0014 honesty.
+        let source = r#"task f(n: UInt) -> Text {
+  does:
+    return uint_to_text(n[0])
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+        assert!(!full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0641_list_width_rules_are_accepted() {
+        let source = r#"task f(xs: List Text) -> UInt {
+  does:
+    let a = list_len([1, 2, 3])
+    let b = list_len(xs)
+    return a
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        // A list literal is compatible with `List` and `List T`; a bare
+        // `List` parameter accepts any list-typed argument.
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+        assert!(!full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0641_list_literal_accepts_list_t_parameter() {
+        let source = r#"task g(xs: List Text) -> UInt {
+  does:
+    return list_len(xs)
+}
+
+task f() -> UInt {
+  does:
+    return g([1, 2])
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+        assert!(!full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0640_masks_h0641_on_bad_arity() {
+        let json = text_split_probe_json(
+            r#"task f() -> Text {
+  does:
+    return uint_to_text("a", "b")
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+    }
+
+    #[test]
+    fn h0641_fires_for_user_task_mismatch() {
+        let json = text_split_probe_json(
+            r#"task g(x: UInt, y: Text) -> Text {
+  does:
+    return y
+}
+
+task f() -> Text {
+  does:
+    return g("s", "t")
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 0);
+    }
+
+    #[test]
+    fn h0641_fires_for_field_and_element_places() {
+        let json = text_split_probe_json(
+            r#"type Item {
+  name: Text
+  count: UInt
+}
+
+task f(item: Item, xs: List UInt) -> Text {
+  does:
+    let a = uint_to_text(item.name)
+    let b = uint_to_text(xs[0])
+    return b
+}
+"#,
+        );
+        // item.name is Text (mismatch); xs[0] is UInt (accepted).
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
+    }
+
+    #[test]
+    fn h0641_preserves_migrated_builtin_failure_forms() {
+        for (source, form) in [
+            (
+                r#"task f() -> List Text {
+  does:
+    return text_split(42, "b")
+}
+"#,
+                "text_split_builtin",
+            ),
+            (
+                r#"app probe {
+  uses:
+    stdout.write
+  starts with:
+    run_tool
+  task run_tool -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write(42)
+      return written
+  }
+}
+"#,
+                "bounded_output_builtin",
+            ),
+            (
+                r#"app probe {
+  why:
+    reject Text where the hardened reader requires opaque Path
+  uses:
+    files.read
+  starts with:
+    run_tool
+  task run_tool(input: Text) -> Result Unit, FileReadError {
+    uses:
+      files.read
+    fails when:
+      the exact file operation fails
+    allocates:
+      one bounded file buffer
+    does:
+      let text = try files_read_text(input)
+      return
+  }
+}
+"#,
+                "hardened_exact_file_read_builtin",
+            ),
+        ] {
+            let json = text_split_probe_json(source);
+            assert_eq!(count_diagnostic_code(&json, "H0641"), 1, "{source}");
+            assert!(
+                json.contains(&format!("\"failure_form\": \"{form}\"")),
+                "missing failure form {form}: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn h0636_keeps_value_reasons_only() {
+        // Stray empty argument and directly-written empty separator stay
+        // H0636; arity and type reasons moved to H0640/H0641.
+        let empty_sep = text_split_probe_json(
+            r#"task f() -> List Text {
+  does:
+    return text_split("a,b", "")
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&empty_sep, "H0636"), 1);
+        let stray_empty = text_split_probe_json(
+            r#"task f() -> List Text {
+  does:
+    return text_split("a,b", , "c")
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&stray_empty, "H0636"), 1);
     }
 
     #[test]

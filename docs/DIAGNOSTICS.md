@@ -165,6 +165,19 @@ Rules:
 - Help text may improve without changing the code.
 - Severity may change only through an edition, feature gate, or clearly documented release policy.
 
+### Retired codes
+
+A code is retired, never deleted. Retirement freezes the exact allocation
+(spelling, title, family, owner, stage), the default severity, and the
+explanation/repair text; any reuse of the spelling or key, or any mutation
+of the frozen record, fails registry validation with
+`RetiredCodeReuseOrMutation`. A retired code is never emitted by the
+compiler. Its row stays in the tables below with a `Retired in <work order>`
+meaning so `hum explain <code>` keeps answering honestly, and every active
+code keeps its row (a missing active row fails the checked human projection).
+`hum diagnostics` lists the full catalog — active and retired — so the
+`count` field is the total allocation count, not the active count.
+
 ## Code Ranges
 
 Canonical inclusive family intervals:
@@ -277,25 +290,26 @@ unallocated rather than implicitly free.
 | `H0619` | error | app capability maximum is incomplete | The app maximum does not cover an exact capability in the start-task closure. |
 | `H0620` | error | direct entry cannot carry external authority | `--entry` selected a task whose direct-call closure requires pinned external source authority. |
 | `H0621` | error | stdout operation lacks source authority | A `stdout_write` call lacks exact `stdout.write` coverage at its task or structural app boundary. |
-| `H0622` | error | invalid stdout_write call | The bounded output built-in does not receive exactly one checked `Text` argument. |
+| `H0622` | error | invalid stdout_write call | Retired in WO30 Item 2: `stdout_write` arity reasons moved to H0640 and argument-type reasons moved to H0641. Frozen; never emitted. |
 | `H0623` | error | reserved built-in name redeclared | A user task attempts to redeclare the exact `stdout_write` built-in name. |
 | `H0624` | error | output-reachable recursion unsupported | A recursive call cycle can reach bounded output, so Session Z cannot assign a finite exact audit route. |
 | `H0625` | error | replay operation lacks source authority | A `clock_replay_tick` call lacks exact `clock.replay` coverage at its task or structural app boundary. |
-| `H0626` | error | invalid clock_replay_tick call | The runner-replay built-in receives an argument instead of using its exact zero-argument signature. |
+| `H0626` | error | invalid clock_replay_tick call | Retired in WO30 Item 2: `clock_replay_tick` arity reasons moved to H0640. Frozen; never emitted. |
 | `H0627` | error | reserved replay built-in name redeclared | A user task attempts to redeclare the exact `clock_replay_tick` built-in name. |
 | `H0628` | error | replay-reachable recursion unsupported | A recursive call cycle can reach replay input, so Session AA cannot assign a finite exact audit route. |
 | `H0629` | error | invalid opaque Path boundary | `Path` appears outside the one permitted structural app start parameter or in return/storage position. |
 | `H0630` | error | opaque Path cannot be constructed or used in source | Source attempts to construct, pass, inspect, store, return, compare, or transform runner-owned Path identity outside the exact `files_read_text(path)` consumption. |
 | `H0631` | error | file operation lacks source authority | A `files_read_text` call lacks exact `files.read` coverage at its task or structural app boundary. |
-| `H0632` | error | invalid files_read_text call | The hardened reader does not receive exactly one checked opaque `Path` argument. |
+| `H0632` | error | invalid files_read_text call | Retired in WO30 Item 2: `files_read_text` arity reasons moved to H0640 and argument-type reasons moved to H0641. Frozen; never emitted. |
 | `H0633` | error | reserved file-read built-in name redeclared | A user task attempts to redeclare the exact `files_read_text` builtin name. |
 | `H0634` | error | canonical native program layout | Native canonical admission requires matching `programs/<name>.hum`, `module programs.<name>`, and `app <name>` identity, with one module first, optional local types before the sole final app, and its declared entry task first. |
 | `H0635` | error | unsupported native program feature | A layout-valid native request has no supported typed feature (`native_feature_not_supported_v0`) or has an ambiguous typed match (`native_feature_ambiguous_v0`). Owner `native_program` emits it at `native_admission`, after semantic/H0634 blockers and before backend input, JIT, output, or readiness. |
-| `H0636` | error | invalid text_split call | A `text_split` call is rejected: it takes exactly two `Text` arguments, its separator must not be a directly-written empty literal, and it must not contain a stray empty argument. |
+| `H0636` | error | invalid text_split call | A `text_split` call is rejected for a value reason: a stray empty argument, or a directly-written empty separator literal. Arity reasons are H0640 and argument-type reasons are H0641. |
 | `H0637` | error | reserved text-split built-in name redeclared | A user task attempts to redeclare the exact `text_split` built-in name. |
 | `H0638` | error | invalid text escape | A text literal — in a task body or a `needs:`/`ensures:` contract predicate — contains an unknown escape sequence or a trailing backslash. Only `\n`, `\t`, `\\`, and `\"` are accepted (decision 0022). Contract literals decode identically to body literals. |
 | `H0639` | error | invalid contract-only builtin call | A task body calls a contract-only Predicate v2 builtin (for example `list_count`), which has no executable meaning; the runner traps on it. Move the call into a `needs:`/`ensures:` contract predicate, or use an executable builtin such as `list_len`. |
-| `H0640` | error | invalid call arity | A call passes the wrong number of arguments for the callee's declared signature. The four builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`) and user tasks are checked identically against their signatures. |
+| `H0640` | error | invalid call arity | A call passes the wrong number of arguments for the callee's declared signature. The seven builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`, `stdout_write`, `clock_replay_tick`, `files_read_text`) and user tasks are checked identically against their signatures. |
+| `H0641` | error | invalid call argument type | A call argument's statically known type does not match the callee's declared parameter type. The seven builtins and user tasks are checked identically against their signatures; a non-negative integer literal is compatible with both `Int` and `UInt` parameters. |
 
 Note: `TextSplitError.SepEmpty` is not a checker diagnostic and holds no H-code.
 It is a runtime typed failure variant raised when a computed (non-literal)
