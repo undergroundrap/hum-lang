@@ -206,6 +206,7 @@ unallocated rather than implicitly free.
 | `H0008` | error | parameter missing type | A parameter lacks an explicit type. |
 | `H0009` | error | invalid identifier | A value name is not snake_case or a type name is not PascalCase. |
 | `H0010` | error | comparison chaining is not supported | One comparison uses another comparison as an operand; write and join independent comparisons instead. |
+| `H0011` | error | integer literal out of range | An integer literal does not fit in the 64-bit signed range; `-9223372036854775808` is `i64::MIN` and is in range. |
 
 ### Intent Block Discipline
 
