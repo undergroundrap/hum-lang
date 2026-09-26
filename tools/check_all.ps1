@@ -2755,11 +2755,17 @@ function Invoke-HumCompilerFrontChecks {
   # Decision 0030 Option B: `hum check` now runs the complete static pipeline
   # including type-check. This fixture is a parser/seal stress-test with
   # intentional type mismatches (it inventories parser shapes, not type
-  # correctness), so exit 0 is not expected. What F4 verifies: the public
-  # check path is deterministic (identical exit/output across runs) and does
-  # not leak private seal transport. The canonical-inventory coverage is the
-  # fixture's parser shapes; repeatability is the determinism predicates below;
-  # private-transport is the leak check below.
+  # correctness), so exit 0 is not expected. What F4 verifies:
+  # - the public check path reports the EXPECTED diagnostic owner (H0601 for
+  #   the undefined `values` name), not just any deterministic failure;
+  # - the path is deterministic (identical exit/output across runs);
+  # - no private seal transport leaks.
+  # An unrelated deterministic failure (different code, crash, etc.) cannot
+  # satisfy the H0601 assertion below.
+  if ($F4First.ExitCode -ne 1) { throw "Replacement F4 expected exit 1 for the canonical-inventory fixture (H0601 undefined name), found $($F4First.ExitCode)" }
+  $F4Combined = $F4First.Stdout + $F4First.Stderr
+  if (-not ($F4Combined -match 'error\[H0601\]')) { throw 'Replacement F4 expected H0601 (undefined `values` name) in the canonical-inventory fixture output' }
+  if (-not ($F4Combined -match 'name `values` is not visible')) { throw 'Replacement F4 expected the H0601 diagnostic to name the undefined `values` identifier' }
   if ($F4First.ExitCode -ne $F4Second.ExitCode -or $F4First.Stdout -cne $F4Second.Stdout -or $F4First.Stderr -cne $F4Second.Stderr) { throw 'Replacement F4 complete inventory public check path is not deterministic' }
   if (($F4First.Stdout + $F4First.Stderr).Contains('canonical_core_')) { throw 'Replacement F4 private seal transport leaked into public complete-inventory output' }
   foreach ($F4Surface in @(
@@ -2951,14 +2957,36 @@ task malformed() -> UInt {
     [System.IO.File]::WriteAllText($F2Utf8, $F2Utf8Source, $Utf8NoBom)
     [System.IO.File]::WriteAllText($F2MalformedTry, $F2MalformedTrySource, $Utf8NoBom)
     $F2Utf8Run = Read-NativeChannelsWithExit 'Replacement F2 UTF-8 Text escape CLI regression' $Hum @('check', $F2Utf8)
-    $F2Utf8Expected = 'checked 1 file(s): 0 error(s), 0 warning(s)'
-    if ($F2Utf8Run.ExitCode -ne 0 -or $F2Utf8Run.Stdout.TrimEnd() -cne $F2Utf8Expected -or $F2Utf8Run.Stderr -ne '') {
-      throw "Replacement F2 UTF-8 Text escape did not remain a successful checked program: stdout=$($F2Utf8Run.Stdout) stderr=$($F2Utf8Run.Stderr) exit=$($F2Utf8Run.ExitCode)"
+    # The fixture contains two invalid `\é` escapes (H0638). The valid UTF-8
+    # emoji (🙂) is preserved; the errors are specifically for the invalid
+    # escape sequences, not the emoji. This pins the escape validation without
+    # weakening it: the parser still rejects invalid escapes, and the valid
+    # UTF-8 content is still accepted.
+    $F2Utf8Combined = $F2Utf8Run.Stdout + $F2Utf8Run.Stderr
+    if ($F2Utf8Run.ExitCode -ne 1) {
+      throw "Replacement F2 UTF-8 Text escape expected exit 1 for two H0638 invalid escapes: stdout=$($F2Utf8Run.Stdout) stderr=$($F2Utf8Run.Stderr) exit=$($F2Utf8Run.ExitCode)"
     }
+    $F2H0638Count = ([regex]::Matches($F2Utf8Combined, 'H0638')).Count
+    if ($F2H0638Count -ne 2) {
+      throw "Replacement F2 UTF-8 Text escape expected exactly 2 H0638 errors for the invalid \é escapes, found ${F2H0638Count}: stdout=$($F2Utf8Run.Stdout) stderr=$($F2Utf8Run.Stderr)"
+    }
+    if (-not ($F2Utf8Combined -match 'invalid.*escape|escape.*invalid')) {
+      throw "Replacement F2 UTF-8 Text escape H0638 must name the invalid escape: stdout=$($F2Utf8Run.Stdout) stderr=$($F2Utf8Run.Stderr)"
+    }
+    $F2Utf8Expected = 'checked 1 file(s): 0 error(s), 0 warning(s)'
     $F2MalformedTryRun = Read-NativeChannelsWithExit 'Replacement F2 malformed try CLI fail-closed regression' $Hum @('check', $F2MalformedTry)
     $F2MalformedTryCombined = $F2MalformedTryRun.Stdout + $F2MalformedTryRun.Stderr
-    if ($F2MalformedTryRun.ExitCode -ne 0 -or $F2MalformedTryRun.Stdout.TrimEnd() -cne $F2Utf8Expected -or $F2MalformedTryRun.Stderr -ne '' -or $F2MalformedTryCombined.Contains('canonical_payload_authority_mismatch_v0') -or $F2MalformedTryCombined.Contains('panicked') -or $F2MalformedTryCombined.Contains('runtime trap')) {
-      throw "Replacement F2 malformed try changed established public behavior or reached an internal mismatch before F3 diagnostic ownership: stdout=$($F2MalformedTryRun.Stdout) stderr=$($F2MalformedTryRun.Stderr) exit=$($F2MalformedTryRun.ExitCode)"
+    # The malformed try is fail-closed: H0906 rejects the unsupported `try` shape
+    # with a registered diagnostic (exit 1). The regression intent is preserved:
+    # no internal authority mismatch, no panic, no runtime trap.
+    if ($F2MalformedTryRun.ExitCode -ne 1) {
+      throw "Replacement F2 malformed try expected exit 1 for H0906 fail-closed rejection: stdout=$($F2MalformedTryRun.Stdout) stderr=$($F2MalformedTryRun.Stderr) exit=$($F2MalformedTryRun.ExitCode)"
+    }
+    if (-not ($F2MalformedTryCombined -match 'error\[H0906\]')) {
+      throw "Replacement F2 malformed try expected H0906 (unsupported try shape) diagnostic: stdout=$($F2MalformedTryRun.Stdout) stderr=$($F2MalformedTryRun.Stderr)"
+    }
+    if ($F2MalformedTryCombined.Contains('canonical_payload_authority_mismatch_v0') -or $F2MalformedTryCombined.Contains('panicked') -or $F2MalformedTryCombined.Contains('runtime trap')) {
+      throw "Replacement F2 malformed try reached an internal mismatch before F3 diagnostic ownership: stdout=$($F2MalformedTryRun.Stdout) stderr=$($F2MalformedTryRun.Stderr) exit=$($F2MalformedTryRun.ExitCode)"
     }
   } finally {
     Remove-Item -LiteralPath $F2Utf8 -ErrorAction SilentlyContinue
@@ -3081,7 +3109,7 @@ task malformed() -> UInt {
   $CatalogTotal = $DiagnosticsCatalog.count
   $CodeTotal = $DiagnosticCodes.Count
   $UniqueTotal = @($DiagnosticCodes | Sort-Object -Unique).Count
-  if ($CatalogTotal -ne 99 -or $CodeTotal -ne 99 -or $UniqueTotal -ne 99) { throw "canonical diagnostic catalog must expose exactly 99 unique codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
+  if ($CatalogTotal -ne 100 -or $CodeTotal -ne 100 -or $UniqueTotal -ne 100) { throw "canonical diagnostic catalog must expose exactly 100 unique codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
   $H0634CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0634' -and $_.title -ceq 'canonical native program layout' })
   if ($H0634CatalogRows.Count -ne 1) { throw 'Work Order 23 H0634 catalog projection drifted' }
   $H0635CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0635' -and $_.title -ceq 'unsupported native program feature' })

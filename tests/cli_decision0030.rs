@@ -31,6 +31,18 @@ fn run_hum_check(path: &Path, json: bool) -> std::process::Output {
     cmd.output().expect("run hum check")
 }
 
+fn run_hum_check_multi(paths: &[&Path], json: bool) -> std::process::Output {
+    let mut cmd = Command::new(hum_binary());
+    cmd.arg("check");
+    if json {
+        cmd.arg("--format=json");
+    }
+    for path in paths {
+        cmd.arg(path);
+    }
+    cmd.output().expect("run hum check")
+}
+
 #[test]
 fn cli_h0606_return_mismatch_via_production_binary() {
     // F1: H0606 must be reported via the real CLI, not dropped by the adapter.
@@ -70,25 +82,62 @@ fn cli_h0606_return_mismatch_via_production_binary() {
 }
 
 #[test]
-fn cli_uncoded_full_type_rejection_via_production_binary() {
-    // F2: Uncoded rejections must surface via the real CLI, not be silently dropped.
+fn cli_h0643_full_type_rejection_via_production_binary() {
+    // F2 (BDFL-authorized H0643): The full-type statement mismatch must surface
+    // as a registered diagnostic through the ordinary pipeline. Human and JSON
+    // must expose the same rejection: code, source location, explanation/help,
+    // accurate error count, exit 1.
     let path = write_cli_fixture(
-        "uncoded",
+        "h0643",
         "task add(a: Int, b: Int) -> UInt {\n  does:\n    return a + b\n}\n",
     );
     let out = run_hum_check(&path, false);
-    assert_eq!(out.status.code(), Some(1), "uncoded rejection must exit 1");
+    assert_eq!(out.status.code(), Some(1), "H0643 rejection must exit 1");
     let stderr = String::from_utf8_lossy(&out.stderr);
     let stdout = String::from_utf8_lossy(&out.stdout);
     let combined = format!("{stdout}{stderr}");
+    // Human output must name H0643 with source location and help.
     assert!(
-        combined.contains("rejection") || combined.contains("no registered diagnostic code"),
-        "must report uncoded rejection: {combined}"
+        combined.contains("H0643"),
+        "human output must contain H0643: {combined}"
     );
-    // JSON: exit 1, full_type_check in stages, even with zero coded diagnostics.
+    assert!(
+        combined.contains("3:5"),
+        "human output must contain source location 3:5: {combined}"
+    );
+    assert!(
+        combined.contains("has type Int") && combined.contains("requires UInt"),
+        "human output must explain the mismatch: {combined}"
+    );
+    assert!(
+        combined.contains("1 error(s)"),
+        "human summary must report 1 error: {combined}"
+    );
+    // JSON: must contain the actual H0643 diagnostic with code, span, message,
+    // and accurate error count — not just exit 1 and stages.
     let out_json = run_hum_check(&path, true);
     assert_eq!(out_json.status.code(), Some(1));
     let json_stdout = String::from_utf8_lossy(&out_json.stdout);
+    assert!(
+        json_stdout.contains("\"code\": \"H0643\""),
+        "JSON must contain H0643 code: {json_stdout}"
+    );
+    assert!(
+        json_stdout.contains("\"title\": \"statement expression type mismatch\""),
+        "JSON must contain H0643 title: {json_stdout}"
+    );
+    assert!(
+        json_stdout.contains("\"severity\": \"error\""),
+        "JSON must mark H0643 as error: {json_stdout}"
+    );
+    assert!(
+        json_stdout.contains("\"line\": 3"),
+        "JSON must contain line 3: {json_stdout}"
+    );
+    assert!(
+        json_stdout.contains("\"errors\": 1"),
+        "JSON summary must report 1 error: {json_stdout}"
+    );
     assert!(
         json_stdout.contains("full_type_check"),
         "JSON stages must include full_type_check: {json_stdout}"
@@ -165,6 +214,9 @@ fn cli_honest_success_via_production_binary() {
 #[test]
 fn cli_combined_errors_precedence_via_production_binary() {
     // Multiple errors: type_check errors block full_type_check (precedence).
+    // H0606 retains its existing meaning (type_check-stage trivial return-type
+    // diagnostic); H0643 (full-type-proved mismatch) must not appear when
+    // type_check already rejected.
     let path = write_cli_fixture(
         "combined",
         "task bad(title: Text) -> UInt {\n  does:\n    return title\n}\ntask add(a: Int, b: Int) -> UInt {\n  does:\n    return a + b\n}\n",
@@ -175,11 +227,85 @@ fn cli_combined_errors_precedence_via_production_binary() {
     // H0606 (type_check) must appear; full_type_check must NOT run (precedence).
     assert!(stdout.contains("H0606"), "must contain H0606: {stdout}");
     assert!(
+        !stdout.contains("H0643"),
+        "precedence: H0643 must not appear when type_check errors block full_type_check: {stdout}"
+    );
+    assert!(
         stdout.contains("type_check"),
         "stages must include type_check: {stdout}"
     );
     assert!(
         !stdout.contains("full_type_check"),
         "precedence: full_type_check must not run after type_check errors: {stdout}"
+    );
+}
+
+#[test]
+fn cli_d3_parse_error_stages_via_production_binary() {
+    // D3 intersection semantics: a parse error means `app_entry` (and later
+    // stages) did not run for all files. Stages must be exactly
+    // ["parse", "source_check"] — honest about what ran.
+    let path = write_cli_fixture(
+        "parse_error",
+        "task broken( -> UInt {\n  does:\n    return 42\n}\n",
+    );
+    let out_json = run_hum_check(&path, true);
+    assert_eq!(out_json.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out_json.stdout);
+    // Parse the stages array from JSON.
+    assert!(
+        stdout.contains("\"stages\": [\"parse\", \"source_check\"]"),
+        "parse error stages must be exactly [parse, source_check]: {stdout}"
+    );
+    assert!(
+        !stdout.contains("app_entry"),
+        "app_entry must not appear for parse error: {stdout}"
+    );
+}
+
+#[test]
+fn cli_d3_source_error_stages_via_production_binary() {
+    // D3 intersection semantics: a source_check error (e.g., reserved builtin
+    // name) means `app_entry` did not run. Stages must be ["parse", "source_check"].
+    let path = write_cli_fixture(
+        "source_error",
+        "task stdout_write() -> UInt {\n  does:\n    return 42\n}\n",
+    );
+    let out_json = run_hum_check(&path, true);
+    assert_eq!(out_json.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out_json.stdout);
+    assert!(
+        stdout.contains("\"stages\": [\"parse\", \"source_check\"]"),
+        "source error stages must be exactly [parse, source_check]: {stdout}"
+    );
+    assert!(
+        !stdout.contains("app_entry"),
+        "app_entry must not appear for source error: {stdout}"
+    );
+}
+
+#[test]
+fn cli_d3_mixed_input_stages_via_production_binary() {
+    // D3 intersection semantics: with mixed clean/error inputs, a stage appears
+    // only if it ran for EVERY file. The clean file would run app_entry, but
+    // the error file skips it — so stages must be ["parse", "source_check"].
+    let clean = write_cli_fixture(
+        "mixed_clean",
+        "task main() -> UInt {\n  does:\n    return 42\n}\n",
+    );
+    let error = write_cli_fixture(
+        "mixed_error",
+        "task broken( -> UInt {\n  does:\n    return 42\n}\n",
+    );
+    let out_json = run_hum_check_multi(&[&clean, &error], true);
+    assert_eq!(out_json.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out_json.stdout);
+    assert!(
+        stdout.contains("\"stages\": [\"parse\", \"source_check\"]"),
+        "mixed input stages must be exactly [parse, source_check] (intersection): {stdout}"
+    );
+    assert!(
+        !stdout.contains("app_entry"),
+        "app_entry must not appear for mixed inputs (did not run for all files): {stdout}"
     );
 }
