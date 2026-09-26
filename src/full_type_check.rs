@@ -3496,8 +3496,8 @@ mod tests {
 
     use super::{
         build_report, check_stage_outcome, check_stage_outcome_from_report,
-        full_type_check_has_errors, full_type_check_json, full_type_check_text,
-        is_rejected_statement_status,
+        expected_error_value_type, expected_return_value_type, full_type_check_has_errors,
+        full_type_check_json, full_type_check_text, is_rejected_statement_status,
     };
     use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
@@ -5274,6 +5274,42 @@ task probe(line: Text) -> Result Unit, ProbeError {
         assert_eq!(
             expectation.reason,
             Some("test_expectation_typing_not_implemented")
+        );
+    }
+
+    #[test]
+    fn result_projection_preserves_multiword_success_type() {
+        // The repaired projection must preserve the full multiword success
+        // type; the old token-based projection reduced this to "List".
+        assert_eq!(
+            expected_return_value_type("Result List Text, SplitError"),
+            "List Text"
+        );
+    }
+
+    #[test]
+    fn result_projection_preserves_scalar_success_type() {
+        // Scalar success types are unchanged by the repair.
+        assert_eq!(expected_return_value_type("Result UInt, WorkError"), "UInt");
+    }
+
+    #[test]
+    fn result_projection_selects_error_root_not_success_token() {
+        // The repaired error-root projection must select "SplitError" for
+        // "Result List Text, SplitError"; the old token-based projection
+        // incorrectly selected tokens[2] ("Text,").
+        assert_eq!(
+            expected_error_value_type("Result List Text, SplitError"),
+            Some("SplitError".to_string())
+        );
+    }
+
+    #[test]
+    fn result_projection_selects_scalar_error_root() {
+        // Scalar error roots are unchanged by the repair.
+        assert_eq!(
+            expected_error_value_type("Result UInt, WorkError"),
+            Some("WorkError".to_string())
         );
     }
 }
