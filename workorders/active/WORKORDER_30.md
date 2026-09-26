@@ -225,7 +225,7 @@ Order.
 ## Item 6 — diagnostics: mapping and authorized allocations
 
 Each shape was mapped to existing codes first. None fits; the Work Order
-authorizes four new allocations (decision 0027's test: these are the
+authorizes five new allocations (decision 0027's test: these are the
 general fix, one code per violation shape, not per builtin):
 
 | code | family | title | meaning |
@@ -234,6 +234,15 @@ general fix, one code per violation shape, not per builtin):
 | `H0641` | `front_end_semantics` (H0600–H0699) | call argument type mismatch | A call argument of known type does not match the declared parameter type. |
 | `H0642` | `front_end_semantics` (H0600–H0699) | negative integer literal in UInt position | A statically known negative integer literal reaches a `UInt` parameter or `UInt`-annotated binding. |
 | `H0011` | `source_shape` (H0000–H0099) | integer literal out of range | A signed or unsigned integer literal whose value does not fit the 64-bit signed range (`-9223372036854775809`, `9223372036854775808`, positive literals above `i64::MAX` under the current i64 runtime representation). `-9223372036854775808` is `i64::MIN` — in range, no diagnostic. |
+| `H0012` | `source_shape` (H0000–H0099) | internal source-occurrence invariant violated | A sealed canonical source occurrence failed validation. This is evidence of a compiler bug, never a user error: the implementation emits exactly one `H0012` (severity error) per corrupt seal and does not retain the statement. Added by review ruling on PR #50 (2026-09-26): the Item 5 mandate "a diagnostic, never a panic" fails closed — a silent drop would let the program check clean. |
+
+**Allocation order ruling (Ocean, via Claude, 2026-09-26):** public
+ordinals are permanent once merged, so codes are allocated by landing
+order, not by slice letter. PR #50 (Item 5) takes the next free keys on
+current main: `H0011` → allocation 94 / cause 188 / ordinal 94;
+`H0012` → allocation 95 / cause 189 / ordinal 95. Whichever of the
+H0640–H0642 slices lands later renumbers its allocation/cause/ordinal
+keys at its own rebase; the `H06xx` spellings are unaffected.
 
 Considered and rejected: H0606 (return expressions only), H0622/H0626/
 H0632/H0636 (per-builtin — Item 4 forbids extending that pattern), H1402
@@ -290,9 +299,10 @@ break was a digest pin on exactly this kind of change).
    `int_to_text(-9223372036854775808)` renders `"-9223372036854775808"`.
    Genuinely out-of-range literals (`-9223372036854775809`,
    `9223372036854775808`, positives above `i64::MAX`) produce H0011.
-   Regression tests feed every previously panicking shape through the
-   full parse and assert no panic.
-5. **Catalog integrity:** `docs/DIAGNOSTICS.md` mirrors the four new codes;
+   A corrupt seal fails closed: exactly one H0012 (severity error), the
+   statement is not retained, no panic. Regression tests feed every
+   previously panicking shape through the full parse and assert no panic.
+5. **Catalog integrity:** `docs/DIAGNOSTICS.md` mirrors the five new codes;
    the H-code checklist (Item 6) is complete; H0622/H0626/H0632 carry the
    formal Retired status; H0636's row reflects the narrowed meaning. The
    full test suite passes with no new false positives on existing fixtures.

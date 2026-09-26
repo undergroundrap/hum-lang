@@ -2331,7 +2331,7 @@ impl Parser {
         if let Ok(sites) = out_of_range_integer_sites(&seal) {
             for site in sites {
                 self.emit(
-                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(191),
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(188),
                     "integer-literal",
                     Diagnostic::error(
                         DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE,
@@ -2347,14 +2347,29 @@ impl Parser {
                 );
             }
         }
-        // WO30 Item 5 defense-in-depth: the H0010 `.expect()` becomes
-        // graceful degradation. A corrupt seal yields no
-        // chained-comparison sites and is never retained into Core; the
-        // user-facing behavior is a diagnostic (H0011 above, when the
-        // corruption is an out-of-range literal), never a panic.
+        // WO30 Item 5 fail-closed (review ruling): the H0010 `.expect()`
+        // becomes a diagnostic, never a panic and never silent. A corrupt
+        // seal is evidence of a compiler bug; dropping the statement from
+        // Core without a diagnostic would let the program check clean.
+        // Exactly one H0012 per corrupt seal, then return without
+        // retaining the statement.
         let chained = match chained_comparison_sites(&seal) {
             Ok(sites) => sites,
-            Err(_) => return,
+            Err(_) => {
+                self.emit(
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(189),
+                    "source-occurrence",
+                    Diagnostic::error(
+                        DiagnosticCode::INTERNAL_SOURCE_OCCURRENCE_INVARIANT_VIOLATED,
+                        "internal error: a sealed source occurrence failed validation",
+                        None,
+                    )
+                    .with_help(
+                        "This is a compiler bug, not an error in your program. Report it with the source file that triggered it.",
+                    ),
+                );
+                return;
+            }
         };
         for sites in chained {
             self.emit(
@@ -10436,19 +10451,20 @@ fn is_section_header(trimmed: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        CanonicalAssigningEvent, CanonicalAuthorityHandle, CanonicalExpressionIntent,
-        CanonicalExpressionRole, CanonicalItemOwner, CanonicalMalformedSealFact,
-        CanonicalMalformedSealField, CanonicalMalformedSealValue, CanonicalNodeIdentity,
-        CanonicalOccurrenceIdentity, CanonicalOccurrenceSeal, CanonicalPayloadSealFact,
-        CanonicalPayloadValue, CanonicalPredicateRecognition, CanonicalReductionIdentity,
-        CanonicalSealFact, CanonicalSectionOwner, CanonicalSemanticFile, CanonicalSourceBlob,
-        CanonicalSourceOwnerFact, CanonicalSourceOwnerSeal, CanonicalSourceRevision,
-        CanonicalStatementBlockIdentity, CanonicalStatementOwner, CanonicalStatementSeal,
-        CanonicalStatementSealFact, CanonicalStatementSealValue, CanonicalTokenIdentity,
+        CanonicalAssigningEvent, CanonicalAuthorityHandle, CanonicalCoreParserIssuance,
+        CanonicalExpressionIntent, CanonicalExpressionRole, CanonicalItemOwner,
+        CanonicalMalformedSealFact, CanonicalMalformedSealField, CanonicalMalformedSealValue,
+        CanonicalNodeIdentity, CanonicalOccurrenceIdentity, CanonicalOccurrenceSeal,
+        CanonicalPayloadSealFact, CanonicalPayloadValue, CanonicalPredicateRecognition,
+        CanonicalReductionIdentity, CanonicalSealFact, CanonicalSectionOwner,
+        CanonicalSemanticFile, CanonicalSourceBlob, CanonicalSourceOwnerFact,
+        CanonicalSourceOwnerSeal, CanonicalSourceRevision, CanonicalStatementBlockIdentity,
+        CanonicalStatementOwner, CanonicalStatementSeal, CanonicalStatementSealFact,
+        CanonicalStatementSealValue, CanonicalTokenIdentity, Parser, SourceLine,
         build_occurrence_seal, chained_comparison_sites, decode_text_escapes,
         executable_call_nodes, out_of_range_integer_sites, parse_source, parse_source_at_index,
-        source_owner_fact_matches, validate_canonical_expression, validate_occurrence_seal,
-        validate_occurrence_seal_ignoring_one_fact,
+        source_owner_fact_matches, source_owner_identity, validate_canonical_expression,
+        validate_occurrence_seal, validate_occurrence_seal_ignoring_one_fact,
         validate_occurrence_seal_ignoring_one_payload_fact, validate_retained_body_syntax,
         validate_source_owner_seal, validate_statement_seal,
     };
@@ -14880,13 +14896,13 @@ task after() -> UInt {
             DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE
         );
         assert_eq!(parsed.diagnostics[0].code.as_str(), "H0011");
-        // The H0011 emission carries cause key 191.
+        // The H0011 emission carries cause key 188 (landing order).
         let cause = crate::diagnostic_catalog::diagnostic_cause(
             DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE,
             "integer_literal_out_of_range_v0",
         )
         .expect("H0011 cause");
-        assert_eq!(cause.key.ordinal(), 191);
+        assert_eq!(cause.key.ordinal(), 188);
     }
 
     #[test]
@@ -14976,12 +14992,52 @@ task after() -> UInt {
         assert_eq!(h0011[0].code.as_str(), "H0011");
     }
 
+    /// Minimal `Parser` for driving `retain_validated_occurrence` directly.
+    /// Only the fields `emit` touches need meaningful values.
+    fn empty_test_parser() -> Parser {
+        let source = "task valid() -> Int {\n  does:\n    return 42\n}\n";
+        let source_revision = CanonicalSourceRevision(source.as_bytes().into());
+        let file_traversal = [0usize];
+        Parser {
+            canonical_core_issuance: CanonicalCoreParserIssuance::new(),
+            path: "corrupt-seal-test.hum".to_string(),
+            semantic_file_index: 0,
+            source_revision: source_revision.clone(),
+            source_blob: CanonicalSourceBlob(source_owner_identity(
+                1,
+                &source_revision,
+                &file_traversal,
+            )),
+            semantic_file: CanonicalSemanticFile(source_owner_identity(
+                2,
+                &source_revision,
+                &file_traversal,
+            )),
+            current_item_owner: None,
+            current_semantic_node: None,
+            lines: source
+                .lines()
+                .enumerate()
+                .map(|(index, text)| SourceLine {
+                    number: index + 1,
+                    text: text.to_string(),
+                })
+                .collect(),
+            diagnostics: Vec::new(),
+            diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
+            source_owner_seals: Vec::new(),
+            occurrence_seals: Vec::new(),
+            statement_seals: Vec::new(),
+        }
+    }
+
     #[test]
-    fn corrupt_seal_yields_no_h0011_and_never_panics() {
-        // WO30 Item 5 defense-in-depth: a corrupt seal must not panic the
-        // H0011 visitor. The visitor returns Err; `retain_validated_occurrence`
-        // degrades gracefully (no H0011, no Core retention) instead of
-        // hitting the old `.expect()`.
+    fn corrupt_seal_fails_closed_with_single_h0012_and_no_panic() {
+        // WO30 Item 5 fail-closed (review ruling): a corrupt seal is
+        // evidence of a compiler bug. `retain_validated_occurrence` must
+        // emit exactly one H0012 (severity error, so the CLI exits
+        // nonzero), must not retain the statement into Core, and must not
+        // panic on the old `.expect()`.
         let parsed = parse_source(
             "corrupt-seal.hum",
             "task valid() -> Int {\n  does:\n    return 42\n}\n",
@@ -14991,6 +15047,19 @@ task after() -> UInt {
         // Corrupt the seal by truncating the authority so validation fails.
         corrupted.authority.truncate(1);
         assert!(out_of_range_integer_sites(&corrupted).is_err());
+
+        let mut parser = empty_test_parser();
+        parser.retain_validated_occurrence(corrupted);
+        assert_eq!(parser.diagnostics.len(), 1);
+        let diagnostic = &parser.diagnostics[0];
+        assert_eq!(
+            diagnostic.code,
+            DiagnosticCode::INTERNAL_SOURCE_OCCURRENCE_INVARIANT_VIOLATED
+        );
+        assert_eq!(diagnostic.code.as_str(), "H0012");
+        assert_eq!(diagnostic.severity, Severity::Error);
+        // The corrupt statement is not retained into Core.
+        assert!(parser.occurrence_seals.is_empty());
     }
 
     fn collect_f4_expression_inventory(
