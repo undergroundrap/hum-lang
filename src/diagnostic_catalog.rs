@@ -1815,6 +1815,15 @@ diagnostic_causes!(
         "parser",
         "parser_expression_node",
         "parser_expression_route"
+    ),
+    (
+        190,
+        "internal_source_occurrence_invariant_violated_v0",
+        INTERNAL_SOURCE_OCCURRENCE_INVARIANT_VIOLATED,
+        "source_shape",
+        "parser",
+        "parser_expression_node",
+        "parser_expression_route"
     )
 );
 
@@ -2400,6 +2409,15 @@ diagnostic_code_allocations!(
         INTEGER_LITERAL_OUT_OF_RANGE,
         "H0011",
         "integer literal out of range",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        96,
+        INTERNAL_SOURCE_OCCURRENCE_INVARIANT_VIOLATED,
+        "H0012",
+        "internal source-occurrence invariant violated",
         SOURCE_SHAPE,
         "source_shape",
         "parser"
@@ -3752,7 +3770,6 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Move the call into a `needs:`/`ensures:` contract predicate, or replace it with an executable builtin such as `list_len`.",
     },
     DiagnosticInfo {
-<<<<<<< HEAD
         code: DiagnosticCode::INVALID_CALL_ARITY,
         default_severity: Severity::Error,
         explanation: "A call passes the wrong number of arguments for the callee's declared signature. The four builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`) and user tasks are checked identically against their signatures.",
@@ -3763,7 +3780,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "An integer literal does not fit in the 64-bit signed range. `-9223372036854775808` is `i64::MIN` and is in range; `-9223372036854775809`, `9223372036854775808`, and larger positive literals are out of range.",
         repair: "Use a value between -9223372036854775808 and 9223372036854775807. Hum does not widen out-of-range literals to a wider integer type.",
->>>>>>> c47db2f (WO30 Item 5: seal i64::MIN parsing, out-of-range literals -> H0011)
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INTERNAL_SOURCE_OCCURRENCE_INVARIANT_VIOLATED,
+        default_severity: Severity::Error,
+        explanation: "The compiler's sealed canonical occurrence for a source expression failed validation. This is a compiler bug, not an error in the program; the offending statement is not retained.",
+        repair: "Report this diagnostic with the source file that triggered it.",
     },
 ];
 
@@ -4737,12 +4759,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 95);
+        assert_eq!(summary.active_codes, 96);
         assert_eq!(summary.retired_codes, 0);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 188);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 189);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
@@ -4799,7 +4821,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 95);
+        assert_eq!(all().len(), 96);
     }
 
     #[test]

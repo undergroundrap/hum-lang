@@ -207,6 +207,7 @@ unallocated rather than implicitly free.
 | `H0009` | error | invalid identifier | A value name is not snake_case or a type name is not PascalCase. |
 | `H0010` | error | comparison chaining is not supported | One comparison uses another comparison as an operand; write and join independent comparisons instead. |
 | `H0011` | error | integer literal out of range | An integer literal does not fit in the 64-bit signed range; `-9223372036854775808` is `i64::MIN` and is in range. |
+| `H0012` | error | internal source-occurrence invariant violated | The compiler's sealed source occurrence failed validation — a compiler bug; the statement is not retained. Report with the triggering source. |
 
 ### Intent Block Discipline
 
