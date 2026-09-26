@@ -311,63 +311,98 @@ fn cli_d3_mixed_input_stages_via_production_binary() {
 }
 #[test]
 fn cli_result_multiword_success_type_positive() {
+    // Positive: multiword Result success type (Result List Text, SplitError)
+    // with valid two-arg text_split call. Must exit 0, have zero errors,
+    // and reach full_type_check stage. Absence of H0643 alone is insufficient.
+    // Regression for Ubuntu job 108467610692.
     let path = write_cli_fixture(
         "result_multiword_positive",
-        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text) -> Result List Text, SplitError {\n  does:\n    let pieces = text_split(text)\n    return pieces\n}\n",
+        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text, sep: Text) -> Result List Text, SplitError {\n  does:\n    let pieces = try text_split(text, sep) or fail SplitError.split\n    return pieces\n}\n",
     );
     let out = run_hum_check(&path, false);
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "multiword Result success must exit 0"
     );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
     assert!(
-        !combined.contains("H0643"),
-        "positive must not have H0643: {combined}"
+        !combined.contains("error["),
+        "multiword Result success must have zero errors: {combined}"
+    );
+    // JSON stages must include full_type_check, proving the repaired
+    // projection was exercised.
+    let out_json = run_hum_check(&path, true);
+    let json_stdout = String::from_utf8_lossy(&out_json.stdout);
+    assert!(
+        json_stdout.contains("full_type_check"),
+        "JSON stages must include full_type_check: {json_stdout}"
     );
 }
 
 #[test]
 fn cli_result_multiword_success_type_negative() {
-    // Negative: genuine mismatch with multiword Result success type must
-    // still be rejected. The diagnostic (H0606 at type-check or H0643 at
-    // full-type-check) must name the complete expected type "List Text",
-    // proving the projection preserves multiword success types.
+    // Negative: genuine mismatch must reach the repaired full-type projection
+    // and produce exact H0643 with the complete expected type "List Text".
+    // Uses a call expression (not a direct variable) to bypass the earlier
+    // H0606 type-check stage and reach full-type-check.
     let path = write_cli_fixture(
         "result_multiword_negative",
-        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text) -> Result List Text, SplitError {\n  does:\n    return text\n}\n",
+        "type SplitError {\n  code: Text\n}\n\ntask get_text() -> Text {\n  does:\n    return \"hello\"\n}\n\ntask split_args(text: Text) -> Result List Text, SplitError {\n  does:\n    return get_text()\n}\n",
     );
     let out = run_hum_check(&path, false);
-    assert_eq!(out.status.code(), Some(1));
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
+    assert_eq!(out.status.code(), Some(1), "genuine mismatch must exit 1");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
     assert!(
-        combined.contains("H0606") || combined.contains("H0643"),
-        "negative must be rejected with H0606 or H0643: {combined}"
+        combined.contains("H0643"),
+        "negative must produce exact H0643 (not H0606): {combined}"
     );
     assert!(
         combined.contains("List Text"),
-        "diagnostic must name the complete expected type List Text: {combined}"
+        "H0643 must name the complete expected type List Text: {combined}"
     );
 }
 
 #[test]
 fn cli_result_scalar_unchanged() {
+    // Scalar Results unchanged: Result UInt, WorkError must exit 0 with
+    // zero errors. The projection fix must not affect scalar handling.
     let path = write_cli_fixture(
         "result_scalar",
         "type WorkError {\n  code: Text\n}\n\ntask get_value() -> Result UInt, WorkError {\n  does:\n    return 42\n}\n",
     );
     let out = run_hum_check(&path, false);
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
+    assert_eq!(out.status.code(), Some(0), "scalar Result must exit 0");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
     assert!(
         !combined.contains("error["),
-        "scalar must have no errors: {combined}"
+        "scalar Result must have zero errors: {combined}"
+    );
+}
+
+#[test]
+fn cli_result_error_root_projection() {
+    // Error-root projection: the corrected expected_error_value_type must
+    // select SplitError (not Text) for "Result List Text, SplitError".
+    // A fail with the correct error root must exit 0; this distinguishes
+    // earlier-stage ownership from execution of the repaired owner.
+    let path = write_cli_fixture(
+        "result_error_root",
+        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text, sep: Text) -> Result List Text, SplitError {\n  does:\n    let pieces = try text_split(text, sep) or fail SplitError.split\n    return pieces\n}\n",
+    );
+    let out = run_hum_check(&path, false);
+    assert_eq!(out.status.code(), Some(0), "correct error root must exit 0");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        !combined.contains("error["),
+        "correct error root must have zero errors: {combined}"
     );
 }
