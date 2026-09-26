@@ -213,6 +213,87 @@ pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic])
     full_type_check_summary(program, diagnostics).blocking_issues > 0
 }
 
+/// Decision 0030 Option B: the `hum check` full-type-check stage. Reuses the
+/// full-type-check report and converts the blocking findings that carry
+/// diagnostic codes — rejected statements (H0636/H0638/H0640-H0642/H0901-H0906)
+/// and rejected predicates (H0701/H0704) — to the shared `Diagnostic` list.
+/// Findings without codes (unchecked/unsupported statements) stay report-only.
+/// No new analysis, no new codes.
+pub(crate) fn check_stage_diagnostics(
+    program: &Program,
+    diagnostics: &[Diagnostic],
+) -> Vec<Diagnostic> {
+    let report = build_report(program, diagnostics);
+    let mut out = Vec::new();
+    for item in &report.items {
+        for statement in &item.statements {
+            let Some(code_spelling) = statement.diagnostic_code else {
+                continue;
+            };
+            if !is_rejected_statement_status(statement.status) {
+                continue;
+            }
+            let Some(code) = diagnostic_code_from_spelling(code_spelling) else {
+                continue;
+            };
+            let subject = match &statement.expression_text {
+                Some(text) => format!("`{text}`"),
+                None => statement.statement_kind.to_string(),
+            };
+            // The statement's help text is the human sentence the checker
+            // authors wrote for this exact finding; it becomes the message.
+            // The composed fallback only covers findings without help text.
+            let message = match &statement.help {
+                Some(help) => help.clone(),
+                None => {
+                    let mut fallback = format!(
+                        "{subject} is rejected: expected {}, found {}",
+                        statement.expected_type.as_deref().unwrap_or("none"),
+                        statement.actual_type.as_deref().unwrap_or("unknown"),
+                    );
+                    if let Some(reason) = statement.reason {
+                        fallback.push_str(&format!(" ({reason})"));
+                    }
+                    fallback
+                }
+            };
+            let diagnostic = Diagnostic::error(code, message, Some(statement.span.clone()));
+            out.push(diagnostic);
+        }
+    }
+    out.extend(
+        report
+            .predicates
+            .iter()
+            .filter(|fact| fact.blocks())
+            .filter_map(|fact| fact.diagnostic()),
+    );
+    out
+}
+
+fn is_rejected_statement_status(status: &str) -> bool {
+    matches!(
+        status,
+        "rejected_statement_type_mismatch_v0"
+            | "rejected_typed_failure_relationship_v0"
+            | "rejected_invalid_stdout_write_call_v0"
+            | "rejected_invalid_clock_replay_call_v0"
+            | "rejected_invalid_files_read_text_call_v0"
+            | "rejected_invalid_text_escape_v0"
+            | "rejected_invalid_call_arity_v0"
+            | "rejected_invalid_call_argument_type_v0"
+            | "rejected_negative_integer_literal_in_uint_position_v0"
+            | "rejected_invalid_text_split_call_v0"
+    )
+}
+
+fn diagnostic_code_from_spelling(spelling: &str) -> Option<DiagnosticCode> {
+    crate::diagnostic_catalog::DIAGNOSTIC_CODE_ALLOCATIONS
+        .iter()
+        .find(|allocation| allocation.spelling == spelling)
+        .map(|allocation| DiagnosticCode::from_key(allocation.key))
+}
+
 pub fn full_type_check_has_only_predicate_errors(
     program: &Program,
     diagnostics: &[Diagnostic],
@@ -3336,7 +3417,8 @@ mod tests {
     use crate::parser::parse_source;
 
     use super::{
-        build_report, full_type_check_has_errors, full_type_check_json, full_type_check_text,
+        build_report, check_stage_diagnostics, full_type_check_has_errors, full_type_check_json,
+        full_type_check_text,
     };
     use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
@@ -4629,6 +4711,86 @@ app probe {
 "#,
         );
         assert_eq!(count_diagnostic_code(&json, "H0640"), 0);
+    }
+
+    // Decision 0030 Option B: the WO30 call-shape diagnostics surface through
+    // the `hum check` pipeline (the check arm's full-type-check stage), not
+    // only through `hum full-type-check`. These tests run the fixture shapes
+    // through the exact adapter the check arm calls.
+    fn check_stage_codes(source: &str) -> Vec<String> {
+        let program = text_split_probe_program(source);
+        check_stage_diagnostics(&program, &[])
+            .iter()
+            .map(|diagnostic| diagnostic.code.as_str().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn check_stage_surfaces_h0640_for_wrong_arity() {
+        let codes = check_stage_codes(
+            r#"task helper(a: UInt) -> UInt {
+  does:
+    return a
+}
+
+task caller() -> UInt {
+  does:
+    return helper(1, 2)
+}
+"#,
+        );
+        assert_eq!(codes, vec!["H0640"]);
+    }
+
+    #[test]
+    fn check_stage_surfaces_h0641_for_wrong_argument_type() {
+        let codes = check_stage_codes(
+            r#"task helper(a: UInt) -> UInt {
+  does:
+    return a
+}
+
+task caller() -> UInt {
+  does:
+    return helper("3")
+}
+"#,
+        );
+        assert_eq!(codes, vec!["H0641"]);
+    }
+
+    #[test]
+    fn check_stage_surfaces_h0642_for_negative_uint_literal() {
+        let codes = check_stage_codes(
+            r#"task helper(a: UInt) -> UInt {
+  does:
+    return a
+}
+
+task caller() -> UInt {
+  does:
+    return helper(-5)
+}
+"#,
+        );
+        assert_eq!(codes, vec!["H0642"]);
+    }
+
+    #[test]
+    fn check_stage_accepts_valid_call_shapes() {
+        let codes = check_stage_codes(
+            r#"task helper(a: UInt) -> UInt {
+  does:
+    return a
+}
+
+task caller() -> UInt {
+  does:
+    return helper(42)
+}
+"#,
+        );
+        assert!(codes.is_empty());
     }
 
     // WO30 Item 4 (PR A): well-shaped calls stay clean, including nested

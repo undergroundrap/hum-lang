@@ -39,7 +39,10 @@ pub fn diagnostics_json() -> String {
     out
 }
 
-pub fn check_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
+/// Decision 0030 D3: the additive machine-readable `stages` field lists the
+/// static stages `hum check` actually ran, in pipeline order. Stages gated by
+/// earlier errors are omitted. The schema stays `hum.check.v0`.
+pub fn check_json(program: &Program, diagnostics: &[Diagnostic], stages: &[&str]) -> String {
     let errors = diagnostics
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
@@ -56,6 +59,15 @@ pub fn check_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
         errors,
         warnings
     ));
+    push_indent(&mut out, 2);
+    out.push_str("\"stages\": [");
+    for (index, stage) in stages.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        push_json_string(&mut out, stage);
+    }
+    out.push_str("],\n");
     push_indent(&mut out, 2);
     if diagnostics.is_empty() {
         out.push_str("\"diagnostics\": []\n");
@@ -286,7 +298,7 @@ mod tests {
                 related_spans: Vec::new(),
                 help: None,
             };
-            let check = check_json(&Program::default(), &[source]);
+            let check = check_json(&Program::default(), &[source], &[]);
             assert!(check.contains(&format!(
                 "\"code\": {}",
                 super::json_string(info.code.as_str())
@@ -307,12 +319,43 @@ mod tests {
         )
         .with_help("Add the target under `changes:`.");
         let program = Program::default();
-        let json = check_json(&program, &[diagnostic]);
+        let json = check_json(&program, &[diagnostic], &["parse", "source_check"]);
 
         assert!(json.contains("\"schema\": \"hum.check.v0\""));
         assert!(json.contains("\"summary\": {\"files\": 0, \"errors\": 1, \"warnings\": 0}"));
+        assert!(json.contains("\"stages\": [\"parse\", \"source_check\"]"));
         assert!(json.contains("\"code\": \"H0201\""));
         assert!(json.contains("\"span\": {\"file\": \"bad.hum\", \"line\": 7, \"column\": 5}"));
         assert!(json.contains("\"help\": \"Add the target under `changes:`.\""));
+    }
+
+    #[test]
+    fn check_json_stages_field_is_additive_and_ordered() {
+        let program = Program::default();
+        let json = check_json(
+            &program,
+            &[],
+            &[
+                "parse",
+                "source_check",
+                "app_entry",
+                "path_boundary",
+                "callable",
+                "capability_root",
+                "resolve",
+                "type_check",
+                "full_type_check",
+            ],
+        );
+
+        assert!(json.contains("\"schema\": \"hum.check.v0\""));
+        let stages_pos = json.find("\"stages\"").expect("stages field present");
+        let diagnostics_pos = json
+            .find("\"diagnostics\"")
+            .expect("diagnostics field present");
+        assert!(
+            stages_pos < diagnostics_pos,
+            "stages field precedes diagnostics"
+        );
     }
 }
