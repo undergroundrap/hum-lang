@@ -1,0 +1,22 @@
+module tests.wo30
+
+task helper(x: UInt) -> UInt {
+  does:
+    return x
+}
+
+task negative_builtin_argument() -> Text {
+  does:
+    return uint_to_text(-5)
+}
+
+task negative_user_argument() -> UInt {
+  does:
+    return helper((-5))
+}
+
+task negative_uint_binding() -> UInt {
+  does:
+    let x: UInt = -5
+    return x
+}
