@@ -1407,6 +1407,62 @@ fn chained_comparison_sites(
     Ok(found)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OutOfRangeIntegerSite {
+    spelling: String,
+    span: Span,
+}
+
+fn out_of_range_integer_sites(
+    seal: &CanonicalOccurrenceSeal,
+) -> Result<Vec<OutOfRangeIntegerSite>, &'static str> {
+    // WO30 Item 5 (H0011): retained-occurrence visitor analogous to the
+    // H0010 visitor. Validates the seal (Err on corruption, never a panic)
+    // and reports each retained malformed event whose cause is
+    // IntegerLiteralOutOfRange, with the authoritative offending
+    // range/spelling from the retained (authority) malformed facts.
+    validated_canonical_occurrence(seal)?;
+    let mut sites = Vec::new();
+    // Malformed seal facts arrive in 8-fact groups (Status, Node, Cause,
+    // ProducingEvent, OffendingRange, ConsumedRange, ExpectedEvidence,
+    // ActualEvidence); the seal validation above guarantees the shape.
+    for chunk in seal.malformed_authority.as_chunks::<8>().0 {
+        if !matches!(
+            chunk[2].value,
+            CanonicalMalformedSealValue::Cause(CanonicalMalformedCause::IntegerLiteralOutOfRange)
+        ) {
+            continue;
+        }
+        let CanonicalMalformedSealValue::Range(offending) = &chunk[4].value else {
+            continue;
+        };
+        let CanonicalMalformedSealValue::Actual(CanonicalActualLexicalEvidence::Token {
+            spelling,
+            ..
+        }) = &chunk[7].value
+        else {
+            continue;
+        };
+        // A parent node inherits its malformed child's `Unsupported` event,
+        // so the same out-of-range literal can appear in several malformed
+        // facts. Exactly one H0011 per malformed literal: deduplicate by the
+        // authoritative offending range.
+        let site = OutOfRangeIntegerSite {
+            spelling: spelling.clone(),
+            span: offending.start.clone(),
+        };
+        if !sites.iter().any(|existing: &OutOfRangeIntegerSite| {
+            existing.span.file == site.span.file
+                && existing.span.line == site.span.line
+                && existing.span.column == site.span.column
+        }) {
+            sites.push(site);
+        }
+    }
+    sites.sort_by(|left, right| source_order(&left.span).cmp(&source_order(&right.span)));
+    Ok(sites)
+}
+
 fn validate_occurrence_seal_inner(
     seal: &CanonicalOccurrenceSeal,
     ignored_index: Option<usize>,
@@ -2268,8 +2324,38 @@ pub(crate) fn parse_source_at_index(
 
 impl Parser {
     fn retain_validated_occurrence(&mut self, seal: CanonicalOccurrenceSeal) {
-        let chained = chained_comparison_sites(&seal)
-            .expect("parser H0010 visitor requires a valid sealed canonical occurrence");
+        // WO30 Item 5 (H0011): surface retained out-of-range integer
+        // literals. The visitor validates the seal and returns Err on a
+        // corrupt seal without panicking; a corrupt seal yields no H0011
+        // sites.
+        if let Ok(sites) = out_of_range_integer_sites(&seal) {
+            for site in sites {
+                self.emit(
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(191),
+                    "integer-literal",
+                    Diagnostic::error(
+                        DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE,
+                        format!(
+                            "integer literal `{}` is out of range for Int",
+                            site.spelling
+                        ),
+                        Some(site.span),
+                    )
+                    .with_help(
+                        "Hum integers are 64-bit signed; use a value between -9223372036854775808 and 9223372036854775807.",
+                    ),
+                );
+            }
+        }
+        // WO30 Item 5 defense-in-depth: the H0010 `.expect()` becomes
+        // graceful degradation. A corrupt seal yields no
+        // chained-comparison sites and is never retained into Core; the
+        // user-facing behavior is a diagnostic (H0011 above, when the
+        // corruption is an out-of-range literal), never a panic.
+        let chained = match chained_comparison_sites(&seal) {
+            Ok(sites) => sites,
+            Err(_) => return,
+        };
         for sites in chained {
             self.emit(
                 crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(179),
@@ -7970,28 +8056,45 @@ fn projected_out_of_range_integer(text: &str) -> Option<(usize, usize)> {
 
 fn retained_out_of_range_integer(text: &str, span: &Span) -> Option<(usize, usize)> {
     let events = canonical_lexical_events(text, span);
-    for (index, event) in events.iter().enumerate() {
-        let (start, spelling) = if event.spelling == "-"
-            && events
-                .get(index + 1)
-                .is_some_and(|next| next.spelling.chars().all(|ch| ch.is_ascii_digit()))
-        {
+    let mut index = 0usize;
+    while index < events.len() {
+        let event = &events[index];
+        // A `-` immediately followed by digits with no source gap between
+        // them is one signed literal: the range check runs on the glued
+        // spelling and the digits event is consumed with it. Two corrections
+        // in one: without the glue, the bare magnitude of
+        // `-9223372036854775808` (i64::MIN, in range) is misreported as out
+        // of range because `9223372036854775808` alone does not fit in an
+        // i64; without the adjacency check, a binary minus such as
+        // `x - 9223372036854775808` would be misread as the signed literal
+        // (the lexer drops whitespace events) and escape the out-of-range
+        // check the projected scanner performs on the spaced source.
+        let glued = event.spelling == "-"
+            && events.get(index + 1).is_some_and(|next| {
+                next.spelling.chars().all(|ch| ch.is_ascii_digit())
+                    && next.range.start.column == event.range.start.column + event.range.byte_len
+            });
+        let (start, spelling, consumed) = if glued {
             let digits = &events[index + 1];
             (
                 event.range.start.column.saturating_sub(span.column),
                 format!("-{}", digits.spelling),
+                2,
             )
         } else if event.spelling.chars().all(|ch| ch.is_ascii_digit()) {
             (
                 event.range.start.column.saturating_sub(span.column),
                 event.spelling.clone(),
+                1,
             )
         } else {
+            index += 1;
             continue;
         };
         if spelling.parse::<i64>().is_err() {
             return Some((start, spelling.len()));
         }
+        index += consumed;
     }
     None
 }
@@ -10343,8 +10446,8 @@ mod tests {
         CanonicalStatementBlockIdentity, CanonicalStatementOwner, CanonicalStatementSeal,
         CanonicalStatementSealFact, CanonicalStatementSealValue, CanonicalTokenIdentity,
         build_occurrence_seal, chained_comparison_sites, decode_text_escapes,
-        executable_call_nodes, parse_source, parse_source_at_index, source_owner_fact_matches,
-        validate_canonical_expression, validate_occurrence_seal,
+        executable_call_nodes, out_of_range_integer_sites, parse_source, parse_source_at_index,
+        source_owner_fact_matches, validate_canonical_expression, validate_occurrence_seal,
         validate_occurrence_seal_ignoring_one_fact,
         validate_occurrence_seal_ignoring_one_payload_fact, validate_retained_body_syntax,
         validate_source_owner_seal, validate_statement_seal,
@@ -14741,6 +14844,153 @@ task after() -> UInt {
             task.body_syntax[0].core_expression_kind,
             Some("name_or_text")
         );
+    }
+
+    #[test]
+    fn i64_min_literal_parses_without_diagnostic() {
+        // WO30 Item 5: the exact `i64::MIN` spelling is in range. It must
+        // parse as `IntLiteral(i64::MIN)` with no panic and no diagnostic.
+        let parsed = parse_source(
+            "i64-min-literal.hum",
+            "task min_int() -> Int {\n  does:\n    return -9223372036854775808\n}\n",
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let ParsedBodyStatementKind::Return(value) = &task.body_syntax[0].kind else {
+            panic!("return")
+        };
+        assert!(matches!(
+            value.canonical.kind,
+            CanonicalExpressionKind::IntLiteral(i64::MIN)
+        ));
+        assert!(validate_canonical_expression(&value.canonical).is_ok());
+        assert_eq!(parsed.diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn below_i64_min_emits_single_h0011() {
+        let parsed = parse_source(
+            "below-i64-min.hum",
+            "task below() -> Int {\n  does:\n    return -9223372036854775809\n}\n",
+        );
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(
+            parsed.diagnostics[0].code,
+            DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE
+        );
+        assert_eq!(parsed.diagnostics[0].code.as_str(), "H0011");
+        // The H0011 emission carries cause key 191.
+        let cause = crate::diagnostic_catalog::diagnostic_cause(
+            DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE,
+            "integer_literal_out_of_range_v0",
+        )
+        .expect("H0011 cause");
+        assert_eq!(cause.key.ordinal(), 191);
+    }
+
+    #[test]
+    fn above_i64_max_emits_single_h0011() {
+        let parsed = parse_source(
+            "above-i64-max.hum",
+            "task above() -> Int {\n  does:\n    return 9223372036854775808\n}\n",
+        );
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(
+            parsed.diagnostics[0].code,
+            DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE
+        );
+        assert_eq!(parsed.diagnostics[0].code.as_str(), "H0011");
+    }
+
+    #[test]
+    fn large_positive_literal_is_rejected_not_widened_to_uint() {
+        // WO30 Item 5: positives above `i64::MAX` stay rejected (H0011);
+        // they do not widen to `UInt`.
+        let parsed = parse_source(
+            "large-positive.hum",
+            "task large() -> Int {\n  does:\n    return 99999999999999999999\n}\n",
+        );
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(
+            parsed.diagnostics[0].code,
+            DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE
+        );
+        let Item::Task(task) = &parsed.file.items[0] else {
+            panic!("task")
+        };
+        let ParsedBodyStatementKind::Return(value) = &task.body_syntax[0].kind else {
+            panic!("return")
+        };
+        assert!(!matches!(
+            value.canonical.kind,
+            CanonicalExpressionKind::UIntLiteral(_)
+        ));
+    }
+
+    #[test]
+    fn spaced_binary_minus_is_not_a_glued_negative_literal() {
+        // WO30 Item 5: `1 - 9223372036854775808` is a binary minus with an
+        // out-of-range positive operand, not the glued literal
+        // `-9223372036854775808` (which would be in range). It must still
+        // produce exactly one H0011.
+        let parsed = parse_source(
+            "spaced-binary-minus.hum",
+            "task spaced() -> Int {\n  does:\n    return 1 - 9223372036854775808\n}\n",
+        );
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(
+            parsed.diagnostics[0].code,
+            DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE
+        );
+        assert_eq!(parsed.diagnostics[0].code.as_str(), "H0011");
+    }
+
+    #[test]
+    fn h0011_fires_at_module_scope() {
+        let parsed = parse_source(
+            "module-scope-h0011.hum",
+            "module probe\n\ntask main() -> Int {\n  does:\n    return 9223372036854775808\n}\n",
+        );
+        let h0011: Vec<_> = parsed
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE)
+            .collect();
+        assert_eq!(h0011.len(), 1);
+        assert_eq!(h0011[0].code.as_str(), "H0011");
+    }
+
+    #[test]
+    fn h0011_fires_at_app_scope() {
+        let parsed = parse_source(
+            "app-scope-h0011.hum",
+            "app probe {\n  why:\n    app scope H0011 fixture\n\n  uses:\n    stdout.write\n\n  starts with:\n    render\n\n  task render() -> Int {\n    does:\n      let x = 9223372036854775808\n      return 0\n  }\n}\n",
+        );
+        let h0011: Vec<_> = parsed
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE)
+            .collect();
+        assert_eq!(h0011.len(), 1);
+        assert_eq!(h0011[0].code.as_str(), "H0011");
+    }
+
+    #[test]
+    fn corrupt_seal_yields_no_h0011_and_never_panics() {
+        // WO30 Item 5 defense-in-depth: a corrupt seal must not panic the
+        // H0011 visitor. The visitor returns Err; `retain_validated_occurrence`
+        // degrades gracefully (no H0011, no Core retention) instead of
+        // hitting the old `.expect()`.
+        let parsed = parse_source(
+            "corrupt-seal.hum",
+            "task valid() -> Int {\n  does:\n    return 42\n}\n",
+        );
+        assert!(!parsed.occurrence_seals.is_empty());
+        let mut corrupted = parsed.occurrence_seals[0].clone();
+        // Corrupt the seal by truncating the authority so validation fails.
+        corrupted.authority.truncate(1);
+        assert!(out_of_range_integer_sites(&corrupted).is_err());
     }
 
     fn collect_f4_expression_inventory(

@@ -7974,10 +7974,9 @@ task set_after_move() -> Int {
     // Decision 0028: infallible integer rendering. Normative cases: base 10,
     // `-` prefix for negatives (Int only), no leading zeros, ASCII digits,
     // deterministic. `i64::MIN` renders without negation overflow; it is
-    // reached here by computation because the parser cannot seal a bare
-    // `-9223372036854775808` literal (pre-existing, unrelated to this
-    // builtin: a plain `return -9223372036854775808` panics the parser on
-    // main).
+    // reached here by computation, while the bare `-9223372036854775808`
+    // literal is covered by the WO30 Item 5 fixture below (the parser seals
+    // it as a valid `Int` literal with value `i64::MIN`).
     #[test]
     fn uint_to_text_renders_normative_cases() {
         let program = fixture_program(
@@ -8129,6 +8128,51 @@ task set_after_move() -> Int {
                 "-9223372036854775808"
             ]
         );
+    }
+
+    #[test]
+    fn int_to_text_renders_bare_i64_min_literal() {
+        // WO30 Item 5: the bare `-9223372036854775808` literal parses as a
+        // valid `Int` with value `i64::MIN` (no diagnostic, no panic) and
+        // round-trips through `int_to_text`.
+        let program = fixture_program(
+            "wo30_item5_bare_i64_min.hum",
+            r#"app render_probe {
+  why:
+    WO30 Item 5 bare i64::MIN literal round-trip
+
+  uses:
+    stdout.write
+
+  starts with:
+    render
+
+  task render() -> Result Unit, OutputError {
+    why:
+      render the bare i64::MIN literal
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output fails while running the app
+
+    does:
+      let t = int_to_text(-9223372036854775808)
+      let w = try stdout_write(t)
+  }
+}
+"#,
+        );
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(&program, None, &[], &allowed_stdout(), &mut output);
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        let text: Vec<String> = output
+            .writes
+            .iter()
+            .map(|bytes| String::from_utf8(bytes.clone()).expect("ascii output"))
+            .collect();
+        assert_eq!(text, vec!["-9223372036854775808"]);
     }
 
     #[test]

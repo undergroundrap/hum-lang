@@ -1806,6 +1806,15 @@ diagnostic_causes!(
         "full_type_check",
         "builtin_call_relationship",
         "builtin_call_route"
+    ),
+    (
+        189,
+        "integer_literal_out_of_range_v0",
+        INTEGER_LITERAL_OUT_OF_RANGE,
+        "source_shape",
+        "parser",
+        "parser_expression_node",
+        "parser_expression_route"
     )
 );
 
@@ -2139,6 +2148,8 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         92 => 92,
         93 => 93,
         94 => 94,
+        95 => 95,
+        96 => 96,
         _ => u16::MAX,
     }
 }
@@ -2380,6 +2391,15 @@ diagnostic_code_allocations!(
         CHAINED_COMPARISON_NOT_SUPPORTED,
         "H0010",
         "comparison chaining is not supported",
+        SOURCE_SHAPE,
+        "source_shape",
+        "parser"
+    ),
+    (
+        95,
+        INTEGER_LITERAL_OUT_OF_RANGE,
+        "H0011",
+        "integer literal out of range",
         SOURCE_SHAPE,
         "source_shape",
         "parser"
@@ -3732,10 +3752,18 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         repair: "Move the call into a `needs:`/`ensures:` contract predicate, or replace it with an executable builtin such as `list_len`.",
     },
     DiagnosticInfo {
+<<<<<<< HEAD
         code: DiagnosticCode::INVALID_CALL_ARITY,
         default_severity: Severity::Error,
         explanation: "A call passes the wrong number of arguments for the callee's declared signature. The four builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`) and user tasks are checked identically against their signatures.",
         repair: "Pass exactly the declared number of arguments; the diagnostic names the expected signature.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE,
+        default_severity: Severity::Error,
+        explanation: "An integer literal does not fit in the 64-bit signed range. `-9223372036854775808` is `i64::MIN` and is in range; `-9223372036854775809`, `9223372036854775808`, and larger positive literals are out of range.",
+        repair: "Use a value between -9223372036854775808 and 9223372036854775807. Hum does not widen out-of-range literals to a wider integer type.",
+>>>>>>> c47db2f (WO30 Item 5: seal i64::MIN parsing, out-of-range literals -> H0011)
     },
 ];
 
