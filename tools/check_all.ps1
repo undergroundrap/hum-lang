@@ -1860,9 +1860,125 @@ function Invoke-HumCoreCheck {
   }
 }
 
+# Decision 0030 Option B + BDFL example-policy ruling (2026-09-26):
+# `hum check` now reports the complete static pipeline, so the two
+# README-designated syntax sketches (examples/control_flow.hum and
+# examples/session_server.hum, README.md:317-318) are expected rejections.
+# The blanket `hum check examples` (exit 0) assertion is replaced by explicit
+# coverage:
+#   - the complete examples inventory is pinned (unexpected files fail);
+#   - every supported example passes `hum check` in its own boundary;
+#   - the two sketches are rejected with their actual diagnostic owners
+#     (not just a nonzero exit);
+#   - the aggregate directory run stays as integration coverage with the
+#     exact expected rejection set, never as proof of individual app validity.
+# Single-app vs directory capability difference (pinned, not changed):
+# a lone `hum check <app>.hum` analyzes that app's authority boundary, so
+# unknown capability families (e.g. `random.secure`) fire H0617 before the
+# resolve stage runs; in directory mode there is no single app boundary, so
+# H0617 does not fire and the resolve stage surfaces the sketches'
+# H0601/H0602/H0603 errors instead.
+function Invoke-HumExampleCorpusChecks {
+  param([string] $Hum)
+
+  # The two README-designated syntax sketches: expected rejections.
+  $Sketches = @('examples/control_flow.hum', 'examples/session_server.hum')
+
+  # Every other example must pass `hum check` in its own boundary.
+  $Supported = @(
+    'examples/core/add.hum',
+    'examples/core/count_completed.hum',
+    'examples/core/divide.hum',
+    'examples/core/minimal_add.hum',
+    'examples/probes/bounded_stdout.hum',
+    'examples/probes/capability_root.hum',
+    'examples/probes/causal_failures.hum',
+    'examples/probes/decoded_newline_probe.hum',
+    'examples/probes/element_views.hum',
+    'examples/probes/exact_file_read.hum',
+    'examples/probes/fallible_app_entry.hum',
+    'examples/probes/field_places.hum',
+    'examples/probes/field_views.hum',
+    'examples/probes/first_word.hum',
+    'examples/probes/integrated_local_app.hum',
+    'examples/probes/list_builder.hum',
+    'examples/probes/opaque_native_path.hum',
+    'examples/probes/passed_callable_row.hum',
+    'examples/probes/passed_pure_callable.hum',
+    'examples/probes/pure_app_entry.hum',
+    'examples/probes/runner_replay_clock.hum',
+    'examples/probes/task_list_flow.hum',
+    'examples/probes/text_split.hum',
+    'examples/probes/text_split_args.hum',
+    'examples/probes/transaction_once.hum',
+    'examples/probes/word_count.hum',
+    'examples/probes/writable_field_aliases.hum',
+    'examples/reference_surface.hum',
+    'examples/task_list.hum',
+    'examples/task_list_tests.hum',
+    'examples/tools/wordfreq.hum'
+  )
+
+  # 1. Inventory: every examples .hum file is accounted for. An unexpected
+  #    file (or a silently dropped one) fails; new failures must not become
+  #    silent exceptions.
+  $Root = (Get-Location).Path
+  $Found = Get-ChildItem -Path 'examples' -Filter '*.hum' -Recurse | ForEach-Object {
+    $_.FullName.Substring($Root.Length + 1) -replace '\\', '/'
+  } | Sort-Object
+  $ExpectedInventory = ($Supported + $Sketches) | Sort-Object
+  $InventoryDiff = Compare-Object $Found $ExpectedInventory
+  if ($InventoryDiff) {
+    throw "ci_profile: examples inventory drifted (unexpected or missing files): $($InventoryDiff | Out-String)"
+  }
+
+  # 2. Positive: every supported example passes in its own boundary.
+  foreach ($File in $Supported) {
+    Invoke-Native "hum check $File" $Hum @('check', $File)
+  }
+
+  # 3. Expected rejections: the sketches fail with their actual diagnostic
+  #    owners, not just a nonzero exit.
+  $SketchExpectations = @(
+    # control_flow.hum: three duplicate-name resolver errors.
+    @{ Path = 'examples/control_flow.hum'; Codes = @('H0602', 'H0602', 'H0602') },
+    # session_server.hum (single-app boundary): four capability-root errors
+    # for the unknown capability families; the resolve stage is gated.
+    @{ Path = 'examples/session_server.hum'; Codes = @('H0617', 'H0617', 'H0617', 'H0617') }
+  )
+  foreach ($Sketch in $SketchExpectations) {
+    $Result = Read-NativeOutputWithExit "hum check $($Sketch.Path) (expected rejection)" $Hum @('check', $Sketch.Path)
+    $global:LASTEXITCODE = 0
+    if ($Result.ExitCode -ne 1) {
+      throw "ci_profile: $($Sketch.Path) must be rejected with exit 1, got $($Result.ExitCode)"
+    }
+    $Codes = @([regex]::Matches($Result.Output, 'error\[(H\d{4})\]') | ForEach-Object { $_.Groups[1].Value } | Sort-Object)
+    $ExpectedCodes = @($Sketch.Codes | Sort-Object)
+    $CodeDiff = Compare-Object $Codes $ExpectedCodes
+    if ($CodeDiff) {
+      throw "ci_profile: $($Sketch.Path) diagnostic owners drifted: $($CodeDiff | Out-String)"
+    }
+  }
+
+  # 4. Aggregate directory run: integration coverage only. Directory boundary
+  #    means no single-app H0617; the resolve stage surfaces the sketches'
+  #    eight errors (six H0602, one H0603, one H0601).
+  $Aggregate = Read-NativeOutputWithExit 'hum check examples (expected aggregate rejection)' $Hum @('check', 'examples')
+  $global:LASTEXITCODE = 0
+  if ($Aggregate.ExitCode -ne 1) {
+    throw "ci_profile: hum check examples must be rejected with exit 1, got $($Aggregate.ExitCode)"
+  }
+  $AggregateCodes = @([regex]::Matches($Aggregate.Output, 'error\[(H\d{4})\]') | ForEach-Object { $_.Groups[1].Value } | Sort-Object)
+  $ExpectedAggregateCodes = @('H0601', 'H0602', 'H0602', 'H0602', 'H0602', 'H0602', 'H0602', 'H0603')
+  $AggregateDiff = Compare-Object $AggregateCodes $ExpectedAggregateCodes
+  if ($AggregateDiff) {
+    throw "ci_profile: hum check examples aggregate diagnostic owners drifted: $($AggregateDiff | Out-String)"
+  }
+}
+
 function Invoke-HumLanguageProgramChecks {
   param([string] $Hum)
-  Invoke-Native 'hum check examples' $Hum @('check', 'examples')
+  Invoke-HumExampleCorpusChecks $Hum
   foreach ($Route in @('resolve', 'graph')) {
     $Arguments = if ($Route -ceq 'resolve') { @($Route, '--format', 'json', 'examples/probes/word_count.hum') } else { @($Route, 'examples/probes/word_count.hum') }
     $Text = Read-NativeOutput "word-count $Route" $Hum $Arguments

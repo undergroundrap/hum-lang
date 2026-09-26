@@ -5,6 +5,10 @@ type Task {
   done: Bool
 }
 
+type TaskError {
+  code: Text
+}
+
 store tasks: list Task {
   why:
     remember the user's tasks
