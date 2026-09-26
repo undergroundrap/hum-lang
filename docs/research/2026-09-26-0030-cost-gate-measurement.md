@@ -50,9 +50,9 @@ All 20 timed runs preserved, including the outlier.
   fallback threshold. Both commands exit 0 on all runs: this is genuine
   body-checking cost on a real 190-line program.
 - The wordfreq check outlier (run 3, 1.564 s against a 1.014–1.044 s
-  cluster) is preserved, not trimmed. It is the visible trace of shared-VM
-  contention; the alternating check/full-type-check design means a
-  transient load spike lands on both commands rather than biasing one.
+  cluster) is preserved, not trimmed. Its cause is unknown. The
+  alternating check/full-type-check design reduces ordering bias; it
+  does not guarantee equal exposure to transient load.
 - Windows corroboration (reported by Codex, existing binary): check
   1.2707471 s, full-type-check 2.0490012 s, ratio **1.6124**, both exit 0.
   Same shape as Linux: comfortably below 2×.
@@ -72,8 +72,14 @@ summary: files=33 items=137 body_items=97 statements=306 checked_statements=0
 
 Every item in the report carries `[blocked_by_prior_errors]` /
 `not_checked_blocked_by_prior_errors_v0`; **zero of 306 statements were
-checked**. The 16.713 s median measures parse + resolve + report on a
-blocked corpus — not the cost of checking 306 statements. Comparing it
+checked**. The 16.713 s median is a blocked-path timing with zero
+statement checking — not the cost of checking 306 statements.
+`build_report_with` (`src/full_type_check.rs:492`) computes the
+type-check summary, callable analysis, task return types, task
+signatures, typed-failure analysis, field-place types, predicate
+analysis, and the core-verify handoff *before* the blocked test
+(`:524`), so the timing covers those analyses plus the blocked
+collection/report. Comparing it
 against `hum check`'s 13.539 s (exit 0, its own stages run to completion)
 as if both measured the same work would be a category error. Both
 platforms show the same blocked shape (Windows: resolver_errors=8,
@@ -86,14 +92,23 @@ error classes), which propagates the per-item blocked markers; line
 intended fail-closed behavior, not a measurement artifact.
 
 The eight resolver errors: Codex's existing-binary resolve query
-identifies three duplicate-name errors in `examples/control_flow.hum`
-and, in `examples/session_server.hum`, three duplicates plus one
-immutable mutation target and one unresolved token. The retained Linux
+locates them within `examples/control_flow.hum` (three duplicate-name
+errors) and `examples/session_server.hum` (three duplicates, one
+immutable mutation target, one unresolved token). The retained Linux
 artifacts enumerate only the count (`resolver_errors=8`); the individual
 eight are Codex-reported, not independently re-verified here. They are
-pre-existing source conditions in independently-authored example files —
-they are **not** labeled intentional misuse fixtures; no source evidence
-supports that label.
+pre-existing source conditions in the example files — they are **not**
+labeled intentional misuse fixtures; no source evidence supports that
+label.
+
+Correction to the earlier revision of this snapshot: `src/resolve.rs`
+(`:976–991`) creates a separate file scope per file, so one `Program`
+is not one lexical scope. The two `task add` definitions (in
+`examples/core/add.hum` and `examples/core/minimal_add.hum`) live in
+separate file scopes and are not evidence of cross-file duplicate
+errors. The aggregate resolver-error count gates the whole report,
+blocking body checking report-wide even though the errors sit in two
+of the 33 files.
 
 Exit status of the untimed run: not separately recorded in the retained
 files. The five timed runs of the identical command all exited 1; the
@@ -101,66 +116,74 @@ untimed run's report shows the same blocked status and error count.
 
 ## On idle samples and contention
 
-The retained script captures no load/idle data — there are no
-before/after idle samples in the artifacts, and none are claimed. The
-contention assessment rests on two facts: (1) the alternating-run
-protocol, which interleaves check and full-type-check so transient load
-cannot systematically bias one command; and (2) the preserved wordfreq
-outlier (1.564 s), which shows the VM was not perfectly quiet. Those
-support a contention *assessment*; they do not continuously prove
-nothing else ran. No stronger claim is made.
+The retained artifacts contain no load or idle observations — there are
+no before/after idle samples to describe. Whether the runs were quiet is
+Builder-reported (via Codex), not retained evidence; this snapshot
+treats it as reported, not observed. The alternating check /
+full-type-check protocol reduces ordering bias but does not guarantee
+equal exposure to transient load. The wordfreq check outlier (run 3,
+1.564 s) is preserved with its cause stated as unknown — it is not
+discarded merely for being slower, and no monitoring requirement is
+invented around it.
 
 ## Why programs must be checked separately, not combined
 
-One `hum` invocation builds one resolver scope: `load_program`
-(`src/main.rs:3424`) folds every path argument into a single `Program`,
-and `collect_inputs` (`:3552`) gathers all files under a directory
-argument. Independently-authored example files share names — e.g.
-`task add` is defined in both `examples/core/add.hum` and
-`examples/core/minimal_add.hum` — so combining them into one invocation
-manufactures duplicate-name resolver errors that then block *all* body
-checking in that scope. That is exactly the `examples/` outcome. A
-combined directory of independently-authored programs is therefore not a
-valid body-checking corpus; per-program separate invocations are
-required. (`hum full-type-check` accepts multiple `<file-or-dir>...`
-arguments, but they still share the one scope.)
+One `hum` invocation builds one `Program` from all path arguments
+(`load_program`, `src/main.rs:3424`; `collect_inputs`, `:3552`), and
+the full-type-check block test applies to the whole report
+(`src/full_type_check.rs:524`): any file's resolver errors mark *every*
+item `[blocked_by_prior_errors]`, so one blocked file poisons body
+checking for all files in the invocation. That is the `examples/`
+outcome — errors in 2 of 33 files yield checked_statements=0
+report-wide. Per-program separate invocations are therefore required
+for genuine per-program body-checking measurements, even though file
+scopes are separate within one invocation.
 
 ## Existing positive consumers
 
 - `examples/tools/wordfreq.hum`: full-type-check exit 0 on all timed
   runs (Linux and Windows) — reaches body checking.
-- `examples/probes/causal_failures.hum`: Session W runs
-  `hum run examples/probes/causal_failures.hum` with `--entry same_root`
-  / `outer_value` / `root_value` and asserts success output
-  (`tools/check_all.ps1:4534`–`:4549`). `hum run`'s preflight runs
-  resolve → type-check → full-type-check and refuses before execution on
-  static failure, so these run successes are existing positive evidence
-  that the file passes the resolver gate in its own scope.
+- `examples/probes/word_count.hum`: exercised by
+  `Invoke-HumLanguageProgramChecks` (`tools/check_all.ps1:1862`–`:1877`)
+  — `resolve --format json` (asserted valid JSON), `test-skeletons`
+  (exit 0 asserted), and `hum run --entry count_hum_literal`
+  (exit 0, empty stderr, stdout `2` asserted) — plus run-corpus entries
+  at `:3984` and `:4135` asserting output `2`. `hum run`'s preflight
+  runs resolve → type-check → full-type-check and refuses before
+  execution on static failure, so these run successes are existing
+  positive evidence that the file passes the resolver gate in its own
+  scope. Its `ensures:` clauses use `list_count`
+  (`examples/probes/word_count.hum:8`, `:32`).
 
 ## Proposed supplemental measurement (ONE, bounded)
 
+This is a proposal, not permission to measure: no measurement has been
+run and none is authorized by this snapshot.
+
 To give the gate a second genuine body-checking data point alongside
-wordfreq, run the existing protocol unchanged — 1 warm-up of each
-command, then 5 timed runs alternating check / full-type-check, release
-binary, uncontended VM — on exactly:
+wordfreq, the proposal runs the existing protocol unchanged — 1 warm-up
+of each command, then 5 timed runs alternating check / full-type-check,
+release binary, uncontended VM — on exactly:
 
 ```
-./target/release/hum check examples/probes/causal_failures.hum
-./target/release/hum full-type-check examples/probes/causal_failures.hum
+./target/release/hum check examples/probes/word_count.hum
+./target/release/hum full-type-check examples/probes/word_count.hum
 ```
 
 Rationale (coverage, not favorable timing):
 
 - It is an existing input; no manufactured corpus.
-- Existing positive evidence (Session W run successes) that it passes
-  the resolver gate and reaches body checking in its own scope.
-- It carries contract sections (`needs:`/`ensures:`) with causal-failure
-  predicates — it exercises the predicate-analysis stage that a plain
-  190-line program stresses least, which is precisely the stage whose
-  cost Option B adds to `hum check`.
-- Single file, single scope: no cross-file duplicate hazard. It must be
-  run as its own invocation, not combined with other programs into one
-  resolver scope (see above).
+- Existing positive evidence (the check_all `hum run` successes listed
+  above) that it passes the resolver gate and reaches body checking in
+  its own scope.
+- Its actual `ensures:` clauses use `list_count` — it exercises the
+  predicate-analysis stage that a plain 190-line program stresses
+  least, which is precisely the stage whose cost Option B adds to
+  `hum check`. (Correction: the earlier revision wrongly claimed
+  `causal_failures.hum` carries `needs:`/`ensures:` contracts; it has
+  none — it contains typed-failure propagation.)
+- Single file: it must be run as its own invocation, not combined with
+  other programs into one report (see above).
 
 Preserve all samples including outliers, exactly as the existing 20
 runs were preserved. No example repairs and no checker weakening to
@@ -178,12 +201,16 @@ snapshot does not redefine the gate and does not call it cleared.
 The wordfreq leg is clean (1.6830 Linux, 1.6124 Windows — both below
 2×). For the corpus leg, the BDFL should rule one of:
 
-(a) accept the `causal_failures.hum` supplemental measurement above as
+(a) accept the `word_count.hum` supplemental measurement above as
     the second leg (recommended — genuine body-checking cost, existing
     input, no corpus surgery);
 (b) rule the gate on the wordfreq leg alone, striking the `examples/`
     leg as unsatisfiable in its current form;
 (c) direct otherwise.
+
+Replacing `examples/` with another individual program requires BDFL
+approval and loses corpus-scale coverage: one program cannot stand in
+for a 33-file corpus, whatever its ratio shows.
 
 Until that ruling lands, Option B implementation stays gated and no
 further benchmark campaign is authorized.
