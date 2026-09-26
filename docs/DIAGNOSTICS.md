@@ -293,6 +293,7 @@ unallocated rather than implicitly free.
 | `H0637` | error | reserved text-split built-in name redeclared | A user task attempts to redeclare the exact `text_split` built-in name. |
 | `H0638` | error | invalid text escape | A text literal — in a task body or a `needs:`/`ensures:` contract predicate — contains an unknown escape sequence or a trailing backslash. Only `\n`, `\t`, `\\`, and `\"` are accepted (decision 0022). Contract literals decode identically to body literals. |
 | `H0639` | error | invalid contract-only builtin call | A task body calls a contract-only Predicate v2 builtin (for example `list_count`), which has no executable meaning; the runner traps on it. Move the call into a `needs:`/`ensures:` contract predicate, or use an executable builtin such as `list_len`. |
+| `H0640` | error | invalid call arity | A call passes the wrong number of arguments for the callee's declared signature. The four builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`) and user tasks are checked identically against their signatures. |
 
 Note: `TextSplitError.SepEmpty` is not a checker diagnostic and holds no H-code.
 It is a runtime typed failure variant raised when a computed (non-literal)

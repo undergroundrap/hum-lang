@@ -1,0 +1,26 @@
+module fixtures.diagnostics.call_arity_mismatch_ok
+
+task render(n: UInt) -> Text {
+  why:
+    positive fixture: well-shaped builtin and user-task calls stay clean
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    let a = uint_to_text(n)
+    let b = uint_to_text(list_len_of(a))
+    return b
+}
+
+task list_len_of(s: Text) -> UInt {
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return list_len(text_split(s, ","))
+}

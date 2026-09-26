@@ -1,0 +1,31 @@
+module fixtures.diagnostics.call_arity_mismatch_app_fail
+
+app arity_probe {
+  why:
+    misuse fixture: app-nested checking uses that app's task signatures, so
+    a wrong-arity call to an app-local task is a checker error (H0640),
+    exactly like module scope
+
+  starts with:
+    run_tool
+
+  task helper(a: UInt, b: Text) -> Text {
+    cost:
+      time: O(1)
+      space: O(1)
+      check: warn
+
+    does:
+      return b
+  }
+
+  task run_tool() -> Text {
+    cost:
+      time: O(1)
+      space: O(1)
+      check: warn
+
+    does:
+      return helper(1)
+  }
+}

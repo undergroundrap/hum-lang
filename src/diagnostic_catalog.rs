@@ -1797,6 +1797,15 @@ diagnostic_causes!(
         "check",
         "builtin_call_relationship",
         "builtin_call_route"
+    ),
+    (
+        188,
+        "call_argument_count_mismatch_v0",
+        INVALID_CALL_ARITY,
+        "front_end_semantics",
+        "full_type_check",
+        "builtin_call_relationship",
+        "builtin_call_route"
     )
 );
 
@@ -2129,6 +2138,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         91 => 91,
         92 => 92,
         93 => 93,
+        94 => 94,
         _ => u16::MAX,
     }
 }
@@ -2886,6 +2896,15 @@ diagnostic_code_allocations!(
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "check"
+    ),
+    (
+        94,
+        INVALID_CALL_ARITY,
+        "H0640",
+        "invalid call arity",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "full_type_check"
     ),
     (
         60,
@@ -3711,6 +3730,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "A task body calls a contract-only Predicate v2 builtin (for example `list_count`), which has no executable meaning; the runner traps on it.",
         repair: "Move the call into a `needs:`/`ensures:` contract predicate, or replace it with an executable builtin such as `list_len`.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INVALID_CALL_ARITY,
+        default_severity: Severity::Error,
+        explanation: "A call passes the wrong number of arguments for the callee's declared signature. The four builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`) and user tasks are checked identically against their signatures.",
+        repair: "Pass exactly the declared number of arguments; the diagnostic names the expected signature.",
     },
 ];
 
@@ -4684,12 +4709,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 94);
+        assert_eq!(summary.active_codes, 95);
         assert_eq!(summary.retired_codes, 0);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 187);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 188);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
@@ -4746,7 +4771,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 94);
+        assert_eq!(all().len(), 95);
     }
 
     #[test]
