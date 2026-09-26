@@ -166,7 +166,9 @@ No option may introduce ambient flags or env vars (per the commission).
   (`src/diagnostics.rs:42`–`:73`). Under **A** and **B** the shape is
   unchanged — only the *code universe* in `diagnostics[]` grows
   (A: +H0701/H0704; B: +H0605/H0606, +H0636/H0638, +H0640–H0642 once WO30
-  lands, +H0701/H0704, +H0901–H0906). No version bump is required by the
+  lands, +H0643 (statement expression type mismatch; allocated in the
+  Option B implementation, PR #54), +H0701/H0704, +H0901–H0906).
+  No version bump is required by the
   shape, but the semantic contract changes: agents with code allowlists
   must handle the new codes, and `summary` counts shift. Under **B**,
   `hum check` does *not* adopt full-type-check's richer report schema
@@ -298,6 +300,19 @@ Structural facts (no timing needed):
   it makes the scope machine-readable for agents under any option.
 - H0702/H0703 stay `run`-only: they require execution, so they are
   outside every static option by construction.
+- **H0643** (statement expression type mismatch) is allocated in the
+  Option B implementation (PR #54): front_end_semantics family,
+  full_type_check owner, cause key index 193, allocation/public
+  ordinal 99. It names an existing proven rejection — the full-type
+  checker proving a statement's expression type does not match the type
+  its position requires (return, fail, if/while header, let binding,
+  or set place) — surfaced through ordinary human/JSON diagnostics.
+  No new analysis and no new language semantics. H0606 retains its
+  meaning and precedence: the trivial return-type case detected by the
+  type_check stage. Implementation status is recorded honestly: PR #54
+  remains a draft with red CI. This records the allocation only — no
+  acceptance, no merge, no performance improvement, and no WO30 or
+  next-work authorization.
 
 ## 8. Recommendation
 
