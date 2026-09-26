@@ -1,14 +1,15 @@
 # Decision 0030 — What `hum check` reports
 
-Status: **proposed 2026-09-25 — awaiting BDFL ruling.** This record is a
-proposal only. It recommends an option; it authorizes nothing.
+Status: **accepted 2026-09-26 (BDFL ruling: Option B, with D3 and the cost gate).**
 
-> **Standing of this record.** Recommendation only; the BDFL rules. This
-> record generalizes ledger #18 (wordfreq friction ledger): `hum check`
-> never runs predicate analysis, so contract errors are invisible to the
-> agent loop until `hum full-type-check` or `hum run`'s preflight. The
-> question is broader than predicates: should `hum check` report
-> everything the static checker knows?
+> **Standing of this record.** This decision is *accepted*. It records the
+> BDFL's ruling (§10) and the recommendation it adopted. This record
+> generalizes ledger #18 (wordfreq friction ledger): `hum check` never
+> runs predicate analysis, so contract errors are invisible to the agent
+> loop until `hum full-type-check` or `hum run`'s preflight. The question
+> is broader than predicates: should `hum check` report everything the
+> static checker knows? The ruling answers yes, gated on a clean cost
+> measurement.
 
 ## 1. The finding
 
@@ -343,7 +344,6 @@ revisit **B** when incremental compilation lands.
    (documented, visible, machine-readable scope).
 
 ## 9. Sources
-
 - `docs/research/2026-09-25-ledger-18-check-vs-predicate-analysis-brief.md`
   (Option A recommendation; cost figures reused here as upper bounds)
 - `docs/research/wordfreq-friction-ledger.md` #18
@@ -376,3 +376,25 @@ revisit **B** when incremental compilation lands.
   `hum.check.v0`)
 - `tools/check_all.ps1:1865` (`hum check examples`, Session AG),
   `:5145`–`:5149` (H0639-in-check pin)
+
+## 10. Ruling (BDFL, 2026-09-26)
+
+Ocean accepts **Option B**, with **D3** and the cost gate.
+
+- **B is accepted.** `hum check` will report everything the static
+  checker knows: today's stages, then type-check, then full-type-check
+  (predicate analysis included), with stage precedence kept exactly as
+  `hum run`'s preflight does today. The boundary becomes principled:
+  static (`hum check`) versus execution-requiring (`hum run`).
+- **D3 as adjunct.** `hum.check.v0` gains an additive, machine-readable
+  scope field (the stage list), backward compatible for tolerant
+  readers.
+- **Cost gate.** Implementation does not start until a clean measurement
+  exists: uncontended release build, `hum check` vs `hum full-type-check`
+  on `examples/tools/wordfreq.hum` and on `examples/`. If the full
+  pipeline costs ≥2× the current `hum check`, fall back to Option A now
+  and revisit B after incremental checking lands.
+- **WO30 sequencing.** WO30's criterion-2 fixtures (asserting `hum check`
+  stays silent on call shapes) flip in the B implementation PR, not in
+  this record and not now. Until that PR lands, the pinned boundary
+  stands.
