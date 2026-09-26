@@ -1,0 +1,14 @@
+module fixtures.diagnostics.call_arity_mismatch_fail
+
+task render() -> Text {
+  why:
+    misuse fixture: a wrong-arity builtin call is a checker error (H0640)
+
+  cost:
+    time: O(1)
+    space: O(1)
+    check: warn
+
+  does:
+    return uint_to_text(1, 2)
+}

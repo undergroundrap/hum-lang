@@ -517,6 +517,7 @@ fn build_report_with<R>(
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
     let task_returns = task_return_types(program);
+    let task_signatures = task_signatures(program);
     let failure_analysis = typed_failure::analyze_program(program);
     let field_types = field_place::collect_field_types(program);
     let predicates = predicate::analyze_program(program);
@@ -551,7 +552,13 @@ fn build_report_with<R>(
                 core_verify_access: &core_verify_access,
             };
             for file in &program.files {
-                collect_items(&context, &file.items, &task_returns, &mut items);
+                collect_items(
+                    &context,
+                    &file.items,
+                    &task_returns,
+                    &task_signatures,
+                    &mut items,
+                );
             }
             let mut diagnostic_occurrences = core_verify_access.diagnostic_occurrence_set().clone();
             extend_full_type_occurrences(&failure_analysis, &items, &mut diagnostic_occurrences);
@@ -772,6 +779,7 @@ fn collect_items(
     context: &FullTypeCollectionContext<'_, '_>,
     items: &[Item],
     task_returns: &BTreeMap<String, TypeFact>,
+    task_signatures: &BTreeMap<String, TaskSignature>,
     out: &mut Vec<FullTypeItem>,
 ) {
     for item in items {
@@ -780,6 +788,7 @@ fn collect_items(
             item,
             context.blocked,
             task_returns,
+            task_signatures,
             context.failure_analysis,
             context.field_types,
             context.callables,
@@ -789,7 +798,14 @@ fn collect_items(
         }
         if let Item::App(app) = item {
             let app_task_returns = task_return_types_from_items(&app.items);
-            collect_items(context, &app.items, &app_task_returns, out);
+            let app_task_signatures = task_signatures_from_items(&app.items);
+            collect_items(
+                context,
+                &app.items,
+                &app_task_returns,
+                &app_task_signatures,
+                out,
+            );
         }
     }
 }
@@ -800,6 +816,7 @@ fn type_item(
     item: &Item,
     blocked: bool,
     task_returns: &BTreeMap<String, TypeFact>,
+    task_signatures: &BTreeMap<String, TaskSignature>,
     failure_analysis: &ProgramFailureAnalysis,
     field_types: &FieldTypeMap,
     callables: &CallableAnalysis,
@@ -833,6 +850,7 @@ fn type_item(
             statement,
             &mut scopes,
             task_returns,
+            task_signatures,
             field_types,
             blocked,
             match item {
@@ -867,6 +885,7 @@ fn type_statement(
     statement: &BodyStatement,
     scopes: &mut TypeScopeStack<TypeFact>,
     task_returns: &BTreeMap<String, TypeFact>,
+    task_signatures: &BTreeMap<String, TaskSignature>,
     field_types: &FieldTypeMap,
     blocked: bool,
     failure_fact: Option<&FailureFact>,
@@ -924,6 +943,45 @@ fn type_statement(
             DiagnosticCode::INVALID_TEXT_ESCAPE,
             crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(185),
             "text_literal_escape_shape",
+        );
+        return typed;
+    }
+
+    // WO30 Item 4: the general call-shape probe runs before the per-builtin
+    // shape probes so migrated codes cannot double-fire. A statement the
+    // probe rejects never reaches the narrower probes below.
+    if let Some(issue) = call_shape_issue(parsed, task_signatures) {
+        let expected = issue.signature.params.len();
+        let mut typed = typed_statement(
+            statement,
+            index,
+            expression_text_for_statement(statement).map(str::to_string),
+            issue.signature.return_type.clone(),
+            None,
+            "rejected_invalid_call_arity_v0",
+            Some("call_argument_count_mismatch_v0"),
+        );
+        if issue.is_builtin && issue.callee == "text_split" {
+            typed.failure_form = Some("text_split_builtin");
+        }
+        typed.call_span = Some(issue.call_span);
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::INVALID_CALL_ARITY.as_str());
+        typed.help = Some(format!(
+            "Call `{}` with exactly {} argument{} ({}); found {}.",
+            issue.callee,
+            expected,
+            if expected == 1 { "" } else { "s" },
+            signature_help_text(&issue.callee, &issue.signature),
+            issue.actual_args,
+        ));
+        attach_builtin_occurrence(
+            &mut typed,
+            item_identity,
+            index,
+            DiagnosticCode::INVALID_CALL_ARITY,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(188),
+            "call_shape",
         );
         return typed;
     }
@@ -1710,6 +1768,177 @@ fn collect_task_return_types(items: &[Item], returns: &mut BTreeMap<String, Type
     }
 }
 
+/// WO30 Items 1+4: a declared call signature — ordered parameter types plus
+/// the declared return type. Builtins resolve before user tasks
+/// (builtin-table-first precedence matches runtime dispatch, ledger #19);
+/// user tasks follow the same scope traversal as `collect_task_return_types`
+/// so module scope sees every file's items (including app-nested tasks)
+/// while app-nested checking sees only that app's items.
+#[derive(Debug, Clone)]
+struct TaskSignature {
+    params: Vec<String>,
+    return_type: Option<String>,
+}
+
+fn builtin_task_signatures() -> BTreeMap<String, TaskSignature> {
+    // WO30 Item 4: the single builtin signature table. These four builtins
+    // are checked exactly like user tasks with the same signatures.
+    BTreeMap::from([
+        (
+            name_key("uint_to_text"),
+            TaskSignature {
+                params: vec!["UInt".to_string()],
+                return_type: Some("Text".to_string()),
+            },
+        ),
+        (
+            name_key("int_to_text"),
+            TaskSignature {
+                params: vec!["Int".to_string()],
+                return_type: Some("Text".to_string()),
+            },
+        ),
+        (
+            name_key("text_split"),
+            TaskSignature {
+                params: vec!["Text".to_string(), "Text".to_string()],
+                return_type: Some("List Text".to_string()),
+            },
+        ),
+        (
+            name_key("list_len"),
+            TaskSignature {
+                params: vec!["List".to_string()],
+                return_type: Some("UInt".to_string()),
+            },
+        ),
+    ])
+}
+
+fn task_signatures(program: &Program) -> BTreeMap<String, TaskSignature> {
+    let mut signatures = BTreeMap::new();
+    for file in &program.files {
+        collect_task_signatures(&file.items, &mut signatures);
+    }
+    signatures
+}
+
+fn task_signatures_from_items(items: &[Item]) -> BTreeMap<String, TaskSignature> {
+    let mut signatures = BTreeMap::new();
+    collect_task_signatures(items, &mut signatures);
+    signatures
+}
+
+fn collect_task_signatures(items: &[Item], signatures: &mut BTreeMap<String, TaskSignature>) {
+    for item in items {
+        match item {
+            Item::Task(task) => {
+                signatures.insert(
+                    name_key(&task.name),
+                    TaskSignature {
+                        params: task.params.iter().map(|param| param.ty.clone()).collect(),
+                        return_type: task.result.as_deref().map(expected_return_value_type),
+                    },
+                );
+            }
+            Item::App(app) => collect_task_signatures(&app.items, signatures),
+            Item::Type(_) | Item::Store(_) | Item::Test(_) => {}
+        }
+    }
+}
+
+fn signature_help_text(callee: &str, signature: &TaskSignature) -> String {
+    let params = signature.params.join(", ");
+    match &signature.return_type {
+        Some(return_type) => format!("`{callee}({params}) -> {return_type}`"),
+        None => format!("`{callee}({params})`"),
+    }
+}
+
+struct CallShapeIssue {
+    callee: String,
+    is_builtin: bool,
+    signature: TaskSignature,
+    actual_args: usize,
+    call_span: Span,
+}
+
+/// WO30 Item 4: the AST-driven general call-shape probe. Walks the
+/// statement's canonical expressions in pre-order; the first call whose
+/// callee resolves to a declared signature with a mismatched argument count
+/// is H0640. Unresolved callees never reach this probe: resolver errors set
+/// the item's `blocked` flag and `type_statement` returns before it runs, so
+/// H0640 cannot stack on H0601.
+fn call_shape_issue(
+    parsed: &crate::ast::ParsedBodyStatement,
+    task_signatures: &BTreeMap<String, TaskSignature>,
+) -> Option<CallShapeIssue> {
+    let builtins = builtin_task_signatures();
+    fn walk(
+        expression: &crate::ast::CanonicalExpression,
+        builtins: &BTreeMap<String, TaskSignature>,
+        task_signatures: &BTreeMap<String, TaskSignature>,
+    ) -> Option<CallShapeIssue> {
+        if let crate::ast::CanonicalExpressionKind::Call { callee, arguments } = &expression.kind
+            && let crate::ast::CanonicalExpressionKind::Identifier(name) = &callee.kind
+        {
+            // Builtin-table-first: a builtin name wins over a same-named user
+            // task, matching runtime dispatch (ledger #19). An unknown callee
+            // is not a shape issue — the resolver owns it (H0601) — so keep
+            // walking for nested calls.
+            let resolved = builtins
+                .get(&name_key(name))
+                .map(|signature| (true, signature))
+                .or_else(|| {
+                    task_signatures
+                        .get(&name_key(name))
+                        .map(|signature| (false, signature))
+                });
+            if let Some((is_builtin, signature)) = resolved
+                && arguments.len() != signature.params.len()
+            {
+                return Some(CallShapeIssue {
+                    callee: name.clone(),
+                    is_builtin,
+                    signature: signature.clone(),
+                    actual_args: arguments.len(),
+                    call_span: expression.range.start.clone(),
+                });
+            }
+        }
+        let children: Vec<&crate::ast::CanonicalExpression> = match &expression.kind {
+            crate::ast::CanonicalExpressionKind::Field { base, .. } => vec![base],
+            crate::ast::CanonicalExpressionKind::ElementPlace { base, .. } => vec![base],
+            crate::ast::CanonicalExpressionKind::ListLiteral(items) => items.iter().collect(),
+            crate::ast::CanonicalExpressionKind::RecordLiteral { fields, .. } => {
+                fields.iter().map(|(_, value)| value).collect()
+            }
+            crate::ast::CanonicalExpressionKind::Call { callee, arguments } => {
+                std::iter::once(callee.as_ref())
+                    .chain(arguments.iter())
+                    .collect()
+            }
+            crate::ast::CanonicalExpressionKind::Permission { value, .. } => vec![value],
+            crate::ast::CanonicalExpressionKind::Try { value, .. } => vec![value],
+            crate::ast::CanonicalExpressionKind::Binary { left, right, .. } => vec![left, right],
+            crate::ast::CanonicalExpressionKind::Group(inner) => vec![inner],
+            _ => Vec::new(),
+        };
+        children
+            .into_iter()
+            .find_map(|child| walk(child, builtins, task_signatures))
+    }
+
+    let expressions: Vec<&crate::ast::ParsedExpression> = match &parsed.kind {
+        crate::ast::ParsedBodyStatementKind::Return(expression) => vec![expression],
+        crate::ast::ParsedBodyStatementKind::Binding { value, .. } => value.iter().collect(),
+        crate::ast::ParsedBodyStatementKind::Other { expressions } => expressions.iter().collect(),
+    };
+    expressions
+        .into_iter()
+        .find_map(|expression| walk(&expression.canonical, &builtins, task_signatures))
+}
+
 fn initial_environment(params: &[Param]) -> BTreeMap<String, TypeFact> {
     let mut environment = BTreeMap::new();
     for param in params {
@@ -2221,6 +2450,7 @@ impl FullTypeCheckReport {
                         | "rejected_invalid_clock_replay_call_v0"
                         | "rejected_invalid_files_read_text_call_v0"
                         | "rejected_invalid_text_escape_v0"
+                        | "rejected_invalid_call_arity_v0"
                 )
             })
             .count()
@@ -3380,8 +3610,11 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         assert!(full_type_check_has_errors(&program, &[]));
     }
 
+    // WO30 Item 4: the arity reason migrates from H0636 to the general
+    // call-shape probe (H0640), which runs before the per-builtin probes so
+    // the two codes cannot double-fire.
     #[test]
-    fn text_split_wrong_arity_is_h0636() {
+    fn text_split_wrong_arity_is_h0640() {
         let json = text_split_probe_json(
             r#"task split_arity() -> List Text {
   does:
@@ -3390,7 +3623,8 @@ task remember(title: Text) -> Result WorkItem, WorkError {
 }
 "#,
         );
-        assert_eq!(count_diagnostic_code(&json, "H0636"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0636"), 0);
     }
 
     #[test]
@@ -3417,17 +3651,14 @@ task remember(title: Text) -> Result WorkItem, WorkError {
 
     // Decision 0028 (rework): the builtins behave exactly like user tasks
     // with the same signature. User-task calls carry no static diagnostics
-    // for wrong arity, wrong argument type, or `-` literals to `UInt`
-    // parameters (ledger #21), so neither do these builtins. Both remain
-    // infallible at the checker level: no `try`, no H0901.
+    // for wrong argument type or `-` literals to `UInt` parameters (ledger
+    // #21), so neither do these builtins. Both remain infallible at the
+    // checker level: no `try`, no H0901.
+    // WO30 Item 4: the arity shape now fires H0640 via the general
+    // call-shape probe, so it leaves this checker-accepted set.
     #[test]
     fn uint_to_text_misuse_shapes_are_checker_accepted_like_user_tasks() {
         for source in [
-            r#"task render_arity() -> Text {
-  does:
-    return uint_to_text(1, 2)
-}
-"#,
             r#"task render_type() -> Text {
   does:
     return uint_to_text("3")
@@ -3471,14 +3702,12 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         assert!(!full_type_check_has_errors(&program, &[]));
     }
 
+    // Decision 0028 (rework), WO30 Item 4: the arity shape now fires H0640
+    // via the general call-shape probe, so it leaves this checker-accepted
+    // set; argument-type shapes stay accepted until WO30 Item 2.
     #[test]
     fn int_to_text_misuse_shapes_are_checker_accepted_like_user_tasks() {
         for source in [
-            r#"task render_arity() -> Text {
-  does:
-    return int_to_text(1, 2)
-}
-"#,
             r#"task render_type() -> Text {
   does:
     return int_to_text("3")
@@ -3515,6 +3744,158 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         let json = full_type_check_json(&program, &[]);
         assert_eq!(count_diagnostic_code(&json, "H0901"), 0);
         assert!(!full_type_check_has_errors(&program, &[]));
+    }
+
+    // WO30 Item 4 (PR A): wrong-arity calls to the four builtins and to user
+    // tasks fire exactly one H0640 each. The general probe runs before the
+    // per-builtin probes, so no migrated code double-fires.
+    fn count_non_null_diagnostic_codes(json: &str) -> usize {
+        let mut count = 0;
+        let mut idx = 0;
+        while let Some(found) = json[idx..].find("\"diagnostic_code\":") {
+            let rest = json[idx + found + "\"diagnostic_code\":".len()..].trim_start();
+            if rest.starts_with("\"H") {
+                count += 1;
+            }
+            idx = idx + found + 1;
+        }
+        count
+    }
+
+    #[test]
+    fn wrong_arity_calls_are_exactly_one_h0640() {
+        for source in [
+            r#"task render_arity() -> Text {
+  does:
+    return uint_to_text(1, 2)
+}
+"#,
+            r#"task render_arity() -> Text {
+  does:
+    return int_to_text(1, 2)
+}
+"#,
+            r#"task split_arity() -> List Text {
+  does:
+    let pieces = text_split("a,b,c")
+    return pieces
+}
+"#,
+            r#"task split_arity_extra() -> List Text {
+  does:
+    let pieces = text_split("a", ",", "!")
+    return pieces
+}
+"#,
+            r#"task len_arity(xs: List Text) -> UInt {
+  does:
+    return list_len()
+}
+"#,
+            r#"task len_arity_extra(xs: List Text) -> UInt {
+  does:
+    return list_len(xs, xs)
+}
+"#,
+            r#"task helper(a: UInt, b: Text) -> Text {
+  does:
+    return b
+}
+
+task caller() -> Text {
+  does:
+    return helper(1)
+}
+"#,
+            r#"task helper(a: UInt) -> UInt {
+  does:
+    return a
+}
+
+task caller() -> Text {
+  does:
+    return uint_to_text(helper(1, 2))
+}
+"#,
+        ] {
+            let program = text_split_probe_program(source);
+            let json = full_type_check_json(&program, &[]);
+            assert_eq!(count_diagnostic_code(&json, "H0640"), 1, "{source}");
+            assert_eq!(
+                count_non_null_diagnostic_codes(&json),
+                1,
+                "exactly one diagnostic per arity shape: {source}"
+            );
+            assert!(full_type_check_has_errors(&program, &[]));
+        }
+    }
+
+    // WO30 Item 1 (PR A): app-nested checking uses that app's task
+    // signatures, so a wrong-arity call to an app-local task fires H0640.
+    #[test]
+    fn app_scope_wrong_arity_is_h0640() {
+        let source = include_str!("../fixtures/diagnostics/call_arity_mismatch_app_fail.hum");
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 1);
+        assert_eq!(count_non_null_diagnostic_codes(&json), 1);
+        assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    // WO30 Item 1 (PR A): module tasks are not visible to app-nested
+    // checking — the signature map mirrors `task_return_types`, which only
+    // collects the app's own items there — so the probe must not fire on a
+    // wrong-arity call to a module task from app scope.
+    #[test]
+    fn app_scope_does_not_see_module_task_signatures() {
+        let json = text_split_probe_json(
+            r#"task helper(a: UInt, b: Text) -> Text {
+  does:
+    return b
+}
+
+app probe {
+  task start() -> Text {
+    does:
+      return helper(1)
+  }
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 0);
+    }
+
+    // WO30 Item 4 (PR A): an unresolved callee is owned by the resolver
+    // (H0601); the blocked item never reaches the call-shape probe, so no
+    // H0640 stacks on it.
+    #[test]
+    fn unresolved_callee_has_no_h0640() {
+        let json = text_split_probe_json(
+            r#"task caller() -> Text {
+  does:
+    return nosuchfn(1, 2, 3)
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0640"), 0);
+    }
+
+    // WO30 Item 4 (PR A): well-shaped calls stay clean, including nested
+    // calls and the existing probe fixtures.
+    #[test]
+    fn valid_call_shapes_have_no_h0640() {
+        for source in [
+            include_str!("../fixtures/diagnostics/call_arity_mismatch_ok.hum"),
+            include_str!("../examples/probes/text_split.hum"),
+        ] {
+            let program = text_split_probe_program(source);
+            let json = full_type_check_json(&program, &[]);
+            assert_eq!(count_diagnostic_code(&json, "H0640"), 0, "{source}");
+            assert!(
+                !full_type_check_has_errors(&program, &[]),
+                "valid shape must stay checker-accepted"
+            );
+        }
     }
 
     // WO27 Part 1a: a variable separator requires `try` even when bound to a
