@@ -1592,18 +1592,39 @@ fn collect_task_return_types(items: &[Item], returns: &mut BTreeMap<String, Type
 /// user tasks follow the same scope traversal as `collect_task_return_types`
 /// so module scope sees every file's items (including app-nested tasks)
 /// while app-nested checking sees only that app's items.
+/// One parameter in a call-signature table entry.
+#[derive(Debug, Clone)]
+struct SignatureParam {
+    type_name: String,
+    /// WO30 Item 2 (Claude review): when true, an unknown argument type is
+    /// H0641. This preserves exactly the fail-closed behavior of the retired
+    /// per-builtin checks: stdout_write (was H0622), files_read_text (was
+    /// H0632), and text_split (was H0636) accepted only a proven Text or
+    /// Path. When false (user tasks, uint_to_text, int_to_text, list_len),
+    /// unknown argument types stay silent per decision 0014 honesty.
+    require_proven_type: bool,
+}
+
 #[derive(Debug, Clone)]
 struct TaskSignature {
-    params: Vec<String>,
+    params: Vec<SignatureParam>,
     return_type: Option<String>,
 }
 
+fn signature_param(type_name: &str, require_proven_type: bool) -> SignatureParam {
+    SignatureParam {
+        type_name: type_name.to_string(),
+        require_proven_type,
+    }
+}
+
 fn builtin_task_signatures() -> BTreeMap<String, TaskSignature> {
-    // WO30 Item 4: the single builtin signature table. These builtins are
-    // checked exactly like user tasks with the same signatures. WO30 Item 2:
-    // `stdout_write`, `clock_replay_tick`, and `files_read_text` carry their
-    // parameter signatures here so their arity/type reasons are owned by the
-    // general H0640/H0641 probe (H0622/H0626/H0632 retired).
+    // WO30 Item 2: `stdout_write`, `clock_replay_tick`, and `files_read_text`
+    // carry their parameter signatures here so their arity/type reasons are
+    // owned by the general H0640/H0641 probe (H0622/H0626/H0632 retired).
+    // The strictness flag keeps one general check: the formerly fail-closed
+    // builtins (stdout_write, files_read_text, text_split) reject unknown
+    // argument types; the rest stay silent on unknown per decision 0014.
     BTreeMap::from([
         (
             name_key("clock_replay_tick"),
@@ -1615,42 +1636,42 @@ fn builtin_task_signatures() -> BTreeMap<String, TaskSignature> {
         (
             name_key("files_read_text"),
             TaskSignature {
-                params: vec!["Path".to_string()],
+                params: vec![signature_param("Path", true)],
                 return_type: Some("Text".to_string()),
             },
         ),
         (
             name_key("uint_to_text"),
             TaskSignature {
-                params: vec!["UInt".to_string()],
+                params: vec![signature_param("UInt", false)],
                 return_type: Some("Text".to_string()),
             },
         ),
         (
             name_key("int_to_text"),
             TaskSignature {
-                params: vec!["Int".to_string()],
+                params: vec![signature_param("Int", false)],
                 return_type: Some("Text".to_string()),
             },
         ),
         (
             name_key("text_split"),
             TaskSignature {
-                params: vec!["Text".to_string(), "Text".to_string()],
+                params: vec![signature_param("Text", true), signature_param("Text", true)],
                 return_type: Some("List Text".to_string()),
             },
         ),
         (
             name_key("list_len"),
             TaskSignature {
-                params: vec!["List".to_string()],
+                params: vec![signature_param("List", false)],
                 return_type: Some("UInt".to_string()),
             },
         ),
         (
             name_key("stdout_write"),
             TaskSignature {
-                params: vec!["Text".to_string()],
+                params: vec![signature_param("Text", true)],
                 return_type: Some("Unit".to_string()),
             },
         ),
@@ -1678,7 +1699,11 @@ fn collect_task_signatures(items: &[Item], signatures: &mut BTreeMap<String, Tas
                 signatures.insert(
                     name_key(&task.name),
                     TaskSignature {
-                        params: task.params.iter().map(|param| param.ty.clone()).collect(),
+                        params: task
+                            .params
+                            .iter()
+                            .map(|param| signature_param(&param.ty, false))
+                            .collect(),
                         return_type: task.result.as_deref().map(expected_return_value_type),
                     },
                 );
@@ -1690,7 +1715,12 @@ fn collect_task_signatures(items: &[Item], signatures: &mut BTreeMap<String, Tas
 }
 
 fn signature_help_text(callee: &str, signature: &TaskSignature) -> String {
-    let params = signature.params.join(", ");
+    let params = signature
+        .params
+        .iter()
+        .map(|param| param.type_name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
     match &signature.return_type {
         Some(return_type) => format!("`{callee}({params}) -> {return_type}`"),
         None => format!("`{callee}({params})`"),
@@ -1880,12 +1910,17 @@ fn classify_argument_type(
 }
 
 /// WO30 Item 2: exact type-compatibility — no inference beyond this table.
-/// Unknown argument types are compatible (they stay silent per decision
-/// 0014 honesty). A negative integer literal is *not* rejected for `UInt`
-/// here; that rejection is WO30 Item 3 (H0642).
-fn argument_type_compatible(expected: &str, actual: &CanonicalArgumentType) -> bool {
+/// Unknown argument types are compatible unless the parameter requires a
+/// proven type (they stay silent per decision 0014 honesty). A negative
+/// integer literal is *not* rejected for `UInt` here; that rejection is
+/// WO30 Item 3 (H0642).
+fn argument_type_compatible(
+    expected: &str,
+    actual: &CanonicalArgumentType,
+    require_proven_type: bool,
+) -> bool {
     match actual {
-        CanonicalArgumentType::Unknown => true,
+        CanonicalArgumentType::Unknown => !require_proven_type,
         CanonicalArgumentType::TextLiteral => expected == "Text",
         CanonicalArgumentType::BoolLiteral => expected == "Bool",
         CanonicalArgumentType::NonNegativeIntLiteral => expected == "Int" || expected == "UInt",
@@ -1937,7 +1972,9 @@ struct CallArgumentTypeIssue {
 /// statement's canonical expressions in pre-order; the first call whose
 /// callee resolves to a declared signature with a matching argument count,
 /// but which has a statically known argument type that mismatches its
-/// parameter type, is H0641. Unknown argument types produce no diagnostic.
+/// parameter type, is H0641. Unknown argument types produce no diagnostic
+/// unless the parameter requires a proven type (the formerly fail-closed
+/// builtins stdout_write, files_read_text, and text_split).
 fn call_argument_type_issue(
     parsed: &crate::ast::ParsedBodyStatement,
     task_signatures: &BTreeMap<String, TaskSignature>,
@@ -1973,18 +2010,22 @@ fn call_argument_type_issue(
             if let Some((is_builtin, signature)) = resolved
                 && arguments.len() == signature.params.len()
             {
-                for (argument_index, (argument, expected)) in
+                for (argument_index, (argument, param)) in
                     arguments.iter().zip(signature.params.iter()).enumerate()
                 {
                     let actual =
                         classify_argument_type(argument, scopes, task_returns, field_types);
-                    if !argument_type_compatible(expected, &actual) {
+                    if !argument_type_compatible(
+                        &param.type_name,
+                        &actual,
+                        param.require_proven_type,
+                    ) {
                         return Some(CallArgumentTypeIssue {
                             callee: name.clone(),
                             is_builtin,
                             signature: signature.clone(),
                             argument_index,
-                            expected_type: expected.clone(),
+                            expected_type: param.type_name.clone(),
                             actual_type: actual,
                             call_span: expression.range.start.clone(),
                         });
@@ -3931,6 +3972,106 @@ task f() -> Text {
         let json = full_type_check_json(&program, &[]);
         assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
         assert!(!full_type_check_has_errors(&program, &[]));
+    }
+
+    // WO30 Item 2 (Claude review): the formerly fail-closed builtins keep
+    // their strictness — an unknown-typed argument is H0641 with
+    // actual=unknown, exactly as the retired H0622/H0632/H0636 checks
+    // enforced. `n[0]` (element place on a non-list type) has no static
+    // type. text_split is pure so it is reachable at module scope; the
+    // effect builtins need app authority, so they are covered at app scope.
+    #[test]
+    fn h0641_strict_builtin_rejects_unknown_argument_module_scope() {
+        let json = text_split_probe_json(
+            r#"task f(n: UInt) -> List Text {
+  does:
+    return text_split("a", n[0])
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
+        assert!(json.contains("\"actual_type\": \"unknown\""));
+        assert!(json.contains("\"expected_type\": \"Text\""));
+        let program = text_split_probe_program(
+            r#"task f(n: UInt) -> List Text {
+  does:
+    return text_split("a", n[0])
+}
+"#,
+        );
+        assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0641_strict_builtins_reject_unknown_argument_app_scope() {
+        for (source, expected) in [
+            (
+                r#"app probe {
+  why:
+    reject unknown-typed arguments where the hardened reader requires opaque Path
+  uses:
+    files.read
+  starts with:
+    run_tool
+  task run_tool(n: UInt) -> Result Text, FileReadError {
+    uses:
+      files.read
+    fails when:
+      the exact file operation fails
+    allocates:
+      one bounded file buffer
+    does:
+      let text = try files_read_text(n[0])
+      return text
+  }
+}
+"#,
+                "Path",
+            ),
+            (
+                r#"app probe {
+  uses:
+    stdout.write
+  starts with:
+    run_tool
+  task run_tool(n: UInt) -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write(n[0])
+      return written
+  }
+}
+"#,
+                "Text",
+            ),
+            (
+                r#"app probe {
+  starts with:
+    run_tool
+  task run_tool(n: UInt) -> List Text {
+    does:
+      return text_split("a", n[0])
+  }
+}
+"#,
+                "Text",
+            ),
+        ] {
+            let json = text_split_probe_json(source);
+            assert_eq!(count_diagnostic_code(&json, "H0641"), 1, "{source}");
+            assert!(json.contains("\"actual_type\": \"unknown\""), "{source}");
+            assert!(
+                json.contains(&format!("\"expected_type\": \"{expected}\"")),
+                "{source}"
+            );
+            let program = text_split_probe_program(source);
+            assert!(full_type_check_has_errors(&program, &[]));
+        }
     }
 
     #[test]

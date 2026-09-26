@@ -1,0 +1,25 @@
+app unknown_file_read_argument {
+  why:
+    reject unknown-typed arguments where the hardened reader requires opaque Path
+
+  uses:
+    files.read
+
+  starts with:
+    run_tool
+
+  task run_tool(n: UInt) -> Result Unit, FileReadError {
+    uses:
+      files.read
+
+    fails when:
+      the exact file operation fails
+
+    allocates:
+      one bounded file buffer
+
+    does:
+      let text = try files_read_text(n[0])
+      return
+  }
+}
