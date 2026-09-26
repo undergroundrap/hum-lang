@@ -985,10 +985,50 @@ fn type_statement(
     // WO30 Item 2: the argument-type probe runs after the arity probe, so
     // arity mismatches keep H0640 precedence. The first call with a
     // statically known argument type that mismatches its parameter type is
-    // H0641; unknown argument types stay silent.
+    // H0641; unknown argument types stay silent. WO30 Item 3: a negative
+    // integer literal against a `UInt` parameter is H0642 instead of H0641 —
+    // exactly one diagnostic fires.
     if let Some(issue) =
         call_argument_type_issue(parsed, task_signatures, scopes, task_returns, field_types)
     {
+        if issue.is_negative_uint_literal {
+            let mut typed = typed_statement(
+                statement,
+                index,
+                expression_text_for_statement(statement).map(str::to_string),
+                Some(issue.expected_type.clone()),
+                Some(type_fact("integer_literal", "call_argument_type_v0")),
+                "rejected_negative_integer_literal_in_uint_position_v0",
+                Some("negative_integer_literal_in_uint_position_v0"),
+            );
+            if issue.is_builtin {
+                typed.failure_form = match issue.callee.as_str() {
+                    "text_split" => Some("text_split_builtin"),
+                    "stdout_write" => Some("bounded_output_builtin"),
+                    "clock_replay_tick" => Some("runner_replay_builtin"),
+                    "files_read_text" => Some("hardened_exact_file_read_builtin"),
+                    _ => None,
+                };
+            }
+            typed.call_span = Some(issue.call_span);
+            typed.caller_span = Some(item.span().clone());
+            typed.diagnostic_code = Some(DiagnosticCode::NEGATIVE_UINT_LITERAL.as_str());
+            typed.help = Some(format!(
+                "Call `{}` with a non-negative integer literal for argument {} ({}); a negative literal cannot convert to `UInt`.",
+                issue.callee,
+                issue.argument_index + 1,
+                signature_help_text(&issue.callee, &issue.signature),
+            ));
+            attach_builtin_occurrence(
+                &mut typed,
+                item_identity,
+                index,
+                DiagnosticCode::NEGATIVE_UINT_LITERAL,
+                crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(192),
+                "negative_uint_literal",
+            );
+            return typed;
+        }
         let actual_name = canonical_argument_type_name(&issue.actual_type);
         let mut typed = typed_statement(
             statement,
@@ -1026,6 +1066,33 @@ fn type_statement(
             DiagnosticCode::INVALID_CALL_ARGUMENT_TYPE,
             crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(191),
             "call_argument_type",
+        );
+        return typed;
+    }
+
+    // WO30 Item 3 (H0642): a statically known negative integer literal
+    // (through `Group` only) bound to a `UInt`-annotated `let`/`change`
+    // binding. Variables, arithmetic, and calls stay runtime-trapped.
+    if let crate::ast::ParsedBodyStatementKind::Binding {
+        value: Some(value), ..
+    } = &parsed.kind
+        && binding_annotation(statement).as_deref() == Some("UInt")
+        && negative_int_literal_through_group(&value.canonical)
+    {
+        let mut typed = typed_statement(
+            statement,
+            index,
+            expression_text_for_statement(statement).map(str::to_string),
+            Some("UInt".to_string()),
+            Some(type_fact("integer_literal", "negative_uint_literal_v0")),
+            "rejected_negative_integer_literal_in_uint_position_v0",
+            Some("negative_integer_literal_in_uint_position_v0"),
+        );
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::NEGATIVE_UINT_LITERAL.as_str());
+        typed.help = Some(
+            "Bind a non-negative integer literal to this `UInt` binding; a negative literal cannot convert to `UInt`."
+                .to_string(),
         );
         return typed;
     }
@@ -1909,11 +1976,29 @@ fn classify_argument_type(
     }
 }
 
+/// WO30 Item 3 (H0642): whether the canonical expression is a statically
+/// known negative integer literal, looking through `Group` nodes only.
+/// Permission and Try wrappers are not unwrapped here — a negative literal
+/// inside them is not a plain statically known negative in a `UInt`
+/// position, so it stays out of H0642 (and stays `NegativeIntLiteral` for
+/// the H0641 classifier).
+fn negative_int_literal_through_group(expression: &crate::ast::CanonicalExpression) -> bool {
+    let mut current = expression;
+    loop {
+        match &current.kind {
+            crate::ast::CanonicalExpressionKind::IntLiteral(value) => return *value < 0,
+            crate::ast::CanonicalExpressionKind::Group(inner) => current = inner,
+            _ => return false,
+        }
+    }
+}
+
 /// WO30 Item 2: exact type-compatibility — no inference beyond this table.
 /// Unknown argument types are compatible unless the parameter requires a
 /// proven type (they stay silent per decision 0014 honesty). A negative
-/// integer literal is *not* rejected for `UInt` here; that rejection is
-/// WO30 Item 3 (H0642).
+/// integer literal is *not* compatible with `UInt` here: the H0642 probe
+/// claims negative literals in `UInt` positions first, so H0641 never fires
+/// for them (exactly one diagnostic).
 fn argument_type_compatible(
     expected: &str,
     actual: &CanonicalArgumentType,
@@ -1924,10 +2009,10 @@ fn argument_type_compatible(
         CanonicalArgumentType::TextLiteral => expected == "Text",
         CanonicalArgumentType::BoolLiteral => expected == "Bool",
         CanonicalArgumentType::NonNegativeIntLiteral => expected == "Int" || expected == "UInt",
-        // WO30 Item 3 owns the negative-literal-to-UInt rejection (H0642);
-        // Item 2 treats the negative literal as compatible with Int and
-        // silent for UInt.
-        CanonicalArgumentType::NegativeIntLiteral => expected == "Int" || expected == "UInt",
+        // WO30 Item 3: a negative integer literal is never compatible with
+        // `UInt`. The H0642 probe runs before this compatibility check, so a
+        // negative literal against a `UInt` parameter is H0642, never H0641.
+        CanonicalArgumentType::NegativeIntLiteral => expected == "Int",
         CanonicalArgumentType::ListLiteral => expected == "List" || expected.starts_with("List "),
         CanonicalArgumentType::Named(name) => {
             if expected == "List" {
@@ -1965,6 +2050,10 @@ struct CallArgumentTypeIssue {
     expected_type: String,
     actual_type: CanonicalArgumentType,
     call_span: Span,
+    /// WO30 Item 3: the argument is a negative integer literal (through
+    /// `Group` only) against a `UInt` parameter. Emitted as H0642 instead
+    /// of H0641, so the two codes never fire together.
+    is_negative_uint_literal: bool,
 }
 
 /// WO30 Item 2: the AST-driven argument-type probe (H0641). Runs after the
@@ -2015,11 +2104,18 @@ fn call_argument_type_issue(
                 {
                     let actual =
                         classify_argument_type(argument, scopes, task_returns, field_types);
-                    if !argument_type_compatible(
-                        &param.type_name,
-                        &actual,
-                        param.require_proven_type,
-                    ) {
+                    // WO30 Item 3: the H0642 probe runs before the H0641
+                    // compatibility check, so a negative literal against a
+                    // `UInt` parameter is exactly H0642.
+                    let is_negative_uint_literal = param.type_name.trim() == "UInt"
+                        && negative_int_literal_through_group(argument);
+                    if is_negative_uint_literal
+                        || !argument_type_compatible(
+                            &param.type_name,
+                            &actual,
+                            param.require_proven_type,
+                        )
+                    {
                         return Some(CallArgumentTypeIssue {
                             callee: name.clone(),
                             is_builtin,
@@ -2028,6 +2124,7 @@ fn call_argument_type_issue(
                             expected_type: param.type_name.clone(),
                             actual_type: actual,
                             call_span: expression.range.start.clone(),
+                            is_negative_uint_literal,
                         });
                     }
                 }
@@ -2577,6 +2674,7 @@ impl FullTypeCheckReport {
                         | "rejected_invalid_text_escape_v0"
                         | "rejected_invalid_call_arity_v0"
                         | "rejected_invalid_call_argument_type_v0"
+                        | "rejected_negative_integer_literal_in_uint_position_v0"
                 )
             })
             .count()
@@ -3816,10 +3914,10 @@ task remember(title: Text) -> Result WorkItem, WorkError {
         }
     }
 
-    // WO30 Item 2 leaves the negative-literal-to-UInt shape checker-accepted;
-    // WO30 Item 3 (H0642) owns its rejection.
+    // WO30 Item 3 (H0642): the negative-literal-to-UInt shape is rejected
+    // with exactly one H0642 and zero H0641.
     #[test]
-    fn uint_to_text_negative_literal_stays_checker_accepted() {
+    fn uint_to_text_negative_literal_is_h0642() {
         let source = r#"task render_neg() -> Text {
   does:
     return uint_to_text(-5)
@@ -3827,9 +3925,144 @@ task remember(title: Text) -> Result WorkItem, WorkError {
 "#;
         let program = text_split_probe_program(source);
         let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 1);
         assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+        assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0642_grouped_negative_literal_is_h0642() {
+        let source = r#"task render_neg() -> Text {
+  does:
+    return uint_to_text(((-5)))
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+        assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0642_user_task_uint_param_is_h0642() {
+        let source = r#"task helper(x: UInt) -> UInt {
+  does:
+    return x
+}
+
+task caller() -> UInt {
+  does:
+    return helper(-5)
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+        assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0642_uint_annotated_bindings_are_h0642() {
+        for source in [
+            r#"task t() -> UInt {
+  does:
+    let x: UInt = -5
+    return x
+}
+"#,
+            r#"task t() -> UInt {
+  does:
+    let x: UInt = ((-5))
+    return x
+}
+"#,
+            r#"task t() -> UInt {
+  does:
+    change x: UInt = -5
+    return x
+}
+"#,
+        ] {
+            let program = text_split_probe_program(source);
+            let json = full_type_check_json(&program, &[]);
+            assert_eq!(count_diagnostic_code(&json, "H0642"), 1, "{source}");
+            assert_eq!(count_diagnostic_code(&json, "H0641"), 0, "{source}");
+            assert!(full_type_check_has_errors(&program, &[]), "{source}");
+        }
+    }
+
+    #[test]
+    fn h0642_fires_in_module_and_app_scope() {
+        let json = text_split_probe_json(
+            r#"module tests.wo30
+
+task helper(x: UInt) -> UInt {
+  does:
+    return helper(-5)
+}
+
+app probe {
+  task start() -> Text {
+    does:
+      return uint_to_text(-5)
+  }
+}
+"#,
+        );
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 2);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+    }
+
+    #[test]
+    fn h0642_arithmetic_stays_checker_silent() {
+        // `0 - 5` is not a statically known literal: the checker stays
+        // silent and the runtime trap owns it.
+        let source = r#"task render_neg() -> Text {
+  does:
+    return uint_to_text(0 - 5)
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
         assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
         assert!(!full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0642_int_variable_is_h0641_not_h0642() {
+        let source = r#"task render_neg() -> Text {
+  does:
+    let n: Int = -5
+    return uint_to_text(n)
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
+        assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0642_int_call_result_is_h0641_not_h0642() {
+        let source = r#"task neg() -> Int {
+  does:
+    return -5
+}
+
+task render_neg() -> Text {
+  does:
+    return uint_to_text(neg())
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
+        assert!(full_type_check_has_errors(&program, &[]));
     }
 
     #[test]

@@ -2957,7 +2957,7 @@ task malformed() -> UInt {
   $CatalogTotal = $DiagnosticsCatalog.count
   $CodeTotal = $DiagnosticCodes.Count
   $UniqueTotal = @($DiagnosticCodes | Sort-Object -Unique).Count
-  if ($CatalogTotal -ne 98 -or $CodeTotal -ne 98 -or $UniqueTotal -ne 98) { throw "canonical diagnostic catalog must expose exactly 98 unique codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
+  if ($CatalogTotal -ne 99 -or $CodeTotal -ne 99 -or $UniqueTotal -ne 99) { throw "canonical diagnostic catalog must expose exactly 99 unique codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
   $H0634CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0634' -and $_.title -ceq 'canonical native program layout' })
   if ($H0634CatalogRows.Count -ne 1) { throw 'Work Order 23 H0634 catalog projection drifted' }
   $H0635CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0635' -and $_.title -ceq 'unsupported native program feature' })
@@ -5571,6 +5571,8 @@ function Invoke-HumCompilerCorpusChecks {
     @{ Name = 'missing file source'; Path = 'fixtures/app_entry/session_ad_missing_file_source_fail.hum'; Surface = 'check'; Code = 'H0631' },
     @{ Name = 'wrong file argument type'; Path = 'fixtures/full_type_check/session_ad_file_read_wrong_type_fail.hum'; Surface = 'full-type-check'; Code = 'H0641' },
     @{ Name = 'unknown file argument type'; Path = 'fixtures/full_type_check/session_ad_file_read_unknown_type_fail.hum'; Surface = 'full-type-check'; Code = 'H0641' },
+    @{ Name = 'negative uint literal (module)'; Path = 'fixtures/full_type_check/uint_negative_literal_module_fail.hum'; Surface = 'full-type-check'; Code = 'H0642' },
+    @{ Name = 'negative uint literal (app)'; Path = 'fixtures/full_type_check/uint_negative_literal_app_fail.hum'; Surface = 'full-type-check'; Code = 'H0642' },
     @{ Name = 'reserved file builtin'; Path = 'fixtures/app_entry/session_ad_reserved_file_read_name_fail.hum'; Surface = 'check'; Code = 'H0633' }
   )) {
     $Human = Read-NativeOutputWithExit "Session AD $($Misuse.Name) human" $Hum @($Misuse.Surface, $Misuse.Path)
@@ -5591,6 +5593,21 @@ function Invoke-HumCompilerCorpusChecks {
   $SessionADUnknownRows = @($SessionADUnknownParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0641' })
   if ($SessionADUnknown.ExitCode -ne 1 -or $SessionADUnknownRows.Count -ne 1 -or $SessionADUnknownRows[0].expected_type -ne 'Path' -or $SessionADUnknownRows[0].actual_type -ne 'unknown' -or $SessionADUnknownRows[0].reason -ne 'call_argument_type_mismatch_v0') { throw 'Session AD unknown file argument must produce exactly one H0641 with expected=Path and actual=unknown' }
   Assert-Json 'Session AD unknown file argument JSON' $SessionADUnknown.Output
+
+  # WO30 Item 3: a negative integer literal in a UInt position is exactly
+  # H0642 (module scope and app scope), never H0641.
+  foreach ($H0642 in @(
+    @{ Name = 'module'; Path = 'fixtures/full_type_check/uint_negative_literal_module_fail.hum'; Expected = 3 },
+    @{ Name = 'app'; Path = 'fixtures/full_type_check/uint_negative_literal_app_fail.hum'; Expected = 2 }
+  )) {
+    $H0642Json = Read-NativeOutputWithExit "Session H0642 $($H0642.Name) JSON" $Hum @('full-type-check', '--format', 'json', $H0642.Path)
+    $H0642Parsed = $H0642Json.Output | ConvertFrom-Json
+    $H0642Rows = @($H0642Parsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0642' })
+    $H0642H0641 = @($H0642Parsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0641' })
+    $H0642BadReason = @($H0642Rows | Where-Object { $_.reason -ne 'negative_integer_literal_in_uint_position_v0' })
+    if ($H0642Json.ExitCode -ne 1 -or $H0642Rows.Count -ne $H0642.Expected -or $H0642H0641.Count -ne 0 -or $H0642BadReason.Count -ne 0) { throw "Session H0642 $($H0642.Name) must produce exactly $($H0642.Expected) H0642 diagnostics with reason negative_integer_literal_in_uint_position_v0 and zero H0641" }
+    Assert-Json "Session H0642 $($H0642.Name) JSON" $H0642Json.Output
+  }
 
   if ($env:OS -eq 'Windows_NT') {
     $SessionADPath = (Resolve-Path 'fixtures/file_read/session_ad_utf8.txt').Path

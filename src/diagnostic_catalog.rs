@@ -1833,6 +1833,15 @@ diagnostic_causes!(
         "full_type_check",
         "builtin_call_relationship",
         "builtin_call_route"
+    ),
+    (
+        192,
+        "negative_integer_literal_in_uint_position_v0",
+        NEGATIVE_UINT_LITERAL,
+        "front_end_semantics",
+        "full_type_check",
+        "builtin_call_relationship",
+        "builtin_call_route"
     )
 );
 
@@ -2169,6 +2178,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         95 => 95,
         96 => 96,
         97 => 97,
+        98 => 98,
         _ => u16::MAX,
     }
 }
@@ -2971,6 +2981,15 @@ diagnostic_code_allocations!(
         INVALID_CALL_ARGUMENT_TYPE,
         "H0641",
         "invalid call argument type",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "full_type_check"
+    ),
+    (
+        98,
+        NEGATIVE_UINT_LITERAL,
+        "H0642",
+        "negative integer literal in UInt position",
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "full_type_check"
@@ -3821,8 +3840,14 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::INVALID_CALL_ARGUMENT_TYPE,
         default_severity: Severity::Error,
-        explanation: "A call argument's statically known type does not match the callee's declared parameter type. The seven builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`, `stdout_write`, `clock_replay_tick`, `files_read_text`) and user tasks are checked identically against their signatures; a non-negative integer literal is compatible with both `Int` and `UInt` parameters.",
+        explanation: "A call argument's statically known type does not match the callee's declared parameter type. The seven builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`, `stdout_write`, `clock_replay_tick`, `files_read_text`) and user tasks are checked identically against their signatures; a non-negative integer literal is compatible with both `Int` and `UInt` parameters. A negative integer literal in a `UInt` position is H0642, never H0641.",
         repair: "Pass an argument of the declared parameter type; the diagnostic names the expected signature and the offending argument.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::NEGATIVE_UINT_LITERAL,
+        default_severity: Severity::Error,
+        explanation: "A statically known negative integer literal reaches a `UInt` parameter (of a user task or one of the seven builtins) or a `UInt`-annotated `let`/`change` binding. Only literals seen through `Group` nodes are decidable; variables, arithmetic such as `0 - 5`, and calls stay runtime-trapped.",
+        repair: "Replace the negative literal with a non-negative value, or change the parameter or binding type to `Int`.",
     },
 ];
 
@@ -4845,12 +4870,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 95);
+        assert_eq!(summary.active_codes, 96);
         assert_eq!(summary.retired_codes, 3);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 191);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 192);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
@@ -4907,7 +4932,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 98);
+        assert_eq!(all().len(), 99);
     }
 
     #[test]
@@ -5402,8 +5427,20 @@ mod tests {
         .expect("H0641 cause must be registered");
         assert_eq!(cause.key.ordinal(), 191);
 
+        let allocation = super::allocation(DiagnosticCodeKey::NEGATIVE_UINT_LITERAL);
+        assert_eq!(allocation.key.0, 98);
+        assert_eq!(allocation.spelling, "H0642");
+        assert_eq!(allocation.public_ordinal, 98);
+        assert_eq!(allocation.status, AllocationStatus::Active);
+        let cause = super::diagnostic_cause(
+            DiagnosticCode::NEGATIVE_UINT_LITERAL,
+            "negative_integer_literal_in_uint_position_v0",
+        )
+        .expect("H0642 cause must be registered");
+        assert_eq!(cause.key.ordinal(), 192);
+
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 95);
+        assert_eq!(summary.active_codes, 96);
         assert_eq!(summary.retired_codes, 3);
     }
 
