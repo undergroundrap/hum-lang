@@ -244,6 +244,7 @@ pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic])
 /// type" detected by the type_check stage, while H0643 covers full-type-proved
 /// mismatches via core_verify. This reports the existing rejection through the
 /// ordinary diagnostic pipeline; no new semantics, analysis, or framework.
+#[derive(Debug)]
 pub(crate) struct CheckStageOutcome {
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -251,8 +252,14 @@ pub(crate) struct CheckStageOutcome {
 pub(crate) fn check_stage_outcome(
     program: &Program,
     diagnostics: &[Diagnostic],
-) -> CheckStageOutcome {
+) -> Result<CheckStageOutcome, String> {
     let report = build_report(program, diagnostics);
+    check_stage_outcome_from_report(&report)
+}
+
+fn check_stage_outcome_from_report(
+    report: &FullTypeCheckReport,
+) -> Result<CheckStageOutcome, String> {
     let mut out = CheckStageOutcome {
         diagnostics: Vec::new(),
     };
@@ -266,17 +273,21 @@ pub(crate) fn check_stage_outcome(
             let Some(code_spelling) = statement.diagnostic_code else {
                 // BDFL-authorized H0643 covers `rejected_statement_type_mismatch_v0`;
                 // an uncoded rejected status here indicates a catalog/assignment bug.
-                // Fail-closed: skip the diagnostic conversion but do not silently
-                // treat the program as clean (the status remains rejected).
-                debug_assert!(
-                    false,
-                    "rejected status {} has no diagnostic code",
+                // Fail-closed via the existing error path: return Err so the
+                // invariant failure cannot become a successful clean check in
+                // release builds (where debug_assert is compiled out) and does
+                // not panic in debug builds.
+                return Err(format!(
+                    "diagnostic invariant failure: rejected status {} has no diagnostic code",
                     statement.status
-                );
-                continue;
+                ));
             };
             let Some(code) = diagnostic_code_from_spelling(code_spelling) else {
-                continue;
+                // Unknown code spelling indicates catalog corruption. Fail-closed
+                // via the existing error path.
+                return Err(format!(
+                    "diagnostic invariant failure: unknown diagnostic code spelling {code_spelling}"
+                ));
             };
             let subject = match &statement.expression_text {
                 Some(text) => format!("`{text}`"),
@@ -310,7 +321,7 @@ pub(crate) fn check_stage_outcome(
             .filter(|fact| fact.blocks())
             .filter_map(|fact| fact.diagnostic()),
     );
-    out
+    Ok(out)
 }
 
 fn is_rejected_statement_status(status: &str) -> bool {
@@ -3477,8 +3488,9 @@ mod tests {
     use crate::parser::parse_source;
 
     use super::{
-        build_report, check_stage_outcome, full_type_check_has_errors, full_type_check_json,
-        full_type_check_text,
+        build_report, check_stage_outcome, check_stage_outcome_from_report,
+        full_type_check_has_errors, full_type_check_json, full_type_check_text,
+        is_rejected_statement_status,
     };
     use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
@@ -4780,10 +4792,90 @@ app probe {
     fn check_stage_codes(source: &str) -> Vec<String> {
         let program = text_split_probe_program(source);
         check_stage_outcome(&program, &[])
+            .expect("check_stage_outcome must succeed for valid fixtures")
             .diagnostics
             .iter()
             .map(|diagnostic| diagnostic.code.as_str().to_string())
             .collect()
+    }
+
+    #[test]
+    fn check_stage_outcome_fail_closed_on_missing_diagnostic_code() {
+        // Corruption coverage: a rejected statement with no diagnostic code
+        // must fail closed via the existing error path (Err), not panic and
+        // not become a successful clean check with zero diagnostics.
+        let program = text_split_probe_program(
+            r#"task add(a: Int, b: Int) -> UInt {
+  does:
+    return a + b
+}
+"#,
+        );
+        let mut report = build_report(&program, &[]);
+        // Corrupt: strip the diagnostic code from the rejected statement.
+        let mut corrupted = false;
+        for item in &mut report.items {
+            for statement in &mut item.statements {
+                if is_rejected_statement_status(statement.status) {
+                    statement.diagnostic_code = None;
+                    corrupted = true;
+                }
+            }
+        }
+        assert!(corrupted, "fixture must produce a rejected statement");
+        let result = check_stage_outcome_from_report(&report);
+        assert!(
+            result.is_err(),
+            "missing diagnostic code must fail closed, not produce Ok"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("diagnostic invariant failure"),
+            "error must use the existing invariant-failure path: {err}"
+        );
+        assert!(
+            err.contains("has no diagnostic code"),
+            "error must name the missing-code invariant: {err}"
+        );
+    }
+
+    #[test]
+    fn check_stage_outcome_fail_closed_on_unknown_code_spelling() {
+        // Corruption coverage: a rejected statement with an unknown code
+        // spelling must fail closed via the existing error path (Err).
+        let program = text_split_probe_program(
+            r#"task add(a: Int, b: Int) -> UInt {
+  does:
+    return a + b
+}
+"#,
+        );
+        let mut report = build_report(&program, &[]);
+        // Corrupt: replace the diagnostic code with an unknown spelling.
+        let mut corrupted = false;
+        for item in &mut report.items {
+            for statement in &mut item.statements {
+                if is_rejected_statement_status(statement.status) {
+                    statement.diagnostic_code = Some("H9999");
+                    corrupted = true;
+                }
+            }
+        }
+        assert!(corrupted, "fixture must produce a rejected statement");
+        let result = check_stage_outcome_from_report(&report);
+        assert!(
+            result.is_err(),
+            "unknown code spelling must fail closed, not produce Ok"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("diagnostic invariant failure"),
+            "error must use the existing invariant-failure path: {err}"
+        );
+        assert!(
+            err.contains("unknown diagnostic code spelling"),
+            "error must name the unknown-code invariant: {err}"
+        );
     }
 
     #[test]

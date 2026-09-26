@@ -521,7 +521,7 @@ fn run() -> Result<ExitCode, String> {
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        let outcome = full_type_check::check_stage_outcome(&program, &diagnostics);
+        let outcome = full_type_check::check_stage_outcome(&program, &diagnostics)?;
         diagnostics.extend(outcome.diagnostics);
         check_stages.push("full_type_check");
     }

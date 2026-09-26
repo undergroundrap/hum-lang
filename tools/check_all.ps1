@@ -2766,6 +2766,17 @@ function Invoke-HumCompilerFrontChecks {
   $F4Combined = $F4First.Stdout + $F4First.Stderr
   if (-not ($F4Combined -match 'error\[H0601\]')) { throw 'Replacement F4 expected H0601 (undefined `values` name) in the canonical-inventory fixture output' }
   if (-not ($F4Combined -match 'name `values` is not visible')) { throw 'Replacement F4 expected the H0601 diagnostic to name the undefined `values` identifier' }
+  # Enforce the exact error set: exactly one error total, and it must be the
+  # expected H0601. An unrelated second error (different code) cannot hide
+  # behind the H0601 presence check.
+  $F4ErrorCount = ([regex]::Matches($F4Combined, 'error\[')).Count
+  if ($F4ErrorCount -ne 1) {
+    throw "Replacement F4 expected exactly 1 error (the H0601) in the canonical-inventory fixture output, found ${F4ErrorCount}: stdout=$($F4First.Stdout) stderr=$($F4First.Stderr)"
+  }
+  $F4H0601Count = ([regex]::Matches($F4Combined, 'error\[H0601\]')).Count
+  if ($F4H0601Count -ne 1) {
+    throw "Replacement F4 expected exactly 1 H0601 in the canonical-inventory fixture output, found ${F4H0601Count}"
+  }
   if ($F4First.ExitCode -ne $F4Second.ExitCode -or $F4First.Stdout -cne $F4Second.Stdout -or $F4First.Stderr -cne $F4Second.Stderr) { throw 'Replacement F4 complete inventory public check path is not deterministic' }
   if (($F4First.Stdout + $F4First.Stderr).Contains('canonical_core_')) { throw 'Replacement F4 private seal transport leaked into public complete-inventory output' }
   foreach ($F4Surface in @(
@@ -2970,8 +2981,8 @@ task malformed() -> UInt {
     if ($F2H0638Count -ne 2) {
       throw "Replacement F2 UTF-8 Text escape expected exactly 2 H0638 errors for the invalid \é escapes, found ${F2H0638Count}: stdout=$($F2Utf8Run.Stdout) stderr=$($F2Utf8Run.Stderr)"
     }
-    if (-not ($F2Utf8Combined -match 'invalid.*escape|escape.*invalid')) {
-      throw "Replacement F2 UTF-8 Text escape H0638 must name the invalid escape: stdout=$($F2Utf8Run.Stdout) stderr=$($F2Utf8Run.Stderr)"
+    if (-not ($F2Utf8Combined -match 'Replace.*é.*accepted escapes')) {
+      throw "Replacement F2 UTF-8 Text escape H0638 must name the offending escape and accepted alternatives: stdout=$($F2Utf8Run.Stdout) stderr=$($F2Utf8Run.Stderr)"
     }
     $F2Utf8Expected = 'checked 1 file(s): 0 error(s), 0 warning(s)'
     $F2MalformedTryRun = Read-NativeChannelsWithExit 'Replacement F2 malformed try CLI fail-closed regression' $Hum @('check', $F2MalformedTry)
