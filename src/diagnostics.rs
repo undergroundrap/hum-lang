@@ -246,12 +246,12 @@ mod tests {
     #[test]
     fn registry_catalog_and_check_projections_are_semantically_equivalent() {
         let catalog = crate::diagnostic_catalog::all();
-        assert_eq!(catalog.len(), 97);
+        assert_eq!(catalog.len(), 98);
 
         let text = diagnostics_text();
-        assert!(text.starts_with("Hum diagnostics (97 codes)\n"));
+        assert!(text.starts_with("Hum diagnostics (98 codes)\n"));
         let json = diagnostics_json();
-        assert!(json.contains("\"count\": 97"));
+        assert!(json.contains("\"count\": 98"));
 
         for info in catalog {
             let text_row = format!(

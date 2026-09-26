@@ -119,16 +119,16 @@ The V0 gate checks only conservative statement contexts:
   is typed as `Unit`; list literals are accepted against explicit `List ...`
   annotations without element-type validation in V0.
 - `stdout_write(text)`: the only Session Z output built-in is typed as
-  `Result Unit, OutputError`; explicit propagation sees success type `Unit`,
-  and H0622 rejects any arity or checked argument type other than one `Text`.
+  `Result Unit, OutputError`; explicit propagation sees success type `Unit`.
+  H0622 is retired: arity reasons moved to H0640 and argument-type reasons
+  moved to H0641.
 - `clock_replay_tick()`: the Session AA runner-replay built-in is typed as
   `Result UInt, ReplayClockError`; explicit propagation sees success type
-  `UInt`, and H0626 rejects any argument under the exact zero-argument
-  signature.
+  `UInt`. H0626 is retired: arity reasons moved to H0640.
 - `files_read_text(path)`: the Session AD hardened file-read builtin is typed
   as `Result Text, FileReadError`; explicit propagation sees success type
-  `Text`, and H0632 rejects any arity or checked argument type other than one
-  opaque `Path`.
+  `Text`. H0632 is retired: arity reasons moved to H0640 and argument-type
+  reasons moved to H0641.
 - `Path`: Session AB recognizes the reserved annotation only for the one
   structural app start parameter. H0629/H0630 source diagnostics block other
   declarations and every source construction or use except Session AD's exact

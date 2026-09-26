@@ -1824,6 +1824,15 @@ diagnostic_causes!(
         "parser",
         "parser_expression_node",
         "parser_expression_route"
+    ),
+    (
+        191,
+        "call_argument_type_mismatch_v0",
+        INVALID_CALL_ARGUMENT_TYPE,
+        "front_end_semantics",
+        "full_type_check",
+        "builtin_call_relationship",
+        "builtin_call_route"
     )
 );
 
@@ -2159,6 +2168,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         94 => 94,
         95 => 95,
         96 => 96,
+        97 => 97,
         _ => u16::MAX,
     }
 }
@@ -2287,8 +2297,17 @@ pub const DIAGNOSTIC_FAMILIES: &[DiagnosticFamilySpec] = &[
     },
 ];
 
+macro_rules! allocation_status_or_active {
+    () => {
+        AllocationStatus::Active
+    };
+    ($status:expr) => {
+        $status
+    };
+}
+
 macro_rules! diagnostic_code_allocations {
-    ($(($index:expr, $name:ident, $spelling:literal, $title:literal, $family:ident, $owner:literal, $stage:literal)),+ $(,)?) => {
+    ($(($index:expr, $name:ident, $spelling:literal, $title:literal, $family:ident, $owner:literal, $stage:literal $(, $status:expr)?)),+ $(,)?) => {
         impl DiagnosticCodeKey {
             $(pub const $name: Self = Self($index);)+
         }
@@ -2306,7 +2325,7 @@ macro_rules! diagnostic_code_allocations {
                 family: DiagnosticFamilyKey::$family,
                 semantic_owner: $owner,
                 owning_stage: $stage,
-                status: AllocationStatus::Active,
+                status: allocation_status_or_active!($($status)?),
             }),+
         ];
     };
@@ -2780,7 +2799,8 @@ diagnostic_code_allocations!(
         "invalid stdout_write call",
         FRONT_END_SEMANTICS,
         "front_end_semantics",
-        "capability_root"
+        "capability_root",
+        AllocationStatus::Retired
     ),
     (
         49,
@@ -2816,7 +2836,8 @@ diagnostic_code_allocations!(
         "invalid clock_replay_tick call",
         FRONT_END_SEMANTICS,
         "front_end_semantics",
-        "capability_root"
+        "capability_root",
+        AllocationStatus::Retired
     ),
     (
         53,
@@ -2870,7 +2891,8 @@ diagnostic_code_allocations!(
         "invalid files_read_text call",
         FRONT_END_SEMANTICS,
         "front_end_semantics",
-        "file_read"
+        "file_read",
+        AllocationStatus::Retired
     ),
     (
         59,
@@ -2940,6 +2962,15 @@ diagnostic_code_allocations!(
         INVALID_CALL_ARITY,
         "H0640",
         "invalid call arity",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "full_type_check"
+    ),
+    (
+        97,
+        INVALID_CALL_ARGUMENT_TYPE,
+        "H0641",
+        "invalid call argument type",
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "full_type_check"
@@ -3496,8 +3527,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::INVALID_STDOUT_WRITE_CALL,
         default_severity: Severity::Error,
-        explanation: "The bounded output built-in has exactly one signature: `stdout_write(text: Text) -> Result Unit, OutputError`.",
-        repair: "Pass exactly one checked `Text` argument and handle the typed `OutputError` with the authorized explicit propagation or wrapping form.",
+        explanation: "Retired in WO30 Item 2: `stdout_write` arity reasons moved to H0640 and argument-type reasons moved to H0641. This code is frozen and is never emitted.",
+        repair: "Follow the H0640 or H0641 diagnostic instead; H0622 will not be reused.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::RESERVED_BUILTIN_NAME,
@@ -3520,8 +3551,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::INVALID_CLOCK_REPLAY_CALL,
         default_severity: Severity::Error,
-        explanation: "The runner replay built-in has exactly one signature: `clock_replay_tick() -> Result UInt, ReplayClockError`.",
-        repair: "Call `clock_replay_tick()` with no arguments and handle the typed `ReplayClockError` with explicit propagation or wrapping.",
+        explanation: "Retired in WO30 Item 2: `clock_replay_tick` arity reasons moved to H0640. This code is frozen and is never emitted.",
+        repair: "Follow the H0640 diagnostic instead; H0626 will not be reused.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::RESERVED_REPLAY_BUILTIN_NAME,
@@ -3556,8 +3587,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::INVALID_FILE_READ_CALL,
         default_severity: Severity::Error,
-        explanation: "The hardened file-read built-in has exactly one signature: `files_read_text(path: Path) -> Result Text, FileReadError`.",
-        repair: "Pass exactly the runner-owned opaque Path and handle `FileReadError` with explicit propagation or causal wrapping.",
+        explanation: "Retired in WO30 Item 2: `files_read_text` arity reasons moved to H0640 and argument-type reasons moved to H0641. This code is frozen and is never emitted.",
+        repair: "Follow the H0640 or H0641 diagnostic instead; H0632 will not be reused.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::RESERVED_FILE_READ_BUILTIN_NAME,
@@ -3748,8 +3779,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::INVALID_TEXT_SPLIT_CALL,
         default_severity: Severity::Error,
-        explanation: "A `text_split` call is rejected: it takes exactly two `Text` arguments and its separator must not be a directly-written empty literal.",
-        repair: "Pass exactly two `Text` arguments, use a non-empty separator, then handle `TextSplitError` with `try`/`fail` unless the separator is a directly-written non-empty literal.",
+        explanation: "A `text_split` call is rejected for a value reason: a stray empty argument, or a directly-written empty separator literal. Arity reasons are H0640 and argument-type reasons are H0641.",
+        repair: "Remove the stray empty argument and use a non-empty separator, then handle `TextSplitError` with `try`/`fail` unless the separator is a directly-written non-empty literal.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::RESERVED_TEXT_SPLIT_BUILTIN_NAME,
@@ -3772,7 +3803,7 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::INVALID_CALL_ARITY,
         default_severity: Severity::Error,
-        explanation: "A call passes the wrong number of arguments for the callee's declared signature. The four builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`) and user tasks are checked identically against their signatures.",
+        explanation: "A call passes the wrong number of arguments for the callee's declared signature. The seven builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`, `stdout_write`, `clock_replay_tick`, `files_read_text`) and user tasks are checked identically against their signatures.",
         repair: "Pass exactly the declared number of arguments; the diagnostic names the expected signature.",
     },
     DiagnosticInfo {
@@ -3786,6 +3817,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "The compiler's sealed canonical occurrence for a source expression failed validation. This is a compiler bug, not an error in the program; the offending statement is not retained.",
         repair: "Report this diagnostic with the source file that triggered it.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::INVALID_CALL_ARGUMENT_TYPE,
+        default_severity: Severity::Error,
+        explanation: "A call argument's statically known type does not match the callee's declared parameter type. The seven builtins (`uint_to_text`, `int_to_text`, `text_split`, `list_len`, `stdout_write`, `clock_replay_tick`, `files_read_text`) and user tasks are checked identically against their signatures; a non-negative integer literal is compatible with both `Int` and `UInt` parameters.",
+        repair: "Pass an argument of the declared parameter type; the diagnostic names the expected signature and the offending argument.",
     },
 ];
 
@@ -3844,7 +3881,56 @@ struct CatalogProjection<'a> {
     repair: &'a str,
 }
 
-const FROZEN_RETIRED_CODES: &[RetiredCodeRecord] = &[];
+const FROZEN_RETIRED_CODES: &[RetiredCodeRecord] = &[
+    // WO30 Item 2: H0622/H0626/H0632 retired. Their exact allocations and
+    // details are frozen here so any reuse or mutation fails validation
+    // with RetiredCodeReuseOrMutation.
+    RetiredCodeRecord {
+        allocation: DiagnosticCodeAllocation {
+            key: DiagnosticCodeKey::INVALID_STDOUT_WRITE_CALL,
+            public_ordinal: historical_public_ordinal(DiagnosticCodeKey::INVALID_STDOUT_WRITE_CALL),
+            spelling: "H0622",
+            title: "invalid stdout_write call",
+            family: DiagnosticFamilyKey::FRONT_END_SEMANTICS,
+            semantic_owner: "front_end_semantics",
+            owning_stage: "capability_root",
+            status: AllocationStatus::Retired,
+        },
+        default_severity: Severity::Error,
+        explanation: "Retired in WO30 Item 2: `stdout_write` arity reasons moved to H0640 and argument-type reasons moved to H0641. This code is frozen and is never emitted.",
+        repair: "Follow the H0640 or H0641 diagnostic instead; H0622 will not be reused.",
+    },
+    RetiredCodeRecord {
+        allocation: DiagnosticCodeAllocation {
+            key: DiagnosticCodeKey::INVALID_CLOCK_REPLAY_CALL,
+            public_ordinal: historical_public_ordinal(DiagnosticCodeKey::INVALID_CLOCK_REPLAY_CALL),
+            spelling: "H0626",
+            title: "invalid clock_replay_tick call",
+            family: DiagnosticFamilyKey::FRONT_END_SEMANTICS,
+            semantic_owner: "front_end_semantics",
+            owning_stage: "capability_root",
+            status: AllocationStatus::Retired,
+        },
+        default_severity: Severity::Error,
+        explanation: "Retired in WO30 Item 2: `clock_replay_tick` arity reasons moved to H0640. This code is frozen and is never emitted.",
+        repair: "Follow the H0640 diagnostic instead; H0626 will not be reused.",
+    },
+    RetiredCodeRecord {
+        allocation: DiagnosticCodeAllocation {
+            key: DiagnosticCodeKey::INVALID_FILE_READ_CALL,
+            public_ordinal: historical_public_ordinal(DiagnosticCodeKey::INVALID_FILE_READ_CALL),
+            spelling: "H0632",
+            title: "invalid files_read_text call",
+            family: DiagnosticFamilyKey::FRONT_END_SEMANTICS,
+            semantic_owner: "front_end_semantics",
+            owning_stage: "file_read",
+            status: AllocationStatus::Retired,
+        },
+        default_severity: Severity::Error,
+        explanation: "Retired in WO30 Item 2: `files_read_text` arity reasons moved to H0640 and argument-type reasons moved to H0641. This code is frozen and is never emitted.",
+        repair: "Follow the H0640 or H0641 diagnostic instead; H0632 will not be reused.",
+    },
+];
 
 fn parse_code_spelling(spelling: &str) -> Result<u16, RegistryValidationError> {
     let bytes = spelling.as_bytes();
@@ -4185,10 +4271,10 @@ mod tests {
     use super::{
         AllocationStatus, CatalogProjection, DIAGNOSTIC_CAUSES, DIAGNOSTIC_CODE_ALLOCATIONS,
         DIAGNOSTIC_FAMILIES, DIAGNOSTIC_PRECEDENCE, DIAGNOSTICS, DiagnosticCodeAllocation,
-        DiagnosticCodeKey, DiagnosticFamilyKey, DiagnosticInfo, RegistryValidationError,
-        RetiredCodeRecord, UNALLOCATED_PROFILE_DIAGNOSTIC, all, catalog_projection, find,
-        parse_code_spelling, validate_catalog_projection, validate_causes, validate_registry,
-        validate_retired_history, validate_static_registry,
+        DiagnosticCodeKey, DiagnosticFamilyKey, DiagnosticInfo, FROZEN_RETIRED_CODES,
+        RegistryValidationError, RetiredCodeRecord, UNALLOCATED_PROFILE_DIAGNOSTIC, all,
+        catalog_projection, find, parse_code_spelling, validate_catalog_projection,
+        validate_causes, validate_registry, validate_retired_history, validate_static_registry,
     };
     use crate::diagnostic::{
         Diagnostic, DiagnosticCode, DiagnosticOccurrence, DiagnosticOccurrenceSet,
@@ -4759,12 +4845,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 97);
-        assert_eq!(summary.retired_codes, 0);
+        assert_eq!(summary.active_codes, 95);
+        assert_eq!(summary.retired_codes, 3);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 190);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 191);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
@@ -4821,7 +4907,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 97);
+        assert_eq!(all().len(), 98);
     }
 
     #[test]
@@ -5274,6 +5360,51 @@ mod tests {
             validate_retired_history(&[mutated], &[detail], &[prior]),
             Err(RegistryValidationError::RetiredCodeReuseOrMutation)
         );
+    }
+
+    #[test]
+    fn wo30_item2_retires_h0622_h0626_h0632_and_allocates_h0641() {
+        // WO30 Item 2: the three per-builtin call-shape codes are retired
+        // and frozen; H0641 takes the next free allocation (97), cause
+        // (191), and public ordinal (97).
+        assert_eq!(FROZEN_RETIRED_CODES.len(), 3);
+        for (key, spelling) in [
+            (DiagnosticCodeKey::INVALID_STDOUT_WRITE_CALL, "H0622"),
+            (DiagnosticCodeKey::INVALID_CLOCK_REPLAY_CALL, "H0626"),
+            (DiagnosticCodeKey::INVALID_FILE_READ_CALL, "H0632"),
+        ] {
+            let allocation = super::allocation(key);
+            assert_eq!(allocation.spelling, spelling);
+            assert_eq!(allocation.status, AllocationStatus::Retired);
+            let frozen = FROZEN_RETIRED_CODES
+                .iter()
+                .find(|record| record.allocation.key == key)
+                .expect("retired code must be frozen");
+            assert_eq!(&frozen.allocation, allocation);
+            let detail = DIAGNOSTICS
+                .iter()
+                .find(|detail| detail.code.key() == key)
+                .expect("retired code keeps its frozen detail");
+            assert_eq!(detail.default_severity, frozen.default_severity);
+            assert_eq!(detail.explanation, frozen.explanation);
+            assert_eq!(detail.repair, frozen.repair);
+        }
+
+        let allocation = super::allocation(DiagnosticCodeKey::INVALID_CALL_ARGUMENT_TYPE);
+        assert_eq!(allocation.key.0, 97);
+        assert_eq!(allocation.spelling, "H0641");
+        assert_eq!(allocation.public_ordinal, 97);
+        assert_eq!(allocation.status, AllocationStatus::Active);
+        let cause = super::diagnostic_cause(
+            DiagnosticCode::INVALID_CALL_ARGUMENT_TYPE,
+            "call_argument_type_mismatch_v0",
+        )
+        .expect("H0641 cause must be registered");
+        assert_eq!(cause.key.ordinal(), 191);
+
+        let summary = validate_static_registry().expect("canonical registry");
+        assert_eq!(summary.active_codes, 95);
+        assert_eq!(summary.retired_codes, 3);
     }
 
     #[test]

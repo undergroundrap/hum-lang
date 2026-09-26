@@ -242,9 +242,9 @@ order, not by slice letter. PR #49 (Item 4) merged first and took
 `H0640` → allocation 94 / cause 188 / ordinal 94. PR #50 (Item 5)
 rebased onto that main: `H0011` → allocation 95 / cause 189 /
 ordinal 95; `H0012` → allocation 96 / cause 190 / ordinal 96.
-Whichever of the remaining H0641–H0642 slices lands later renumbers
-its allocation/cause/ordinal keys at its own rebase; the `H06xx`
-spellings are unaffected.
+PR B (Item 2) takes `H0641` → allocation 97 / cause 191 / ordinal 97.
+PR C (Item 3, `H0642`) allocates from the next free position after
+PR B lands; the `H06xx` spellings are unaffected.
 
 Considered and rejected: H0606 (return expressions only), H0622/H0626/
 H0632/H0636 (per-builtin — Item 4 forbids extending that pattern), H1402
