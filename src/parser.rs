@@ -2331,7 +2331,7 @@ impl Parser {
         if let Ok(sites) = out_of_range_integer_sites(&seal) {
             for site in sites {
                 self.emit(
-                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(188),
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(189),
                     "integer-literal",
                     Diagnostic::error(
                         DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE,
@@ -2357,7 +2357,7 @@ impl Parser {
             Ok(sites) => sites,
             Err(_) => {
                 self.emit(
-                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(189),
+                    crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(190),
                     "source-occurrence",
                     Diagnostic::error(
                         DiagnosticCode::INTERNAL_SOURCE_OCCURRENCE_INVARIANT_VIOLATED,
@@ -14896,13 +14896,13 @@ task after() -> UInt {
             DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE
         );
         assert_eq!(parsed.diagnostics[0].code.as_str(), "H0011");
-        // The H0011 emission carries cause key 188 (landing order).
+        // The H0011 emission carries cause key 189 (post-#49 landing order).
         let cause = crate::diagnostic_catalog::diagnostic_cause(
             DiagnosticCode::INTEGER_LITERAL_OUT_OF_RANGE,
             "integer_literal_out_of_range_v0",
         )
         .expect("H0011 cause");
-        assert_eq!(cause.key.ordinal(), 188);
+        assert_eq!(cause.key.ordinal(), 189);
     }
 
     #[test]

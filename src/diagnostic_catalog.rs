@@ -4759,12 +4759,12 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 96);
+        assert_eq!(summary.active_codes, 97);
         assert_eq!(summary.retired_codes, 0);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
         validate_checked_documents(&checked_documents()).expect("checked documents");
-        assert_eq!(DIAGNOSTIC_CAUSES.len(), 189);
+        assert_eq!(DIAGNOSTIC_CAUSES.len(), 190);
         assert_eq!(DIAGNOSTIC_PRECEDENCE.len(), 9);
         for dominant in super::H090_CAUSES {
             for suppressed in super::H1401_CAUSES.iter().chain(super::H1402_CAUSES.iter()) {
@@ -4821,7 +4821,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 96);
+        assert_eq!(all().len(), 97);
     }
 
     #[test]
