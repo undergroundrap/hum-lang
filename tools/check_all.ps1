@@ -5570,6 +5570,7 @@ function Invoke-HumCompilerCorpusChecks {
   foreach ($Misuse in @(
     @{ Name = 'missing file source'; Path = 'fixtures/app_entry/session_ad_missing_file_source_fail.hum'; Surface = 'check'; Code = 'H0631' },
     @{ Name = 'wrong file argument type'; Path = 'fixtures/full_type_check/session_ad_file_read_wrong_type_fail.hum'; Surface = 'full-type-check'; Code = 'H0641' },
+    @{ Name = 'unknown file argument type'; Path = 'fixtures/full_type_check/session_ad_file_read_unknown_type_fail.hum'; Surface = 'full-type-check'; Code = 'H0641' },
     @{ Name = 'reserved file builtin'; Path = 'fixtures/app_entry/session_ad_reserved_file_read_name_fail.hum'; Surface = 'check'; Code = 'H0633' }
   )) {
     $Human = Read-NativeOutputWithExit "Session AD $($Misuse.Name) human" $Hum @($Misuse.Surface, $Misuse.Path)
@@ -5581,6 +5582,15 @@ function Invoke-HumCompilerCorpusChecks {
   $SessionADImplicit = Read-NativeOutputWithExit 'Session AD implicit file failure JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_ad_implicit_file_read_fail.hum')
   if ($SessionADImplicit.ExitCode -ne 1 -or -not $SessionADImplicit.Output.Contains('"diagnostic_code": "H0901"') -or -not $SessionADImplicit.Output.Contains('"callee": "files_read_text"') -or $SessionADImplicit.Output.Contains('H0630')) { throw 'Session AD implicit file call must preserve H0901 without Path-boundary masking' }
   Assert-Json 'Session AD implicit file failure JSON' $SessionADImplicit.Output
+
+  # WO30 Item 2 (Claude review): files_read_text keeps the retired H0632
+  # fail-closed strictness — an unknown-typed argument is exactly one H0641
+  # with actual=unknown, not a silent pass.
+  $SessionADUnknown = Read-NativeOutputWithExit 'Session AD unknown file argument JSON' $Hum @('full-type-check', '--format', 'json', 'fixtures/full_type_check/session_ad_file_read_unknown_type_fail.hum')
+  $SessionADUnknownParsed = $SessionADUnknown.Output | ConvertFrom-Json
+  $SessionADUnknownRows = @($SessionADUnknownParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0641' })
+  if ($SessionADUnknown.ExitCode -ne 1 -or $SessionADUnknownRows.Count -ne 1 -or $SessionADUnknownRows[0].expected_type -ne 'Path' -or $SessionADUnknownRows[0].actual_type -ne 'unknown' -or $SessionADUnknownRows[0].reason -ne 'call_argument_type_mismatch_v0') { throw 'Session AD unknown file argument must produce exactly one H0641 with expected=Path and actual=unknown' }
+  Assert-Json 'Session AD unknown file argument JSON' $SessionADUnknown.Output
 
   if ($env:OS -eq 'Windows_NT') {
     $SessionADPath = (Resolve-Path 'fixtures/file_read/session_ad_utf8.txt').Path
