@@ -1,9 +1,12 @@
 # Decision 0030 cost-gate measurement — release-build evidence (2026-09-26)
 
-Status: **evidence recorded; gate NOT cleared.** This snapshot preserves the
-Builder's retained measurements with full provenance, separates
-successful-check evidence from blocked-corpus evidence, and proposes one
-bounded supplemental measurement. It authorizes nothing and implements
+Status: **evidence recorded; revised numerical cost gate satisfied.**
+Per BDFL approval, the unsatisfiable `examples/` directory leg is
+replaced by the `word_count.hum` supplemental measurement. Both legs —
+wordfreq (1.6829971) and word-count (1.8210526) — sit below the 2×
+fallback threshold. These are measurements of the *existing* `hum check`
+and `hum full-type-check` commands, not measured latency of the future
+Option B implementation. This snapshot authorizes nothing and implements
 nothing.
 
 ## What the gate requires
@@ -31,9 +34,16 @@ B after incremental checking lands.
   `costgate_out.txt` (full script transcript including binary/tree
   provenance line), `full_type_check_examples_stdout.txt` (97049 bytes)
   and `full_type_check_examples_stderr.txt` (13162 bytes) from the one
-  untimed `hum full-type-check examples/` clarification run.
-- Medians and ratios below were recomputed from the raw log by the
-  Researcher and match the reported values exactly.
+  untimed `hum full-type-check examples/` clarification run, plus
+  `wc_timing.log` (10 timed word-count runs, 5+5, all exit 0),
+  `wc_check_stdout.txt` / `wc_check_stderr.txt` and
+  `wc_ftc_stdout.txt` / `wc_ftc_stderr.txt` (warm-up outputs for the
+  word-count runs). The word-count log records no separate warm-up
+  marker or binary/tree provenance line; it is attributed to the same
+  release binary by the Builder.
+- Medians and ratios below were recomputed from the raw logs by the
+  Researcher and match the reported values exactly
+  (wordfreq 1.6829971, word-count 1.8210526).
 
 ## Results — successful-check evidence
 
@@ -43,19 +53,32 @@ All 20 timed runs preserved, including the outlier.
 |---|---|---|---|---|
 | `examples/tools/wordfreq.hum` | check | 1.041, 1.022, **1.564**, 1.014, 1.044 | 1.041 | 0 ×5 |
 | `examples/tools/wordfreq.hum` | full-type-check | 1.708, 1.645, 1.782, 1.752, 1.773 | 1.752 | 0 ×5 |
+| `examples/probes/word_count.hum` | check | 0.102, 0.093, 0.094, 0.104, 0.095 | 0.095 | 0 ×5 |
+| `examples/probes/word_count.hum` | full-type-check | 0.196, 0.188, 0.173, 0.166, 0.167 | 0.173 | 0 ×5 |
 | `examples/` | check | 13.539, 12.824, 13.771, 13.676, 13.222 | 13.539 | 0 ×5 |
 | `examples/` | full-type-check | 17.128, 16.112, 17.196, 16.713, 16.669 | 16.713 | 1 ×5 |
 
-- wordfreq ratio (full-type-check / check): **1.6830** — below the 2×
-  fallback threshold. Both commands exit 0 on all runs: this is genuine
-  body-checking cost on a real 190-line program.
+- wordfreq ratio (full-type-check / check): **1.6829971** — below the
+  2× fallback threshold. Both commands exit 0 on all runs: this is
+  genuine body-checking cost on a real 190-line program.
+- word-count ratio: **0.173 / 0.095 = 1.8210526** — below the 2×
+  threshold. All samples preserved; medians recomputed from the
+  retained raw log (`wc_timing.log`) and verified against the reported
+  values. The retained warm-up outputs confirm genuine body checking:
+  `hum full-type-check examples/probes/word_count.hum` reports
+  `status: recognized_core_body_types_checked_v0`, files=1,
+  statements=10, checked_statements=10, accepted_statements=10,
+  resolver_errors=0, exit 0; `hum check` reports `checked 1 file(s):
+  0 error(s), 0 warning(s)`, exit 0, empty stderr.
+- The word-count runs are **Linux evidence only** — no Windows
+  corroboration was retained for this leg.
 - The wordfreq check outlier (run 3, 1.564 s against a 1.014–1.044 s
   cluster) is preserved, not trimmed. Its cause is unknown. The
   alternating check/full-type-check design reduces ordering bias; it
   does not guarantee equal exposure to transient load.
-- Windows corroboration (reported by Codex, existing binary): check
-  1.2707471 s, full-type-check 2.0490012 s, ratio **1.6124**, both exit 0.
-  Same shape as Linux: comfortably below 2×.
+- Windows corroboration for wordfreq (reported by Codex, existing
+  binary): check 1.2707471 s, full-type-check 2.0490012 s, ratio
+  **1.6124**, both exit 0. Same shape as Linux: comfortably below 2×.
 
 ## Results — blocked-corpus evidence (NOT body-checking cost)
 
@@ -155,15 +178,17 @@ scopes are separate within one invocation.
   scope. Its `ensures:` clauses use `list_count`
   (`examples/probes/word_count.hum:8`, `:32`).
 
-## Proposed supplemental measurement (ONE, bounded)
+## Supplemental measurement (word_count.hum) — recorded
 
-This is a proposal, not permission to measure: no measurement has been
-run and none is authorized by this snapshot.
+The proposed supplement has been measured by the Builder and its raw
+artifacts retained (`wc_timing.log`, `wc_check_stdout.txt`,
+`wc_check_stderr.txt`, `wc_ftc_stdout.txt`, `wc_ftc_stderr.txt`).
+This section records the measurement; no retiming was performed by the
+Researcher.
 
-To give the gate a second genuine body-checking data point alongside
-wordfreq, the proposal runs the existing protocol unchanged — 1 warm-up
-of each command, then 5 timed runs alternating check / full-type-check,
-release binary, uncontended VM — on exactly:
+The proposal ran the existing protocol — 1 warm-up of each command,
+then 5 timed runs alternating check / full-type-check, release binary —
+on exactly:
 
 ```
 ./target/release/hum check examples/probes/word_count.hum
@@ -175,42 +200,53 @@ Rationale (coverage, not favorable timing):
 - It is an existing input; no manufactured corpus.
 - Existing positive evidence (the check_all `hum run` successes listed
   above) that it passes the resolver gate and reaches body checking in
-  its own scope.
+  its own scope — confirmed by the retained warm-up output
+  (`checked_statements=10`, `accepted_statements=10`,
+  `resolver_errors=0`).
 - Its actual `ensures:` clauses use `list_count` — it exercises the
   predicate-analysis stage that a plain 190-line program stresses
   least, which is precisely the stage whose cost Option B adds to
-  `hum check`. (Correction: the earlier revision wrongly claimed
-  `causal_failures.hum` carries `needs:`/`ensures:` contracts; it has
-  none — it contains typed-failure propagation.)
-- Single file: it must be run as its own invocation, not combined with
-  other programs into one report (see above).
+  `hum check`. (Correction history: the first revision of this
+  snapshot wrongly claimed `causal_failures.hum` carries
+  `needs:`/`ensures:` contracts; it has none — it contains
+  typed-failure propagation.)
+- Single file: run as its own invocation, not combined with other
+  programs into one report (see above).
 
-Preserve all samples including outliers, exactly as the existing 20
-runs were preserved. No example repairs and no checker weakening to
-manufacture a passing corpus — if the file does not pass the gate when
-measured, that is evidence, reported as-is.
+All samples preserved including the full spread (check 0.093–0.104 s,
+full-type-check 0.166–0.196 s). No example repairs and no checker
+weakening were involved. Limitation: **Linux evidence only** — the
+word-count leg has no Windows corroboration.
 
-## BDFL clarification required — gate NOT cleared
+## Gate status — revised numerical gate satisfied (BDFL-approved replacement)
 
-The gate as written names `examples/` as a leg, but `examples/` cannot
+The gate as written named `examples/` as a leg, but `examples/` cannot
 satisfy that leg as a body-checking measurement: its full-type-check
-run is blocked before statement checking on both platforms. This is not
-a failure of the measurement — it is a property of the corpus. The
-snapshot does not redefine the gate and does not call it cleared.
+run is blocked before statement checking on both platforms (evidence
+preserved above). The BDFL has approved replacing the directory leg
+with the `word_count.hum` supplemental measurement.
 
-The wordfreq leg is clean (1.6830 Linux, 1.6124 Windows — both below
-2×). For the corpus leg, the BDFL should rule one of:
+Revised numerical gate:
 
-(a) accept the `word_count.hum` supplemental measurement above as
-    the second leg (recommended — genuine body-checking cost, existing
-    input, no corpus surgery);
-(b) rule the gate on the wordfreq leg alone, striking the `examples/`
-    leg as unsatisfiable in its current form;
-(c) direct otherwise.
+- wordfreq leg: 1.6829971 (Linux), 1.6124 (Windows corroboration) —
+  below 2×.
+- word-count leg: 1.8210526 (Linux only) — below 2×.
 
-Replacing `examples/` with another individual program requires BDFL
-approval and loses corpus-scale coverage: one program cannot stand in
-for a 33-file corpus, whatever its ratio shows.
+Both legs sit below the 2× fallback threshold, so the revised numerical
+cost gate is satisfied. The blocked-directory evidence is preserved as
+recorded; replacing a 33-file corpus with an individual program loses
+corpus-scale coverage, and that limitation stands with the numbers.
 
-Until that ruling lands, Option B implementation stays gated and no
-further benchmark campaign is authorized.
+Two things these numbers are not:
+
+- They are measurements of the *existing* `hum check` and
+  `hum full-type-check` commands. They are not measured latency of the
+  future Option B implementation — the cost of folding the full static
+  pipeline into `hum check` (stages field, D3 adjunct, editor-loop
+  behavior) can only be measured once it exists.
+- A satisfied numerical gate is evidence for the BDFL's implementation
+  decision, not an implementation authorization. Option B work starts
+  on the BDFL's word, not on this snapshot's.
+
+Until that word lands, no Option B implementation and no new benchmark
+campaign are authorized.
