@@ -387,22 +387,29 @@ fn cli_result_scalar_unchanged() {
 }
 
 #[test]
-fn cli_result_error_root_projection() {
-    // Error-root projection: the corrected expected_error_value_type must
-    // select SplitError (not Text) for "Result List Text, SplitError".
-    // A fail with the correct error root must exit 0; this distinguishes
-    // earlier-stage ownership from execution of the repaired owner.
+fn cli_result_typed_failure_positive_path() {
+    // End-to-end typed-failure positive path: the same valid text_split
+    // fixture as the multiword positive must exit 0 with zero errors.
+    // This proves the positive inline typed-failure path still works; it
+    // does NOT prove expected_error_value_type selected the correct error
+    // root — that is covered by the focused unit test
+    // result_projection_selects_error_root_not_success_token in
+    // src/full_type_check.rs, which exercises the production owner directly.
     let path = write_cli_fixture(
         "result_error_root",
         "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text, sep: Text) -> Result List Text, SplitError {\n  does:\n    let pieces = try text_split(text, sep) or fail SplitError.split\n    return pieces\n}\n",
     );
     let out = run_hum_check(&path, false);
-    assert_eq!(out.status.code(), Some(0), "correct error root must exit 0");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "typed-failure positive path must exit 0"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     let stdout = String::from_utf8_lossy(&out.stdout);
     let combined = format!("{stdout}{stderr}");
     assert!(
         !combined.contains("error["),
-        "correct error root must have zero errors: {combined}"
+        "typed-failure positive path must have zero errors: {combined}"
     );
 }

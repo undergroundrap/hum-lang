@@ -5633,11 +5633,15 @@ function Invoke-HumCompilerCorpusChecks {
   $SessionABProse = 'fixtures/full_type_check/session_af_path_trailing_prose_fail.hum'
   $SessionABProseHuman = Read-NativeOutputWithExit 'check Session AB comparison-shaped Path prose human' $Hum @('check', $SessionABProse)
   $SessionABProseJson = Read-NativeOutputWithExit 'check Session AB comparison-shaped Path prose JSON' $Hum @('check', '--format', 'json', $SessionABProse)
-  if ($SessionABProseHuman.ExitCode -ne 0 -or $SessionABProseHuman.Output.Contains('H0630') -or $SessionABProseJson.ExitCode -ne 0) { throw 'Session AB comparison-shaped unchecked prose must remain statically unblocked without H0630' }
+  if ($SessionABProseHuman.ExitCode -ne 1 -or [regex]::Matches($SessionABProseHuman.Output, 'error\[H0704\]').Count -ne 1 -or $SessionABProseHuman.Output.Contains('H0630') -or $SessionABProseJson.ExitCode -ne 1) { throw 'Session AB malformed executable predicate must be rejected by hum check with exactly one H0704 and no H0630' }
   Assert-Json 'check Session AB comparison-shaped Path prose JSON' $SessionABProseJson.Output
   $SessionABProseParsed = $SessionABProseJson.Output | ConvertFrom-Json
   $SessionABProseDiagnostics = @($SessionABProseParsed.diagnostics)
-  if ($SessionABProseDiagnostics.Count -ne 0) { throw 'Session AB comparison-shaped prose must have no static source diagnostic' }
+  $SessionABProseErrors = @($SessionABProseDiagnostics | Where-Object { $_.severity -eq 'error' })
+  if ($SessionABProseDiagnostics.Count -ne 1 -or $SessionABProseErrors.Count -ne 1 -or $SessionABProseErrors[0].code -ne 'H0704' -or $SessionABProseErrors[0].span.line -ne 10 -or $SessionABProseErrors[0].span.column -ne 22) { throw 'Session AB malformed executable predicate must surface exactly one H0704 error at 10:22' }
+  if ($SessionABProseJson.Output.Contains('H0630')) { throw 'Session AB malformed executable predicate must not involve H0630 Path restrictions' }
+  if (-not ($SessionABProseParsed.stages -contains 'full_type_check')) { throw 'Session AB hum check JSON must report the complete static pipeline through full_type_check (Option B)' }
+  if (-not $SessionABProseHuman.Output.Contains($SessionABProseErrors[0].message) -or -not $SessionABProseHuman.Output.Contains($SessionABProseErrors[0].help)) { throw 'Session AB malformed executable predicate human/JSON ownership disagrees' }
   foreach ($Command in @('resolve', 'type-env', 'type-check')) {
     $Surface = Read-NativeOutputWithExit "Session AB comparison-shaped prose $Command" $Hum @($Command, '--format', 'json', $SessionABProse)
     if ($Surface.ExitCode -ne 0 -or $Surface.Output.Contains('H0630')) { throw "Session AB comparison-shaped prose must remain unblocked in $Command" }
