@@ -67,7 +67,7 @@ path must say exactly this: locality is `trusted-not-proven` /
 - **macOS:** remains unproven/grant-only for this Work Order (Item 3).
 - **Queue:** WO29 follows WO30 closure; preparation proceeds now.
 
-### The read pipeline: classification → opened identity → enforcement → bounded read → evidence
+### The read pipeline: classification → file identity → proof binding → bounded read → evidence
 
 Every file read under this Work Order traverses one ordered pipeline.
 Authority ordering is preserved end to end; nothing below reorders, skips,
@@ -84,21 +84,32 @@ or weakens it:
 4. **Component walk + open** — the existing hardening is unchanged:
    `symlink_metadata` per component, links never followed during the walk,
    `.`/`..` rejected, then `File::open` of the final component.
-5. **Opened-identity binding** — the file's identity is the opened handle's
-   own identity: fstat `(dev, ino)` on unix; the platform-defined device
-   identity on Windows (disk numbers, per the existing `c3ed1ad` §8
-   vocabulary — unix terminology is not imported onto Windows). The
-   pre-read walked-vs-handle comparison
-   (`opened_file_matches_walked_target`) stays as the P2/P3-walk check.
-   Pathname equality is not a file-identity proof and is never used as
-   one.
-6. **Evidence-vs-object enforcement** — before any payload byte is
-   consumed, the opened object's observed identity/device is checked
-   against the identity/device recorded in the locality classification
-   evidence from step 3. A mismatch rejects the read fail-closed (named
-   reason, builder's choice, pinned by test) — it is never merely logged.
-   Propagation without this check is not enforcement.
-7. **Bounded read** — the 1 MiB bound and strict UTF-8 validation, unchanged.
+5. **File-object identity binding** — the validated file object is bound to
+   the opened handle before payload consumption. On unix this is the
+   opened handle's fstat `(dev, ino)` together with the pre-read
+   walked-vs-handle comparison (`opened_file_matches_walked_target`);
+   pathname equality is not a file-identity proof and is never used as
+   one. On Windows the opened handle must provide a file/volume identity
+   (a volume identity plus a per-file identifier on that volume) — disk
+   numbers identify the *device*, not the *file*, and are not file
+   identity. The exact OS primitive is builder's choice, reviewed; the
+   requirement is specified here. Missing required identity, or an
+   identity mismatch, rejects the read fail-closed. The unix-only
+   comparison does not provide Windows identity and is not claimed to.
+6. **Locality-proof binding** — on the *proved* path, the backing-device
+   evidence (P1) is bound to the opened object: the evidence's device
+   identity must match the opened object's observed device identity.
+   Missing required proof evidence prevents a proved admission —
+   fail-closed, never optimistic. On the *attested* path, an explicit
+   matching trust grant may cover unavailable P1/backing proof; the
+   absence and its reason are honestly recorded (`Unproven` with the named
+   reason, `external-trust` classification). The grant fabricates no
+   evidence and waives nothing: file identity, the ordinary-file check,
+   and the path safeguards apply to every admitted read, including
+   external-trust. Observed contradictory binding evidence is never
+   silently ignored — it rejects.
+7. **Bounded read** — the 1 MiB bound and strict UTF-8 validation run only
+   after steps 5–6 pass; unchanged.
 8. **Evidence emission** — `AuthorityAuditEvent` carries the bound identity
    from step 5 together with the classification and the P1–P4 lines
    (Item 5). The bundle carries identity and classification evidence, not
@@ -106,32 +117,55 @@ or weakens it:
    assertions (Items 5–6), not by the bundle.
 
 **Specified interface changes (not comments; none of this exists today):**
-(a) the read entry point (`read_checked_unix_file`; the Windows read path
-symmetrically) returns the opened identity bound to the bytes it read —
-the identity is threaded through the return value, not re-derived at the
-consumer and not documented-only; (b) the locality classifier returns the
-observed device identity alongside the classification — on Windows this is
-a new return-type change owned by `crates/windows-drive-locality` (the
+(a) the read entry point separates open from read: open yields the opened
+handle with its identity; the file-identity binding (step 5) and the
+locality-proof binding (step 6) run on the opened handle BEFORE the
+bounded read. A design that reads the payload and returns bytes before
+these checks run violates this contract — enforcement is not post-hoc
+validation of returned bytes; (b) the unix read entry point
+(`read_checked_unix_file`) threads the opened handle's fstat `(dev, ino)`
+through the open phase; (c) the Windows read path captures the opened
+handle's file/volume identity and threads it through the open phase —
+disk numbers remain device evidence for the proof binding, never file
+identity; (d) the locality classifier returns the observed backing-device
+identity alongside the classification — on Windows this is a new
+return-type change owned by `crates/windows-drive-locality` (the
 classifier currently returns only a label, and the Windows reader does not
 currently provide the opened identity; the audit-corrected plumbing is
 specified here, not assumed). The walked-vs-handle comparison stays where
 it is. P1–P4 are not weakened: classification still fails closed, and the
 trust path still records the `Unproven` reason with the attestation facts.
 These corrections require no new semantic decision; the remaining open
-choices (reason strings, exit codes, field names) use this draft's
-established builder's-choice-reviewed pattern.
+choices (reason strings, exit codes, field names, the exact Windows OS
+identity primitive) use this draft's established builder's-choice-reviewed
+pattern.
 
-**Acceptance — enforcement first, propagation second:** with injected
-adapters through the real pipeline, (a) *enforcement* — the classification
-evidence's device identity is made to disagree with the opened object;
-the test asserts the pipeline REJECTS before payload consumption (no bytes
-read, fail-closed refusal with the named reason). A run that logs the
-substituted identity and proceeds fails this control; (b) *emitter
-consumption* (separate, propagation only) — the threaded identity is
-substituted before emission; the test asserts the emitted bundle carries
-the substituted value, proving the emitter consumed the threaded value
-rather than re-deriving it from the path. (b) does not prove enforcement;
-(a) does.
+**Complete minimal future owners:** `src/file_read.rs` (unix and Windows
+open-phase identity capture and threading); `crates/windows-drive-locality`
+(classifier return type; Windows file/volume identity provision);
+`src/native_path.rs` (unix classification seam: backing-device evidence);
+`src/run.rs` (file-identity binding, locality-proof binding, and
+enforcement before payload consumption; evidence emission);
+`src/operator_grant.rs` (attestation — shape unchanged, already specified).
+
+**Acceptance — focused future controls** (specified criteria, not
+permission to execute now): with injected adapters through the real
+pipeline, (a) *honest proof* — backing-device evidence bound to the
+opened object; missing proof evidence → proved admission refused
+fail-closed; (b) *honest attested admission* — trust grant with
+unavailable P1/backing proof: admission under `external-trust` with the
+absence and reason honestly recorded; the control asserts no fabricated
+proof evidence appears and that file identity, ordinary-file, and path
+safeguards still reject; (c) *mismatched backing evidence* —
+contradictory binding evidence (proof device ≠ opened object device)
+rejects fail-closed before payload consumption; it is never
+logged-and-ignored; (d) *same-disk file substitution* — same device
+identity, different file identity rejects, proving device identity is not
+file identity; (e) *missing required file identity* — the opened handle
+provides no usable file identity → reject fail-closed. Separately,
+(f) *emitter consumption* (propagation only) — the threaded identity
+substituted before emission appears in the bundle, proving the emitter
+consumed the threaded value; (f) does not prove enforcement.
 
 ### Platform effects of the shared attestation and rendering (Items 4–5)
 
@@ -545,7 +579,10 @@ closed — a draft Work Order changes nothing until it is activated:
 - Honesty locks (decision 0014): no output text or doc may claim more than
   the implementation proves. Evidence labelled `proved` must carry the
   bundle; evidence labelled `trusted-not-proven` / `external-trust` must
-  carry the grant facts and the classifier's `Unproven` reason.
+  carry the grant facts and the classifier's `Unproven` reason. The trust
+  grant covers unavailable P1/backing proof only; it fabricates no
+  evidence and waives no safeguard — file identity, the ordinary-file
+  check, and the path safeguards apply to every admitted read.
 - Every Item's acceptance criteria are asserted by tests, not by prose.
   Session letters continue the project odometer.
 
@@ -567,16 +604,18 @@ review sitting each:
   classifier currently returns only a label and the Windows reader does
   not currently provide the opened identity, so the minimal future changes
   are specified here — `crates/windows-drive-locality` extends the
-  classifier return to carry the observed device identity (disk numbers,
-  per the existing `c3ed1ad` §8 vocabulary; no unix terminology imported),
-  and the Windows read path captures and threads the opened handle's
-  device identity for the enforcement check. Owners:
-  `crates/windows-drive-locality` for the classifier return type;
-  `src/file_read.rs` and `src/run.rs` for the threading, enforcement, and
-  emission. Slice B widens only the *admitted bus list* (the gate at
-  `lib.rs:204`). Plumbing availability and admission widening are separate
-  changes. No new framework is introduced — the new controls ride the
-  existing unit and CLI test files.
+  classifier return to carry the observed backing-device identity (disk
+  numbers, per the existing `c3ed1ad` §8 vocabulary; no unix terminology
+  imported), and the Windows read path captures and threads the opened
+  handle's file/volume identity (volume identity plus per-file
+  identifier — disk numbers identify the device, never the file). Owners:
+  `crates/windows-drive-locality` for the classifier return type and the
+  file/volume identity provision; `src/file_read.rs` and `src/run.rs` for
+  the capture, threading, pre-read enforcement, and emission. Slice B
+  widens only the *admitted bus list* (the gate at `lib.rs:204`).
+  Plumbing availability and admission widening are separate changes. No new
+  framework is introduced — the new controls ride the existing unit and
+  CLI test files.
 - **Slice B — Items 2 + 3.** Windows SD/MMC widening; macOS declared
   unproven. Platform-gated; no CLI or rendering changes.
 - **Slice C — Item 6 remainder.** The Windows AG flip to the trust-path
@@ -592,16 +631,21 @@ under `tests/`); `tests/cli_wo29_trust_locality.rs`.
 
 Modified: `Cargo.toml` (workspace members, dependency); `Cargo.lock` (the new
 workspace member; mechanical — no version changes beyond what the new member
-requires); `src/native_path.rs` (unix classification seam and the
-proven-local label); `src/operator_grant.rs` (the attestation field, setter,
+requires); `src/native_path.rs` (unix classification seam, the
+backing-device evidence, and the proven-local label);
+`src/operator_grant.rs` (the attestation field, setter,
 accessors); `src/main.rs` (argv arms, run-only gating, usage); `src/run.rs`
 (gate order, `AuthorityAuditEvent` bundle fields, the threaded opened
-identity consumed at emission, the evidence-vs-object enforcement check,
-render paths); `src/file_read.rs` (the read entry point's return interface
-— opened identity bound to the returned bytes — and the stale P1-unproven
-doc comment; the walk/open/identity mechanics are unchanged);
+identity consumed at enforcement and emission, the file-identity and
+locality-proof binding checks before payload consumption, render paths);
+`src/file_read.rs` (the read entry point separates open from read — the open
+phase yields the handle with its identity for pre-read enforcement — and
+the stale P1-unproven doc comment; the Windows path gains the file/volume
+identity capture; identity mechanics change wherever the new checks
+require it);
 `crates/windows-drive-locality` (classifier return type carries the observed
-device identity — Slice A; the bus-list admission gate — Slice B);
+backing-device identity; Windows file/volume identity provision — Slice A;
+the bus-list admission gate — Slice B);
 `tools/check_all.ps1` (Session AG pins: unix correction in Slice A, Windows
 flip in Slice C);
 `tools/test_ci_policy.ps1` (mechanically affected: the SHA-256 pins over any
@@ -636,10 +680,12 @@ Untouched: `docs/` (research lane), all fixtures.
   outcome (refusal shape vs proven-path shape); the exit-0 branch validates
   the bound evidence bundle per Item 6; the two negative fixtures (missing
   Hum consent vs missing attestation, no permission changes) are pinned
-  separately; the enforcement control proves mismatched evidence rejects
-  before payload consumption and the emitter-consumption control proves
-  propagation; the trust-flag run asserts exit 0, byte-exact stdout, and
-  the evidence label matching the observed admission class.
+  separately; the focused future controls are specified per the pipeline
+  section — honest proof, honest attested admission, mismatched backing
+  evidence, same-disk file substitution, missing required file identity —
+  plus the emitter-consumption propagation check; the trust-flag run asserts
+  exit 0, byte-exact stdout, and the evidence label matching the observed
+  admission class.
   **Harness (Slice C):** the Windows AG flip.
 - **Fixture evidence vs native hardware proof:** everything above is
   fixture-testable and deterministic. Native hardware proof — a real
