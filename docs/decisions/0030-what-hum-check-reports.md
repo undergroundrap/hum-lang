@@ -1,6 +1,7 @@
 # Decision 0030 — What `hum check` reports
 
 Status: **accepted 2026-09-26 (BDFL ruling: Option B, with D3 and the cost gate).**
+Implementation completed 2026-09-26 (PR #54 merged; shipped state recorded in §11).
 
 > **Standing of this record.** This decision is *accepted*. It records the
 > BDFL's ruling (§10) and the recommendation it adopted. This record
@@ -166,7 +167,9 @@ No option may introduce ambient flags or env vars (per the commission).
   (`src/diagnostics.rs:42`–`:73`). Under **A** and **B** the shape is
   unchanged — only the *code universe* in `diagnostics[]` grows
   (A: +H0701/H0704; B: +H0605/H0606, +H0636/H0638, +H0640–H0642 once WO30
-  lands, +H0701/H0704, +H0901–H0906). No version bump is required by the
+  lands, +H0643 (statement expression type mismatch; allocated in the
+  Option B implementation, PR #54, merged), +H0701/H0704, +H0901–H0906).
+  No version bump is required by the
   shape, but the semantic contract changes: agents with code allowlists
   must handle the new codes, and `summary` counts shift. Under **B**,
   `hum check` does *not* adopt full-type-check's richer report schema
@@ -288,7 +291,24 @@ Structural facts (no timing needed):
   command is removed.
 - Session AG's `hum check examples` assertion
   (`tools/check_all.ps1:1865`) is re-verified under the wider surface —
-  examples must be clean under all static stages.
+  examples must be clean under all static stages. *(Revised by the BDFL
+  example-policy ruling, 2026-09-26 — it explicitly revises this blanket
+  requirement; the actual policy is recorded in §11. The two
+  README-designated syntax sketches are expected rejections with their
+  actual diagnostic owners; supported examples must pass `hum check` in
+  their own boundaries; the aggregate directory run is integration
+  coverage with the exact expected rejection set, never proof of
+  individual app validity.)*
+- **H0643** (statement expression type mismatch) was allocated in the
+  Option B implementation (PR #54, merged): front_end_semantics family,
+  full_type_check owner, cause key index 193, allocation/public ordinal
+  99. It names an existing proven rejection — the full-type checker
+  proving a statement's expression type does not match the type its
+  position requires (return, fail, if/while header, let binding, or set
+  place) — surfaced through ordinary human/JSON diagnostics. No new
+  analysis and no new language semantics. H0606 retains its meaning and
+  precedence: the trivial return-type case detected by the type_check
+  stage.
 - Builder-lane design questions left open (not decided here): the exact
   gating site in the `check` arm, rendering of the added stage
   diagnostics in human and JSON formats (keeping `hum.check.v0`'s
@@ -398,3 +418,76 @@ Ocean accepts **Option B**, with **D3** and the cost gate.
   stays silent on call shapes) flip in the B implementation PR, not in
   this record and not now. Until that PR lands, the pinned boundary
   stands.
+
+## 11. Implementation completion (2026-09-26)
+
+> **Reading guide.** §§1–§9 are the pre-implementation analysis: the
+> recommendation, the cost gate, and the per-option reasoning as written
+> before the B implementation existed. Their source line pins and the
+> 94-code catalog table in §2 describe the pre-implementation tree.
+> This section records the shipped state. Where the two disagree, this
+> section is the current truth.
+
+Option B + D3 shipped through PR #54 ("Decision 0030: hum check reports
+the complete static pipeline"), merged to main at
+`fc4ac487279777385ef9a745b1c8c39cc74f4e12`.
+
+**Verification (log inspection attributed to Codex; the Researcher has
+no CI log access):** PR run 36276007003, head `9e6b76e` — both Full
+platforms passed. Main push run 36280300048, attempt 1, head
+`fc4ac487`: Windows job 108510722320 passed in 44m24s; Ubuntu job
+108510722396 passed in 25m45s; Ubuntu exhaustive: 14,226 pairs passed;
+four push-only summary/executable artifacts uploaded; cleanup passed.
+
+**What `hum check` actually reports now** (`src/main.rs:446`–`:528`,
+each stage gated on no earlier errors, in pipeline order): parse,
+source_check (check.rs per-file), app_entry, path_boundary, callable
+(check-only), capability_root, resolve, type_check, full_type_check
+(predicate analysis included). Stage precedence mirrors `hum run`'s
+preflight, as §10 required. The D3 `stages` field on `hum.check.v0`
+(`src/diagnostics.rs:42`–`:73`) lists the stages actually run, in
+pipeline order; app_entry uses intersection semantics — it is listed
+only if it ran for every file (skipped per file when that file has
+parse/source errors).
+
+**Diagnostics:** H0643 (statement expression type mismatch) is the one
+new allocation, recorded in §7. The catalog now carries 97 active codes
+(pre-implementation §2 table counted 94; WO30's H0640–H0642 and H0643
+landed since). H0606 keeps its type_check-stage meaning and precedence.
+
+**Example-corpus policy** (BDFL example-policy ruling, 2026-09-26, as
+implemented in `tools/check_all.ps1` Session AG,
+`Invoke-HumExampleCorpusChecks`): the blanket `hum check examples`
+(exit 0) assertion is gone. The complete examples inventory is pinned —
+30 supported examples plus the 2 sketches; unexpected files fail, and
+newly failing supported examples must not silently become exceptions.
+Every supported example passes `hum check` in its own boundary. The two
+README-designated syntax sketches (`examples/control_flow.hum`,
+`examples/session_server.hum`, README.md:317-318) are preserved and are
+expected rejections with their actual diagnostic owners, not merely a
+nonzero exit: control_flow.hum → three H0602 (duplicate-name resolver
+errors); session_server.hum (single-app boundary) → four H0617
+(capability-root errors for unknown capability families; the resolve
+stage is gated). The aggregate directory run stays as integration
+coverage only — exit 1 with H0601 + six H0602 + H0603 — never as proof
+of individual app validity. The single-app versus directory
+capability-analysis difference is pinned, not changed: a lone
+`hum check <app>.hum` analyzes that app's authority boundary, so
+unknown capability families (e.g. `random.secure`) fire H0617 before
+the resolve stage runs; in directory mode there is no single app
+boundary, so H0617 does not fire and the resolve stage surfaces the
+sketches' H0601/H0602/H0603 errors instead. Both sketches keep their
+existing parser, canonical-projection, math-obligation, and
+resource-report coverage.
+
+**WO30 criterion-2 flips:** done in PR #54 — the fixtures now assert
+`hum check` rejects the call shapes with H0640/H0641/H0642.
+
+**Cost gate, closed:** the revised numerical gate was satisfied before
+implementation (evidence:
+`docs/research/2026-09-26-0030-cost-gate-measurement.md` — wordfreq
+ratio 1.6829971, word-count ratio 1.8210526, both below the 2× fallback
+threshold). That measurement covered the *earlier* `hum check` and
+`hum full-type-check` commands; it is not a measurement of the shipped
+Option B latency and not a controlled CI speedup claim. No benchmark
+repeat was required or performed.
