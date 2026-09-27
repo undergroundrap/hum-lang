@@ -1,9 +1,14 @@
 # Hum Work Order 29: decision 0029 implementation — per-platform locality proofs and the operator grant
 
 Date: 2026-09-25
-Status: DRAFT — pre-issuance review. Not active. WO30 is the active Work
-Order; WO28 is closed. (The active-workorder marker comment is intentionally
-absent from this file; it is added only when this Work Order is activated.)
+<!-- hum-active-workorder:v1 -->
+Status: ACTIVE (issued 2026-09-27). Supersedes WO30 as the active Work Order;
+WO30 is closed with its full mission complete — closure evidence is recorded
+in the transition record below, and the predecessor is preserved byte-for-byte
+(minus its active marker) at `workorders/closed/WORKORDER_30.md`. Issuance
+authorized by the BDFL (Ocean); this transition PR is draft pending Codex
+review. WO29 implementation requires a separate go signal after the
+transition is reviewed and integrated.
 Decision: 0029 (accepted 2026-09-24, Option D: trusted-local file reads)
 
 ## Authorization
@@ -20,12 +25,34 @@ Implement decision 0029's per-platform property proofs (P1–P4) plus the
 explicit operator grant, with evidence labelled per decision 0015, and flip
 Session AG to the trust-path byte-exact success on both platforms.
 
-Queue: this Work Order is specified to execute **after WO30 closes**, once
-activated; preparation of this draft proceeds now. WO28 #7 (portable unix
-read mechanics) merged as `8b0afae` under the earlier ruling; this draft did
-not govern #7. A draft Work Order changes nothing until it is activated;
-the proof specification in Item 1 below is proposed for WO29 and is not in
-force for #7.
+Queue: WO30 closed 2026-09-27 (see transition record below); this Work Order
+is now active. WO28 #7 (portable unix read mechanics) merged as `8b0afae`
+under the earlier ruling; this draft did not govern #7.
+
+## Transition record — WO30 → WO29 (2026-09-27)
+
+WO30 (decision 0030, Option B: `hum check` reports the complete static
+pipeline) closed with its accepted implementation on main. Closure evidence:
+
+- Accepted commits, all merged and ancestors of the issuance base
+  `5171373c`: PR #51 (`dc6f1309`, decision 0030 record, 2026-09-26),
+  PR #54 (`fc4ac487`, check-pipeline implementation, 2026-09-26),
+  PR #55 (`e217a062`, documentation close-out, 2026-09-27), PR #56
+  (`3e2663c2`, H0642 set-target slice, 2026-09-27).
+- Main health at close: push run `36336467387` (Full profile, head
+  `9faa850c`, the red-main recovery) completed success 2026-09-27.
+- Distinguished — not WO30 evidence: run `36344250017` (head `5171373c`,
+  the PR #57 squash-merge push) completed success at Language profile. It
+  validated the WO29 draft merge onto main, not WO30's implementation;
+  the two runs must not be confused.
+- WO30 close-out (ledger #25, per the standing BDFL record): this
+  transition moves `workorders/active/WORKORDER_30.md` to
+  `workorders/closed/WORKORDER_30.md`, removing only its active marker
+  (every other predecessor byte preserved), and activates WO29 here. No
+  WO30 implementation work remains open.
+
+The proof specification in Item 1 below governs WO29 now that it is active;
+it was not in force for #7.
 
 ## The trust attestation: what it waives and what it does not
 
@@ -622,7 +649,12 @@ review sitting each:
   assertions (the Windows classifier is unchanged until Slice B, so its
   refusal pin stays valid meanwhile).
 
-Item 2 is platform-independent and may run parallel to Slice A.
+Item 2 is Windows-specific, not platform-independent: it shares the Windows
+owners with Slice A's Windows plumbing (`crates/windows-drive-locality`,
+the Windows read path in `src/file_read.rs`, `src/run.rs`). It does not run
+alongside Slice A — the accepted dependency order (1 → 4 → 5 → 2 → 3 → 6)
+and the slice sequence stand, and this draft remains the sole writer of the
+Work Order text (one-writer rule preserved).
 
 ## Affected-file scope (complete)
 
