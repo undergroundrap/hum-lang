@@ -46,7 +46,7 @@ standard library direction, backend strategy, or release posture.
 | [0027](0027-adopt-program-driven-language-development.md) | accepted | Adopt program-driven language development: friction ledgers, general-vs-specific test. |
 | [0028](0028-text-rendering-concat-interpolation-integer-conversion.md) | accepted, Option E | Adopt integer-to-Text conversion now; defer concatenation until friction demands it. |
 | [0029](0029-what-storage-counts-as-trusted-local-for-file-reads.md) | accepted, Option D | Trusted-local file reads: per-platform property proofs plus explicit operator grant. |
-| [0030](0030-what-hum-check-reports.md) | accepted, Option B | `hum check` reports everything the static checker knows, gated on a clean cost measurement. |
+| [0030](0030-what-hum-check-reports.md) | accepted, Option B — implemented (PR #54, 2026-09-26) | `hum check` reports the complete static pipeline with the additive D3 `stages` field; cost gate satisfied before implementation. |
 
 ## Template
 
