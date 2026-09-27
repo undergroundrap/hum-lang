@@ -31,22 +31,29 @@ under the earlier ruling; this draft did not govern #7.
 
 ## Transition record — WO30 → WO29 (2026-09-27)
 
-WO30 (decision 0030, Option B: `hum check` reports the complete static
-pipeline) closed with its accepted implementation on main. Closure evidence:
+WO30 ("the checker enforces declared task signatures") closed with its
+accepted implementation on main. Its mission is distinct from decision
+0030 (what `hum check` reports); the decision's own integration and
+close-out followed separately. Closure evidence:
 
-- Accepted commits, all merged and ancestors of the issuance base
-  `5171373c`: PR #51 (`dc6f1309`, decision 0030 record, 2026-09-26),
-  PR #54 (`fc4ac487`, check-pipeline implementation, 2026-09-26),
-  PR #55 (`e217a062`, documentation close-out, 2026-09-27), PR #56
-  (`3e2663c2`, H0642 set-target slice, 2026-09-27).
+- WO30 implementation lineage, all merged and ancestors of the issuance
+  base `5171373ec052d5a3e89b04b005c9428cbdc47a1c`: PR #49 (`90f04780`,
+  signature table and H0640 arity), PR #50 (`59b2050b`, integer-literal
+  range/seal handling, H0011/H0012), PR #52 (`7e791d1b`, argument types,
+  H0641 and retired-code migration), PR #53 (`500e6eaa`, negative UInt
+  literals, H0642).
+- Subsequent decision 0030 integration/close-out, retained: PR #54
+  (`fc4ac487`, check-pipeline implementation), PR #55 (`e217a062`,
+  documentation close-out); PR #56 (`3e2663c2`) was the separately
+  authorized H0642 set-target follow-up.
 - Main health at close: push run `36336467387` (Full profile, head
   `9faa850c`, the red-main recovery) completed success 2026-09-27.
-- Distinguished — not WO30 evidence: run `36344250017` (head `5171373c`,
-  the PR #57 squash-merge push) completed success at Language profile. It
-  validated the WO29 draft merge onto main, not WO30's implementation;
-  the two runs must not be confused.
-- WO30 close-out (ledger #25, per the standing BDFL record): this
-  transition moves `workorders/active/WORKORDER_30.md` to
+- Distinguished — not WO30 evidence: run `36344250017` (head
+  `5171373ec052d5a3e89b04b005c9428cbdc47a1c`, the PR #57 squash-merge
+  push) completed success at Language profile. It validated the WO29
+  draft merge onto main, not WO30's implementation; the two runs must
+  not be confused.
+- This transition moves `workorders/active/WORKORDER_30.md` to
   `workorders/closed/WORKORDER_30.md`, removing only its active marker
   (every other predecessor byte preserved), and activates WO29 here. No
   WO30 implementation work remains open.
