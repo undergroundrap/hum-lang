@@ -67,6 +67,56 @@ path must say exactly this: locality is `trusted-not-proven` /
 - **macOS:** remains unproven/grant-only for this Work Order (Item 3).
 - **Queue:** WO29 follows WO30 closure; preparation proceeds now.
 
+### The read pipeline: classification → opened identity → bounded read → evidence
+
+Every file read under this Work Order traverses one ordered pipeline.
+Authority ordering is preserved end to end; nothing below reorders, skips,
+or weakens it:
+
+1. **Authority/audit open** — the file-read authority event opens first, as
+   today.
+2. **Capability consent (0017)** — a matching `--allow files.read=<path>`
+   is required before anything else is evaluated.
+3. **Locality classification** — the platform proof (Items 1–3) runs; where
+   it cannot prove, the operator attestation (Item 4) is consulted.
+   Refusal here never opens the file. Failure is fail-closed (`Unproven`
+   with a named reason), never optimistic.
+4. **Component walk + open** — the existing hardening is unchanged:
+   `symlink_metadata` per component, links never followed during the walk,
+   `.`/`..` rejected, then `File::open` of the final component.
+5. **Opened-identity binding** — the file's identity is the opened handle's
+   fstat `(dev, ino)` (Windows: the opened handle's identity per the
+   platform classifier). The pre-read walked-vs-handle comparison
+   (`opened_file_matches_walked_target`) stays as the P2/P3-walk check.
+   Pathname equality is not a file-identity proof and is never used as
+   one.
+6. **Bounded read** — the 1 MiB bound and strict UTF-8 validation, unchanged.
+7. **Evidence emission** — `AuthorityAuditEvent` carries the bound identity
+   from step 5 together with the classification and the P1–P4 lines
+   (Item 5).
+
+**Minimal interface change (not comments):** the read entry point
+(`read_checked_unix_file`; the Windows path symmetrically) returns the
+opened identity bound to the bytes it read — the identity is threaded
+through the return value into the evidence emitter, not re-derived at the
+consumer and not documented-only. The walked-vs-handle comparison stays
+where it is; what changes is that the handle's identity leaves the
+function with the bytes. P1–P4 are not weakened: classification still
+fails closed, and the trust path still records the `Unproven` reason with
+the attestation facts.
+
+**Acceptance — substitution/corruption controls** (the prove-consumption-
+by-corruption discipline): with injected adapters through the real
+pipeline, (a) *identity substitution* — the identity threaded from the
+read is replaced with a different file's `(dev, ino)` before emission;
+the test asserts the emitted bundle carries the substituted identity,
+proving the emitter consumed the threaded value rather than re-deriving
+it from the path; (b) *byte corruption* — one byte of the returned read
+bytes is flipped before emission; the test asserts the emitted bundle
+reflects the flipped bytes, proving the bundle binds the actual bytes
+read. A consumer that ignores the threaded values fails these controls
+by construction.
+
 ### Platform effects of the shared attestation and rendering (Items 4–5)
 
 Items 4 and 5 are platform-shared; their effects are stated here, separately
@@ -98,8 +148,9 @@ handle's fstat `(dev, ino)` must equal the walked final component's
 `(dev, ino)`, else `UnsafePath`. There is no explicit `O_NOFOLLOW` and no
 before/after-read verification by those names; the walk/open/identity
 mechanics above are the P2/P3-walk evidence and are unchanged by this Work
-Order (only the stale "P1 remains unproven on unix" doc comment is
-refreshed). The Linux classifier proves P1 **only if every step below
+Order (the interface change is the threaded opened identity specified in
+the pipeline section above, and the stale "P1 remains unproven on unix" doc
+comment is refreshed). The Linux classifier proves P1 **only if every step below
 succeeds**. Any failure
 is `Unproven` with a named reason — never an optimistic admission (decision
 0029, §3: "Fail-closed is non-negotiable. Unclassifiable storage is refused,
@@ -233,7 +284,9 @@ Acceptance criteria (all per `c3ed1ad`, §2–§7):
   value and which query produced it, the device identity (disk numbers), the
   before/after observation and equality verdict, a one-line P1–P4 mapping, the
   classification with provenance, and the admitted bus list shown in the
-  bundle so the next widening is visibly a decision.
+  bundle so the next widening is visibly a decision. The bundle shape rides
+  the shared Item 5 surface (available from Slice A); this Item widens
+  admission, not the API.
 - The classification provenance distinguishes `proven (P1–P4 evidenced)` from
   `trusted (operator grant, external-trust)` — the exact two labels from
   `c3ed1ad` §7, consistent with decision 0015.
@@ -333,28 +386,44 @@ The contract:
   proof paths, and the attestation facts plus the classifier's `Unproven`
   reason on trust paths. Field names are the builder's choice; the values
   above are pinned.
-- **Human channel:** `hum run` stdout stays byte-for-byte the program's
-  output — the existing `println!` behavior (the output bytes plus the
-  established trailing newline) is unchanged. Exactly one stderr line is
-  emitted per file-read exercise that carries a classification, and only
-  when a file read was exercised (existing empty-stderr pins stay green).
-  Trust path: the line contains the literal `trusted-not-proven`. Proof
-  path: the line carries the label `proved`. Exact surrounding format is the
-  builder's choice; the pinned content is the label strings from Item 4.
+- **Human channel — two layers, stated separately:**
+  - *Program output (pinned byte-exact):* the bytes the app wrote are
+    emitted exactly as written. WO29 pins this and changes nothing else
+    about it.
+  - *Task-result rendering (existing behavior, unchanged):* hum's own
+    outcome rendering keeps its established behavior, including its
+    existing trailing-newline convention. That behavior predates this Work
+    Order; this Work Order neither extends nor re-pins it beyond
+    "unchanged". Byte-exactness is asserted on the program's bytes, where
+    the app's trailing newline and the renderer's newline are distinguished
+    by the byte count.
+  - *Stderr evidence line:* exactly one stderr line per file-read exercise
+    that carries a classification, and only when a file read was exercised
+    (existing empty-stderr pins stay green). Trust path: the line contains
+    the literal `trusted-not-proven`. Proof path: the line carries the
+    label `proved`. Exact surrounding format is the builder's choice; the
+    pinned content is the label strings from Item 4.
 - **JSON channel (new surface, authorized by this Item):** one new `hum run`
-  output mode (flag name builder's choice; recommended `--format json`). In
-  JSON mode stdout carries only the JSON envelope; the envelope embeds the
-  program's output bytes byte-exactly (the same bytes the human channel
-  prints) and the `authority_events` array with the Item 4 values
-  (`locality_classification`: `external-trust` on the trust path, `proved`
-  on the proof path). Failure behavior: the envelope is still emitted on
-  failure with the exit code unchanged; a refused read appears as an event
-  carrying its exact refusal reason; if the envelope cannot be constructed,
-  today's behavior stands.
+  output mode (flag name builder's choice; recommended `--format json`).
+  In JSON mode stdout carries **only** the JSON envelope — no human outcome
+  text, no fallback rendering, no replay of the human channel. The envelope
+  embeds the program's output bytes byte-exactly (encoding builder's
+  choice; the round-trip is byte-exact) and the `authority_events` array
+  with the Item 4 values (`locality_classification`: `external-trust` on
+  the trust path, `proved` on the proof path). Failure behavior: the
+  envelope is still emitted on failure; the exit code is unchanged and
+  authoritative; a refused read appears as an event carrying its exact
+  refusal reason; if the envelope cannot be constructed, today's behavior
+  stands.
 
 Acceptance: Session AG (Item 6) pins both the stderr literal and the JSON
 `external-trust` value, so this Item's acceptance is the AG test, not a
-screenshot.
+screenshot. Focused controls (in the CLI test file): empty program output
+(zero bytes embedded, envelope still well-formed); output ending in a
+newline (byte-exactness distinguishes the app's newline from the
+renderer's); partial output on failure (the envelope carries the bytes
+captured before failure plus the failure event); nonzero exit (envelope
+present, exit code unchanged).
 
 ## Item 6 — Session AG end state: byte-exact success under the trust attestation, visibly labelled, both platforms
 
@@ -373,11 +442,20 @@ deferred:
   genuinely admit the read. The unix AG pin becomes provability-aware in the
   same slice: it branches once on the observed no-grant outcome. Exit 1 with
   `FileReadError.unavailable` asserts the refusal shape (unprovable
-  storage); exit 0 asserts the proven-path shape (byte-exact stdout and the
-  `proved` evidence label). The trust-flag run then asserts exit 0,
-  byte-exact stdout, and the evidence label matching the observed admission
-  class (`external-trust` where unprovable, `proved` where the proof
-  outranks trust).
+  storage); exit 0 asserts the proven-path shape. The native harness keeps
+  two negative fixtures distinct: an *unreadable* file (no read permission
+  → `FileReadError.denied`, attestation irrelevant) and a *readable but
+  unattested* file on unprovable storage (no trust flag →
+  `FileReadError.unavailable` with the classifier's `Unproven` reason) —
+  missing permission and missing attestation are different refusals and are
+  pinned separately. Where the pin branches on the observed hardware
+  outcome, the exit-0 branch validates the required bound evidence, not
+  just the label: byte-exact stdout **and** the evidence bundle carrying
+  the fixture file's opened `(dev, ino)` identity, the `proved`
+  classification, and the P1–P4 lines. The trust-flag run then asserts
+  exit 0, byte-exact stdout, and the evidence label matching the observed
+  admission class (`external-trust` where unprovable, `proved` where the
+  proof outranks trust).
 - **Windows (later slice, with Item 2):** the Windows classifier is unchanged
   until Item 2, so the Windows refusal pin stays valid and its flip waits.
 
@@ -438,7 +516,9 @@ closed — a draft Work Order changes nothing until it is activated:
 
 ## Review and evidence requirements
 
-- Independent pre-issuance review of this draft (Codex) before any PR.
+- Independent pre-issuance review of this draft (Codex) before acceptance
+  and issuance. Draft PR publication for review is already authorized
+  (PR #57) and is neither acceptance nor issuance.
 - Honesty locks (decision 0014): no output text or doc may claim more than
   the implementation proves. Evidence labelled `proved` must carry the
   bundle; evidence labelled `trusted-not-proven` / `external-trust` must
@@ -455,8 +535,17 @@ review sitting each:
   proof must not land without the operator recourse (Item 4), the surfaces
   that observe both paths (Item 5), and the provability-aware unix pin
   (Item 6's unix half) — otherwise the refusal pin is knowingly invalid on
-  proof-capable Linux. Windows/macOS behavior is byte-for-byte unchanged in
-  this slice.
+  proof-capable Linux. The platform *classifiers* on Windows/macOS are
+  unchanged in this slice, but Items 4–5 are platform-shared: the
+  attestation, the stderr evidence line, and the JSON channel land on all
+  platforms in Slice A, with platform checks covering the shared effects
+  (Windows: the trust-path assertions on hosted runners; macOS: the
+  grant-only path). The Windows evidence-bundle *shape* (per `c3ed1ad` §8)
+  is emitted starting in Slice A through the shared Item 5 surface; Slice B
+  widens only the *admitted bus list* (the gate at `lib.rs:204`). Bundle
+  availability and admission widening are separate changes. No new
+  framework is introduced — the new controls ride the existing unit and
+  CLI test files.
 - **Slice B — Items 2 + 3.** Windows SD/MMC widening; macOS declared
   unproven. Platform-gated; no CLI or rendering changes.
 - **Slice C — Item 6 remainder.** The Windows AG flip to the trust-path
@@ -470,17 +559,24 @@ Item 2 is platform-independent and may run parallel to Slice A.
 New: `crates/linux-drive-locality/` (manifest, `src/lib.rs`, fixture trees
 under `tests/`); `tests/cli_wo29_trust_locality.rs`.
 
-Modified: `Cargo.toml` (workspace members, dependency); `src/native_path.rs`
-(unix classification seam and the proven-local label); `src/operator_grant.rs`
-(the attestation field, setter, accessors); `src/main.rs` (argv arms,
-run-only gating, usage); `src/run.rs` (gate order, `AuthorityAuditEvent`
-bundle fields, render paths); `src/file_read.rs` (stale P1-unproven doc
-comment only — the walk/open/identity mechanics are unchanged);
-`tools/check_all.ps1` (Session AG pins: unix correction in Slice A, Windows
-flip in Slice C).
+Modified: `Cargo.toml` (workspace members, dependency); `Cargo.lock` (the new
+workspace member; mechanical — no version changes beyond what the new member
+requires); `src/native_path.rs` (unix classification seam and the
+proven-local label); `src/operator_grant.rs` (the attestation field, setter,
+accessors); `src/main.rs` (argv arms, run-only gating, usage); `src/run.rs`
+(gate order, `AuthorityAuditEvent` bundle fields, the threaded opened
+identity consumed at emission, render paths); `src/file_read.rs` (the read
+entry point's return interface — opened identity bound to the returned
+bytes — and the stale P1-unproven doc comment; the walk/open/identity
+mechanics are unchanged); `tools/check_all.ps1` (Session AG pins: unix
+correction in Slice A, Windows flip in Slice C);
+`tools/test_ci_policy.ps1` (mechanically affected: the SHA-256 pins over any
+edited `check_all.ps1` function bodies are recomputed by the builder and
+verified at review; no policy change).
 
-Untouched: `crates/windows-drive-locality` (until Slice B), `docs/`
-(research lane), all fixtures.
+Untouched: `crates/windows-drive-locality` (until Slice B — the Windows
+bundle shape is emitted by the shared surface in Slice A; the crate's gate
+changes only in Slice B), `docs/` (research lane), all fixtures.
 
 ## Focused acceptance plan
 
@@ -505,9 +601,13 @@ Untouched: `crates/windows-drive-locality` (until Slice B), `docs/`
   stderr literal, and `external-trust` in the JSON channel; `--allow` alone
   refuses; mismatched attestation/allow paths refuse.
 - **Harness (Slice A):** the unix AG no-grant pin branches on the observed
-  outcome (refusal shape vs proven-path shape); the trust-flag run asserts
-  exit 0, byte-exact stdout, and the evidence label matching the observed
-  admission class. **Harness (Slice C):** the Windows AG flip.
+  outcome (refusal shape vs proven-path shape); the exit-0 branch validates
+  the bound evidence bundle per Item 6; the two negative fixtures (missing
+  permission vs missing attestation) are pinned separately; the
+  substitution/corruption controls prove the consumer binds the threaded
+  identity and bytes; the trust-flag run asserts exit 0, byte-exact stdout,
+  and the evidence label matching the observed admission class.
+  **Harness (Slice C):** the Windows AG flip.
 - **Fixture evidence vs native hardware proof:** everything above is
   fixture-testable and deterministic. Native hardware proof — a real
   `Proven` admission on NVMe/PCIe, SATA/AHCI, and eMMC iron — needs
