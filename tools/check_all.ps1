@@ -5750,6 +5750,8 @@ function Invoke-HumCompilerCorpusChecks {
     @{ Name = 'unknown file argument type'; Path = 'fixtures/full_type_check/session_ad_file_read_unknown_type_fail.hum'; Surface = 'full-type-check'; Code = 'H0641' },
     @{ Name = 'negative uint literal (module)'; Path = 'fixtures/full_type_check/uint_negative_literal_module_fail.hum'; Surface = 'full-type-check'; Code = 'H0642' },
     @{ Name = 'negative uint literal (app)'; Path = 'fixtures/full_type_check/uint_negative_literal_app_fail.hum'; Surface = 'full-type-check'; Code = 'H0642' },
+    @{ Name = 'negative uint literal set target (module)'; Path = 'fixtures/full_type_check/uint_negative_literal_set_module_fail.hum'; Surface = 'full-type-check'; Code = 'H0642' },
+    @{ Name = 'negative uint literal set target (app)'; Path = 'fixtures/full_type_check/uint_negative_literal_set_app_fail.hum'; Surface = 'full-type-check'; Code = 'H0642' },
     @{ Name = 'reserved file builtin'; Path = 'fixtures/app_entry/session_ad_reserved_file_read_name_fail.hum'; Surface = 'check'; Code = 'H0633' }
   )) {
     $Human = Read-NativeOutputWithExit "Session AD $($Misuse.Name) human" $Hum @($Misuse.Surface, $Misuse.Path)
@@ -5775,7 +5777,9 @@ function Invoke-HumCompilerCorpusChecks {
   # H0642 (module scope and app scope), never H0641.
   foreach ($H0642 in @(
     @{ Name = 'module'; Path = 'fixtures/full_type_check/uint_negative_literal_module_fail.hum'; Expected = 3 },
-    @{ Name = 'app'; Path = 'fixtures/full_type_check/uint_negative_literal_app_fail.hum'; Expected = 2 }
+    @{ Name = 'app'; Path = 'fixtures/full_type_check/uint_negative_literal_app_fail.hum'; Expected = 2 },
+    @{ Name = 'set-target module'; Path = 'fixtures/full_type_check/uint_negative_literal_set_module_fail.hum'; Expected = 4 },
+    @{ Name = 'set-target app'; Path = 'fixtures/full_type_check/uint_negative_literal_set_app_fail.hum'; Expected = 2 }
   )) {
     $H0642Json = Read-NativeOutputWithExit "Session H0642 $($H0642.Name) JSON" $Hum @('full-type-check', '--format', 'json', $H0642.Path)
     $H0642Parsed = $H0642Json.Output | ConvertFrom-Json
@@ -5784,6 +5788,22 @@ function Invoke-HumCompilerCorpusChecks {
     $H0642BadReason = @($H0642Rows | Where-Object { $_.reason -ne 'negative_integer_literal_in_uint_position_v0' })
     if ($H0642Json.ExitCode -ne 1 -or $H0642Rows.Count -ne $H0642.Expected -or $H0642H0641.Count -ne 0 -or $H0642BadReason.Count -ne 0) { throw "Session H0642 $($H0642.Name) must produce exactly $($H0642.Expected) H0642 diagnostics with reason negative_integer_literal_in_uint_position_v0 and zero H0641" }
     Assert-Json "Session H0642 $($H0642.Name) JSON" $H0642Json.Output
+  }
+
+  # WO30 set-target follow-up (BDFL-authorized 2026-09-27): the set-target
+  # H0642 must never duplicate as H0643 and must carry the set-target help
+  # text (not the binding help text).
+  foreach ($H0642Set in @(
+    @{ Name = 'set-target module'; Path = 'fixtures/full_type_check/uint_negative_literal_set_module_fail.hum'; Expected = 4 },
+    @{ Name = 'set-target app'; Path = 'fixtures/full_type_check/uint_negative_literal_set_app_fail.hum'; Expected = 2 }
+  )) {
+    $H0642SetJson = Read-NativeOutputWithExit "Session H0642 $($H0642Set.Name) no-H0643 JSON" $Hum @('full-type-check', '--format', 'json', $H0642Set.Path)
+    $H0642SetParsed = $H0642SetJson.Output | ConvertFrom-Json
+    $H0642SetH0643 = @($H0642SetParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0643' })
+    $H0642SetRows = @($H0642SetParsed.typed_items | ForEach-Object { $_.statements } | Where-Object { $_.diagnostic_code -eq 'H0642' })
+    $H0642SetBadHelp = @($H0642SetRows | Where-Object { $_.help -notlike '*``UInt`` place*' })
+    if ($H0642SetH0643.Count -ne 0 -or $H0642SetRows.Count -ne $H0642Set.Expected -or $H0642SetBadHelp.Count -ne 0) { throw "Session H0642 $($H0642Set.Name) must produce zero H0643 and set-target help text on all $($H0642Set.Expected) H0642 diagnostics" }
+    Assert-Json "Session H0642 $($H0642Set.Name) no-H0643 JSON" $H0642SetJson.Output
   }
 
   if ($env:OS -eq 'Windows_NT') {

@@ -413,3 +413,230 @@ fn cli_result_typed_failure_positive_path() {
         "typed-failure positive path must have zero errors: {combined}"
     );
 }
+
+fn run_hum(args: &[&str], path: &Path) -> std::process::Output {
+    let mut cmd = Command::new(hum_binary());
+    for arg in args {
+        cmd.arg(arg);
+    }
+    cmd.arg(path);
+    cmd.output().expect("run hum")
+}
+
+// WO30 set-target follow-up (BDFL-authorized 2026-09-27): `set` to an
+// exactly-`UInt` place with a statically known negative literal RHS is
+// exactly one H0642 per statement, through the production binary.
+#[test]
+fn cli_h0642_set_negative_literal_via_production_binary() {
+    let path = write_cli_fixture(
+        "h0642_set",
+        "task t() -> UInt {\n  does:\n    change count: UInt = 1\n    set count = -5\n    set count = (-5)\n    return count\n}\n",
+    );
+    // Human output: exact diagnostics, locations, help, stage summary.
+    let out = run_hum(&["check"], &path);
+    assert_eq!(out.status.code(), Some(1), "set H0642 must exit 1");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("error[H0642]"),
+        "human output must contain H0642: {stderr}"
+    );
+    assert!(
+        stderr.matches("error[H0642]").count() == 2,
+        "human output must contain exactly 2 H0642: {stderr}"
+    );
+    assert!(
+        stderr.contains("4:5"),
+        "human output must locate the plain set at 4:5: {stderr}"
+    );
+    assert!(
+        stderr.contains("5:5"),
+        "human output must locate the grouped set at 5:5: {stderr}"
+    );
+    assert!(
+        stderr.contains("Assign a non-negative integer literal"),
+        "human output must carry the set-target help text: {stderr}"
+    );
+    assert!(
+        !stderr.contains("H0641"),
+        "no H0641 for set targets: {stderr}"
+    );
+    assert!(
+        !stderr.contains("H0643"),
+        "no H0643 duplicating the H0642: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("2 error(s)"),
+        "human summary must report 2 errors: {combined}"
+    );
+    // JSON output: code, title, severity, span, stage.
+    let out_json = run_hum(&["check", "--format=json"], &path);
+    assert_eq!(out_json.status.code(), Some(1));
+    let json_stdout = String::from_utf8_lossy(&out_json.stdout);
+    assert!(
+        json_stdout.contains("\"code\": \"H0642\""),
+        "JSON must contain H0642 code: {json_stdout}"
+    );
+    assert!(
+        json_stdout.contains("\"title\": \"negative integer literal in UInt position\""),
+        "JSON must contain H0642 title: {json_stdout}"
+    );
+    assert!(
+        json_stdout.contains("\"severity\": \"error\""),
+        "JSON must mark H0642 as error: {json_stdout}"
+    );
+    assert!(
+        json_stdout.contains("\"line\": 4"),
+        "JSON must contain line 4: {json_stdout}"
+    );
+    assert!(
+        json_stdout.contains("\"line\": 5"),
+        "JSON must contain line 5: {json_stdout}"
+    );
+    assert!(
+        json_stdout.matches("\"code\": \"H0642\"").count() == 2,
+        "JSON must contain exactly 2 H0642: {json_stdout}"
+    );
+    assert!(
+        json_stdout.contains("full_type_check"),
+        "JSON stages must include full_type_check: {json_stdout}"
+    );
+}
+
+#[test]
+fn cli_h0642_set_indexed_and_field_places_via_production_binary() {
+    // Indexed (`List UInt` element) and field (record `UInt` field) places
+    // are H0642 through the production binary.
+    let path = write_cli_fixture(
+        "h0642_set_places",
+        "type Counter {\n  count: UInt\n}\n\ntask t() -> UInt {\n  does:\n    change xs: List UInt = [1, 2]\n    change counter: Counter = {count: 1}\n    set xs[0] = -5\n    set counter.count = (-5)\n    return xs[0]\n}\n",
+    );
+    let out = run_hum(&["check"], &path);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        stderr.matches("error[H0642]").count(),
+        2,
+        "indexed and field places must each be H0642: {stderr}"
+    );
+    assert!(
+        stderr.contains("9:5"),
+        "human output must locate the indexed set at 9:5: {stderr}"
+    );
+    assert!(
+        stderr.contains("10:5"),
+        "human output must locate the field set at 10:5: {stderr}"
+    );
+    assert!(
+        !stderr.contains("H0643"),
+        "no H0643 duplicating the H0642: {stderr}"
+    );
+}
+
+#[test]
+fn cli_h0642_set_immutable_target_earlier_stage_wins() {
+    // Earlier-stage precedence: `set` on an immutable (`let`) target is
+    // rejected before full-type-check (H0202 at source_check), so no H0642
+    // may appear and full_type_check must not run.
+    let path = write_cli_fixture(
+        "h0642_set_immutable",
+        "task t() -> UInt {\n  does:\n    let x: UInt = 3\n    set x = -5\n    return x\n}\n",
+    );
+    let out = run_hum(&["check"], &path);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("H0202"),
+        "immutable set target must keep its earlier-stage diagnostic: {stderr}"
+    );
+    assert!(
+        !stderr.contains("H0642"),
+        "H0642 must not fire for immutable targets: {stderr}"
+    );
+    let out_json = run_hum(&["check", "--format=json"], &path);
+    let json_stdout = String::from_utf8_lossy(&out_json.stdout);
+    assert!(
+        !json_stdout.contains("full_type_check"),
+        "precedence: full_type_check must not run after source_check errors: {json_stdout}"
+    );
+}
+
+#[test]
+fn cli_h0642_set_valid_assignment_exits_zero() {
+    // Positive evidence: a non-negative literal assigned to a `UInt` place
+    // is accepted — exit 0, zero errors.
+    let path = write_cli_fixture(
+        "h0642_set_valid",
+        "task t() -> UInt {\n  does:\n    change count: UInt = 1\n    set count = 5\n    return count\n}\n",
+    );
+    let out = run_hum(&["check"], &path);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "valid set assignment must exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        !combined.contains("error["),
+        "valid set assignment must have zero errors: {combined}"
+    );
+}
+
+#[test]
+fn cli_h0642_set_run_preflight_rejects_before_effects() {
+    // `hum run` preflight must reject the negative-literal set with H0642
+    // before any side effect. The sentinel is printed with the supported
+    // literal-output form (`let written = try stdout_write("...")`) BEFORE
+    // the `set`, under explicit `--allow stdout.write` consent. The paired
+    // control proves the execution path is reachable: it exits 0 and emits
+    // the sentinel.
+    let app_source = |set_rhs: &str| {
+        format!(
+            "module probe\n\napp probe {{\n  uses:\n    stdout.write\n\n  starts with:\n    run_tool\n\n  task run_tool -> Result Unit, OutputError {{\n    uses:\n      stdout.write\n\n    fails when:\n      output is denied\n\n    allocates:\n      one bounded text buffer\n\n    does:\n      let written = try stdout_write(\"H0642_SENTINEL_OK\")\n      change count: UInt = 42\n      set count = {set_rhs}\n      return written\n  }}\n}}\n"
+        )
+    };
+
+    // Control: non-negative assignment. The path is reachable: exit 0 and
+    // the sentinel is emitted.
+    let control_path = write_cli_fixture("h0642_set_run_control", &app_source("7"));
+    let control_out = run_hum(&["run", "--allow", "stdout.write"], &control_path);
+    assert_eq!(
+        control_out.status.code(),
+        Some(0),
+        "control must exit 0 (execution path reachable)"
+    );
+    let control_stdout = String::from_utf8_lossy(&control_out.stdout);
+    assert!(
+        control_stdout
+            .lines()
+            .any(|line| line.trim() == "H0642_SENTINEL_OK"),
+        "control must emit the sentinel: {control_stdout}"
+    );
+
+    // Negative case: the H0642 preflight rejection must fire before any side
+    // effect, so the sentinel is never emitted.
+    let path = write_cli_fixture("h0642_set_run", &app_source("-5"));
+    let out = run_hum(&["run", "--allow", "stdout.write"], &path);
+    assert_eq!(out.status.code(), Some(1), "run preflight must exit 1");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("H0642"),
+        "run preflight must reject with H0642: {combined}"
+    );
+    assert!(
+        stderr.contains("unsupported_statements=0"),
+        "no unsupported statement may supply the rejection: {combined}"
+    );
+    assert!(
+        !stdout
+            .lines()
+            .any(|line| line.trim() == "H0642_SENTINEL_OK"),
+        "run preflight must not execute the body (sentinel absent): {combined}"
+    );
+}

@@ -3865,8 +3865,8 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
     DiagnosticInfo {
         code: DiagnosticCode::NEGATIVE_UINT_LITERAL,
         default_severity: Severity::Error,
-        explanation: "A statically known negative integer literal reaches a `UInt` parameter (of a user task or one of the seven builtins) or a `UInt`-annotated `let`/`change` binding. Only literals seen through `Group` nodes are decidable; variables, arithmetic such as `0 - 5`, and calls stay runtime-trapped.",
-        repair: "Replace the negative literal with a non-negative value, or change the parameter or binding type to `Int`.",
+        explanation: "A statically known negative integer literal reaches a `UInt` parameter (of a user task or one of the seven builtins), a `UInt`-annotated `let`/`change` binding, or a `set` target whose existing type fact is exactly `UInt` (a local, a `List UInt` element, or a record `UInt` field). Only literals seen through `Group` nodes are decidable. Assignment itself has no universal `UInt` sign trap: `set` performs no sign check at runtime. The guarded consumers are specific — external-entry `UInt` argument parsing rejects negative input, and `uint_to_text` traps on negative values — while variables, arithmetic such as `0 - 5`, and calls keep their existing behavior.",
+        repair: "Replace the negative literal with a non-negative value, or change the parameter, binding, or target place type to `Int`.",
     },
     DiagnosticInfo {
         code: DiagnosticCode::STATEMENT_TYPE_MISMATCH,

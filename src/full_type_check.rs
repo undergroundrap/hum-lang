@@ -1231,6 +1231,40 @@ fn type_statement(
         return typed;
     }
 
+    // WO30 set-target follow-up (H0642, BDFL-authorized 2026-09-27; WO30
+    // Item 3 flagged this as deferred): a statically known negative integer
+    // literal (through `Group` only) assigned with `set` to a place whose
+    // existing type fact is exactly `UInt`. Reuses the canonical probe and
+    // the binding block's diagnostic shape; exactly one H0642, never H0643.
+    // Non-literal RHS (variables, arithmetic, calls) keeps its existing
+    // unchecked/H0643 behavior; immutable targets keep H0603 precedence via
+    // the blocked-program early return above.
+    if statement.kind == "set_place"
+        && let crate::ast::ParsedBodyStatementKind::Other { expressions } = &parsed.kind
+        && let [rhs] = expressions.as_slice()
+        && let Some(place) = set_place_name(statement)
+        && let Some(fact) = place_type_fact(place, scopes, field_types)
+        && fact.type_text == "UInt"
+        && negative_int_literal_through_group(&rhs.canonical)
+    {
+        let mut typed = typed_statement(
+            statement,
+            index,
+            expression_text_for_statement(statement).map(str::to_string),
+            Some("UInt".to_string()),
+            Some(type_fact("integer_literal", "negative_uint_literal_v0")),
+            "rejected_negative_integer_literal_in_uint_position_v0",
+            Some("negative_integer_literal_in_uint_position_v0"),
+        );
+        typed.caller_span = Some(item.span().clone());
+        typed.diagnostic_code = Some(DiagnosticCode::NEGATIVE_UINT_LITERAL.as_str());
+        typed.help = Some(
+            "Assign a non-negative integer literal to this `UInt` place; a negative literal cannot convert to `UInt`."
+                .to_string(),
+        );
+        return typed;
+    }
+
     // WO30 Item 2: narrowed to value-level H0636 reasons only (stray empty
     // argument, directly written empty separator); arity/type reasons moved
     // to the general H0640/H0641 probe above.
@@ -4205,6 +4239,142 @@ app probe {
         assert_eq!(count_diagnostic_code(&json, "H0641"), 1);
         assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
         assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    // WO30 set-target follow-up (BDFL-authorized 2026-09-27): `set` to a
+    // place whose existing type fact is exactly `UInt` with a statically
+    // known negative literal RHS (through `Group` only) is exactly one
+    // H0642. Covers local, grouped, indexed, and field places.
+    #[test]
+    fn h0642_set_uint_places_are_h0642() {
+        for (name, source) in [
+            (
+                "plain",
+                r#"task t() -> UInt {
+  does:
+    change count: UInt = 1
+    set count = -5
+    return count
+}
+"#,
+            ),
+            (
+                "grouped",
+                r#"task t() -> UInt {
+  does:
+    change count: UInt = 1
+    set count = ((-5))
+    return count
+}
+"#,
+            ),
+            (
+                "indexed",
+                r#"task t() -> UInt {
+  does:
+    change xs: List UInt = [1, 2]
+    set xs[0] = -5
+    return xs[0]
+}
+"#,
+            ),
+            (
+                "field",
+                r#"type Counter {
+  count: UInt
+}
+
+task t() -> UInt {
+  does:
+    change counter: Counter = {count: 1}
+    set counter.count = -5
+    return counter.count
+}
+"#,
+            ),
+        ] {
+            let program = text_split_probe_program(source);
+            let json = full_type_check_json(&program, &[]);
+            assert_eq!(count_diagnostic_code(&json, "H0642"), 1, "{name}");
+            assert_eq!(count_diagnostic_code(&json, "H0641"), 0, "{name}");
+            assert_eq!(count_diagnostic_code(&json, "H0643"), 0, "{name}");
+            assert!(full_type_check_has_errors(&program, &[]), "{name}");
+        }
+    }
+
+    #[test]
+    fn h0642_set_non_uint_target_has_no_h0642() {
+        // A negative literal into an `Int` place is not H0642 (the probe
+        // requires an exactly-`UInt` target fact). `-5` has no inferred
+        // expression type (leading `-` is not an `integer_literal` token),
+        // so the statement stays unchecked — pre-existing behavior, not
+        // acceptance. No H0641, no H0643 either.
+        let source = r#"task t() -> Int {
+  does:
+    change n: Int = 1
+    set n = -5
+    return n
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0643"), 0);
+        assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0642_set_non_literal_rhs_keeps_existing_behavior() {
+        // Non-literal RHS keeps its existing behavior: no H0642. An `Int`
+        // variable into a `UInt` place still fires the pre-existing general
+        // H0643 (the new probe must not swallow it); an arithmetic RHS has
+        // unknown type and stays unchecked/silent. Absence of H0642 is not
+        // acceptance — the arithmetic case still blocks on unchecked.
+        let source = r#"task t(n: Int) -> UInt {
+  does:
+    change count: UInt = 1
+    set count = n
+    return count
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0643"), 1);
+        assert!(full_type_check_has_errors(&program, &[]));
+
+        let source = r#"task t() -> UInt {
+  does:
+    change count: UInt = 1
+    set count = 0 - 5
+    return count
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0643"), 0);
+        assert!(full_type_check_has_errors(&program, &[]));
+    }
+
+    #[test]
+    fn h0642_set_valid_assignment_has_no_diagnostics() {
+        // Positive evidence: a non-negative literal assigned to a `UInt`
+        // place is accepted — the probe only rejects negative literals.
+        let source = r#"task t() -> UInt {
+  does:
+    change count: UInt = 1
+    set count = 5
+    return count
+}
+"#;
+        let program = text_split_probe_program(source);
+        let json = full_type_check_json(&program, &[]);
+        assert_eq!(count_diagnostic_code(&json, "H0642"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0641"), 0);
+        assert_eq!(count_diagnostic_code(&json, "H0643"), 0);
+        assert!(!full_type_check_has_errors(&program, &[]));
     }
 
     #[test]
