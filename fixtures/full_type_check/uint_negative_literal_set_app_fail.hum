@@ -1,0 +1,30 @@
+app negative_uint_literal_set {
+  why:
+    reject negative integer literals assigned to UInt places with H0642
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task run_tool() -> Unit {
+    uses:
+      stdout.write
+
+    fails when:
+      the negative literal cannot convert to UInt
+
+    allocates:
+      one bounded text buffer
+
+    does:
+      change count: UInt = 1
+      set count = -5
+      change total: UInt = 1
+      set total = (-5)
+      let label = uint_to_text(count)
+      stdout_write(label)
+      return
+  }
+}

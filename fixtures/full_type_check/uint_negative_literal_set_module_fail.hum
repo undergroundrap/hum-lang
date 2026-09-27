@@ -1,0 +1,33 @@
+module tests.wo30
+
+type Counter {
+  count: UInt
+}
+
+task set_plain_negative() -> Unit {
+  does:
+    change count: UInt = 1
+    set count = -5
+    return
+}
+
+task set_grouped_negative() -> Unit {
+  does:
+    change count: UInt = 1
+    set count = (-5)
+    return
+}
+
+task set_indexed_negative() -> Unit {
+  does:
+    change xs: List UInt = [1, 2]
+    set xs[0] = -5
+    return
+}
+
+task set_field_negative() -> Unit {
+  does:
+    change counter: Counter = {count: 1}
+    set counter.count = -5
+    return
+}

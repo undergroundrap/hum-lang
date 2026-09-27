@@ -134,6 +134,21 @@ Out of scope but noted: `set` targets with `UInt` type are not covered by
 this item (same decidability would apply; left for a follow-up — flagged,
 not built).
 
+> **BDFL ruling (Ocean, 2026-09-27) — narrow `set`-target follow-up
+> authorized, original deferral retained as history.** The deferral above
+> stands as the record of what Item 3 shipped without. Ocean separately
+> authorized the deferred slice without a new Work Order: `set` to a place
+> whose existing type fact is exactly `UInt` (local, `List UInt` element,
+> or record `UInt` field), with RHS canonically a negative `IntLiteral`
+> through `Group` nodes only, is exactly one H0642 — reusing the Item 3
+> probe, diagnostic, and wording. Scope is bounded: no new inference,
+> constant folding, allocation, schema, parser redesign, or runtime repair;
+> earlier-stage precedence (e.g. immutable-target diagnostics), existing
+> diagnostics (H0641/H0643), and runtime behavior are preserved. Non-literal
+> RHS keeps its existing unchecked/H0643 behavior. Assignment itself has no
+> universal `UInt` sign trap; the guarded consumers stay specific
+> (external-entry `UInt` argument parsing, `uint_to_text`).
+
 - The `uint_to_text` / `int_to_text` invariant-violation traps from PR #44
   and the runtime arity trap stay exactly as they are: they are the
   fail-closed backstop for every shape above the decidable list.
