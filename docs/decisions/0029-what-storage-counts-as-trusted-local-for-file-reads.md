@@ -392,10 +392,14 @@ the guest.
    in the evidence bundle and returns `Unproven` with a named reason. The
    reason distinguishes **known network evidence** — `transport` of
    `tcp`/`rdma`/`fc`; `nfs`/`nfs4`/`cifs`/`smb`/`ncpfs`/`afp`/`ceph`
-   filesystems; iSCSI/`nbd`/`rbd` initiators (positively network-backed,
-   never proof-eligible) — from **merely insufficient evidence**
-   (plausible-local observations whose invisible backing cannot be
-   excluded; missing/unreadable/unresolvable evidence; stacked devices).
+   filesystems; iSCSI initiators (the iSCSI protocol is network transport —
+   positively network-backed, never proof-eligible) — from **merely
+   insufficient evidence** (plausible-local observations whose invisible
+   backing cannot be excluded; missing/unreadable/unresolvable evidence;
+   stacked devices). `nbd`/`rbd` and similar device or protocol names alone
+   are not known-network evidence: they are recorded as observed facts with
+   the insufficient-evidence reason unless additional observations (e.g. a
+   network `transport` attribute) justify the stronger reason.
    Both fail closed without the grant; both are honestly labelled with the
    grant. The distinction is pinned by tests; exact reason strings are the
    builder's choice, reviewed.
@@ -412,10 +416,12 @@ the guest.
    scope.
 5. *Non-waivable safeguards preserved.* Capability consent (0017),
    exact-path attestation, the component walk, pre-read file-identity
-   enforcement (`(dev, ino)` binding before payload consumption),
-   contradictory-evidence rejection, the 1 MiB bound, and strict UTF-8
-   validation are unchanged and unwaivable by the grant — the grant waives
-   **proof of P1** and the storage-substitution leg of P3 only.
+   enforcement — unix `(dev, ino)` binding, Windows volume/file identity —
+   bound before payload consumption, contradictory-evidence rejection, the
+   1 MiB bound, and strict UTF-8 validation are unchanged and unwaivable by
+   the grant — the grant waives **proof of P1** and the storage-substitution
+   leg of P3 only. The guarantee is shared; the identity fields are
+   platform-correct, not identical.
 
 **Primary sources for the insufficiency finding:** mountinfo field layout
 and parent topology (`Documentation/filesystems/proc.rst` §3.5,

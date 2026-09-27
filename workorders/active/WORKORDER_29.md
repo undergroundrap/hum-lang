@@ -148,19 +148,23 @@ or weakens it:
    numbers identify the *device*, not the *file*, and are not file
    identity. The exact OS primitive is builder's choice, reviewed; the
    requirement is specified here. Missing required identity, or an
-   identity mismatch, rejects the read fail-closed. The unix-only
+   identity mismatch, rejects the read fail-closed — the grant never
+   covers file identity. The unix-only
    comparison does not provide Windows identity and is not claimed to.
-6. **Observed-identity binding** — the observed backing-device facts are
-   bound to the opened object: the facts' device identity must match the
-   opened object's observed device identity. Missing required evidence
-   prevents admission — fail-closed, never optimistic. On the *attested*
-   path, an explicit matching trust grant covers the unproven P1; the
-   absence and its reason are honestly recorded (`Unproven` with the named
-   reason, `external-trust` classification). The grant fabricates no
-   evidence and waives nothing: file identity, the ordinary-file check,
-   and the path safeguards apply to every admitted read, including
-   external-trust. Observed contradictory binding evidence is never
-   silently ignored — it rejects fail-closed before payload consumption.
+6. **Observed-identity binding** — the *available* observed backing-device
+   facts are bound to the opened object: the facts' device identity must
+   match the opened object's observed device identity. *Unavailable*
+   backing observations are the attested path: an explicit matching trust
+   grant covers the unproven P1, and the absence and its reason are honestly
+   recorded (`Unproven` with the named reason, `external-trust`
+   classification). The grant covers missing locality/backing observations
+   only — usable file identity remains mandatory (step 5). The grant
+   fabricates no evidence and waives nothing else: file identity, the
+   ordinary-file check, and the path safeguards apply to every admitted
+   read, including external-trust. Available contradictory binding
+   evidence — observed device ≠ opened object device — rejects fail-closed
+   before payload consumption, grant or no grant; it is never
+   silently ignored.
 7. **Bounded read** — the 1 MiB bound and strict UTF-8 validation run only
    after steps 5–6 pass; unchanged.
 8. **Evidence emission** — `AuthorityAuditEvent` carries the bound identity
@@ -197,7 +201,8 @@ pattern.
 
 **Complete minimal future owners:** `src/file_read.rs` (unix and Windows
 open-phase identity capture and threading); `crates/windows-drive-locality`
-(classifier return type; Windows file/volume identity provision);
+(classifier verdict demotion to grant-first and return type; Windows
+file/volume identity provision);
 `src/native_path.rs` (unix classification seam: backing-device evidence);
 `src/run.rs` (file-identity binding, observed-identity binding, and
 enforcement before payload consumption; evidence emission);
@@ -205,15 +210,20 @@ enforcement before payload consumption; evidence emission);
 
 **Acceptance — focused future controls** (specified criteria, not
 permission to execute now): with injected adapters through the real
-pipeline, (a) *honest observation binding* — observed backing-device facts
-bound to the opened object; the control asserts the threaded facts appear
+pipeline, (a) *honest observation binding* — *available* observed
+backing-device facts bound to the opened object; the control asserts the threaded facts appear
 in the bundle and match the opened object's device; contradictory binding
 evidence (observed device ≠ opened object device) rejects fail-closed
-before payload consumption — never logged-and-ignored; (b) *honest
-attested admission* — trust grant with unavailable P1/backing proof:
+before payload consumption — never logged-and-ignored, grant or no grant
+(the grant covers the *absence* of observations, not a contradiction among
+available ones); (b) *honest
+attested admission* — trust grant with unavailable P1/backing observations:
 admission under `external-trust` with the absence and reason honestly
-recorded; the control asserts no fabricated proof evidence appears and
-that file identity, ordinary-file, and path safeguards still reject;
+recorded; the control asserts no fabricated proof evidence appears; that
+file identity, ordinary-file, and path safeguards still reject — missing
+usable file identity rejects even on the attested path — and that
+contradictory binding evidence still rejects (the grant covers absence,
+not contradiction);
 (c) *reason distinction* — known-network evidence (e.g. `transport=tcp`)
 and merely-insufficient evidence (e.g. `transport=pcie` with no further
 proof) yield distinct `Unproven` reasons, pinned; both fail closed without
@@ -377,9 +387,13 @@ symlink target and the disk name pattern.
     itself).
 - **`Unproven` in this WO version (trust path):** `dm-*` (device-mapper,
   including LUKS), `md*` (MD RAID), `loop*`, `nbd`, `rbd`, `drbd`, and any
-  device the classifier cannot resolve. These are honest `Unproven`, not
-  refusals of the concept — a later decision may widen the admission with its
-  own evidence.
+  device the classifier cannot resolve. These are honest `Unproven` with the
+  insufficient-evidence reason — recorded as observed facts (device class
+  observed, backing unresolved), not refusals of the concept. A device or
+  protocol name alone (`nbd`, `rbd`, or similar) never justifies the
+  known-network reason; the stronger reason requires additional observations
+  (e.g. a `tcp`/`rdma`/`fc` transport attribute). A later decision may widen
+  the admission with its own evidence.
 - **Fail closed:** any mountinfo or sysfs read/parse failure, any unresolvable
   device, any unrecognized layout → `Unknown` → `Unproven`
   (e.g. `p1_evidence_unavailable_v0`) → refuse. The read fails closed with the
@@ -419,9 +433,11 @@ Acceptance criteria (all per `c3ed1ad`, §2–§7):
 - In `crates/windows-drive-locality/src/lib.rs`, add `BUS_TYPE_SD` (12) and
   `BUS_TYPE_MMC` (13) to the observed local-bus list alongside ATA/SATA/NVMe
   (the gate at `lib.rs:204` becomes an observation gate: which bus types
-  yield local-bus facts). The verdict demotion is amendment-wide and rides
-  Slice A: no bus-type observation independently earns `proved`
-  (amendment 2026-09-27); admission is grant-first. Nothing else in the
+  yield local-bus facts). The verdict demotion (grant-first admission: no
+  bus-type observation independently earns `proved`) lands in Slice A per
+  the slice description below — it is not this Item's change. This Item
+  widens only the observed bus list; observation-list work stays distinct
+  from admission changes. Nothing else in the
   gate changes.
 - The `STORAGE_DEVICE_DESCRIPTOR.RemovableMedia` handling stays exactly as
   is: fixed, non-removable eMMC/SD (`RemovableMedia` false) yields the
@@ -599,28 +615,30 @@ P1-unproven refusal pin (exit 1, `FileReadError.unavailable`, reason
 `p1_locality_unproven_on_this_platform_v0`). The fixture path is absolute
 and repo-root-joined on both platforms.
 
-The harness correction rides with the slice that needs it — it is not
-deferred:
+The harness correction rides Slice A — it is not deferred:
 
-- **Unix (with the Item 1 slice):** no classifier in this WO version emits
+- **Unix and Windows (Slice A):** no classifier in this WO version emits
   `proved`, so the no-grant refusal pin is hardware-independent: the read
-  is refused fail-closed on every platform. The native harness keeps two
-  negative fixtures distinct, with no permission-changing fixtures: an
-  OS-readable owned file with no Hum `--allow` → `FileReadError.denied`
-  (Hum consent enforcement, independent of OS readability), and the same
-  file with matching `--allow` on unprovable storage but no trust flag →
+  is refused fail-closed on every platform. The Windows admission demotion
+  lands in Slice A — the ATA/SATA/NVMe branches become observed-fact
+  extraction with `Unproven` verdicts — so the shipped Windows refusal
+  pin's reason is superseded in Slice A, and both platforms' no-grant pins
+  assert the demoted refusal shape. The native harness keeps two negative
+  fixtures distinct, with no permission-changing fixtures: an OS-readable
+  owned file with no Hum `--allow` → `FileReadError.denied` (Hum consent
+  enforcement, independent of OS readability), and the same file with
+  matching `--allow` on unprovable storage but no trust flag →
   `FileReadError.unavailable` with the classifier's `Unproven` reason
   (attestation missing). Missing consent and missing attestation are
   different refusals and are pinned separately. The trust-flag run asserts
   exit 0, byte-exact stdout, **and** the required bound evidence: the
-  evidence bundle carrying the fixture file's opened `(dev, ino)` identity,
-  the `external-trust` classification, and the classifier's `Unproven`
-  reason honestly recorded — identical on both platforms.
-- **Windows (later slice, with Item 2):** the Windows classifier is unchanged
-  until Item 2, so the Windows refusal pin stays valid and its flip waits;
-  the flip's acceptance is the trust-path success above, unchanged.
+  evidence bundle carrying the fixture file's opened file identity — unix
+  `(dev, ino)`, Windows volume/file identity — the `external-trust`
+  classification, and the classifier's `Unproven` reason honestly recorded.
+  The guarantees are identical on both platforms; the identity fields are
+  platform-correct, not identical.
 
-The new assertions, on **both** Windows and Ubuntu (final state):
+The new assertions, on **both** Windows and Ubuntu (Slice A):
 
 - `hum run examples/tools/wordfreq.hum --allow stdout.write
   --allow=files.read=<fixture path> --trust-locality
@@ -686,23 +704,29 @@ closed — a draft Work Order changes nothing until it is activated:
   the implementation proves. Evidence labelled `proved` must carry the
   bundle; evidence labelled `trusted-not-proven` / `external-trust` must
   carry the grant facts and the classifier's `Unproven` reason. The trust
-  grant covers unavailable P1/backing proof only; it fabricates no
-  evidence and waives no safeguard — file identity, the ordinary-file
-  check, and the path safeguards apply to every admitted read.
+  grant covers unavailable locality/backing observations only; it fabricates
+  no evidence and waives no safeguard — usable file identity remains
+  mandatory, and the ordinary-file check and the path safeguards apply to
+  every admitted read.
 - Every Item's acceptance criteria are asserted by tests, not by prose.
   Session letters continue the project odometer.
 
 ## Implementation slices
 
-Dependency order 1 → 4 → 5 → 2 → 3 → 6, in three slices sized for one
-review sitting each:
+Dependency order 1 → 4 → 5 → 2 → 3, in two slices sized for one
+review sitting each. Item 6's AG harness correction rides Slice A — it
+depends on Items 1 + 4 + 5 only, not on the Item 2/3 observation work.
 
-- **Slice A — Items 1 + 4 + 5 + the unix AG harness correction.** The Linux
+- **Slice A — Items 1 + 4 + 5 + 6 (AG harness correction).** The Linux
   classifier must not land without the operator recourse (Item 4), the
-  surfaces that observe both paths (Item 5), and the grant-first unix pin
-  (Item 6's unix half) — otherwise the Item 1 observations have no
-  admission path and the pins describe behavior that does not exist yet.
-  Admission policy on Windows/macOS is unchanged in this slice, but Items
+  surfaces that observe both paths (Item 5), and the grant-first AG pins
+  (Item 6) — otherwise the Item 1 observations have no admission path and
+  the pins describe behavior that does not exist yet.
+  Windows admission is demoted to grant-first in this slice: the
+  ATA/SATA/NVMe observation branches become observed-fact extraction with
+  `Unproven` verdicts — no bus-type observation independently earns
+  `proved` — and the attestation is the sole locality admission path on
+  Windows from this slice on. macOS remains grant-only, unchanged. Items
   4–5 are platform-shared: the attestation, the stderr evidence line, and
   the JSON channel land on all platforms in Slice A, with platform checks
   covering the shared effects (Windows: the trust-path assertions on
@@ -716,26 +740,23 @@ review sitting each:
   imported), and the Windows read path captures and threads the opened
   handle's file/volume identity (volume identity plus per-file
   identifier — disk numbers identify the device, never the file). Owners:
-  `crates/windows-drive-locality` for the classifier return type and the
-  file/volume identity provision; `src/file_read.rs` and `src/run.rs` for
-  the capture, threading, pre-read enforcement, and emission. Slice B
-  widens only the *observed bus list* (the gate at `lib.rs:204`) —
-  observation facts, not admission: no bus-type observation independently
-  earns `proved`.
+  `crates/windows-drive-locality` for the classifier verdict demotion,
+  the return type, and the file/volume identity provision;
+  `src/file_read.rs` and `src/run.rs` for the capture, threading, pre-read
+  enforcement, and emission. Slice B widens only the *observed bus list*
+  (the gate at `lib.rs:204`) — observation facts, not admission: no
+  bus-type observation independently earns `proved`.
   Plumbing availability and admission widening are separate changes. No new
   framework is introduced — the new controls ride the existing unit and
   CLI test files.
 - **Slice B — Items 2 + 3.** Windows SD/MMC observation widening; macOS
   declared unproven (grant-only). Platform-gated; no CLI, rendering, or
   admission changes.
-- **Slice C — Item 6 remainder.** The Windows AG flip to the trust-path
-  assertions (the Windows classifier is unchanged until Slice B, so its
-  refusal pin stays valid meanwhile).
 
 Item 2 is Windows-specific, not platform-independent: it shares the Windows
 owners with Slice A's Windows plumbing (`crates/windows-drive-locality`,
 the Windows read path in `src/file_read.rs`, `src/run.rs`). It does not run
-alongside Slice A — the accepted dependency order (1 → 4 → 5 → 2 → 3 → 6)
+alongside Slice A — the accepted dependency order (1 → 4 → 5 → 2 → 3)
 and the slice sequence stand, and this draft remains the sole writer of the
 Work Order text (one-writer rule preserved).
 
@@ -759,11 +780,12 @@ phase yields the handle with its identity for pre-read enforcement — and
 the stale P1-unproven doc comment; the Windows path gains the file/volume
 identity capture; identity mechanics change wherever the new checks
 require it);
-`crates/windows-drive-locality` (classifier return type carries the observed
-backing-device identity; Windows file/volume identity provision — Slice A;
-the bus-list admission gate — Slice B);
-`tools/check_all.ps1` (Session AG pins: unix correction in Slice A, Windows
-flip in Slice C);
+`crates/windows-drive-locality` (classifier verdict demotion to grant-first,
+return type carrying the observed backing-device identity, and Windows
+file/volume identity provision — Slice A; the observed bus-list widening —
+Slice B);
+`tools/check_all.ps1` (Session AG pins: both-platforms harness correction in
+Slice A);
 `tools/test_ci_policy.ps1` (mechanically affected: the SHA-256 pins over any
 edited `check_all.ps1` function bodies are recomputed by the builder and
 verified at review; no policy change).
@@ -782,6 +804,9 @@ Untouched: `docs/` (research lane), all fixtures.
   insufficient-evidence; sd+local-HBA-driver recorded as observed fact,
   `Unproven` insufficient-evidence; virtio-scsi/usb/storvsc refused as
   guest-invisible or insufficient-evidence; iscsi refused as known-network;
+  nbd/rbd device-name-only observations recorded as observed facts,
+  `Unproven` with the insufficient-evidence reason (the name alone never
+  justifies known-network);
   mmcblk non-removable MMC/SD recorded as observed fact, `Unproven`
   insufficient-evidence; removable refused with the removability reason;
   vd*/xvd*/storvsc refused; dm/md/loop refused; st_dev mismatch refused;
@@ -798,17 +823,18 @@ Untouched: `docs/` (research lane), all fixtures.
   the trust-path run exits 0 with byte-exact stdout, the `trusted-not-proven`
   stderr literal, and `external-trust` in the JSON channel; `--allow` alone
   refuses; mismatched attestation/allow paths refuse.
-- **Harness (Slice A):** the unix AG no-grant pin asserts the refusal shape
-  (hardware-independent — no classifier in this WO version emits `proved`);
-  the trust-flag run asserts exit 0, byte-exact stdout, and the bound
-  evidence bundle per Item 6 (`external-trust` with the `Unproven` reason);
-  the two negative fixtures (missing Hum consent vs missing attestation, no
+- **Harness (Slice A, both platforms):** the no-grant pins assert the
+  refusal shape on unix and Windows (hardware-independent — no classifier
+  in this WO version emits `proved`); the trust-flag runs assert exit 0,
+  byte-exact stdout, and the bound evidence bundle per Item 6
+  (`external-trust` with the `Unproven` reason; platform-correct identity
+  fields — unix `(dev, ino)`, Windows volume/file identity); the two
+  negative fixtures (missing Hum consent vs missing attestation, no
   permission changes) are pinned separately; the focused future controls are
   specified per the pipeline section — honest observation binding, honest
   attested admission, reason distinction, no proved emission, contradictory
   binding evidence, same-disk file substitution, missing required file
   identity — plus the emitter-consumption propagation check.
-  **Harness (Slice C):** the Windows AG flip.
 - **Fixture evidence vs native hardware observation:** everything above is
   fixture-testable and deterministic. This WO version defers automatic
   proof, so no native-hardware `Proven` admission is an acceptance
