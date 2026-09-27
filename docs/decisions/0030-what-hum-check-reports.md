@@ -439,28 +439,33 @@ platforms passed. Main push run 36280300048, attempt 1, head
 108510722396 passed in 25m45s; Ubuntu exhaustive: 14,226 pairs passed;
 four push-only summary/executable artifacts uploaded; cleanup passed.
 
-**What `hum check` actually reports now** (`src/main.rs:446`–`:528`,
-each stage gated on no earlier errors, in pipeline order): parse,
-source_check (check.rs per-file), app_entry, path_boundary, callable
-(check-only), capability_root, resolve, type_check, full_type_check
-(predicate analysis included). Stage precedence mirrors `hum run`'s
-preflight, as §10 required. The D3 `stages` field on `hum.check.v0`
-(`src/diagnostics.rs:42`–`:73`) lists the stages actually run, in
-pipeline order; app_entry uses intersection semantics — it is listed
-only if it ran for every file (skipped per file when that file has
-parse/source errors).
+**What `hum check` actually reports now** (`src/main.rs:449`–`:526`;
+`load_program`, `src/main.rs:3492` onward): parse and source_check
+(check.rs per-file) run per loaded file; app_entry is gated per file —
+skipped for files with parse/source errors — and the D3 `stages` list
+includes it only when it ran for all files; subsequent stages —
+path_boundary, callable (check-only), capability_root, resolve,
+type_check, full_type_check (predicate analysis included) — are gated
+on accumulated earlier errors, in pipeline order. Stage precedence
+mirrors `hum run`'s preflight, as §10 required. The D3 `stages` field on
+`hum.check.v0` (`src/diagnostics.rs:42`–`:73`) lists the stages actually
+run, in pipeline order; app_entry uses intersection semantics — it is
+listed only if it ran for every file (skipped per file when that file
+has parse/source errors).
 
 **Diagnostics:** H0643 (statement expression type mismatch) is the one
-new allocation, recorded in §7. The catalog now carries 97 active codes
-(pre-implementation §2 table counted 94; WO30's H0640–H0642 and H0643
-landed since). H0606 keeps its type_check-stage meaning and precedence.
+new allocation, recorded in §7. The catalog carries 100 total entries:
+97 active and 3 retired (H0622/H0626/H0632, retired in WO30 Item 2;
+their allocations are frozen and never emitted). H0606 keeps its
+type_check-stage meaning and precedence.
 
 **Example-corpus policy** (BDFL example-policy ruling, 2026-09-26, as
 implemented in `tools/check_all.ps1` Session AG,
 `Invoke-HumExampleCorpusChecks`): the blanket `hum check examples`
 (exit 0) assertion is gone. The complete examples inventory is pinned —
-30 supported examples plus the 2 sketches; unexpected files fail, and
-newly failing supported examples must not silently become exceptions.
+31 supported examples plus the 2 sketches, 33 total; unexpected files
+fail, and newly failing supported examples must not silently become
+exceptions.
 Every supported example passes `hum check` in its own boundary. The two
 README-designated syntax sketches (`examples/control_flow.hum`,
 `examples/session_server.hum`, README.md:317-318) are preserved and are
