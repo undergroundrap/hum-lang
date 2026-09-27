@@ -343,3 +343,88 @@ open questions as follows:
    behaviour; under a grant the only trusted element is storage locality,
    and the evidence must say so. Byte-exact output remains proven. This
    resolves the "decision 0029 pending" caveat in §1's done-condition.
+
+## 14. Amendment (2026-09-27): grant-first locality admission — platform proofs demoted to observed facts
+
+**Standing.** This section is a BDFL amendment to the accepted record
+above. It supersedes the *platform-proof sufficiency assumptions* — not P1
+itself, not the P1–P4 property definitions (§4), not fail-closed (§3.4), not
+the grant mechanism or its acceptance criteria (ruling 4), not
+no-environment-special-cases (principle 3), not the proved/external-trust
+vocabulary (§5.2), and not the change-control rule (the locality crates
+change only by decision). Historical §§1–13 are preserved as the record of
+what was ruled and why.
+
+**Ruling (BDFL, 2026-09-27).** For this WO29 version, locality admission is
+**grant-first**:
+
+- P1 keeps its accepted meaning: not network-backed (§4).
+- Guest-visible transport, driver, bus, and removable-media observations
+  remain useful facts but do not alone establish invisible backing. A
+  hypervisor or any invisible intermediary can interpose network/file
+  backing beneath guest-visible PCI/SCSI frontends — e.g. QEMU emulated
+  NVMe/AHCI devices with file- or network-backed block backends such as
+  the libiscsi backend — and the guest cannot observe the difference. The
+  platform "proofs" sketched in §6 Option B therefore prove a weaker claim
+  (guest-visible stack termination in media of the stated class), not P1.
+  Explicit disclosure of that limitation does not make the guarantees
+  equivalent.
+- Applied consistently to Linux and Windows; macOS remains grant-only.
+- The BDFL explicitly accepts the compatibility cost: currently automatic
+  Windows admission requires matching per-path `--allow` **and**
+  `--trust-locality`.
+- This authorizes the specification change, not its implementation.
+
+**Superseded for this WO29 version:** §6 Option B's "proven proof" language
+for the Windows adapter and the Linux proof sketch; §7's "Admitted **by
+proof**" cells; §12's "proofs where provable"; and ruling 3's "always
+grant, never proof" *as the complete statement* of the guest-visibility
+limit — it is retained for guest-invisible backing (virtio-blk, xvd,
+storvsc, PVSCSI, 9p/virtiofs, FUSE daemons) and **extended**:
+guest-visible-but-hypervisor-invisible backing is likewise unprovable from
+the guest.
+
+**Consequences.**
+
+1. *Linux (WO29 Item 1).* The nvme+`pcie`, sd\*+allowlisted-HBA, and
+   mmcblk+non-removable branches become **observed-fact extraction**, not
+   proof. The classifier records the transport/driver/removable/type facts
+   in the evidence bundle and returns `Unproven` with a named reason. The
+   reason distinguishes **known network evidence** — `transport` of
+   `tcp`/`rdma`/`fc`; `nfs`/`nfs4`/`cifs`/`smb`/`ncpfs`/`afp`/`ceph`
+   filesystems; iSCSI/`nbd`/`rbd` initiators (positively network-backed,
+   never proof-eligible) — from **merely insufficient evidence**
+   (plausible-local observations whose invisible backing cannot be
+   excluded; missing/unreadable/unresolvable evidence; stacked devices).
+   Both fail closed without the grant; both are honestly labelled with the
+   grant. The distinction is pinned by tests; exact reason strings are the
+   builder's choice, reviewed.
+2. *Windows (WO29 Item 2).* Bus-type evidence (ATA/SATA/NVMe, and the
+   SD/MMC widening), `RemovableMedia`, disk extents, the dependency walk,
+   and the before/after observation likewise become observed facts; none
+   independently earns `proved`.
+3. *macOS.* Remains grant-only (WO29 Item 3), unchanged.
+4. *Automatic proof and proof-widening are explicitly deferred, not
+   completed.* The `proved` label stays defined (decision 0015) but no
+   classifier in this WO29 version emits it. A future decision may define
+   sufficient evidence; that widening is a decision, not an implementation
+   detail. No hypervisor detector is specified — inventing one is out of
+   scope.
+5. *Non-waivable safeguards preserved.* Capability consent (0017),
+   exact-path attestation, the component walk, pre-read file-identity
+   enforcement (`(dev, ino)` binding before payload consumption),
+   contradictory-evidence rejection, the 1 MiB bound, and strict UTF-8
+   validation are unchanged and unwaivable by the grant — the grant waives
+   **proof of P1** and the storage-substitution leg of P3 only.
+
+**Primary sources for the insufficiency finding:** mountinfo field layout
+and parent topology (`Documentation/filesystems/proc.rst` §3.5,
+https://github.com/torvalds/linux/blob/HEAD/Documentation/filesystems/proc.rst;
+`proc_pid_mountinfo(5)`); the stable sysfs block/NVMe ABI
+(https://docs.kernel.org/admin-guide/abi-stable.html); NVMe-oF and virtual-
+subsystem parenting
+(https://lore.kernel.org/all/3c725e5deaabaaf145f48f2f6fcfdae9f6d41e2e.camel@suse.de/t/);
+QEMU network block backends beneath any frontend
+(https://documentation.suse.com/sles/15-SP6/html/SLES-all/cha-qemu-running.html);
+the QEMU emulated NVMe device
+(https://github.com/xemu-project/xemu/blob/HEAD/docs/system/devices/nvme.rst).
