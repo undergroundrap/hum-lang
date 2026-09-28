@@ -36,6 +36,7 @@ pub(crate) struct OperatorGrantPolicy {
     allows: BTreeSet<&'static str>,
     denies: BTreeSet<&'static str>,
     files_read: Option<ValidatedNativePath>,
+    trust_locality: Option<ValidatedNativePath>,
 }
 
 impl OperatorGrantPolicy {
@@ -101,6 +102,50 @@ impl OperatorGrantPolicy {
         self.files_read.as_ref()
     }
 
+    pub(crate) fn trust_locality(&mut self, text: &str) -> Result<(), String> {
+        self.trust_locality_os(OsStr::new(text))
+    }
+
+    pub(crate) fn trust_locality_os(&mut self, text: &OsStr) -> Result<(), String> {
+        let Some(payload) = strip_ascii_prefix(text, "files.read=") else {
+            return Err(
+                "`hum run --trust-locality` accepts only `files.read=<path>` attestations"
+                    .to_string(),
+            );
+        };
+        if payload.is_empty() {
+            return Err(
+                "`hum run --trust-locality files.read=<path>` requires one native path payload"
+                    .to_string(),
+            );
+        }
+        let validated = validate_native_path(&payload).map_err(|issue| {
+            format!(
+                "`hum run --trust-locality files.read=<path>` rejected because {}; reason={}; no host access was attempted",
+                issue.description(),
+                issue.reason()
+            )
+        })?;
+        if let Some(existing) = &self.trust_locality
+            && existing != &validated
+        {
+            return Err(
+                "`hum run` accepts at most one distinct native `files.read=<path>` attestation; exact duplicates are idempotent"
+                    .to_string(),
+            );
+        }
+        self.trust_locality = Some(validated);
+        Ok(())
+    }
+
+    pub(crate) fn trust_locality_grant(&self) -> Option<&ValidatedNativePath> {
+        self.trust_locality.as_ref()
+    }
+
+    pub(crate) fn trust_locality_attested(&self) -> bool {
+        self.trust_locality.is_some()
+    }
+
     fn decision(&self, capability: &'static str) -> GrantDecision {
         if self.denies.contains(capability) {
             GrantDecision::DeniedExplicit
@@ -158,6 +203,8 @@ fn parse_exact_capability(
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
+
     use super::{GrantDecision, OperatorGrantPolicy};
 
     #[test]
@@ -209,6 +256,128 @@ mod tests {
                 .unwrap_err()
                 .contains("forbidden payload")
         );
+    }
+
+    #[test]
+    fn trust_locality_attestation_is_single_idempotent_and_never_a_grant() {
+        let mut policy = OperatorGrantPolicy::default();
+        assert!(!policy.trust_locality_attested());
+        assert!(policy.trust_locality_grant().is_none());
+        policy
+            .trust_locality("files.read=/hum-session-ab/trusted.bin")
+            .expect("attestation");
+        policy
+            .trust_locality("files.read=/hum-session-ab/trusted.bin")
+            .expect("duplicate attestation");
+        assert!(policy.trust_locality_attested());
+        assert!(policy.trust_locality_grant().is_some());
+        // An attestation never enters the allow set: it is not a grant.
+        assert!(!policy.allows_files_read());
+        assert_eq!(policy.files_read_decision(), GrantDecision::DeniedDefault);
+        assert!(policy.files_read_grant().is_none());
+        assert!(
+            policy
+                .trust_locality("files.read=/hum-session-ab/other.bin")
+                .unwrap_err()
+                .contains("at most one distinct")
+        );
+        // The first attestation survives the rejected second one.
+        assert!(policy.trust_locality_attested());
+    }
+
+    #[test]
+    fn trust_locality_rejects_empty_and_non_files_read_payloads() {
+        let mut policy = OperatorGrantPolicy::default();
+        assert!(
+            policy
+                .trust_locality("files.read=")
+                .unwrap_err()
+                .contains("requires one native path payload")
+        );
+        assert!(
+            policy
+                .trust_locality_os(OsStr::new("files.read="))
+                .unwrap_err()
+                .contains("requires one native path payload")
+        );
+        assert!(
+            policy
+                .trust_locality("stdout.write")
+                .unwrap_err()
+                .contains("accepts only `files.read=<path>` attestations")
+        );
+        assert!(
+            policy
+                .trust_locality("files.read")
+                .unwrap_err()
+                .contains("accepts only `files.read=<path>` attestations")
+        );
+        assert!(!policy.trust_locality_attested());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trust_locality_accepts_non_utf8_native_path() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let mut raw = b"files.read=/hum-session-ab/opaque-".to_vec();
+        raw.extend_from_slice(&[0xff, 0xfe]);
+        let attestation = OsString::from_vec(raw);
+        let mut policy = OperatorGrantPolicy::default();
+        policy
+            .trust_locality_os(&attestation)
+            .expect("non-UTF8 native attestation");
+        policy
+            .trust_locality_os(&attestation)
+            .expect("duplicate non-UTF8 attestation");
+        assert!(policy.trust_locality_attested());
+        assert_eq!(
+            policy
+                .trust_locality_grant()
+                .expect("attestation")
+                .as_os_str()
+                .as_bytes(),
+            &attestation.as_bytes()[b"files.read=".len()..]
+        );
+        assert!(!policy.allows_files_read());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn trust_locality_accepts_non_utf16_native_path() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        let bs: u16 = 92; // backslash, built without a literal so text hygiene holds
+        let mut native_units = "files.read=C:".encode_utf16().collect::<Vec<_>>();
+        native_units.push(bs);
+        native_units.extend("hum-session-ab".encode_utf16());
+        native_units.push(bs);
+        native_units.push(0xd800); // unpaired surrogate: not UTF-16, not a String
+        let attestation = OsString::from_wide(&native_units);
+
+        let mut policy = OperatorGrantPolicy::default();
+        policy
+            .trust_locality_os(&attestation)
+            .expect("non-UTF16 native attestation");
+        policy
+            .trust_locality_os(&attestation)
+            .expect("duplicate non-UTF16 attestation");
+        assert!(policy.trust_locality_attested());
+        // The attested path is stored wide-unit-exact, never lossy.
+        let path_offset = "files.read=".encode_utf16().count();
+        assert_eq!(
+            policy
+                .trust_locality_grant()
+                .expect("attestation")
+                .as_os_str()
+                .encode_wide()
+                .collect::<Vec<_>>(),
+            native_units[path_offset..]
+        );
+        // An attestation never enters the allow set: it is not a grant.
+        assert!(!policy.allows_files_read());
     }
 
     #[cfg(windows)]

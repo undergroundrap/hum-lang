@@ -43,6 +43,24 @@ pub enum DriveLocality {
     Unknown,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassifiedDrive {
+    pub locality: DriveLocality,
+    /// Sorted, deduplicated physical disk numbers backing this drive, taken
+    /// from the same completely-observed disk list that feeds the locality
+    /// classification (the `required_disks` source). Non-empty only when
+    /// `locality == DriveLocality::FixedLocal`; empty otherwise.
+    ///
+    /// These numbers are *backing-device* identity only, never *file*
+    /// identity: they name the physical disks behind the volume, not any
+    /// file on it. A file's identity comes from `opened_file_identity`,
+    /// never from these numbers.
+    pub backing_device_identity: Vec<u32>,
+    /// Volume serial number from `GetVolumeInformationW` on the drive root.
+    /// `None` on any failure (including the non-Windows stub).
+    pub volume_serial: Option<u32>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg(any(windows, test))]
 enum DriveTypeObservation {
@@ -158,11 +176,21 @@ fn classify_preliminary(observation: &PreliminaryObservation) -> PreliminaryClas
 
 #[cfg(any(windows, test))]
 fn classify_evidence(evidence: &InspectionEvidence) -> DriveLocality {
+    classify_evidence_detail(evidence).0
+}
+
+/// The full classification verdict plus the sorted, deduplicated disk numbers
+/// taken from the same completely-observed disk list (`required_disks`) that
+/// feeds the verdict. The number list is non-empty only on the `FixedLocal`
+/// path; every other path returns an empty list. The classification logic is
+/// identical to `classify_evidence`: this function only widens the return.
+#[cfg(any(windows, test))]
+fn classify_evidence_detail(evidence: &InspectionEvidence) -> (DriveLocality, Vec<u32>) {
     let PreliminaryClass::Candidate = classify_preliminary(&evidence.before) else {
         let PreliminaryClass::Closed(result) = classify_preliminary(&evidence.before) else {
             unreachable!();
         };
-        return result;
+        return (result, Vec::new());
     };
 
     if evidence.before != evidence.after
@@ -170,21 +198,21 @@ fn classify_evidence(evidence: &InspectionEvidence) -> DriveLocality {
         || evidence.dependency != QueryState::Complete(DependencyObservation::None)
         || evidence.closes != QueryState::Complete(())
     {
-        return DriveLocality::Unknown;
+        return (DriveLocality::Unknown, Vec::new());
     }
 
     let QueryState::Complete(extents) = &evidence.extents else {
-        return DriveLocality::Unknown;
+        return (DriveLocality::Unknown, Vec::new());
     };
     let QueryState::Complete(disks) = &evidence.disks else {
-        return DriveLocality::Unknown;
+        return (DriveLocality::Unknown, Vec::new());
     };
     if extents.is_empty()
         || extents
             .iter()
             .any(|extent| extent.starting_offset < 0 || extent.extent_length <= 0)
     {
-        return DriveLocality::Unknown;
+        return (DriveLocality::Unknown, Vec::new());
     }
 
     let mut required_disks = extents
@@ -194,41 +222,114 @@ fn classify_evidence(evidence: &InspectionEvidence) -> DriveLocality {
     required_disks.sort_unstable();
     required_disks.dedup();
     if disks.len() != required_disks.len() {
-        return DriveLocality::Unknown;
+        return (DriveLocality::Unknown, Vec::new());
     }
 
-    for disk_number in required_disks {
-        let Some(disk) = disks.iter().find(|disk| disk.disk_number == disk_number) else {
-            return DriveLocality::Unknown;
+    for disk_number in &required_disks {
+        let Some(disk) = disks.iter().find(|disk| disk.disk_number == *disk_number) else {
+            return (DriveLocality::Unknown, Vec::new());
         };
         if disk.removable || !matches!(disk.bus_type, BUS_TYPE_ATA | BUS_TYPE_SATA | BUS_TYPE_NVME)
         {
-            return DriveLocality::Unknown;
+            return (DriveLocality::Unknown, Vec::new());
         }
     }
 
-    DriveLocality::FixedLocal
+    (DriveLocality::FixedLocal, required_disks)
 }
 
 #[cfg(not(windows))]
-pub fn classify(_root: DriveRoot) -> DriveLocality {
-    DriveLocality::Unsupported
+pub fn classify(_root: DriveRoot) -> ClassifiedDrive {
+    ClassifiedDrive {
+        locality: DriveLocality::Unsupported,
+        backing_device_identity: Vec::new(),
+        volume_serial: None,
+    }
 }
 
 #[cfg(windows)]
-pub fn classify(root: DriveRoot) -> DriveLocality {
+pub fn classify(root: DriveRoot) -> ClassifiedDrive {
+    let volume_serial = query_volume_serial(root);
+    let (locality, backing_device_identity) = classify_full(root);
+    ClassifiedDrive {
+        locality,
+        backing_device_identity,
+        volume_serial,
+    }
+}
+
+/// Volume serial number for the drive root via `GetVolumeInformationW`.
+/// Read-only query; `None` on any API failure.
+#[cfg(windows)]
+fn query_volume_serial(root: DriveRoot) -> Option<u32> {
+    let mut serial = 0u32;
+    let success = unsafe {
+        // SAFETY: DriveRoot owns a four-unit NUL-terminated drive root for
+        // the duration of this read-only query. The out-buffers the caller
+        // does not need are null with zero capacity; `serial` stays live.
+        GetVolumeInformationW(
+            root.root.as_ptr(),
+            core::ptr::null_mut(),
+            0,
+            &mut serial,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            0,
+        )
+    };
+    (success != 0).then_some(serial)
+}
+
+/// Identity of an already-opened file: the volume serial it lives on plus
+/// the volume-relative file index. `None` means the identity is unavailable
+/// (null handle, invalid handle, API failure) — never a sentinel value.
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowsFileIdentity {
+    pub volume_serial: u32,
+    pub file_index: u64,
+}
+
+/// Read the identity of an already-opened file handle via
+/// `GetFileInformationByHandle`: `volume_serial` is `dwVolumeSerialNumber`
+/// and `file_index` is `(nFileIndexHigh as u64) << 32 | nFileIndexLow as u64`.
+/// Returns `None` on any failure. Stable Rust only; no new dependencies.
+#[cfg(windows)]
+pub fn opened_file_identity(raw_handle: *mut core::ffi::c_void) -> Option<WindowsFileIdentity> {
+    if raw_handle.is_null() {
+        return None;
+    }
+    let mut info = core::mem::MaybeUninit::<ByHandleFileInformationLayout>::uninit();
+    let info = unsafe {
+        // SAFETY: `raw_handle` is non-null and, per the caller's contract, a
+        // live open file handle. `info` is a properly aligned out-buffer that
+        // stays alive for the call and is only read when the call succeeds.
+        if GetFileInformationByHandle(raw_handle, info.as_mut_ptr()) == 0 {
+            return None;
+        }
+        info.assume_init()
+    };
+    Some(WindowsFileIdentity {
+        volume_serial: info.dw_volume_serial_number,
+        file_index: (u64::from(info.n_file_index_high) << 32) | u64::from(info.n_file_index_low),
+    })
+}
+
+#[cfg(windows)]
+fn classify_full(root: DriveRoot) -> (DriveLocality, Vec<u32>) {
     let before = query_preliminary(root);
     if let PreliminaryClass::Closed(result) = classify_preliminary(&before) {
-        return result;
+        return (result, Vec::new());
     }
 
     let Some(volume) = open_device(&root.volume_device()) else {
-        return DriveLocality::Unknown;
+        return (DriveLocality::Unknown, Vec::new());
     };
     let dependency = query_dependencies(&volume);
     if dependency != QueryState::Complete(DependencyObservation::None) {
         let _already_unknown = volume.close();
-        return DriveLocality::Unknown;
+        return (DriveLocality::Unknown, Vec::new());
     }
     let extents = query_extents(&volume);
     let (disks, disk_closes) = match &extents {
@@ -239,7 +340,7 @@ pub fn classify(root: DriveRoot) -> DriveLocality {
     let volume_closed = volume.close();
     let after = query_preliminary(root);
 
-    classify_evidence(&InspectionEvidence {
+    classify_evidence_detail(&InspectionEvidence {
         before,
         dependency,
         extents,
@@ -778,6 +879,36 @@ struct StorageDeviceDescriptorLayout {
     raw_properties_length: u32,
 }
 
+/// One `FILETIME` as its low/high `u32` halves (low DWORD first). Modelling
+/// the halves as a single `u64` would 8-align the field on 64-bit targets
+/// and shift every trailing field of `ByHandleFileInformationLayout`; the
+/// two-`u32` form keeps the 4-byte alignment the Windows ABI requires.
+#[cfg(windows)]
+#[repr(C)]
+struct FileTimeLayout {
+    dw_low_date_time: u32,
+    dw_high_date_time: u32,
+}
+
+/// `BY_HANDLE_FILE_INFORMATION` as documented by the Windows API: each
+/// `FILETIME` is a `FileTimeLayout` pair reading as one little-endian `u64`.
+/// The 4-byte field alignment gives the exact 52-byte Windows layout on
+/// every target.
+#[cfg(windows)]
+#[repr(C)]
+struct ByHandleFileInformationLayout {
+    dw_file_attributes: u32,
+    ft_creation_time: FileTimeLayout,
+    ft_last_access_time: FileTimeLayout,
+    ft_last_write_time: FileTimeLayout,
+    dw_volume_serial_number: u32,
+    n_file_size_high: u32,
+    n_file_size_low: u32,
+    n_number_of_links: u32,
+    n_file_index_high: u32,
+    n_file_index_low: u32,
+}
+
 #[cfg(windows)]
 #[link(name = "Kernel32")]
 unsafe extern "system" {
@@ -803,6 +934,20 @@ unsafe extern "system" {
         overlapped: *mut core::ffi::c_void,
     ) -> i32;
     fn CloseHandle(object: *mut core::ffi::c_void) -> i32;
+    fn GetVolumeInformationW(
+        lp_root_path_name: *const u16,
+        lp_volume_name_buffer: *mut u16,
+        n_volume_name_size: u32,
+        lp_volume_serial_number: *mut u32,
+        lp_maximum_component_length: *mut u32,
+        lp_file_system_flags: *mut u32,
+        lp_file_system_name_buffer: *mut u16,
+        n_file_system_name_size: u32,
+    ) -> i32;
+    fn GetFileInformationByHandle(
+        file: *mut core::ffi::c_void,
+        file_information: *mut ByHandleFileInformationLayout,
+    ) -> i32;
 }
 
 #[cfg(windows)]
@@ -822,9 +967,9 @@ mod tests {
     use super::{
         BUS_TYPE_ATA, BUS_TYPE_FIBRE, BUS_TYPE_FILE_BACKED_VIRTUAL, BUS_TYPE_ISCSI, BUS_TYPE_NVME,
         BUS_TYPE_NVMEOF, BUS_TYPE_RAID, BUS_TYPE_SAS, BUS_TYPE_SATA, BUS_TYPE_SCSI,
-        BUS_TYPE_SPACES, BUS_TYPE_VIRTUAL, DependencyObservation, DiskObservation, DriveLocality,
-        DriveRoot, DriveTypeObservation, ExtentObservation, InspectionEvidence,
-        PreliminaryObservation, QueryState, classify_evidence,
+        BUS_TYPE_SPACES, BUS_TYPE_VIRTUAL, ClassifiedDrive, DependencyObservation, DiskObservation,
+        DriveLocality, DriveRoot, DriveTypeObservation, ExtentObservation, InspectionEvidence,
+        PreliminaryObservation, QueryState, classify_evidence, classify_evidence_detail,
     };
 
     fn mapping(text: &str) -> QueryState<Vec<u16>> {
@@ -1309,6 +1454,156 @@ mod tests {
     #[test]
     fn non_windows_classification_is_unsupported_without_foreign_calls() {
         let root = DriveRoot::from_ascii_letter(b'C').expect("drive root");
-        assert_eq!(super::classify(root), DriveLocality::Unsupported);
+        assert_eq!(
+            super::classify(root),
+            ClassifiedDrive {
+                locality: DriveLocality::Unsupported,
+                backing_device_identity: Vec::new(),
+                volume_serial: None,
+            }
+        );
+    }
+
+    #[test]
+    fn evidence_detail_threads_sorted_unique_backing_disk_numbers() {
+        let mut detail_evidence = evidence(BUS_TYPE_ATA);
+        detail_evidence.extents = QueryState::Complete(vec![
+            ExtentObservation {
+                disk_number: 2,
+                starting_offset: 0,
+                extent_length: 4096,
+            },
+            ExtentObservation {
+                disk_number: 0,
+                starting_offset: 4096,
+                extent_length: 4096,
+            },
+            ExtentObservation {
+                disk_number: 2,
+                starting_offset: 8192,
+                extent_length: 4096,
+            },
+            ExtentObservation {
+                disk_number: 1,
+                starting_offset: 12_288,
+                extent_length: 4096,
+            },
+        ]);
+        detail_evidence.disks = QueryState::Complete(vec![
+            DiskObservation {
+                disk_number: 2,
+                removable: false,
+                bus_type: BUS_TYPE_NVME,
+            },
+            DiskObservation {
+                disk_number: 0,
+                removable: false,
+                bus_type: BUS_TYPE_ATA,
+            },
+            DiskObservation {
+                disk_number: 1,
+                removable: false,
+                bus_type: BUS_TYPE_SATA,
+            },
+        ]);
+        assert_eq!(
+            classify_evidence_detail(&detail_evidence),
+            (DriveLocality::FixedLocal, vec![0, 1, 2])
+        );
+    }
+
+    #[test]
+    fn non_fixed_local_classification_carries_no_disk_identity() {
+        let mut unknown = evidence(BUS_TYPE_NVME);
+        unknown.dependency = QueryState::ApiFailure;
+        assert_eq!(
+            classify_evidence_detail(&unknown),
+            (DriveLocality::Unknown, Vec::new())
+        );
+
+        let mut remote = evidence(BUS_TYPE_NVME);
+        remote.before = PreliminaryObservation {
+            drive_type: DriveTypeObservation::Fixed,
+            mapping: mapping(r"\Device\Mup\server\share"),
+        };
+        assert_eq!(
+            classify_evidence_detail(&remote),
+            (DriveLocality::Remote, Vec::new())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn by_handle_file_information_layout_matches_windows_abi() {
+        use super::{ByHandleFileInformationLayout, FileTimeLayout};
+        use core::mem::{offset_of, size_of};
+        assert_eq!(size_of::<FileTimeLayout>(), 8);
+        assert_eq!(size_of::<ByHandleFileInformationLayout>(), 52);
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, dw_file_attributes),
+            0
+        );
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, ft_creation_time),
+            4
+        );
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, ft_last_access_time),
+            12
+        );
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, ft_last_write_time),
+            20
+        );
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, dw_volume_serial_number),
+            28
+        );
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, n_file_size_high),
+            32
+        );
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, n_file_size_low),
+            36
+        );
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, n_number_of_links),
+            40
+        );
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, n_file_index_high),
+            44
+        );
+        assert_eq!(
+            offset_of!(ByHandleFileInformationLayout, n_file_index_low),
+            48
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opened_file_identity_rejects_null_handle() {
+        assert_eq!(super::opened_file_identity(core::ptr::null_mut()), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opened_file_identity_is_stable_across_handles_to_the_same_file() {
+        use std::os::windows::io::AsRawHandle;
+        let path = std::env::temp_dir().join("wo29-slice-a-leaf-d-file-identity-probe.tmp");
+        let first = std::fs::File::create(&path).expect("create probe file");
+        let identity =
+            super::opened_file_identity(first.as_raw_handle()).expect("identity for open handle");
+        let second = std::fs::OpenOptions::new()
+            .read(true)
+            .open(&path)
+            .expect("reopen probe file");
+        let reopened = super::opened_file_identity(second.as_raw_handle())
+            .expect("identity for reopened handle");
+        assert_eq!(identity, reopened);
+        drop(first);
+        drop(second);
+        std::fs::remove_file(&path).ok();
     }
 }

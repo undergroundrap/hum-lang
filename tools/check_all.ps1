@@ -5463,22 +5463,104 @@ function Invoke-HumCompilerCorpusChecks {
     if ($SessionAGDenied.ExitCode -ne 1 -or -not $SessionAGDenied.Stderr.Contains('WordfreqError.read') -or -not $SessionAGDenied.Stderr.Contains('FileReadError.denied') -or $SessionAGDenied.Stderr.Contains('panicked')) { throw "Session AG ungranted app entry must fail closed with typed WordfreqError.read caused by FileReadError.denied, got exit $($SessionAGDenied.ExitCode); stderr: $($SessionAGDenied.Stderr)" }
     $global:LASTEXITCODE = 0
   } else {
-    # Non-Windows (unix): WO28 #7 ports the read mechanics (component walk,
-    # P4 ordinary-file enforcement, P2 identity, exact 1 MiB cap, strict
-    # UTF-8), but property P1 (not network-backed) is unproven on every
-    # non-Windows platform (decision 0029, pending its implementing Work
-    # Order). The app entry therefore executes through the type gate and
-    # refuses at the locality gate with FileReadError.unavailable -- the
-    # same typed refusal shape as Windows, up to the locality gate. The
-    # byte-exact success path becomes provable on non-Windows when WO29
-    # lands (labelled grant per 0029 ruling 5, or proof).
+    # Non-Windows (unix): WO29 Slice A makes the app entry provability-aware.
+    # The consent-without-attestation probe runs once and the harness branches
+    # on the OBSERVED outcome, exactly like the Rust CLI suite
+    # (tests/cli_wo29_trust_locality.rs): unprovable storage (overlayfs on
+    # hosted Linux) refuses with FileReadError.unavailable, preserving the
+    # pre-WO29 refusal shape; proof-capable storage admits with the proved
+    # label and the bound evidence bundle. The --trust-locality flag then
+    # admits on unprovable storage with the external-trust label (operator
+    # attestation: per-invocation, per-path, CLI-only; proof outranks trust).
+    function Assert-SessionAGStdoutBytes {
+      param([byte[]] $Bytes, [byte[]] $Expected, [string] $Label)
+      if ($Bytes.Count -ne $Expected.Count) { throw "$Label must be exactly $($Expected.Count) bytes, got $($Bytes.Count)" }
+      for ($SessionAGByteIndex = 0; $SessionAGByteIndex -lt $Expected.Count; $SessionAGByteIndex++) {
+        if ($Bytes[$SessionAGByteIndex] -ne $Expected[$SessionAGByteIndex]) { throw "$Label byte $SessionAGByteIndex must be $($Expected[$SessionAGByteIndex]), got $($Bytes[$SessionAGByteIndex])" }
+      }
+    }
+    function Assert-SessionAGEnvelope {
+      param([byte[]] $Bytes, [string] $Label)
+      $SessionAGEnvelopeText = [Text.Encoding]::UTF8.GetString($Bytes)
+      if (-not $SessionAGEnvelopeText.TrimStart().StartsWith('{')) { throw "$Label stdout must carry only the JSON envelope, got: $SessionAGEnvelopeText" }
+      $SessionAGEnvelopeText | ConvertFrom-Json
+    }
+    function Get-SessionAGClassifiedEvents {
+      param([object] $Envelope)
+      @($Envelope.authority_events | Where-Object { $null -ne $_.locality_classification })
+    }
+    function Assert-SessionAGProgramOutputBytes {
+      param([object] $Numbers, [byte[]] $Expected, [string] $Label)
+      $SessionAGActualNumbers = @($Numbers)
+      if ($SessionAGActualNumbers.Count -ne $Expected.Count) { throw "$Label must have exactly $($Expected.Count) entries, got $($SessionAGActualNumbers.Count)" }
+      for ($SessionAGNumberIndex = 0; $SessionAGNumberIndex -lt $Expected.Count; $SessionAGNumberIndex++) {
+        if ($SessionAGActualNumbers[$SessionAGNumberIndex] -ne $Expected[$SessionAGNumberIndex]) { throw "$Label entry $SessionAGNumberIndex must be $($Expected[$SessionAGNumberIndex]), got $($SessionAGActualNumbers[$SessionAGNumberIndex])" }
+      }
+    }
     $SessionAGFixture = Join-Path (Join-Path (Join-Path $RepoRoot 'fixtures') 'wordfreq') 'sample.txt'
-    $SessionAGFileRead = Read-NativeBytesWithExit 'run Session AG wordfreq app entry P1-unproven refusal' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)
+    # Byte-exact expected app-entry stdout for fixtures/wordfreq/sample.txt
+    # ("hum\n\nlang\nhum\n"): the three word lines, then the word: count
+    # summary lines ("hum: 2", "lang: 1") -- 27 bytes. The app entry
+    # completes with AppSuccess, so the CLI prints nothing beyond the
+    # program's own writes.
+    $SessionAGExpectedStdout = [Text.Encoding]::UTF8.GetBytes("hum`nlang`nhum`nhum: 2`nlang: 1`n")
+    $SessionAGFileRead = Read-NativeBytesWithExit 'run Session AG wordfreq app entry consent-without-attestation probe' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)
     $SessionAGStderr = $SessionAGFileRead.Stderr
-    if ($SessionAGFileRead.ExitCode -ne 1) { throw "Session AG wordfreq app entry must exit 1 on the P1-unproven locality refusal, got $($SessionAGFileRead.ExitCode); stderr: $SessionAGStderr" }
-    if ($SessionAGFileRead.Bytes.Count -ne 0) { throw "Session AG wordfreq app entry must write no stdout before the refused read; stderr: $SessionAGStderr" }
-    if (-not $SessionAGStderr.Contains('WordfreqError.read') -or -not $SessionAGStderr.Contains('FileReadError.unavailable')) { throw "Session AG wordfreq app entry must fail closed with typed WordfreqError.read caused by FileReadError.unavailable (P1 locality unproven on non-Windows, pending 0029 Work Order), got exit $($SessionAGFileRead.ExitCode); stderr: $SessionAGStderr" }
-    if ($SessionAGStderr.Contains('panicked')) { throw "Session AG wordfreq app entry must fail closed without panicking; stderr: $SessionAGStderr" }
+    if ($SessionAGFileRead.ExitCode -eq 1) {
+      # Unprovable storage: the pre-WO29 refusal shape is preserved exactly.
+      $SessionAGAdmission = 'external-trust'
+      if ($SessionAGFileRead.Bytes.Count -ne 0) { throw "Session AG wordfreq app entry must write no stdout before the refused read; stderr: $SessionAGStderr" }
+      if (-not $SessionAGStderr.Contains('WordfreqError.read') -or -not $SessionAGStderr.Contains('FileReadError.unavailable')) { throw "Session AG wordfreq app entry must fail closed with typed WordfreqError.read caused by FileReadError.unavailable (locality unproven on this storage), got exit $($SessionAGFileRead.ExitCode); stderr: $SessionAGStderr" }
+      if ($SessionAGStderr.Contains('panicked')) { throw "Session AG wordfreq app entry must fail closed without panicking; stderr: $SessionAGStderr" }
+    } elseif ($SessionAGFileRead.ExitCode -eq 0) {
+      # Proof-capable storage: the proved path, asserted honestly --
+      # byte-exact stdout plus the bound evidence bundle from the JSON
+      # envelope (classification, bound file identity, P1-P4 lines).
+      $SessionAGAdmission = 'proved'
+      Assert-SessionAGStdoutBytes $SessionAGFileRead.Bytes $SessionAGExpectedStdout 'Session AG wordfreq app entry proved stdout'
+      if (-not $SessionAGStderr.Contains('proved')) { throw "Session AG wordfreq app entry proved run must carry the proved evidence label on stderr; stderr: $SessionAGStderr" }
+      $SessionAGProvedJson = Read-NativeBytesWithExit 'run Session AG wordfreq app entry proved JSON envelope' $Hum @('run', $SessionAGProgram, '--format', 'json', '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--args', $SessionAGFixture)
+      if ($SessionAGProvedJson.ExitCode -ne 0) { throw "Session AG wordfreq app entry proved JSON run must exit 0, got $($SessionAGProvedJson.ExitCode); stderr: $($SessionAGProvedJson.Stderr)" }
+      $SessionAGProvedEnvelope = Assert-SessionAGEnvelope $SessionAGProvedJson.Bytes 'Session AG wordfreq app entry proved envelope'
+      $SessionAGProvedClassified = Get-SessionAGClassifiedEvents $SessionAGProvedEnvelope
+      if ($SessionAGProvedClassified.Count -ne 1) { throw "Session AG proved envelope must carry exactly one classified authority event, got $($SessionAGProvedClassified.Count)" }
+      if ($SessionAGProvedClassified[0].locality_classification -ne 'proved') { throw "Session AG proved envelope locality_classification must be 'proved', got '$($SessionAGProvedClassified[0].locality_classification)'" }
+      $SessionAGStatRaw = (& stat -c '%d %i' $SessionAGFixture) -join ''
+      $SessionAGStatParts = $SessionAGStatRaw.Trim() -split '\s+'
+      if ($SessionAGStatParts.Count -ne 2) { throw "stat -c '%d %i' must report device and inode for $SessionAGFixture, got '$SessionAGStatRaw'" }
+      $SessionAGExpectedIdentity = "dev=$($SessionAGStatParts[0]) ino=$($SessionAGStatParts[1])"
+      if ($SessionAGProvedClassified[0].bound_file_identity -ne $SessionAGExpectedIdentity) { throw "Session AG proved bound_file_identity must be '$SessionAGExpectedIdentity', got '$($SessionAGProvedClassified[0].bound_file_identity)'" }
+      $SessionAGProvedEvidence = @($SessionAGProvedClassified[0].locality_evidence)
+      if ($SessionAGProvedEvidence.Count -ne 4) { throw "Session AG proved locality_evidence must have exactly 4 lines, got $($SessionAGProvedEvidence.Count)" }
+      $SessionAGPrefixes = @('P1:', 'P2:', 'P3:', 'P4:')
+      for ($SessionAGPrefixIndex = 0; $SessionAGPrefixIndex -lt 4; $SessionAGPrefixIndex++) {
+        if (-not $SessionAGProvedEvidence[$SessionAGPrefixIndex].StartsWith($SessionAGPrefixes[$SessionAGPrefixIndex])) { throw "Session AG proved locality_evidence line $SessionAGPrefixIndex must start with '$($SessionAGPrefixes[$SessionAGPrefixIndex])', got '$($SessionAGProvedEvidence[$SessionAGPrefixIndex])'" }
+      }
+    } else {
+      throw "Session AG consent-without-attestation probe must exit 0 or 1, got $($SessionAGFileRead.ExitCode); stderr: $SessionAGStderr"
+    }
+    # The trust-flag run: the probe invocation plus --trust-locality
+    # files.read=<fixture> placed BEFORE --args (after --args it would be a
+    # program arg). Attestation admits on unprovable storage with the
+    # external-trust label; on proof-capable storage proof outranks trust.
+    $SessionAGTrust = Read-NativeBytesWithExit 'run Session AG wordfreq app entry trust-flag admission' $Hum @('run', $SessionAGProgram, '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--trust-locality', "files.read=$SessionAGFixture", '--args', $SessionAGFixture)
+    if ($SessionAGTrust.ExitCode -ne 0) { throw "Session AG trust-flag run must exit 0, got $($SessionAGTrust.ExitCode); stderr: $($SessionAGTrust.Stderr)" }
+    Assert-SessionAGStdoutBytes $SessionAGTrust.Bytes $SessionAGExpectedStdout 'Session AG wordfreq app entry trust-flag stdout'
+    if ($SessionAGTrust.Stderr.Contains('panicked')) { throw "Session AG trust-flag run must not panic; stderr: $($SessionAGTrust.Stderr)" }
+    $SessionAGTrustJson = Read-NativeBytesWithExit 'run Session AG wordfreq app entry trust-flag JSON envelope' $Hum @('run', $SessionAGProgram, '--format', 'json', '--allow', 'stdout.write', "--allow=files.read=$SessionAGFixture", '--trust-locality', "files.read=$SessionAGFixture", '--args', $SessionAGFixture)
+    if ($SessionAGTrustJson.ExitCode -ne 0) { throw "Session AG trust-flag JSON run must exit 0, got $($SessionAGTrustJson.ExitCode); stderr: $($SessionAGTrustJson.Stderr)" }
+    $SessionAGTrustEnvelope = Assert-SessionAGEnvelope $SessionAGTrustJson.Bytes 'Session AG wordfreq app entry trust-flag envelope'
+    $SessionAGTrustClassified = Get-SessionAGClassifiedEvents $SessionAGTrustEnvelope
+    if ($SessionAGTrustClassified.Count -ne 1) { throw "Session AG trust-flag envelope must carry exactly one classified authority event, got $($SessionAGTrustClassified.Count)" }
+    if ($SessionAGTrustClassified[0].locality_classification -ne $SessionAGAdmission) { throw "Session AG trust-flag envelope locality_classification must be '$SessionAGAdmission', got '$($SessionAGTrustClassified[0].locality_classification)'" }
+    Assert-SessionAGProgramOutputBytes $SessionAGTrustEnvelope.program_output_bytes $SessionAGExpectedStdout 'Session AG trust-flag envelope program_output_bytes'
+    $SessionAGTrustEvidence = @($SessionAGTrustClassified[0].locality_evidence)
+    if ($SessionAGAdmission -eq 'external-trust') {
+      if (-not $SessionAGTrust.Stderr.Contains('trusted-not-proven')) { throw "Session AG trust-flag run on unprovable storage must carry the trusted-not-proven evidence label on stderr; stderr: $($SessionAGTrust.Stderr)" }
+      if (@($SessionAGTrustEvidence | Where-Object { $_ -match '^P[1-4]:' }).Count -ne 0) { throw "Session AG external-trust evidence must carry no P1-P4 proved lines; evidence: $($SessionAGTrustEvidence -join ' | ')" }
+    } else {
+      if (-not $SessionAGTrust.Stderr.Contains('proved') -or $SessionAGTrust.Stderr.Contains('trusted-not-proven')) { throw "Session AG trust-flag run on proof-capable storage must carry the proved label (proof outranks trust); stderr: $($SessionAGTrust.Stderr)" }
+    }
     # Non-Windows misuse: without the files.read grant the APP entry fails
     # closed with the typed denial (WordfreqError.read caused by
     # FileReadError.denied), never a panic or generic trap.

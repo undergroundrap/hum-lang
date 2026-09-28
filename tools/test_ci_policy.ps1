@@ -659,7 +659,7 @@ foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invok
 # They are source-closure evidence, never a claim that the full corpus ran.
 $CompilerBodies=@{
   'Invoke-HumCompilerFrontChecks'='9a09ab8ac95ca08d792e1da5199c5fc30f8fb54b237975ca6a2ab83520bfebe4'
-  'Invoke-HumCompilerCorpusChecks'='58a982f673c2ea2ce10e21b6337d55585cf371351bbf6a987624e90c2e0577b0'
+  'Invoke-HumCompilerCorpusChecks'='47fb563525e5430b86f3b4a8b1a95f93a2ab68511313daaf71973b0ab6b271a2'
   'Invoke-HumUseAfterMoveRuntimeCheck'='a7c5db7146519cba950ec4ba2de9a0f15bf505bbfde0bc855b2e49c9a74a34f8'
   'Invoke-HumUseAfterMoveProjectionCheck'='d1708df1234a0cbdf4f686d48facad32ccfb2bcc7baa834281d2246b748f41f0'
 }

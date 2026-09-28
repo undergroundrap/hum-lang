@@ -5,7 +5,7 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace]
-members = ["crates/hum-dev", "crates/hum-sha256", "crates/windows-drive-locality"]
+members = ["crates/hum-dev", "crates/hum-sha256", "crates/linux-drive-locality", "crates/windows-drive-locality"]
 exclude = [
     "experiments/cranelift-feasibility",
     "experiments/cranelift-lowering-contract",
@@ -24,4 +24,5 @@ cranelift-jit = { version = "=0.133.1", default-features = false }
 cranelift-module = { version = "=0.133.1", default-features = false, features = ["std"] }
 cranelift-native = { version = "=0.133.1", default-features = false, features = ["std"] }
 hum-sha256 = { path = "crates/hum-sha256" }
+linux-drive-locality = { path = "crates/linux-drive-locality" }
 windows-drive-locality = { path = "crates/windows-drive-locality" }
