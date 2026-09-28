@@ -92,6 +92,11 @@ impl ValidatedNativePath {
                     LocalityEvidence::Linux(locality) => locality.is_fixed_local(),
                 })
         }
+        // Windows: defined-but-unreachable on the live path. No classifier
+        // emits `DriveLocality::FixedLocal` in this WO version (decision
+        // 0029 §14 grant-first demotion, mirroring Linux's `Proven`); the
+        // check stays so the gate keeps its code shape, and admission flows
+        // through the attestation (`external-trust`) path.
         #[cfg(windows)]
         {
             self.evidence
@@ -120,8 +125,13 @@ impl ValidatedNativePath {
     /// Audit reason recorded when the locality gate refuses the read. On
     /// unix the P1 classifier (linux-drive-locality) reports Unproven with
     /// its own reason; this platform-wide reason is kept for the refusal
-    /// itself. On Windows the gate fires per path that did not prove
-    /// fixed-local.
+    /// itself. On Windows the gate fires per path whose locality is
+    /// `Unproven` under the grant-first demotion (decision 0029 §14); the
+    /// superseded `fixed_local_v0_not_proven_before_candidate_access_v0`
+    /// reason is retired in Slice A. The classifier's specific `Unproven`
+    /// reason travels verbatim in the evidence bundle (see
+    /// [`Self::classifier_unproven_reason`]); this reason names the gate,
+    /// never the classifier.
     pub(crate) fn locality_gate_reason(&self) -> &'static str {
         #[cfg(unix)]
         {
@@ -129,7 +139,28 @@ impl ValidatedNativePath {
         }
         #[cfg(not(unix))]
         {
-            "fixed_local_v0_not_proven_before_candidate_access_v0"
+            "windows_locality_unproven_grant_first_v0"
+        }
+    }
+
+    /// The classifier's exact `Unproven` reason, verbatim and unnormalized,
+    /// for evidence bundles on refusal and trust paths. `None` when the
+    /// classifier did not return an `Unproven` verdict with a named reason
+    /// (including when no evidence was stored).
+    pub(crate) fn classifier_unproven_reason(&self) -> Option<&'static str> {
+        match self.evidence.as_ref() {
+            #[cfg(any(unix, test))]
+            Some(LocalityEvidence::Linux(linux_drive_locality::LinuxLocality::Unproven {
+                reason,
+                ..
+            })) => Some(*reason),
+            #[cfg(any(unix, test))]
+            Some(LocalityEvidence::Linux(linux_drive_locality::LinuxLocality::Proven {
+                ..
+            })) => None,
+            #[cfg(windows)]
+            Some(LocalityEvidence::Windows(classified)) => classified.unproven_reason,
+            _ => None,
         }
     }
 
@@ -139,11 +170,17 @@ impl ValidatedNativePath {
             raw: self.raw.clone(),
             locality: NativePathLocality::FixedLocal,
             // Leaf D's ClassifiedDrive record, test-constructed to match the
-            // legacy FixedLocal status this helper used to set alone.
+            // legacy FixedLocal status this helper used to set alone. The
+            // `FixedLocal` label is defined-but-unreachable from the live
+            // classifier in this WO version (decision 0029 §14 grant-first
+            // demotion), so the new fields take their neutral values: no
+            // observed facts, no `Unproven` reason.
             evidence: Some(LocalityEvidence::Windows(
                 windows_drive_locality::ClassifiedDrive {
                     locality: DriveLocality::FixedLocal,
                     backing_device_identity: Vec::new(),
+                    observed_facts: Vec::new(),
+                    unproven_reason: None,
                     volume_serial: None,
                 },
             )),
@@ -284,7 +321,12 @@ fn classify_validated_drive(_raw: &OsStr) -> (NativePathLocality, Option<Localit
 fn locality_from_drive(locality: DriveLocality) -> NativePathLocality {
     match locality {
         DriveLocality::FixedLocal => NativePathLocality::FixedLocal,
-        DriveLocality::Remote
+        // The grant-first demotion (decision 0029 §14) verdict: observed
+        // but insufficient evidence never admits. `FixedLocal` above is
+        // defined-but-unreachable from the live classifier, mirroring
+        // Linux's `Proven`.
+        DriveLocality::Unproven
+        | DriveLocality::Remote
         | DriveLocality::Substituted
         | DriveLocality::Removable
         | DriveLocality::Unsupported
@@ -504,6 +546,9 @@ mod tests {
             "fixed_local_v0"
         );
         for locality in [
+            // The grant-first `Unproven` verdict never admits: it maps to
+            // `Unclassified` like every other non-`FixedLocal` verdict.
+            DriveLocality::Unproven,
             DriveLocality::Remote,
             DriveLocality::Substituted,
             DriveLocality::Removable,
@@ -810,6 +855,10 @@ mod tests {
                 "p1_guest_invisible_backing_v0",
                 "p1_unrecognized_storage_stack_v0",
                 "p1_ambiguous_mount_topology_v0",
+                // Grant-first demotion vocabulary (decision 0029 §14):
+                // insufficient-evidence and known-network reasons.
+                "p1_insufficient_evidence_v0",
+                "p1_known_network_backing_v0",
             ]
             .contains(&reason),
             "unknown locality reason: {reason}"

@@ -1,18 +1,33 @@
 // Production-connected CLI tests for WO29 Slice A trust-locality
-// (decision 0029 Option D: per-invocation, per-path operator attestation).
+// (decision 0029 Option D: per-invocation, per-path operator attestation,
+// grant-first amendment per decision 0029 section 14 / PR #58).
 //
-// These spawn the actual `hum` binary to verify the provability-aware
-// admission gate, the `--trust-locality files.read=<path>` attestation, the
-// refusal shapes, and the JSON run envelope. Adapter-only tests are
-// insufficient per review.
+// These spawn the actual `hum` binary to verify the grant-first admission
+// gate, the `--trust-locality files.read=<path>` attestation, the refusal
+// shapes, and the JSON run envelope. Adapter-only tests are insufficient
+// per review.
 //
-// Provability-awareness: the suite never assumes the platform's storage
-// classification. A no-trust probe (consent + matching grant, no
-// attestation) runs first and the observed outcome decides the branch. On
-// this Linux box the fixture lives on overlayfs, so the classifier yields
-// Unproven and attested runs take the `external-trust` path; on
-// proof-capable storage the same assertions pin `proved` (proof outranks
-// trust).
+// Grant-first: no classifier in this WO version emits `proved`, so the
+// consent-without-attestation probe ALWAYS refuses fail-closed on every
+// platform and every storage: exit 1, empty stdout, the typed
+// `<App>Error.read` caused-by `FileReadError.unavailable` chain, no panic,
+// no proved mention. The JSON envelope preserves the gate reason verbatim
+// in the files.read exercise event's `result` (the platform-selected
+// constant from `NativePath::locality_gate_reason`) and the classifier's
+// exact `Unproven` reason in `classifier_reason`; the attested run must
+// carry that same `classifier_reason` verbatim (run-to-run preservation,
+// never hardcoded: the classifier reason is storage/host-specific).
+//
+// Honest coverage gaps (BDFL test-plan correction, 2026-09-27): the
+// B2/C1/C2 adversarial identity cases (walked/opened and proof-evidence
+// contradictions) have no deterministic CLI seam -- production emits
+// `walked_opened_identity_mismatch_before_read_v0` and
+// `proof_evidence_identity_mismatch_before_read_v0` only on real races
+// between the component walk and the handle open, which the synchronous
+// CLI surface cannot induce. They are NOT faked here. Likewise D5: the
+// `build_run_json_envelope` `Err` arm is a defensive seam only; the
+// hand-rolled construction is infallible, so no CLI input reaches a real
+// envelope-construction failure.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -87,23 +102,69 @@ app trust_locality_probe {
 }
 "#;
 
+// Quiet program: no file reads at all, only stdout. Used by the E2
+// envelope-only test to prove the new file-read evidence line is absent on
+// an otherwise successful run (asserting the specific line's absence, not
+// globally empty stderr).
+const QUIET_PROGRAM: &str = r#"type QuietError {
+  code: Text
+}
+
+app quiet_probe {
+  why:
+    minimal quiet probe: emit one line without reading any file
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_quiet
+
+  task run_quiet(input: Path) -> Result Unit, QuietError {
+    why:
+      emit one line; the CLI arg is accepted and ignored
+
+    uses:
+      stdout.write
+
+    fails when:
+      the line cannot be written
+
+    does:
+      let wrote = try stdout_write("quiet") or fail QuietError.output
+      return wrote
+  }
+}
+"#;
+
 // Byte-exact expected stdout of the probe on fixtures/wordfreq/sample.txt.
 // The app entry completes with AppSuccess, so the CLI prints nothing beyond
 // the program's own writes.
 const EXPECTED_STDOUT: &[u8] = b"hum  lang\nhum\n";
 
+/// The gate reason recorded in the files.read exercise event's `result` on
+/// the no-grant refusal. Platform-selected by
+/// `NativePath::locality_gate_reason` (deterministic per platform arm, never
+/// the retired pre-demotion reason). This names the gate, not the
+/// classifier; the classifier's own reason travels in `classifier_reason`
+/// and is compared run-to-run, never hardcoded.
+#[cfg(unix)]
+const GATE_REASON: &str = "p1_locality_unproven_on_this_platform_v0";
+#[cfg(not(unix))]
+const GATE_REASON: &str = "windows_locality_unproven_grant_first_v0";
+
 fn hum_binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_hum"))
 }
 
-fn write_probe_program(name: &str) -> (PathBuf, PathBuf) {
+fn write_program(name: &str, text: &str) -> (PathBuf, PathBuf) {
     let dir = std::env::temp_dir().join(format!(
         "hum_wo29_trust_locality_{name}_{}",
         std::process::id()
     ));
     std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("trust_locality_probe.hum");
-    std::fs::write(&path, PROBE_PROGRAM).expect("write probe program");
+    let path = dir.join(format!("{name}.hum"));
+    std::fs::write(&path, text).expect("write probe program");
     (dir, path)
 }
 
@@ -128,17 +189,21 @@ fn run_hum_run(args: &[String], program: &Path, env: Option<(&str, &str)>) -> st
     cmd.output().expect("run hum")
 }
 
-/// Consent + matching files.read grant, no attestation: the provability
-/// probe. Exit 1 means the classifier left the storage unproven; exit 0
-/// means proof admitted the read.
-fn probe_no_trust(program: &Path, fixture: &str) -> std::process::Output {
-    let args = vec![
+/// Consent + matching files.read grant, no attestation: grant-first, this
+/// ALWAYS refuses (exit 1) because no classifier emits `proved` and no
+/// attestation is present.
+fn probe_no_trust(program: &Path, fixture: &str, json: bool) -> std::process::Output {
+    let mut args = vec![
         "--allow".to_owned(),
         "stdout.write".to_owned(),
         format!("--allow=files.read={fixture}"),
-        "--args".to_owned(),
-        fixture.to_owned(),
     ];
+    if json {
+        args.push("--format".to_owned());
+        args.push("json".to_owned());
+    }
+    args.push("--args".to_owned());
+    args.push(fixture.to_owned());
     run_hum_run(&args, program, None)
 }
 
@@ -159,6 +224,46 @@ fn run_with_trust(program: &Path, fixture: &str, json: bool) -> std::process::Ou
     args.push("--args".to_owned());
     args.push(fixture.to_owned());
     run_hum_run(&args, program, None)
+}
+
+/// Decode a JSON string body (the text after the opening quote), returning
+/// the decoded value and the byte index of the closing quote within
+/// `quoted`.
+fn decode_json_string_body(quoted: &str, context: &str) -> (String, usize) {
+    let mut decoded = String::new();
+    let mut chars = quoted.char_indices();
+    let mut end = None;
+    while let Some((idx, c)) = chars.next() {
+        match c {
+            '"' => {
+                end = Some(idx);
+                break;
+            }
+            '\\' => match chars.next() {
+                Some((_, 'n')) => decoded.push('\n'),
+                Some((_, 't')) => decoded.push('\t'),
+                Some((_, '"')) => decoded.push('"'),
+                Some((_, '\\')) => decoded.push('\\'),
+                Some((_, 'u')) => {
+                    let hex: String = chars.by_ref().take(4).map(|(_, h)| h).collect();
+                    let code = u32::from_str_radix(&hex, 16)
+                        .unwrap_or_else(|_| panic!("bad \\u escape in {context}"));
+                    decoded.push(
+                        char::from_u32(code)
+                            .unwrap_or_else(|| panic!("bad \\u escape in {context}")),
+                    );
+                }
+                Some((_, e)) => {
+                    decoded.push('\\');
+                    decoded.push(e);
+                }
+                None => break,
+            },
+            _ => decoded.push(c),
+        }
+    }
+    let end = end.unwrap_or_else(|| panic!("string value must terminate in {context}"));
+    (decoded, end)
 }
 
 /// Extract the `program_output_bytes` number array from the hand-rolled run
@@ -209,41 +314,7 @@ fn envelope_string_field_values(envelope: &str, field: &str) -> Vec<String> {
             .unwrap_or_else(|| panic!("field {field} must be followed by ':' in: {envelope}"));
         let value_start = after_key[colon + 1..].trim_start();
         if let Some(quoted) = value_start.strip_prefix('"') {
-            let mut decoded = String::new();
-            let mut chars = quoted.char_indices();
-            let mut end = None;
-            while let Some((idx, c)) = chars.next() {
-                match c {
-                    '"' => {
-                        end = Some(idx);
-                        break;
-                    }
-                    '\\' => match chars.next() {
-                        Some((_, 'n')) => decoded.push('\n'),
-                        Some((_, 't')) => decoded.push('\t'),
-                        Some((_, '"')) => decoded.push('"'),
-                        Some((_, '\\')) => decoded.push('\\'),
-                        Some((_, 'u')) => {
-                            let hex: String = chars.by_ref().take(4).map(|(_, h)| h).collect();
-                            let code = u32::from_str_radix(&hex, 16).unwrap_or_else(|_| {
-                                panic!("bad \\u escape in field {field}: {envelope}")
-                            });
-                            decoded.push(char::from_u32(code).unwrap_or_else(|| {
-                                panic!("bad \\u escape in field {field}: {envelope}")
-                            }));
-                        }
-                        Some((_, e)) => {
-                            decoded.push('\\');
-                            decoded.push(e);
-                        }
-                        None => break,
-                    },
-                    _ => decoded.push(c),
-                }
-            }
-            let end = end.unwrap_or_else(|| {
-                panic!("field {field} string value must terminate in: {envelope}")
-            });
+            let (decoded, end) = decode_json_string_body(quoted, field);
             values.push(decoded);
             rest = &quoted[end + 1..];
         } else {
@@ -254,55 +325,199 @@ fn envelope_string_field_values(envelope: &str, field: &str) -> Vec<String> {
     values
 }
 
+/// Split the envelope's `authority_events` array into per-event object
+/// slices. The hand-rolled emitter writes compact JSON; the scanner tracks
+/// brace depth while skipping string literals (with escape handling), so
+/// nested objects and arrays inside events are handled.
+fn authority_event_slices(envelope: &str) -> Vec<&str> {
+    let key = "\"authority_events\"";
+    let pos = envelope
+        .find(key)
+        .unwrap_or_else(|| panic!("envelope must contain authority_events: {envelope}"));
+    let array_open = pos
+        + envelope[pos..]
+            .find('[')
+            .expect("authority_events must be a JSON array");
+    let bytes = envelope.as_bytes();
+    let mut events = Vec::new();
+    let mut i = array_open + 1;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut depth = 0usize;
+    let mut event_start: Option<usize> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+        } else if b == b'"' {
+            in_string = true;
+        } else if b == b'{' {
+            if depth == 0 {
+                event_start = Some(i);
+            }
+            depth += 1;
+        } else if b == b'}' {
+            depth -= 1;
+            if depth == 0
+                && let Some(start) = event_start.take()
+            {
+                events.push(&envelope[start..=i]);
+            }
+        } else if b == b']' && depth == 0 {
+            break;
+        }
+        i += 1;
+    }
+    events
+}
+
+/// Extract every string-array value of a named JSON field in the envelope
+/// (one entry per non-null occurrence), decoding each element.
+fn envelope_string_array_field_values(envelope: &str, field: &str) -> Vec<Vec<String>> {
+    let key = format!("\"{field}\"");
+    let mut all = Vec::new();
+    let mut rest = envelope;
+    while let Some(pos) = rest.find(&key) {
+        let after_key = &rest[pos + key.len()..];
+        let colon = after_key
+            .find(':')
+            .unwrap_or_else(|| panic!("field {field} must be followed by ':'"));
+        let value_start = after_key[colon + 1..].trim_start();
+        if let Some(array) = value_start.strip_prefix('[') {
+            let mut elements = Vec::new();
+            let mut elem_rest = array;
+            loop {
+                let elem_trimmed = elem_rest.trim_start();
+                if let Some(after_bracket) = elem_trimmed.strip_prefix(']') {
+                    elem_rest = after_bracket;
+                    break;
+                }
+                let quoted = elem_trimmed.strip_prefix('"').unwrap_or_else(|| {
+                    panic!("{field} array elements must be strings: {envelope}")
+                });
+                let (decoded, end) = decode_json_string_body(quoted, field);
+                elements.push(decoded);
+                elem_rest = quoted[end + 1..].trim_start();
+                if let Some(after_comma) = elem_rest.strip_prefix(',') {
+                    elem_rest = after_comma;
+                }
+            }
+            all.push(elements);
+            rest = elem_rest;
+        } else {
+            // null or a non-array value: advance past this key occurrence.
+            rest = value_start;
+        }
+    }
+    all
+}
+
+/// The files.read `operation_exercise` event slice. Panics when the envelope
+/// carries none (every file-reading run emits exactly one).
+fn files_read_exercise_event(envelope: &str) -> &str {
+    authority_event_slices(envelope)
+        .into_iter()
+        .find(|event| {
+            event.contains("\"capability_id\":\"files.read\"")
+                && event.contains("\"event_kind\":\"operation_exercise\"")
+        })
+        .unwrap_or_else(|| {
+            panic!("envelope must contain a files.read operation_exercise event: {envelope}")
+        })
+}
+
+/// Read a string field from one event slice; panics when the field is absent
+/// or null.
+fn event_string_field(event: &str, field: &str) -> String {
+    let key = format!("\"{field}\":\"");
+    let pos = event
+        .find(&key)
+        .unwrap_or_else(|| panic!("event must carry string field {field}: {event}"));
+    let (decoded, _) = decode_json_string_body(&event[pos + key.len()..], field);
+    decoded
+}
+
 #[test]
-fn cli_trust_locality_probe_and_attested_admission() {
-    // Provability-aware admission: the no-trust probe decides the branch.
-    // - exit 1: storage is unproven (overlayfs on hosted Linux). Pins
-    //   negative (b): consent + matching grant without attestation refuses
-    //   with FileReadError.unavailable. The trust run must then admit with
-    //   the external-trust label.
-    // - exit 0: storage is proof-capable. The probe already admitted via
-    //   proof; the trust run must keep the proved label (proof outranks
-    //   trust).
-    let (_probe_dir, program) = write_probe_program("admission");
+fn cli_trust_locality_no_trust_refusal_and_attested_admission() {
+    // Grant-first admission. The no-trust probe ALWAYS refuses: no classifier
+    // emits `proved`, so consent + matching grant without attestation fails
+    // closed with FileReadError.unavailable on every platform and storage.
+    // The attested run then admits with the external-trust label.
+    let (_probe_dir, program) = write_program("trust_locality_probe", PROBE_PROGRAM);
     let fixture = fixture_path();
 
-    let probe = probe_no_trust(&program, &fixture);
+    // Human no-trust probe: exit 1, no stdout, typed refusal, no panic, no
+    // proved mention.
+    let probe = probe_no_trust(&program, &fixture, false);
     let probe_stderr = String::from_utf8_lossy(&probe.stderr);
+    assert_eq!(
+        probe.status.code(),
+        Some(1),
+        "no-trust probe must exit 1 (grant-first refusal): {probe_stderr}"
+    );
+    assert!(probe.stdout.is_empty(), "refused read must write no stdout");
+    assert!(
+        probe_stderr.contains("ProbeError.read")
+            && probe_stderr.contains("FileReadError.unavailable"),
+        "no-trust probe must fail closed with ProbeError.read caused by FileReadError.unavailable: {probe_stderr}"
+    );
     assert!(
         !probe_stderr.contains("panicked"),
         "probe must fail closed without panicking: {probe_stderr}"
     );
-    let admitted_class: &str = match probe.status.code() {
-        Some(1) => {
-            // Negative pin (b): matching --allow without trust on unprovable
-            // storage refuses with FileReadError.unavailable.
-            assert!(probe.stdout.is_empty(), "refused read must write no stdout");
-            assert!(
-                probe_stderr.contains("ProbeError.read")
-                    && probe_stderr.contains("FileReadError.unavailable"),
-                "unprovable no-trust probe must fail closed with ProbeError.read caused by FileReadError.unavailable: {probe_stderr}"
-            );
-            "external-trust"
-        }
-        Some(0) => {
-            // Proof-capable storage: the probe admits with the proved label.
-            assert_eq!(
-                probe.stdout.as_slice(),
-                EXPECTED_STDOUT,
-                "proved probe stdout must be byte-exact"
-            );
-            assert!(
-                probe_stderr.contains("proved"),
-                "proved probe must carry the proved evidence label on stderr: {probe_stderr}"
-            );
-            "proved"
-        }
-        other => panic!("no-trust probe must exit 0 or 1, got {other:?}; stderr: {probe_stderr}"),
-    };
+    assert!(
+        !probe_stderr.contains("proved"),
+        "no-trust refusal must never mention proved: {probe_stderr}"
+    );
 
-    // Human trust run: attestation admits; byte-exact stdout; the evidence
-    // label matches the observed admission class.
+    // JSON no-trust probe (BDFL A2/A5 + B3): the files.read exercise event
+    // preserves the platform gate reason verbatim in `result`, records the
+    // classifier's exact Unproven reason in `classifier_reason`, admits
+    // nothing (null classification), opens no file and reads no payload.
+    let probe_json = probe_no_trust(&program, &fixture, true);
+    let probe_json_stderr = String::from_utf8_lossy(&probe_json.stderr);
+    assert_eq!(
+        probe_json.status.code(),
+        Some(1),
+        "JSON no-trust probe must exit 1: {probe_json_stderr}"
+    );
+    let refusal_envelope = String::from_utf8_lossy(&probe_json.stdout);
+    assert!(
+        refusal_envelope.trim_start().starts_with('{'),
+        "JSON mode stdout must carry only the envelope: {refusal_envelope}"
+    );
+    let refusal_event = files_read_exercise_event(&refusal_envelope);
+    assert_eq!(
+        event_string_field(refusal_event, "result"),
+        GATE_REASON,
+        "refusal event result must preserve the platform gate reason verbatim"
+    );
+    let refusal_classifier_reason = event_string_field(refusal_event, "classifier_reason");
+    assert!(
+        !refusal_classifier_reason.is_empty(),
+        "refusal event must record the classifier Unproven reason verbatim in classifier_reason"
+    );
+    assert!(
+        refusal_event.contains("\"locality_classification\":null"),
+        "refusal must admit nothing: locality_classification must be null: {refusal_event}"
+    );
+    assert!(
+        refusal_event.contains("\"adapter_called\":false"),
+        "refusal must open no file: adapter_called must be false: {refusal_event}"
+    );
+    assert!(
+        refusal_event.contains("\"byte_count\":0"),
+        "refusal must read no payload: byte_count must be 0: {refusal_event}"
+    );
+
+    // Human trust run: attestation admits; byte-exact stdout; the
+    // trusted-not-proven evidence label on stderr.
     let trusted = run_with_trust(&program, &fixture, false);
     let trusted_stderr = String::from_utf8_lossy(&trusted.stderr);
     assert_eq!(
@@ -319,26 +534,16 @@ fn cli_trust_locality_probe_and_attested_admission() {
         !trusted_stderr.contains("panicked"),
         "attested run must not panic: {trusted_stderr}"
     );
-    match admitted_class {
-        "external-trust" => assert!(
-            trusted_stderr.contains("trusted-not-proven"),
-            "attested run on unprovable storage must carry the trusted-not-proven label: {trusted_stderr}"
-        ),
-        _ => {
-            assert!(
-                trusted_stderr.contains("proved"),
-                "attested run on proof-capable storage must carry the proved label: {trusted_stderr}"
-            );
-            assert!(
-                !trusted_stderr.contains("trusted-not-proven"),
-                "proof outranks trust: proved storage must not carry the trusted-not-proven label: {trusted_stderr}"
-            );
-        }
-    }
+    assert!(
+        trusted_stderr.contains("trusted-not-proven"),
+        "attested run must carry the trusted-not-proven evidence label: {trusted_stderr}"
+    );
 
     // JSON trust run: stdout carries ONLY the envelope; the envelope parses,
-    // program_output_bytes equals the expected bytes exactly, and the
-    // classified authority event carries the observed admission class.
+    // program_output_bytes equals the expected bytes exactly, the classified
+    // authority event carries external-trust, and its classifier_reason is
+    // the refusal run's reason preserved verbatim (never hardcoded: the
+    // classifier reason is storage/host-specific).
     let trusted_json = run_with_trust(&program, &fixture, true);
     let json_stderr = String::from_utf8_lossy(&trusted_json.stderr);
     assert_eq!(
@@ -358,29 +563,118 @@ fn cli_trust_locality_probe_and_attested_admission() {
     );
     assert_eq!(
         envelope_string_field_values(&envelope, "locality_classification"),
-        vec![admitted_class.to_owned()],
-        "envelope must classify the read as {admitted_class}: {envelope}"
+        vec!["external-trust".to_owned()],
+        "envelope must classify the read as external-trust: {envelope}"
     );
-    match admitted_class {
-        "external-trust" => assert!(
-            json_stderr.contains("trusted-not-proven"),
-            "JSON mode must still emit the evidence line on stderr: {json_stderr}"
-        ),
-        _ => assert!(
-            json_stderr.contains("proved") && !json_stderr.contains("trusted-not-proven"),
-            "JSON mode on proof-capable storage must carry the proved label: {json_stderr}"
-        ),
+    let trust_event = files_read_exercise_event(&envelope);
+    assert_eq!(
+        event_string_field(trust_event, "classifier_reason"),
+        refusal_classifier_reason,
+        "trust path must preserve the classifier reason verbatim from the refusal run"
+    );
+    assert!(
+        json_stderr.contains("trusted-not-proven"),
+        "JSON mode must still emit the evidence line on stderr: {json_stderr}"
+    );
+
+    // Trust evidence bundle: the attestation fact, the matching-grant fact,
+    // the classifier's Unproven reason marked honestly as unproven, the
+    // bound file identity -- and never any P1-P4 proved line.
+    let evidence_arrays = envelope_string_array_field_values(&envelope, "locality_evidence");
+    assert_eq!(
+        evidence_arrays.len(),
+        1,
+        "exactly one event must carry locality_evidence: {envelope}"
+    );
+    let evidence_lines = &evidence_arrays[0];
+    assert!(
+        evidence_lines
+            .iter()
+            .any(|line| line == &format!("attestation: operator attested files.read={fixture}")),
+        "evidence must carry the attestation fact: {evidence_lines:?}"
+    );
+    assert!(
+        evidence_lines
+            .iter()
+            .any(|line| line == &format!("allow: matching files.read={fixture}")),
+        "evidence must carry the matching-grant fact: {evidence_lines:?}"
+    );
+    assert!(
+        evidence_lines
+            .iter()
+            .any(|line| line
+                == &format!("classifier: {refusal_classifier_reason} (proof unavailable)")),
+        "evidence must honestly record the classifier's Unproven reason: {evidence_lines:?}"
+    );
+    for line in evidence_lines {
+        for prefix in ["P1:", "P2:", "P3:", "P4:"] {
+            assert!(
+                !line.starts_with(prefix),
+                "external-trust evidence must carry no {prefix} proved line: {line}"
+            );
+        }
+    }
+
+    // Bound file identity: the opened file's platform-correct identity, per
+    // FileObjectIdentity::render. Values are host-dependent: on unix they
+    // are verified exactly against the fixture's stat (dev, ino); on Windows
+    // only the volume_serial/file_index shape is asserted.
+    let identities = envelope_string_field_values(&envelope, "bound_file_identity");
+    assert_eq!(
+        identities.len(),
+        1,
+        "exactly one event must carry bound_file_identity: {envelope}"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(&fixture).expect("fixture metadata");
+        assert_eq!(
+            identities[0],
+            format!("dev={} ino={}", metadata.dev(), metadata.ino()),
+            "bound_file_identity must be the opened file's (dev, ino)"
+        );
+    }
+    #[cfg(windows)]
+    {
+        let identity = &identities[0];
+        let parts: Vec<&str> = identity.split(' ').collect();
+        assert_eq!(
+            parts.len(),
+            2,
+            "bound_file_identity must be 'volume_serial=<n> file_index=<n>', got {identity:?}"
+        );
+        let serial = parts[0].strip_prefix("volume_serial=").unwrap_or_else(|| {
+            panic!("bound_file_identity must start with volume_serial=, got {identity:?}")
+        });
+        let index = parts[1].strip_prefix("file_index=").unwrap_or_else(|| {
+            panic!("bound_file_identity must carry file_index=, got {identity:?}")
+        });
+        assert!(
+            !serial.is_empty() && serial.chars().all(|c| c.is_ascii_digit()),
+            "volume_serial must be numeric, got {identity:?}"
+        );
+        assert!(
+            !index.is_empty() && index.chars().all(|c| c.is_ascii_digit()),
+            "file_index must be numeric, got {identity:?}"
+        );
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        assert!(
+            !identities[0].is_empty(),
+            "bound_file_identity must be recorded: {:?}",
+            identities[0]
+        );
     }
 }
 
 #[test]
 fn cli_trust_locality_misuse_pins() {
-    // Negative pins around the attestation. (a) and (d) are unconditional:
-    // the consent gate runs before classification. (c) and (e) are
-    // provability-aware: on unprovable storage they refuse; on proof-capable
-    // storage proof admits (proof outranks trust) and the env var stays
-    // inert.
-    let (probe_dir, program) = write_probe_program("misuse");
+    // Negative pins around the attestation, all unconditional under
+    // grant-first: (a) and (d) fail at the consent gate; (c) and (e) fail at
+    // the locality gate because the attestation never matches.
+    let (probe_dir, program) = write_program("trust_locality_misuse", PROBE_PROGRAM);
     let fixture = fixture_path();
 
     // (a) No --allow files.read on the OS-readable fixture: denied.
@@ -428,20 +722,10 @@ fn cli_trust_locality_misuse_pins() {
         "(d) must not panic: {trust_denied_stderr}"
     );
 
-    // Branch for (c) and (e).
-    let probe = probe_no_trust(&program, &fixture);
-    let unprovable = match probe.status.code() {
-        Some(1) => true,
-        Some(0) => false,
-        other => panic!(
-            "no-trust probe must exit 0 or 1, got {other:?}; stderr: {}",
-            String::from_utf8_lossy(&probe.stderr)
-        ),
-    };
-
     // (c) --trust-locality path != --allow path: the attestation does not
-    // match the grant. A nonexistent sibling of the probe dir is a valid
-    // native path that is not the granted fixture.
+    // match the grant, so the locality gate refuses with unavailable. A
+    // nonexistent sibling of the probe dir is a valid native path that is
+    // not the granted fixture.
     let other_path = probe_dir
         .join("not-the-fixture.txt")
         .to_str()
@@ -458,36 +742,20 @@ fn cli_trust_locality_misuse_pins() {
     ];
     let mismatch = run_hum_run(&mismatch_args, &program, None);
     let mismatch_stderr = String::from_utf8_lossy(&mismatch.stderr);
-    if unprovable {
-        assert_eq!(
-            mismatch.status.code(),
-            Some(1),
-            "(c) mismatched attestation must exit 1 on unprovable storage"
-        );
-        assert!(
-            mismatch_stderr.contains("FileReadError.unavailable"),
-            "(c) mismatched attestation must refuse with FileReadError.unavailable: {mismatch_stderr}"
-        );
-        assert!(
-            !mismatch_stderr.contains("trusted-not-proven"),
-            "(c) mismatched attestation must not emit a trust label: {mismatch_stderr}"
-        );
-    } else {
-        assert_eq!(
-            mismatch.status.code(),
-            Some(0),
-            "(c) proof admits despite the mismatched attestation"
-        );
-        assert_eq!(
-            mismatch.stdout.as_slice(),
-            EXPECTED_STDOUT,
-            "(c) proved stdout must be byte-exact"
-        );
-        assert!(
-            mismatch_stderr.contains("proved") && !mismatch_stderr.contains("trusted-not-proven"),
-            "(c) proof outranks trust: {mismatch_stderr}"
-        );
-    }
+    assert_eq!(
+        mismatch.status.code(),
+        Some(1),
+        "(c) mismatched attestation must exit 1"
+    );
+    assert!(
+        mismatch_stderr.contains("FileReadError.unavailable"),
+        "(c) mismatched attestation must refuse with FileReadError.unavailable: {mismatch_stderr}"
+    );
+    assert!(
+        !mismatch_stderr.contains("trusted-not-proven"),
+        "(c) mismatched attestation must not emit a trust label: {mismatch_stderr}"
+    );
+
     // (e) HUM_TRUST_LOCALITY env var with no flag: env must not attest.
     let env_args = vec![
         "--allow".to_owned(),
@@ -503,29 +771,59 @@ fn cli_trust_locality_misuse_pins() {
         Some(("HUM_TRUST_LOCALITY", env_attestation.as_str())),
     );
     let env_stderr = String::from_utf8_lossy(&env_run.stderr);
-    if unprovable {
-        assert_eq!(
-            env_run.status.code(),
-            Some(1),
-            "(e) env-only attestation must exit 1 on unprovable storage"
-        );
+    assert_eq!(
+        env_run.status.code(),
+        Some(1),
+        "(e) env-only attestation must exit 1"
+    );
+    assert!(
+        env_stderr.contains("FileReadError.unavailable"),
+        "(e) env must not attest: refusal must be FileReadError.unavailable: {env_stderr}"
+    );
+    assert!(
+        !env_stderr.contains("trusted-not-proven"),
+        "(e) env must not attest: no trust label may be emitted: {env_stderr}"
+    );
+}
+
+#[test]
+fn cli_trust_locality_quiet_program_emits_no_file_read_evidence() {
+    // E2: an otherwise quiet successful program carries no file-read
+    // evidence line. The assertion targets the new file-read evidence
+    // specifically (no files.read authority event, no `files.read ...:`
+    // stderr evidence line) -- not globally empty stderr.
+    let (_quiet_dir, program) = write_program("trust_locality_quiet", QUIET_PROGRAM);
+    let fixture = fixture_path();
+    let args = vec![
+        "--format".to_owned(),
+        "json".to_owned(),
+        "--allow".to_owned(),
+        "stdout.write".to_owned(),
+        "--args".to_owned(),
+        fixture,
+    ];
+    let run = run_hum_run(&args, &program, None);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "quiet run must exit 0: {stderr}"
+    );
+    let envelope = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        envelope.trim_start().starts_with('{'),
+        "JSON mode stdout must carry only the envelope: {envelope}"
+    );
+    for event in authority_event_slices(&envelope) {
         assert!(
-            env_stderr.contains("FileReadError.unavailable"),
-            "(e) env must not attest: refusal must be FileReadError.unavailable: {env_stderr}"
+            !event.contains("\"capability_id\":\"files.read\""),
+            "quiet run must emit no files.read authority event: {event}"
         );
+    }
+    for line in stderr.lines() {
         assert!(
-            !env_stderr.contains("trusted-not-proven"),
-            "(e) env must not attest: no trust label may be emitted: {env_stderr}"
-        );
-    } else {
-        assert_eq!(
-            env_run.status.code(),
-            Some(0),
-            "(e) proof admits; the env var stays inert"
-        );
-        assert!(
-            env_stderr.contains("proved") && !env_stderr.contains("trusted-not-proven"),
-            "(e) env var must not change the proved label: {env_stderr}"
+            !line.starts_with("files.read "),
+            "quiet run must emit no file-read evidence line on stderr: {line}"
         );
     }
 }

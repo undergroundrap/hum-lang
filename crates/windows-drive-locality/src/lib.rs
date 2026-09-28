@@ -35,7 +35,15 @@ impl DriveRoot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DriveLocality {
+    /// Defined (decision 0015's `proved` vocabulary) but unreachable from
+    /// the live classifier: the grant-first demotion (decision 0029 §14,
+    /// WO29 Slice A) demoted the only positive admission to `Unproven`,
+    /// mirroring Linux's `Proven`.
     FixedLocal,
+    /// Grant-first verdict: the recorded observations are plausible-local
+    /// but insufficient to admit; the named reason lives in
+    /// `ClassifiedDrive::unproven_reason`.
+    Unproven,
     Remote,
     Substituted,
     Removable,
@@ -48,14 +56,27 @@ pub struct ClassifiedDrive {
     pub locality: DriveLocality,
     /// Sorted, deduplicated physical disk numbers backing this drive, taken
     /// from the same completely-observed disk list that feeds the locality
-    /// classification (the `required_disks` source). Non-empty only when
-    /// `locality == DriveLocality::FixedLocal`; empty otherwise.
+    /// classification (the `required_disks` source). Non-empty only on the
+    /// grant-first `Unproven` path that observed the complete extent/disk
+    /// topology; empty on every closed path (Remote, Substituted,
+    /// Removable, Unknown, Unsupported).
     ///
     /// These numbers are *backing-device* identity only, never *file*
-    /// identity: they name the physical disks behind the volume, not any
-    /// file on it. A file's identity comes from `opened_file_identity`,
-    /// never from these numbers.
+    /// identity and never *admission*: they name the physical disks behind
+    /// the volume as observed, not a proof that the backing is local. A
+    /// file's identity comes from `opened_file_identity`, never from these
+    /// numbers.
     pub backing_device_identity: Vec<u32>,
+    /// Observed-fact lines recorded on the grant-first `Unproven` path:
+    /// bus-type evidence, `RemovableMedia` flags, disk extents, and the
+    /// dependency-walk observation. Empty on every closed path. Facts are
+    /// observations only; they never admit.
+    pub observed_facts: Vec<String>,
+    /// Named reason for the `Unproven` verdict
+    /// (`windows_locality_unproven_insufficient_evidence_v0` for the
+    /// demoted ATA/SATA/NVMe path). `None` unless
+    /// `locality == DriveLocality::Unproven`.
+    pub unproven_reason: Option<&'static str>,
     /// Volume serial number from `GetVolumeInformationW` on the drive root.
     /// `None` on any failure (including the non-Windows stub).
     pub volume_serial: Option<u32>,
@@ -174,23 +195,106 @@ fn classify_preliminary(observation: &PreliminaryObservation) -> PreliminaryClas
     }
 }
 
+/// Named reason for the demoted grant-first `Unproven` verdict: the
+/// ATA/SATA/NVMe observations are plausible-local, but guest-visible
+/// bus-type evidence cannot exclude invisible (hypervisor-interposed)
+/// backing, so the evidence is insufficient for admission. Exact string is
+/// the builder's choice (decision 0029 §14, reviewed).
+#[cfg(any(windows, test))]
+const REASON_INSUFFICIENT_EVIDENCE: &str = "windows_locality_unproven_insufficient_evidence_v0";
+
 #[cfg(any(windows, test))]
 fn classify_evidence(evidence: &InspectionEvidence) -> DriveLocality {
-    classify_evidence_detail(evidence).0
+    classify_evidence_detail(evidence).locality
 }
 
-/// The full classification verdict plus the sorted, deduplicated disk numbers
-/// taken from the same completely-observed disk list (`required_disks`) that
-/// feeds the verdict. The number list is non-empty only on the `FixedLocal`
-/// path; every other path returns an empty list. The classification logic is
-/// identical to `classify_evidence`: this function only widens the return.
+/// The full classification verdict for one complete inspection: locality,
+/// the sorted/deduplicated backing-disk numbers kept as device observation
+/// (not admission), the observed-fact lines, and the named `Unproven`
+/// reason (`None` unless the verdict is `Unproven`).
+///
+/// The classification logic matches `classify_evidence`; this widens the
+/// return so the Windows `classify` entry point can thread observations
+/// through to `ClassifiedDrive`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg(any(windows, test))]
-fn classify_evidence_detail(evidence: &InspectionEvidence) -> (DriveLocality, Vec<u32>) {
+struct EvidenceVerdict {
+    locality: DriveLocality,
+    backing_device_identity: Vec<u32>,
+    observed_facts: Vec<String>,
+    unproven_reason: Option<&'static str>,
+}
+
+#[cfg(any(windows, test))]
+impl EvidenceVerdict {
+    /// A closed (non-candidate) verdict carries no disk identity, no
+    /// observed facts, and no `Unproven` reason.
+    fn closed(locality: DriveLocality) -> Self {
+        debug_assert_ne!(
+            locality,
+            DriveLocality::Unproven,
+            "the only Unproven path is the demoted grant-first admission"
+        );
+        Self {
+            locality,
+            backing_device_identity: Vec::new(),
+            observed_facts: Vec::new(),
+            unproven_reason: None,
+        }
+    }
+}
+
+/// Observed-fact lines for the demoted grant-first path: the
+/// dependency-walk observation, each disk extent, and each required disk's
+/// bus type and removable-media flag. Recorded in a deterministic order.
+/// These are observations only — they never admit.
+#[cfg(any(windows, test))]
+fn observed_facts(
+    extents: &[ExtentObservation],
+    disks: &[DiskObservation],
+    required_disks: &[u32],
+) -> Vec<String> {
+    let mut facts = Vec::with_capacity(1 + extents.len() + required_disks.len());
+    facts.push("dependency_walk: no_dependencies".to_string());
+    for extent in extents {
+        facts.push(format!(
+            "extent: disk {} starting_offset {} extent_length {}",
+            extent.disk_number, extent.starting_offset, extent.extent_length
+        ));
+    }
+    for disk_number in required_disks {
+        if let Some(disk) = disks.iter().find(|disk| disk.disk_number == *disk_number) {
+            facts.push(format!(
+                "disk {}: bus_type {} removable_media {}",
+                disk.disk_number,
+                bus_type_label(disk.bus_type),
+                disk.removable
+            ));
+        }
+    }
+    facts
+}
+
+/// Short label for an observed bus type, for the observed-fact record.
+/// Only ATA/SATA/NVMe can appear on the demoted path; anything else is
+/// reported by number.
+#[cfg(any(windows, test))]
+fn bus_type_label(bus_type: u32) -> String {
+    match bus_type {
+        BUS_TYPE_ATA => "ATA".to_string(),
+        BUS_TYPE_SATA => "SATA".to_string(),
+        BUS_TYPE_NVME => "NVMe".to_string(),
+        other => format!("bus_{other}"),
+    }
+}
+
+#[cfg(any(windows, test))]
+fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     let PreliminaryClass::Candidate = classify_preliminary(&evidence.before) else {
         let PreliminaryClass::Closed(result) = classify_preliminary(&evidence.before) else {
             unreachable!();
         };
-        return (result, Vec::new());
+        return EvidenceVerdict::closed(result);
     };
 
     if evidence.before != evidence.after
@@ -198,21 +302,21 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> (DriveLocality, Ve
         || evidence.dependency != QueryState::Complete(DependencyObservation::None)
         || evidence.closes != QueryState::Complete(())
     {
-        return (DriveLocality::Unknown, Vec::new());
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
 
     let QueryState::Complete(extents) = &evidence.extents else {
-        return (DriveLocality::Unknown, Vec::new());
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     };
     let QueryState::Complete(disks) = &evidence.disks else {
-        return (DriveLocality::Unknown, Vec::new());
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     };
     if extents.is_empty()
         || extents
             .iter()
             .any(|extent| extent.starting_offset < 0 || extent.extent_length <= 0)
     {
-        return (DriveLocality::Unknown, Vec::new());
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
 
     let mut required_disks = extents
@@ -222,20 +326,47 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> (DriveLocality, Ve
     required_disks.sort_unstable();
     required_disks.dedup();
     if disks.len() != required_disks.len() {
-        return (DriveLocality::Unknown, Vec::new());
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
 
     for disk_number in &required_disks {
         let Some(disk) = disks.iter().find(|disk| disk.disk_number == *disk_number) else {
-            return (DriveLocality::Unknown, Vec::new());
+            return EvidenceVerdict::closed(DriveLocality::Unknown);
         };
         if disk.removable || !matches!(disk.bus_type, BUS_TYPE_ATA | BUS_TYPE_SATA | BUS_TYPE_NVME)
         {
-            return (DriveLocality::Unknown, Vec::new());
+            return EvidenceVerdict::closed(DriveLocality::Unknown);
         }
     }
 
-    (DriveLocality::FixedLocal, required_disks)
+    // ------------------------------------------------------------------
+    // GRANT-FIRST DEMOTION (decision 0029 §14, WO29 Slice A).
+    //
+    // Predecessor behavior: when every backing disk was observed as
+    // non-removable with bus type ATA/SATA/NVMe over a completely-observed
+    // extent/disk topology with no dependencies and observed closes, the
+    // classifier emitted `(DriveLocality::FixedLocal, required_disks)` — a
+    // positive admission that the drive was trusted-local.
+    //
+    // Why demoted: guest-visible bus-type observations do not establish
+    // invisible backing. A hypervisor or other invisible intermediary can
+    // interpose network/file backing beneath guest-visible ATA/SATA/NVMe
+    // frontends, and the guest cannot observe the difference. For this
+    // WO29 version no classifier emits a positive admission: the
+    // observation logic above is unchanged, only the verdict is demoted
+    // to grant-first `Unproven` with the insufficient-evidence reason.
+    // The observed disk numbers are kept as `backing_device_identity`
+    // (device observation, not admission). `DriveLocality::FixedLocal`
+    // stays defined (decision 0015's `proved` vocabulary) but is
+    // unreachable from the live classifier — mirroring Linux's `Proven`.
+    // ------------------------------------------------------------------
+    let facts = observed_facts(extents, disks, &required_disks);
+    EvidenceVerdict {
+        locality: DriveLocality::Unproven,
+        backing_device_identity: required_disks,
+        observed_facts: facts,
+        unproven_reason: Some(REASON_INSUFFICIENT_EVIDENCE),
+    }
 }
 
 #[cfg(not(windows))]
@@ -243,6 +374,8 @@ pub fn classify(_root: DriveRoot) -> ClassifiedDrive {
     ClassifiedDrive {
         locality: DriveLocality::Unsupported,
         backing_device_identity: Vec::new(),
+        observed_facts: Vec::new(),
+        unproven_reason: None,
         volume_serial: None,
     }
 }
@@ -250,10 +383,12 @@ pub fn classify(_root: DriveRoot) -> ClassifiedDrive {
 #[cfg(windows)]
 pub fn classify(root: DriveRoot) -> ClassifiedDrive {
     let volume_serial = query_volume_serial(root);
-    let (locality, backing_device_identity) = classify_full(root);
+    let verdict = classify_full(root);
     ClassifiedDrive {
-        locality,
-        backing_device_identity,
+        locality: verdict.locality,
+        backing_device_identity: verdict.backing_device_identity,
+        observed_facts: verdict.observed_facts,
+        unproven_reason: verdict.unproven_reason,
         volume_serial,
     }
 }
@@ -317,19 +452,19 @@ pub fn opened_file_identity(raw_handle: *mut core::ffi::c_void) -> Option<Window
 }
 
 #[cfg(windows)]
-fn classify_full(root: DriveRoot) -> (DriveLocality, Vec<u32>) {
+fn classify_full(root: DriveRoot) -> EvidenceVerdict {
     let before = query_preliminary(root);
     if let PreliminaryClass::Closed(result) = classify_preliminary(&before) {
-        return (result, Vec::new());
+        return EvidenceVerdict::closed(result);
     }
 
     let Some(volume) = open_device(&root.volume_device()) else {
-        return (DriveLocality::Unknown, Vec::new());
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     };
     let dependency = query_dependencies(&volume);
     if dependency != QueryState::Complete(DependencyObservation::None) {
         let _already_unknown = volume.close();
-        return (DriveLocality::Unknown, Vec::new());
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
     let extents = query_extents(&volume);
     let (disks, disk_closes) = match &extents {
@@ -452,8 +587,9 @@ impl Drop for OwnedHandle {
     fn drop(&mut self) {
         if !self.closed {
             // This is a best-effort unwind/early-failure fallback. Every path
-            // that can produce FixedLocal calls `close`, observes its result,
-            // and marks the handle closed before Drop.
+            // that can reach the demoted grant-first admission verdict calls
+            // `close`, observes its result, and marks the handle closed
+            // before Drop.
             let _already_unknown = close_raw_handle(self.raw);
             self.closed = true;
         }
@@ -969,7 +1105,8 @@ mod tests {
         BUS_TYPE_NVMEOF, BUS_TYPE_RAID, BUS_TYPE_SAS, BUS_TYPE_SATA, BUS_TYPE_SCSI,
         BUS_TYPE_SPACES, BUS_TYPE_VIRTUAL, ClassifiedDrive, DependencyObservation, DiskObservation,
         DriveLocality, DriveRoot, DriveTypeObservation, ExtentObservation, InspectionEvidence,
-        PreliminaryObservation, QueryState, classify_evidence, classify_evidence_detail,
+        PreliminaryObservation, QueryState, REASON_INSUFFICIENT_EVIDENCE, classify_evidence,
+        classify_evidence_detail,
     };
 
     fn mapping(text: &str) -> QueryState<Vec<u16>> {
@@ -1022,9 +1159,33 @@ mod tests {
     }
 
     #[test]
-    fn direct_ata_sata_and_nvme_chains_are_fixed_local() {
+    fn direct_ata_sata_and_nvme_chains_are_unproven_with_observed_facts() {
+        for (bus, label) in [
+            (BUS_TYPE_ATA, "ATA"),
+            (BUS_TYPE_SATA, "SATA"),
+            (BUS_TYPE_NVME, "NVMe"),
+        ] {
+            let detail = classify_evidence_detail(&evidence(bus));
+            assert_eq!(detail.locality, DriveLocality::Unproven, "{label}");
+            assert_eq!(
+                detail.unproven_reason,
+                Some(REASON_INSUFFICIENT_EVIDENCE),
+                "{label}"
+            );
+            // The demoted path keeps the observed disk numbers as
+            // backing-device identity (observation, not admission).
+            assert_eq!(detail.backing_device_identity, vec![0], "{label}");
+            assert!(
+                detail
+                    .observed_facts
+                    .iter()
+                    .any(|fact| fact.contains(label) && fact.contains("disk 0")),
+                "{label}: {facts:?}",
+                facts = detail.observed_facts
+            );
+        }
         for bus in [BUS_TYPE_ATA, BUS_TYPE_SATA, BUS_TYPE_NVME] {
-            assert_eq!(classify_evidence(&evidence(bus)), DriveLocality::FixedLocal);
+            assert_eq!(classify_evidence(&evidence(bus)), DriveLocality::Unproven);
         }
     }
 
@@ -1086,7 +1247,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_complete_extents_and_disks_are_accepted() {
+    fn multiple_complete_extents_and_disks_are_unproven() {
         let mut evidence = evidence(BUS_TYPE_ATA);
         evidence.extents = QueryState::Complete(vec![
             ExtentObservation {
@@ -1117,7 +1278,10 @@ mod tests {
                 bus_type: BUS_TYPE_NVME,
             },
         ]);
-        assert_eq!(classify_evidence(&evidence), DriveLocality::FixedLocal);
+        let detail = classify_evidence_detail(&evidence);
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        assert_eq!(detail.backing_device_identity, vec![0, 1]);
+        assert_eq!(detail.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
     }
 
     #[test]
@@ -1214,10 +1378,14 @@ mod tests {
     }
 
     #[test]
-    fn close_failure_prevents_fixed_local() {
+    fn close_failure_still_fails_closed() {
         let mut evidence = evidence(BUS_TYPE_NVME);
         evidence.closes = QueryState::ApiFailure;
-        assert_eq!(classify_evidence(&evidence), DriveLocality::Unknown);
+        let detail = classify_evidence_detail(&evidence);
+        assert_eq!(detail.locality, DriveLocality::Unknown);
+        assert!(detail.backing_device_identity.is_empty());
+        assert!(detail.observed_facts.is_empty());
+        assert_eq!(detail.unproven_reason, None);
     }
 
     #[test]
@@ -1459,6 +1627,8 @@ mod tests {
             ClassifiedDrive {
                 locality: DriveLocality::Unsupported,
                 backing_device_identity: Vec::new(),
+                observed_facts: Vec::new(),
+                unproven_reason: None,
                 volume_serial: None,
             }
         );
@@ -1506,30 +1676,125 @@ mod tests {
                 bus_type: BUS_TYPE_SATA,
             },
         ]);
-        assert_eq!(
-            classify_evidence_detail(&detail_evidence),
-            (DriveLocality::FixedLocal, vec![0, 1, 2])
-        );
+        let detail = classify_evidence_detail(&detail_evidence);
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        assert_eq!(detail.backing_device_identity, vec![0, 1, 2]);
+        assert_eq!(detail.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+        // One observed-fact line per required disk, in disk-number order.
+        let disk_facts: Vec<&String> = detail
+            .observed_facts
+            .iter()
+            .filter(|fact| fact.starts_with("disk "))
+            .collect();
+        assert_eq!(disk_facts.len(), 3);
+        assert!(disk_facts[0].starts_with("disk 0:"));
+        assert!(disk_facts[1].starts_with("disk 1:"));
+        assert!(disk_facts[2].starts_with("disk 2:"));
     }
 
     #[test]
-    fn non_fixed_local_classification_carries_no_disk_identity() {
+    fn demoted_path_carries_observed_identity_closed_paths_carry_none() {
+        let demoted = classify_evidence_detail(&evidence(BUS_TYPE_NVME));
+        assert_eq!(demoted.locality, DriveLocality::Unproven);
+        assert_eq!(demoted.backing_device_identity, vec![0]);
+        assert!(!demoted.observed_facts.is_empty());
+        assert_eq!(demoted.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+
         let mut unknown = evidence(BUS_TYPE_NVME);
         unknown.dependency = QueryState::ApiFailure;
-        assert_eq!(
-            classify_evidence_detail(&unknown),
-            (DriveLocality::Unknown, Vec::new())
-        );
+        let unknown = classify_evidence_detail(&unknown);
+        assert_eq!(unknown.locality, DriveLocality::Unknown);
+        assert!(unknown.backing_device_identity.is_empty());
+        assert!(unknown.observed_facts.is_empty());
+        assert_eq!(unknown.unproven_reason, None);
 
         let mut remote = evidence(BUS_TYPE_NVME);
         remote.before = PreliminaryObservation {
             drive_type: DriveTypeObservation::Fixed,
             mapping: mapping(r"\Device\Mup\server\share"),
         };
-        assert_eq!(
-            classify_evidence_detail(&remote),
-            (DriveLocality::Remote, Vec::new())
-        );
+        let remote = classify_evidence_detail(&remote);
+        assert_eq!(remote.locality, DriveLocality::Remote);
+        assert!(remote.backing_device_identity.is_empty());
+        assert!(remote.observed_facts.is_empty());
+        assert_eq!(remote.unproven_reason, None);
+    }
+
+    #[test]
+    fn unproven_reason_is_set_only_on_the_demoted_path() {
+        let demoted = classify_evidence_detail(&evidence(BUS_TYPE_ATA));
+        assert_eq!(demoted.locality, DriveLocality::Unproven);
+        assert_eq!(demoted.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+
+        let mut substituted = evidence(BUS_TYPE_NVME);
+        substituted.before.mapping = mapping(r"\??\C:\workspace");
+        let mut removable_drive = evidence(BUS_TYPE_NVME);
+        removable_drive.before.drive_type = DriveTypeObservation::Removable;
+        let mut unknown = evidence(BUS_TYPE_NVME);
+        unknown.extents = QueryState::ApiFailure;
+        for fixture in [&substituted, &removable_drive, &unknown] {
+            let detail = classify_evidence_detail(fixture);
+            assert_ne!(detail.locality, DriveLocality::Unproven);
+            assert_eq!(detail.unproven_reason, None, "{:?}", detail.locality);
+            assert!(detail.observed_facts.is_empty());
+            assert!(detail.backing_device_identity.is_empty());
+        }
+    }
+
+    #[test]
+    fn no_classifier_path_emits_fixed_local() {
+        let mut fixtures = Vec::new();
+        for bus in [
+            BUS_TYPE_ATA,
+            BUS_TYPE_SATA,
+            BUS_TYPE_NVME,
+            BUS_TYPE_SCSI,
+            BUS_TYPE_FIBRE,
+            BUS_TYPE_RAID,
+            BUS_TYPE_ISCSI,
+            BUS_TYPE_SAS,
+            BUS_TYPE_VIRTUAL,
+            BUS_TYPE_FILE_BACKED_VIRTUAL,
+            BUS_TYPE_SPACES,
+            BUS_TYPE_NVMEOF,
+            0xfeed,
+        ] {
+            fixtures.push(evidence(bus));
+        }
+        let mut dependency_failed = evidence(BUS_TYPE_NVME);
+        dependency_failed.dependency = QueryState::ApiFailure;
+        fixtures.push(dependency_failed);
+        let mut closes_failed = evidence(BUS_TYPE_NVME);
+        closes_failed.closes = QueryState::ApiFailure;
+        fixtures.push(closes_failed);
+        let mut topology_changed = evidence(BUS_TYPE_NVME);
+        topology_changed.after.mapping = mapping(r"\Device\HarddiskVolume4");
+        fixtures.push(topology_changed);
+        let mut removable = evidence(BUS_TYPE_SATA);
+        let QueryState::Complete(disks) = &mut removable.disks else {
+            unreachable!();
+        };
+        disks[0].removable = true;
+        fixtures.push(removable);
+        let mut preliminary_closed = evidence(BUS_TYPE_NVME);
+        preliminary_closed.before = PreliminaryObservation {
+            drive_type: DriveTypeObservation::Fixed,
+            mapping: mapping(r"\??\C:\workspace"),
+        };
+        fixtures.push(preliminary_closed);
+
+        for fixture in &fixtures {
+            assert_ne!(
+                classify_evidence(fixture),
+                DriveLocality::FixedLocal,
+                "classify_evidence emitted FixedLocal"
+            );
+            assert_ne!(
+                classify_evidence_detail(fixture).locality,
+                DriveLocality::FixedLocal,
+                "classify_evidence_detail emitted FixedLocal"
+            );
+        }
     }
 
     #[cfg(windows)]

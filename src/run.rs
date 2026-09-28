@@ -1316,7 +1316,12 @@ fn file_audit_event(
 /// WO29 Slice A locality bundle threaded through the file-read gate into the
 /// audit event. `classification` is `Some("proved" | "external-trust")` for
 /// every exercise admitted past the gate; pre-classification refusals carry
-/// [`LocalityBundle::none`].
+/// [`LocalityBundle::none`], with the selected classifier's exact `Unproven`
+/// reason verbatim in `classifier_reason`.
+///
+/// Grant-first honesty (decision 0029 §14): `proved` is defined but
+/// unreachable in this WO version — no classifier emits it — so the only
+/// live classification is `external-trust`, admitted by operator attestation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LocalityBundle {
     pub(crate) classification: Option<&'static str>,
@@ -1344,6 +1349,11 @@ impl LocalityBundle {
 
 /// Step 6 of the Slice A gate (proof path only): bind the classifier's
 /// storage evidence to the opened handle's identity.
+///
+/// Grant-first honesty (decision 0029 §14): no classifier in this WO version
+/// emits `proved`, so the proof path — and this bind — is defined but
+/// unreachable on the live path. The function stays, with its honest
+/// comment, so the dead branch keeps its shape for the vocabulary.
 ///
 /// Missing evidence and contradictory evidence are DISTINGUISHABLE, never
 /// collapsed: `None` (or a FixedLocal claim with no binding identity)
@@ -1406,26 +1416,49 @@ fn classifier_evidence_lines(revalidated: &ValidatedNativePath) -> Vec<String> {
         #[cfg(any(unix, test))]
         Some(LocalityEvidence::Linux(locality)) => match locality {
             linux_drive_locality::LinuxLocality::Proven { evidence, .. } => evidence.clone(),
-            linux_drive_locality::LinuxLocality::Unproven { reason } => {
-                vec![format!("unproven: {reason}")]
+            linux_drive_locality::LinuxLocality::Unproven {
+                reason,
+                observed_facts,
+                ..
+            } => {
+                // The named `Unproven` reason verbatim, then the observed-fact
+                // lines verbatim: observations only, never admission. Mirrors
+                // the Windows arm below.
+                let mut lines = Vec::with_capacity(observed_facts.len() + 1);
+                lines.push(format!("unproven: {reason}"));
+                lines.extend(observed_facts.iter().cloned());
+                lines
             }
         },
         #[cfg(windows)]
-        Some(LocalityEvidence::Windows(classified)) => vec![
-            format!("locality={:?}", classified.locality),
-            format!(
+        Some(LocalityEvidence::Windows(classified)) => {
+            let mut lines = Vec::with_capacity(classified.observed_facts.len() + 4);
+            // The named `Unproven` reason verbatim, then the observed-fact
+            // lines verbatim: observations only, never admission.
+            lines.push(format!(
+                "unproven: {}",
+                classified.unproven_reason.unwrap_or("none")
+            ));
+            lines.extend(classified.observed_facts.iter().cloned());
+            // Identity fields: backing-disk numbers are *device* identity
+            // (observed at classification); the volume serial is the
+            // *file*-identity component bound at open. Separate concepts,
+            // separate lines.
+            lines.push(format!("locality={:?}", classified.locality));
+            lines.push(format!(
                 "backing_device_identity={:?}",
                 classified.backing_device_identity
-            ),
-            format!(
+            ));
+            lines.push(format!(
                 "volume_serial={}",
                 classified
                     .volume_serial
                     .map(|serial| serial.to_string())
                     .as_deref()
                     .unwrap_or("none")
-            ),
-        ],
+            ));
+            lines
+        }
         None => vec!["evidence unavailable".to_string()],
     }
 }
@@ -3232,6 +3265,11 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         // `--allow files.read` grant path equals the revalidated request
         // path (triple equality). Proof outranks trust. Without either, the
         // existing unavailable refusal fires and no candidate access happens.
+        //
+        // Grant-first honesty (decision 0029 §14): no classifier in this WO
+        // version emits `proved` — the `proved` branch below is defined but
+        // unreachable, kept so the gate keeps its code shape. The operator
+        // attestation is the sole live admission path.
         let trust_matches = self
             .grant_policy
             .trust_locality_grant()
@@ -3246,6 +3284,12 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             None
         };
         let Some(classification) = classification else {
+            // Refusal before any candidate access: the event keeps the
+            // platform gate reason as `result`, and carries the selected
+            // classifier's exact `Unproven` reason verbatim in
+            // `classifier_reason` — no normalization, no substitution.
+            let mut refusal = LocalityBundle::none();
+            refusal.classifier_reason = revalidated.classifier_unproven_reason();
             self.record_file_exercise(
                 &request_id,
                 &policy,
@@ -3255,7 +3299,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 false,
                 0,
                 revalidated.locality_gate_reason(),
-                LocalityBundle::none(),
+                refusal,
             );
             return Ok(Evaluated::Failure(file_failure(
                 "unavailable",
@@ -3325,7 +3369,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         }
 
         // Step 6 (proof path only): bind the classifier's storage evidence
-        // to the opened handle's identity.
+        // to the opened handle's identity. Defined but unreachable in this
+        // WO version (decision 0029 §14: no classifier emits `proved`); the
+        // branch stays for the vocabulary.
         if classification == "proved"
             && let Err(error) =
                 bind_proof_evidence(revalidated.locality_evidence(), opened_identity)
@@ -4005,13 +4051,24 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 .grant_policy
                 .files_read_grant()
                 .map(|path| path.as_os_str().to_os_string()),
-            classifier_reason: Some(revalidated.locality()),
+            // The classifier's exact `Unproven` reason, verbatim and
+            // unnormalized; the legacy locality status only as fallback when
+            // the classifier reported no `Unproven` reason (e.g. platforms
+            // without stored evidence, or the defined-but-unreachable proof
+            // path).
+            classifier_reason: Some(
+                revalidated
+                    .classifier_unproven_reason()
+                    .unwrap_or_else(|| revalidated.locality()),
+            ),
             bound_identity: None,
         }
     }
 
     /// Trust evidence bundle: attestation / allow / classifier /
-    /// bound-identity lines. Never any P1–P4 proved lines.
+    /// bound-identity lines. Never any P1–P4 proved lines. The classifier
+    /// line carries the classifier's exact `Unproven` reason verbatim —
+    /// no normalization, no substitution.
     fn trust_evidence_lines(
         &self,
         revalidated: &ValidatedNativePath,
@@ -4027,10 +4084,13 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             .files_read_grant()
             .map(|path| path.as_os_str().to_string_lossy().into_owned())
             .unwrap_or_else(|| "<none>".to_string());
+        let classifier_reason = revalidated
+            .classifier_unproven_reason()
+            .unwrap_or_else(|| revalidated.locality());
         vec![
             format!("attestation: operator attested files.read={attested}"),
             format!("allow: matching files.read={allowed}"),
-            format!("classifier: {} (proof unavailable)", revalidated.locality()),
+            format!("classifier: {classifier_reason} (proof unavailable)"),
             match bound {
                 Some(identity) => format!("bound identity: {}", identity.render()),
                 None => "bound identity: unavailable (open failed before bind)".to_string(),
@@ -6460,6 +6520,10 @@ pub(crate) mod tests {
         let exercise = file_exercise_event(&report);
         assert_eq!(exercise.locality_classification, Some("external-trust"));
         assert!(exercise.trust_locality_present);
+        // The selected classifier's exact `Unproven` reason, verbatim in the
+        // bundle: the fixture path does not exist, so the host classifier
+        // fails closed at the mountinfo stage on every unix host.
+        assert_eq!(exercise.classifier_reason, Some("p1_no_mountinfo_entry_v0"));
         assert_eq!(
             exercise.bound_file_identity.as_deref(),
             Some("dev=8 ino=4242")
@@ -6482,8 +6546,10 @@ pub(crate) mod tests {
             "allow line present: {evidence:?}"
         );
         assert!(
-            evidence.iter().any(|line| line.starts_with("classifier: ")),
-            "classifier line present: {evidence:?}"
+            evidence
+                .iter()
+                .any(|line| line == "classifier: p1_no_mountinfo_entry_v0 (proof unavailable)"),
+            "classifier line carries the exact verbatim reason: {evidence:?}"
         );
         assert!(
             evidence
@@ -6765,9 +6831,12 @@ pub(crate) mod tests {
     // Session AG unix (WO28 #7): property P1 (not network-backed) is
     // unproven on every non-Windows platform, so the app entry executes
     // through the type gate and refuses at the locality gate. The reason
-    // string is audit-only (the rendered failure is the typed
+    // strings are audit-only (the rendered failure is the typed
     // FileReadError.unavailable chain), so this test pins the exact
-    // recorded reason on the interpreter's exercise event.
+    // recorded reasons on the interpreter's exercise event: the platform
+    // gate reason as `result`, and the selected classifier's exact
+    // `Unproven` reason verbatim as `classifier_reason` — no normalization,
+    // no substitution.
     #[cfg(unix)]
     #[test]
     fn unix_p1_unproven_locality_refusal_records_exact_reason() {
@@ -6812,7 +6881,14 @@ pub(crate) mod tests {
             })
             .expect("file exercise event");
         assert_eq!(exercise.result, "p1_locality_unproven_on_this_platform_v0");
+        // The selected classifier's exact `Unproven` reason, verbatim: the
+        // fixture path does not exist, so the host classifier fails closed
+        // at the mountinfo stage on every unix host — deterministic.
+        assert_eq!(exercise.classifier_reason, Some("p1_no_mountinfo_entry_v0"));
+        // No-grant admission refuses before any open: zero file opens, zero
+        // payload reads. No contradiction diagnostic belongs on this path.
         assert!(!exercise.adapter_called);
+        assert_eq!(exercise.byte_count, 0);
     }
 
     #[test]
