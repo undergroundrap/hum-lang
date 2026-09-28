@@ -596,6 +596,22 @@ The contract:
   error is preserved in those diagnostics rather than masked. Ordinary
   program failure keeps the constructed envelope with its failure event
   and the program's exit code.
+  Acceptance for this case is bounded. A *reachable, recoverable*
+  envelope-construction failure must exhibit the behavior above
+  (nonzero exit, stderr-only diagnostics, no human-stdout fallback). If
+  the production construction path has no recoverable failure channel,
+  acceptance does not require inventing one — no artificial `Result`,
+  dead error arm, or synthetic failure solely to satisfy the criterion.
+  Instead the builder provides independent verification of that fact
+  from the source (the actual construction code and its type/error
+  paths, reviewed), plus the actual-command JSON success and
+  ordinary-failure controls, which remain mandatory. A test of a
+  diagnostics helper is not production-path failure evidence and does
+  not satisfy this criterion. Allocation failure, process termination,
+  missing captured output, and stdout write failure are distinct failure
+  modes; proving the construction path unreachable tests none of them
+  and must not be claimed as handling them. This clarifies the
+  acceptance criterion; it is not acceptance of any implementation.
 
 Acceptance: Session AG (Item 6) pins both the stderr literal and the JSON
 `external-trust` value, so this Item's acceptance is the AG test, not a
@@ -646,8 +662,11 @@ The new assertions, on **both** Windows and Ubuntu (Slice A):
   fixture path is absolute and repo-root-joined on both platforms (as the
   current pins spell it) and the attested path exactly matches the
   requested path.
-- Stdout is byte-exact `hum\nlang\nhum\n` (12 bytes) for
-  `fixtures/wordfreq/sample.txt` (15 bytes).
+- Stdout is byte-exact `hum\nlang\nhum\nhum: 2\nlang: 1\n` (28 UTF-8 bytes,
+  LF newlines) for `fixtures/wordfreq/sample.txt` (15 bytes). The 28 bytes
+  are the program's bytes per Item 5's program-output layer — the
+  task-result rendering's own trailing newline is distinguished by the
+  byte count and is not part of the asserted program output.
 - The evidence is asserted on both surfaces: the human output contains the
   literal `trusted-not-proven`; the JSON output contains the `external-trust`
   classification with the attestation facts. On CI both platforms' storage
