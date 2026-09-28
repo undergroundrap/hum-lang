@@ -416,38 +416,69 @@ fn query_volume_serial(root: DriveRoot) -> Option<u32> {
     (success != 0).then_some(serial)
 }
 
-/// Identity of an already-opened file: the volume serial it lives on plus
-/// the volume-relative file index. `None` means the identity is unavailable
-/// (null handle, invalid handle, API failure) — never a sentinel value.
+/// Identity of an already-opened file: the 64-bit volume serial plus the
+/// 128-bit file reference number from `FILE_ID_INFO`
+/// (`GetFileInformationByHandleEx` with `FileIdInfo`, class 18). This is
+/// the documented stable identity contract: unlike the legacy 64-bit
+/// `nFileIndex` from `GetFileInformationByHandle`, the 128-bit file ID is
+/// unique and stable on ReFS, which is the filesystem this contract is
+/// documented for.
+///
+/// `None` means the identity is unavailable (null handle, invalid handle,
+/// API failure, a zero file ID, or a filesystem that does not expose
+/// 128-bit file IDs) — never a sentinel value and never a downgrade to
+/// the legacy index. There is deliberately no FAT/exFAT special case:
+/// where the supported identity is unavailable or insufficient, the bind
+/// fails closed.
 #[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowsFileIdentity {
-    pub volume_serial: u32,
-    pub file_index: u64,
+    pub volume_serial: u64,
+    pub file_id: [u8; 16],
 }
 
 /// Read the identity of an already-opened file handle via
-/// `GetFileInformationByHandle`: `volume_serial` is `dwVolumeSerialNumber`
-/// and `file_index` is `(nFileIndexHigh as u64) << 32 | nFileIndexLow as u64`.
-/// Returns `None` on any failure. Stable Rust only; no new dependencies.
+/// `GetFileInformationByHandleEx` (`FileIdInfo`): `volume_serial` is
+/// `FILE_ID_INFO.VolumeSerialNumber` and `file_id` is the 128-bit
+/// `FILE_ID_INFO.FileId`. Returns `None` on any failure. Stable Rust
+/// only; no new dependencies.
 #[cfg(windows)]
 pub fn opened_file_identity(raw_handle: *mut core::ffi::c_void) -> Option<WindowsFileIdentity> {
+    /// `FILE_INFO_BY_HANDLE_CLASS::FileIdInfo`.
+    const FILE_ID_INFO_CLASS: u32 = 18;
     if raw_handle.is_null() {
         return None;
     }
-    let mut info = core::mem::MaybeUninit::<ByHandleFileInformationLayout>::uninit();
+    let mut info = core::mem::MaybeUninit::<FileIdInfoLayout>::uninit();
+    let succeeded = unsafe {
+        // SAFETY: `raw_handle` is non-null and, per the caller's contract,
+        // a live open file handle. `info` is a properly aligned 24-byte
+        // out-buffer that stays alive for the call and is only read when
+        // the call reports success.
+        GetFileInformationByHandleEx(
+            raw_handle,
+            FILE_ID_INFO_CLASS,
+            info.as_mut_ptr().cast(),
+            core::mem::size_of::<FileIdInfoLayout>() as u32,
+        )
+    };
+    if succeeded == 0 {
+        return None;
+    }
     let info = unsafe {
-        // SAFETY: `raw_handle` is non-null and, per the caller's contract, a
-        // live open file handle. `info` is a properly aligned out-buffer that
-        // stays alive for the call and is only read when the call succeeds.
-        if GetFileInformationByHandle(raw_handle, info.as_mut_ptr()) == 0 {
-            return None;
-        }
+        // SAFETY: the API reported success, so the out-buffer is fully
+        // initialized with one `FILE_ID_INFO`.
         info.assume_init()
     };
+    if info.file_id == [0; 16] {
+        // A zero file ID is not a usable identity: the filesystem did
+        // not provide one. Fail closed rather than bind against a
+        // sentinel.
+        return None;
+    }
     Some(WindowsFileIdentity {
-        volume_serial: info.dw_volume_serial_number,
-        file_index: (u64::from(info.n_file_index_high) << 32) | u64::from(info.n_file_index_low),
+        volume_serial: info.volume_serial_number,
+        file_id: info.file_id,
     })
 }
 
@@ -494,6 +525,128 @@ pub fn walked_file_identity(path_nul_terminated_utf16: &[u16]) -> Option<Windows
         CloseHandle(handle);
     }
     identity
+}
+
+/// Physical disk numbers backing the volume of an already-opened file,
+/// observed from the OPENED OBJECT — never re-derived from the classified
+/// path. The handle's final path names the volume; the volume device is
+/// opened and its extents queried live, with the same decoder the
+/// classifier uses. Sorted and deduplicated, mirroring the classifier's
+/// `backing_device_identity`, so the live consumer can check that every
+/// disk number the classifier recorded is still present on the opened
+/// volume's extents.
+///
+/// `None` means the observation is unavailable (null handle, API failure,
+/// or a final path that does not name a drive-letter volume) — never a
+/// partial or invented list. The classifier only names drive-letter roots
+/// (`DriveRoot::from_ascii_letter`), so a non-drive-letter final path
+/// (UNC, volume-GUID, or folder-mounted volume) is unobservable in the
+/// classifier's naming scheme; the volume-serial bind still runs on the
+/// opened identity and fails closed on any cross-volume confusion, so the
+/// disk observation can never wrongly pass there.
+#[cfg(windows)]
+pub fn opened_volume_disk_numbers(raw_handle: *mut core::ffi::c_void) -> Option<Vec<u32>> {
+    if raw_handle.is_null() {
+        return None;
+    }
+    let final_path = final_path_by_handle(raw_handle)?;
+    let letter = drive_letter(&final_path)?;
+    // The volume device path for drive letter X is the Win32 device
+    // namespace form: a double backslash, a dot, a backslash, then `X:`.
+    let volume_device: [u16; 7] = [
+        u16::from(b'\\'),
+        u16::from(b'\\'),
+        u16::from(b'.'),
+        u16::from(b'\\'),
+        letter,
+        u16::from(b':'),
+        0,
+    ];
+    let handle = open_device(&volume_device)?;
+    let mut buffer = Box::new(AlignedBuffer::<EXTENT_BUFFER_BYTES>(
+        [0; EXTENT_BUFFER_BYTES],
+    ));
+    let returned = device_io_control(
+        &handle,
+        IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+        &[],
+        &mut buffer.0,
+    );
+    let QueryState::Complete(extents) = decode_extent_information(&buffer.0, returned) else {
+        return None;
+    };
+    let mut numbers: Vec<u32> = extents.iter().map(|extent| extent.disk_number).collect();
+    numbers.sort_unstable();
+    numbers.dedup();
+    (!numbers.is_empty()).then_some(numbers)
+}
+
+/// The handle's final path in `VOLUME_NAME_DOS` form (the extended-length
+/// DOS path: double backslash, question mark, backslash, drive letter),
+/// without the trailing NUL. Two-call pattern: the first call reports the
+/// required length, the second fills the buffer. `None` on any failure.
+#[cfg(windows)]
+fn final_path_by_handle(raw_handle: *mut core::ffi::c_void) -> Option<Vec<u16>> {
+    /// `VOLUME_NAME_DOS`.
+    const DOS_VOLUME_NAME: u32 = 0x0;
+    /// Sanity bound: a final path longer than this is not a usable
+    /// observation.
+    const MAX_FINAL_PATH_UNITS: u32 = 32 * 1024;
+    let needed = unsafe {
+        // SAFETY: `raw_handle` is a live open handle per the caller's
+        // contract; a null buffer with zero capacity only queries the
+        // required length and writes nothing.
+        GetFinalPathNameByHandleW(raw_handle, core::ptr::null_mut(), 0, DOS_VOLUME_NAME)
+    };
+    if needed == 0 || needed > MAX_FINAL_PATH_UNITS {
+        return None;
+    }
+    let mut buffer = vec![0u16; needed as usize];
+    let written = unsafe {
+        // SAFETY: `buffer` offers exactly `needed` writable units and
+        // stays alive for the call; `raw_handle` is live.
+        GetFinalPathNameByHandleW(raw_handle, buffer.as_mut_ptr(), needed, DOS_VOLUME_NAME)
+    };
+    if written == 0 || written >= needed {
+        return None;
+    }
+    buffer.truncate(written as usize);
+    Some(buffer)
+}
+
+/// Extract the drive letter from a `VOLUME_NAME_DOS` final path
+/// (extended-length DOS path), uppercased. Anything else (UNC, volume-GUID,
+/// folder-mounted volumes surfacing through a host volume's namespace)
+/// has no drive-letter naming in the classifier's scheme: `None`.
+#[cfg(windows)]
+fn drive_letter(final_path: &[u16]) -> Option<u16> {
+    let [
+        backslash1,
+        backslash2,
+        question,
+        backslash3,
+        letter,
+        colon,
+        ..,
+    ] = final_path
+    else {
+        return None;
+    };
+    let is_dos_volume_prefix = *backslash1 == u16::from(b'\\')
+        && *backslash2 == u16::from(b'\\')
+        && *question == u16::from(b'?')
+        && *backslash3 == u16::from(b'\\')
+        && *colon == u16::from(b':');
+    let is_ascii_letter = (*letter >= u16::from(b'A') && *letter <= u16::from(b'Z'))
+        || (*letter >= u16::from(b'a') && *letter <= u16::from(b'z'));
+    if !is_dos_volume_prefix || !is_ascii_letter {
+        return None;
+    }
+    Some(if *letter >= u16::from(b'a') {
+        *letter - (u16::from(b'a') - u16::from(b'A'))
+    } else {
+        *letter
+    })
 }
 
 #[cfg(windows)]
@@ -1060,34 +1213,14 @@ struct StorageDeviceDescriptorLayout {
     raw_properties_length: u32,
 }
 
-/// One `FILETIME` as its low/high `u32` halves (low DWORD first). Modelling
-/// the halves as a single `u64` would 8-align the field on 64-bit targets
-/// and shift every trailing field of `ByHandleFileInformationLayout`; the
-/// two-`u32` form keeps the 4-byte alignment the Windows ABI requires.
+/// `FILE_ID_INFO` as documented by the Windows API: the 64-bit volume
+/// serial number followed by the 128-bit file reference number. `repr(C)`
+/// gives the exact 24-byte Windows layout on every target.
 #[cfg(windows)]
 #[repr(C)]
-struct FileTimeLayout {
-    dw_low_date_time: u32,
-    dw_high_date_time: u32,
-}
-
-/// `BY_HANDLE_FILE_INFORMATION` as documented by the Windows API: each
-/// `FILETIME` is a `FileTimeLayout` pair reading as one little-endian `u64`.
-/// The 4-byte field alignment gives the exact 52-byte Windows layout on
-/// every target.
-#[cfg(windows)]
-#[repr(C)]
-struct ByHandleFileInformationLayout {
-    dw_file_attributes: u32,
-    ft_creation_time: FileTimeLayout,
-    ft_last_access_time: FileTimeLayout,
-    ft_last_write_time: FileTimeLayout,
-    dw_volume_serial_number: u32,
-    n_file_size_high: u32,
-    n_file_size_low: u32,
-    n_number_of_links: u32,
-    n_file_index_high: u32,
-    n_file_index_low: u32,
+struct FileIdInfoLayout {
+    volume_serial_number: u64,
+    file_id: [u8; 16],
 }
 
 #[cfg(windows)]
@@ -1125,10 +1258,18 @@ unsafe extern "system" {
         lp_file_system_name_buffer: *mut u16,
         n_file_system_name_size: u32,
     ) -> i32;
-    fn GetFileInformationByHandle(
+    fn GetFileInformationByHandleEx(
         file: *mut core::ffi::c_void,
-        file_information: *mut ByHandleFileInformationLayout,
+        file_information_class: u32,
+        file_information: *mut core::ffi::c_void,
+        buffer_size: u32,
     ) -> i32;
+    fn GetFinalPathNameByHandleW(
+        file: *mut core::ffi::c_void,
+        file_path: *mut u16,
+        file_path_size: u32,
+        flags: u32,
+    ) -> u32;
 }
 
 #[cfg(windows)]
@@ -1848,51 +1989,14 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn by_handle_file_information_layout_matches_windows_abi() {
-        use super::{ByHandleFileInformationLayout, FileTimeLayout};
+    fn file_id_info_layout_matches_windows_abi() {
+        use super::FileIdInfoLayout;
         use core::mem::{offset_of, size_of};
-        assert_eq!(size_of::<FileTimeLayout>(), 8);
-        assert_eq!(size_of::<ByHandleFileInformationLayout>(), 52);
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, dw_file_attributes),
-            0
-        );
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, ft_creation_time),
-            4
-        );
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, ft_last_access_time),
-            12
-        );
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, ft_last_write_time),
-            20
-        );
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, dw_volume_serial_number),
-            28
-        );
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, n_file_size_high),
-            32
-        );
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, n_file_size_low),
-            36
-        );
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, n_number_of_links),
-            40
-        );
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, n_file_index_high),
-            44
-        );
-        assert_eq!(
-            offset_of!(ByHandleFileInformationLayout, n_file_index_low),
-            48
-        );
+        // `FILE_ID_INFO`: ULONGLONG VolumeSerialNumber followed by the
+        // 128-bit FILE_ID_128 — 24 bytes on every target.
+        assert_eq!(size_of::<FileIdInfoLayout>(), 24);
+        assert_eq!(offset_of!(FileIdInfoLayout, volume_serial_number), 0);
+        assert_eq!(offset_of!(FileIdInfoLayout, file_id), 8);
     }
 
     #[cfg(windows)]

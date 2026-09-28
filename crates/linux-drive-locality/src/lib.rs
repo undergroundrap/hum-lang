@@ -61,6 +61,11 @@ use std::path::{Component, Path, PathBuf};
 /// known-network, and missing-entry reasons are never normalized into one
 /// another where the accepted spec distinguishes them.
 const REASON_NO_MOUNTINFO_ENTRY: &str = "p1_no_mountinfo_entry_v0";
+/// The selected mountinfo entry's device contradicts the path's `st_dev`
+/// device: contradictory evidence, never relabeled as missing. The
+/// external-trust consumer rejects it before any payload read; it is not
+/// attestation-coverable.
+const REASON_MOUNTINFO_STAT_CONTRADICTION: &str = "p1_mountinfo_stat_contradiction_v0";
 const REASON_BLOCK_DEVICE_UNRESOLVED: &str = "p1_block_device_unresolved_v0";
 const REASON_GUEST_INVISIBLE_BACKING: &str = "p1_guest_invisible_backing_v0";
 const REASON_UNRECOGNIZED_STORAGE_STACK: &str = "p1_unrecognized_storage_stack_v0";
@@ -120,13 +125,17 @@ pub enum LinuxLocality {
     /// They record observations only — never a locality claim.
     ///
     /// `device` is the backing device identity `(major, minor)` the
-    /// classifier observed for this path (the selected mountinfo entry's
-    /// device, which the consistency check tied to the path's `st_dev`).
-    /// It is `Some` exactly when mount/device selection yielded a usable
-    /// identity, `None` when selection failed before observing one. The
-    /// Slice A external-trust consumer binds this observed identity
-    /// against the opened handle's device before any payload read:
-    /// external trust covers missing observations, never contradictions.
+    /// classifier observed for this path: the selected mountinfo entry's
+    /// device. It is `Some` whenever mount/device selection recorded a
+    /// device observation — including the contradictory one, when the
+    /// entry's device disagrees with the path's `st_dev` (the consistency
+    /// failure keeps the observed device so the consumer can reject the
+    /// contradiction). It is `None` only when selection failed before
+    /// observing any device: genuinely-missing evidence, which external
+    /// trust may cover. The Slice A external-trust consumer binds an
+    /// observed identity against the opened handle's device before any
+    /// payload read: external trust covers missing observations, never
+    /// contradictions.
     Unproven {
         reason: &'static str,
         observed_facts: Vec<String>,
@@ -151,9 +160,11 @@ impl LinuxLocality {
     }
 
     /// The backing device identity `(major, minor)` the classifier
-    /// observed for this path, when mount/device selection yielded a
-    /// usable one. `None` on `Proven` (unreachable) and on `Unproven`
-    /// results that failed before observing a device.
+    /// observed for this path, when mount/device selection recorded one —
+    /// including the contradictory observation on a mountinfo/stat
+    /// mismatch, so the consumer can reject it. `None` on `Proven`
+    /// (unreachable) and on `Unproven` results that failed before
+    /// observing any device (genuinely missing).
     pub fn observed_device(&self) -> Option<(u32, u32)> {
         match self {
             Self::Proven { device, .. } => Some(*device),
@@ -288,26 +299,39 @@ fn is_component_prefix(mountpoint: &Path, path: &Path) -> bool {
 /// mountpoint — the child is stacked on top and hides it. Numeric mount-ID
 /// ordering is never used as a tiebreak.
 ///
-/// Hidden child mounts are excluded: an entry whose ancestry passes
-/// through a covered mount is not visible to the guest, unless the
-/// covering mount is the entry itself (the stacking case: the topmost
-/// entry covers its own parent). A parent ID absent from the entry set is
+/// A duplicated mount ID means the mount table is internally inconsistent:
+/// the index would silently collapse two entries into one, so selection
+/// fails closed instead.
+///
+/// Reachability: an entry is hidden when its ancestry passes through a
+/// covered mount that is *not* on the entry's own ancestry line. An
+/// ancestor covered by the entry itself or by another ancestor of the
+/// entry is the stacking case — a multi-level overmount stack, or a
+/// visible descendant of an upper overmount — and does not hide it. A
+/// self-parent entry is a namespace root (container setups): the walk
+/// stops there, visible. A parent ID absent from the entry set is
 /// tolerated — the parent lives outside this process's namespace root —
 /// and the walk simply stops there.
 ///
 /// Genuinely ambiguous topology fails closed with
 /// `p1_ambiguous_mount_topology_v0`: more than one uncovered entry at the
-/// same mountpoint (a dangling duplicate with no parent relationship), or
-/// no reachable entry at all. There is deliberately no tiebreak.
+/// same mountpoint (a dangling duplicate with no parent relationship), a
+/// duplicated mount ID, a parent-ID cycle, or no reachable entry at all.
+/// There is deliberately no tiebreak.
 fn select_mount<'a>(
     entries: &'a [MountEntry],
     path: &Path,
 ) -> Result<&'a MountEntry, &'static str> {
-    // Index by mount ID for the ancestry walk.
-    let by_id: std::collections::HashMap<u64, &MountEntry> = entries
-        .iter()
-        .map(|entry| (entry.mount_id, entry))
-        .collect();
+    // Index by mount ID for the ancestry walk. A duplicated mount ID
+    // fails closed: collapsing two entries into one would silently pick
+    // a mount the table does not unambiguously name.
+    let mut by_id: std::collections::HashMap<u64, &MountEntry> =
+        std::collections::HashMap::with_capacity(entries.len());
+    for entry in entries {
+        if by_id.insert(entry.mount_id, entry).is_some() {
+            return Err(REASON_AMBIGUOUS_MOUNT_TOPOLOGY);
+        }
+    }
 
     // Covered(entry) <=> some other entry is a direct child of it at the
     // same mountpoint (stacked on top, hiding it).
@@ -328,28 +352,58 @@ fn select_mount<'a>(
         })
     };
 
-    // Reachable(entry): no ancestor (strict, via parent IDs) is covered by
-    // a mount other than the entry itself. The entry's own covering of its
-    // parent is the stacking case and does not hide it.
+    // Reachable(entry): every strict ancestor (via parent IDs) is either
+    // uncovered or covered by a mount on the entry's own ancestry line.
+    // A covered ancestor whose coverer sits on the entry's own line is
+    // the stacking case — the entry sits above the covering mount
+    // (multi-level overmount stacks, visible descendants of an upper
+    // overmount) — and does not hide the entry. A covered ancestor
+    // whose coverer is off the entry's line hides the whole subtree
+    // below it (the hidden-lower-child case).
+    //
+    // The walk is bounded: a parent-ID cycle that never reaches a
+    // self-parent namespace root or an outside-namespace parent can never
+    // resolve to a visible mount, so it fails closed rather than looping.
     let is_reachable = |entry: &MountEntry| {
-        let mut cursor_id = entry.parent_id;
-        // Bound the walk: a parent-ID cycle can never resolve to a
-        // visible mount, so fail closed rather than loop.
+        // The entry's ancestry line: the entry itself, then each parent
+        // by ID, stopping at a self-parent namespace root, an
+        // outside-namespace parent, or a repeated ID (cycle guard).
+        let mut ancestry: Vec<u64> = Vec::with_capacity(entries.len().saturating_add(1));
+        let mut cursor_id = entry.mount_id;
         for _ in 0..entries.len().saturating_add(1) {
-            let Some(ancestor) = by_id.get(&cursor_id) else {
+            if ancestry.contains(&cursor_id) {
+                break;
+            }
+            ancestry.push(cursor_id);
+            let Some(current) = by_id.get(&cursor_id) else {
+                break;
+            };
+            if current.parent_id == cursor_id {
+                break;
+            }
+            cursor_id = current.parent_id;
+        }
+        // Every strict ancestor must be uncovered or covered from the
+        // entry's own line; a foreign coverer hides the entry.
+        for ancestor_id in ancestry.iter().skip(1) {
+            let Some(ancestor) = by_id.get(ancestor_id) else {
                 // Parent outside this namespace: tolerated, walk stops.
                 return true;
             };
-            if is_covered(ancestor) {
-                let covered_by_self =
-                    coverer(ancestor).is_some_and(|covering| covering.mount_id == entry.mount_id);
-                if !covered_by_self {
-                    return false;
-                }
+            if is_covered(ancestor)
+                && !coverer(ancestor).is_some_and(|covering| ancestry.contains(&covering.mount_id))
+            {
+                return false;
             }
-            cursor_id = ancestor.parent_id;
         }
-        false
+        // The ancestry line must terminate at a self-parent namespace
+        // root or an outside-namespace parent; stopping anywhere else
+        // means a parent-ID cycle, which can never be visible.
+        let terminus = ancestry.last().copied().unwrap_or(u64::MAX);
+        match by_id.get(&terminus) {
+            None => true,
+            Some(current) => current.parent_id == current.mount_id,
+        }
     };
 
     // Group prefix-matching entries by mountpoint; each mountpoint keeps
@@ -640,13 +694,25 @@ pub fn classify_with(
         }
     };
     // Consistency: the selected mount entry must describe the path's actual
-    // device. A stale mountinfo view (entry device != st_dev device) fails
-    // closed at the mountinfo stage.
+    // device. A stale mountinfo view (entry device != st_dev device) is
+    // CONTRADICTORY evidence, not missing evidence: the reason names the
+    // contradiction, the observed facts record both sides, and the
+    // mountinfo-observed device is kept so the external-trust consumer
+    // binds it against the opened handle and rejects it before any
+    // payload read. It is never relabeled as missing and never
+    // attestation-coverable.
     if entry.major != major || entry.minor != minor {
         return LinuxLocality::Unproven {
-            reason: REASON_NO_MOUNTINFO_ENTRY,
-            observed_facts: Vec::new(),
-            device: None,
+            reason: REASON_MOUNTINFO_STAT_CONTRADICTION,
+            observed_facts: vec![format!(
+                "mountinfo: selected mountpoint={} dev={}:{} contradicts st_dev dev={}:{} (stale mountinfo view; contradictory evidence, rejected before read)",
+                entry.mountpoint.display(),
+                entry.major,
+                entry.minor,
+                major,
+                minor,
+            )],
+            device: Some((entry.major, entry.minor)),
         };
     }
     // From here on the classifier has observed a usable backing device
@@ -1698,6 +1764,106 @@ mod tests {
     }
 
     #[test]
+    fn multi_level_overmount_stack_selects_topmost() {
+        // Three mounts stacked at /data: 100 (ext4 8:1) covered by 101
+        // (xfs 8:2) covered by 102 (btrfs 8:3). Distinguishable devices
+        // and filesystems per level prove which entry was selected: the
+        // topmost (102, dev 8:3). The old reachability rule judged the
+        // topmost unreachable (its grandparent was covered by its parent,
+        // not by itself) and failed the whole stack as ambiguous.
+        let fixture = FakeSysfs::new("multistack");
+        fixture.add_block(8, 3, "sdc", "sdc1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = [
+            "100 99 8:1 / /data rw,relatime - ext4 /dev/sda1 rw\n",
+            "101 100 8:2 / /data rw,relatime - xfs /dev/sdb1 rw\n",
+            "102 101 8:3 / /data rw,relatime - btrfs /dev/sdc1 rw\n",
+        ]
+        .concat();
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 3);
+        let facts = assert_demoted(
+            &locality,
+            "p1_insufficient_evidence_v0",
+            &["mountpoint=/data", "dev=8:3"],
+        );
+        assert!(
+            !facts.iter().any(|fact| fact.contains("dev=8:1"))
+                && !facts.iter().any(|fact| fact.contains("dev=8:2")),
+            "only the topmost stack level may be selected; facts: {facts:?}"
+        );
+    }
+
+    #[test]
+    fn visible_descendant_of_upper_overmount_is_selected() {
+        // 100 (ext4 8:1) at /data is overmounted by 101 (xfs 8:2); 102
+        // (ext4 8:3) at /data/sub is mounted on the UPPER mount. 102 is
+        // visible: its covered grandparent 100 is covered by 101, which
+        // sits on 102's own ancestry line. The old rule only exempted
+        // covering-by-self and hid 102.
+        let fixture = FakeSysfs::new("upperchild");
+        fixture.add_block(8, 3, "sdc", "sdc1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = [
+            "100 99 8:1 / /data rw,relatime - ext4 /dev/sda1 rw\n",
+            "101 100 8:2 / /data rw,relatime - xfs /dev/sdb1 rw\n",
+            "102 101 8:3 / /data/sub rw,relatime - ext4 /dev/sdc1 rw\n",
+        ]
+        .concat();
+        let locality = fixture.classify(&mountinfo, "/data/sub/x", 8, 3);
+        let facts = assert_demoted(
+            &locality,
+            "p1_insufficient_evidence_v0",
+            &["mountpoint=/data/sub", "dev=8:3"],
+        );
+        assert!(
+            !facts.iter().any(|fact| fact.contains("dev=8:2")),
+            "the upper overmount itself must not be selected for the sub-path; facts: {facts:?}"
+        );
+    }
+
+    #[test]
+    fn self_parent_namespace_root_is_valid() {
+        // Container-style mountinfo: the root entry is its own parent
+        // (mount ID 1, parent ID 1). A self-parent entry is a namespace
+        // root, not a cycle: the walk stops there, visible. The old
+        // bounded walk exhausted its iterations and failed every path as
+        // ambiguous.
+        let fixture = FakeSysfs::new("selfparent");
+        fixture.add_block(8, 1, "sda", "sda1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = [
+            "1 1 8:0 / / rw,relatime - ext4 /dev/sda rw\n",
+            "100 1 8:1 / /data rw,relatime - ext4 /dev/sda1 rw\n",
+        ]
+        .concat();
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 1);
+        assert_demoted(
+            &locality,
+            "p1_insufficient_evidence_v0",
+            &["mountpoint=/data", "dev=8:1"],
+        );
+    }
+
+    #[test]
+    fn duplicate_mount_ids_fail_closed() {
+        // Two entries share mount ID 100 (at different mountpoints). The
+        // table is internally inconsistent: indexing by mount ID would
+        // silently collapse them and pick one. Selection fails closed as
+        // ambiguous instead.
+        let fixture = FakeSysfs::new("dupids");
+        fixture.add_block(8, 1, "sda", "sda1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = [
+            "100 99 8:1 / /data rw,relatime - ext4 /dev/sda1 rw\n",
+            "100 99 8:2 / /other rw,relatime - ext4 /dev/sdb1 rw\n",
+        ]
+        .concat();
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 1);
+        assert_unproven(&locality, "p1_ambiguous_mount_topology_v0");
+        assert_eq!(
+            locality.observed_device(),
+            None,
+            "no device may be observed from an inconsistent table"
+        );
+    }
+
+    #[test]
     fn malformed_mount_id_fails_parse_not_skipped() {
         // A malformed mount ID is a parse failure, not a skipped line: the
         // whole mountinfo is unusable and the classifier fails closed at
@@ -2124,25 +2290,61 @@ mod tests {
     }
 
     #[test]
-    fn missing_mountinfo_entry_fails_closed() {
+    fn mountinfo_stat_contradiction_at_root_is_contradiction() {
         // The only covering entry (/) describes a different device (8:0 vs
-        // the path's 8:1): no mountinfo entry ties this path to its device.
+        // the path's 8:1). An entry WAS selected — it contradicts st_dev —
+        // so this is contradictory evidence (rejected before read), never
+        // "no mountinfo entry".
         let fixture = FakeSysfs::new("noentry");
         fixture.add_block(8, 1, "sda", "sda1", Some("ahci"), true, "0\n", "1\n");
         let mountinfo = fixture.mountinfo(8, 0, "/", "ext4", "/dev/sda");
         let locality = fixture.classify(&mountinfo, "/data/x", 8, 1);
-        assert_unproven(&locality, "p1_no_mountinfo_entry_v0");
+        assert_unproven(&locality, "p1_mountinfo_stat_contradiction_v0");
+        assert_eq!(locality.observed_device(), Some((8, 0)));
     }
 
     #[test]
-    fn stale_mountinfo_device_mismatch_fails_closed() {
+    fn genuinely_missing_mountinfo_entry_stays_missing() {
+        // No entry's mountpoint prefix-matches the path at all: genuinely
+        // missing evidence. The reason stays `p1_no_mountinfo_entry_v0`
+        // with no observed device — attestation-coverable, unlike the
+        // contradiction above.
+        let fixture = FakeSysfs::new("truenoentry");
+        fixture.add_block(8, 1, "sda", "sda1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = fixture.mountinfo(8, 1, "/data", "ext4", "/dev/sda1");
+        let locality = fixture.classify(&mountinfo, "/other/x", 8, 1);
+        assert_unproven(&locality, "p1_no_mountinfo_entry_v0");
+        assert_eq!(locality.observed_device(), None);
+    }
+
+    #[test]
+    fn stale_mountinfo_device_mismatch_is_contradiction_not_missing() {
         // The selected entry's device (8:2) disagrees with the path's
-        // st_dev device (8:1): the mount view is stale, fail closed.
+        // st_dev device (8:1): the mount view is stale. This is
+        // contradictory evidence, never relabeled as missing: the reason
+        // names the contradiction, the observed device is kept (so the
+        // live consumer binds it against the opened handle and rejects
+        // it before any payload read), and the facts record both sides.
         let fixture = FakeSysfs::new("stale");
         fixture.add_block(8, 1, "sda", "sda1", Some("ahci"), true, "0\n", "1\n");
         let mountinfo = fixture.mountinfo(8, 2, "/data", "ext4", "/dev/sda2");
         let locality = fixture.classify(&mountinfo, "/data/x", 8, 1);
-        assert_unproven(&locality, "p1_no_mountinfo_entry_v0");
+        let facts = assert_demoted(
+            &locality,
+            "p1_mountinfo_stat_contradiction_v0",
+            &["mountpoint=/data", "dev=8:2", "dev=8:1"],
+        );
+        assert_eq!(
+            locality.observed_device(),
+            Some((8, 2)),
+            "the contradictory mountinfo observation stays observable: {facts:?}"
+        );
+        assert!(
+            facts
+                .iter()
+                .any(|fact| fact.contains("contradictory evidence")),
+            "facts must mark the observation contradictory, not missing: {facts:?}"
+        );
     }
 
     #[test]
@@ -2470,7 +2672,7 @@ mod tests {
             ("tmpfs", "p1_guest_invisible_backing_v0"),
             ("no_driver", "p1_guest_invisible_backing_v0"),
             ("no_block_node", "p1_block_device_unresolved_v0"),
-            ("stale_mount", "p1_no_mountinfo_entry_v0"),
+            ("stale_mount", "p1_mountinfo_stat_contradiction_v0"),
             ("ambiguous", "p1_ambiguous_mount_topology_v0"),
         ];
         assert_eq!(

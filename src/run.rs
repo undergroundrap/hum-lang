@@ -1415,7 +1415,9 @@ fn bind_proof_evidence(
             else {
                 return Err(FileReadAdapterError::ContradictoryBackingEvidence);
             };
-            if opened_serial == volume_serial {
+            // The classifier's DWORD serial zero-extends into FILE_ID_INFO's
+            // 64-bit volume serial.
+            if opened_serial == u64::from(volume_serial) {
                 Ok(())
             } else {
                 Err(FileReadAdapterError::ContradictoryBackingEvidence)
@@ -1441,15 +1443,28 @@ fn bind_proof_evidence(
 ///   `(major, minor)` pair.
 /// - Linux `Unproven { device: None, .. }` (or no evidence at all):
 ///   missing observation, covered by external trust — proceed.
-/// - Windows `ClassifiedDrive { volume_serial: Some(serial), .. }`: the
-///   opened object must be a `WindowsVolumeFile` with that volume serial.
-/// - Windows `volume_serial: None`: missing observation — proceed.
+/// - Windows `ClassifiedDrive`: two binds run, both against observations
+///   taken from the OPENED OBJECT (never re-derived from the path).
+///   First the volume serial: the classifier's observed `volume_serial`
+///   must equal the opened file identity's `FILE_ID_INFO` volume serial
+///   (the classifier's DWORD zero-extends into the 64-bit form); a
+///   missing classifier serial is trust-coverable. Then the disk numbers:
+///   every disk number the classifier recorded in
+///   `backing_device_identity` must be present — as the exact sorted set —
+///   in the opened volume's disk-number observation. A missing
+///   classifier disk record is trust-coverable; a missing OPENED
+///   observation while the classifier recorded disks is unavailable
+///   opened evidence against existing classifier evidence and rejects;
+///   any set mismatch is a contradiction.
+/// - Windows `volume_serial: None` and empty `backing_device_identity`:
+///   missing observations — proceed under attestation.
 ///
 /// A non-matching identity family (Linux evidence against a Windows
 /// opened identity, or vice versa) is a contradiction, not a bind.
 fn bind_observed_backing_evidence(
     evidence: Option<&LocalityEvidence>,
     opened: FileObjectIdentity,
+    opened_volume_disks: Option<&[u32]>,
 ) -> Result<(), FileReadAdapterError> {
     let Some(evidence) = evidence else {
         // No evidence at all: missing observation, covered by trust.
@@ -1458,6 +1473,9 @@ fn bind_observed_backing_evidence(
     match evidence {
         #[cfg(any(unix, test))]
         LocalityEvidence::Linux(locality) => {
+            // The unix arm consumes no volume-disk observation; the
+            // (major, minor) bind below is the whole backing check there.
+            let _ = opened_volume_disks;
             let Some((major, minor)) = locality.observed_device() else {
                 // The classifier observed no usable device: missing
                 // observation, covered by external trust.
@@ -1478,10 +1496,8 @@ fn bind_observed_backing_evidence(
         }
         #[cfg(windows)]
         LocalityEvidence::Windows(classified) => {
-            let Some(volume_serial) = classified.volume_serial else {
-                // No observed volume serial: missing observation.
-                return Ok(());
-            };
+            // The opened object must be a Windows identity; anything else
+            // is a caller fabrication, not a bindable opened file.
             let FileObjectIdentity::WindowsVolumeFile {
                 volume_serial: opened_serial,
                 ..
@@ -1489,10 +1505,42 @@ fn bind_observed_backing_evidence(
             else {
                 return Err(FileReadAdapterError::ContradictoryBackingEvidence);
             };
-            if opened_serial == volume_serial {
-                Ok(())
-            } else {
-                Err(FileReadAdapterError::ContradictoryBackingEvidence)
+            // The volume-serial bind: the classifier's observed serial is
+            // the DWORD from the volume-information query; the opened file
+            // identity carries FILE_ID_INFO's 64-bit volume serial, so the
+            // classifier's value zero-extends into the comparison. A
+            // missing classifier serial is trust-coverable; a mismatch is
+            // a contradiction.
+            match classified.volume_serial {
+                None => {}
+                Some(recorded_serial) => {
+                    if u64::from(recorded_serial) != opened_serial {
+                        return Err(FileReadAdapterError::ContradictoryBackingEvidence);
+                    }
+                }
+            }
+            // The disk-number bind: every disk number the classifier
+            // recorded for this volume must still be present on the opened
+            // volume's extents, as the exact sorted set. The classifier
+            // records the complete disk-number topology
+            // (`backing_device_identity`), so subset matching would hide a
+            // silently lost mirror member. A missing classifier record is
+            // trust-coverable; a missing OPENED observation while the
+            // classifier recorded disks is unavailable opened evidence
+            // against existing classifier evidence — reject.
+            match (
+                classified.backing_device_identity.as_slice(),
+                opened_volume_disks,
+            ) {
+                ([], _) => Ok(()),
+                (_, None) => Err(FileReadAdapterError::ContradictoryBackingEvidence),
+                (recorded, Some(opened_disks)) => {
+                    if recorded == opened_disks {
+                        Ok(())
+                    } else {
+                        Err(FileReadAdapterError::ContradictoryBackingEvidence)
+                    }
+                }
             }
         }
     }
@@ -3506,9 +3554,11 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         // contradictions. A classifier that observed device 8:1 while the
         // opened handle decodes to 8:2 is refused here, with zero payload
         // bytes consumed.
-        if let Err(error) =
-            bind_observed_backing_evidence(revalidated.locality_evidence(), opened_identity)
-        {
+        if let Err(error) = bind_observed_backing_evidence(
+            revalidated.locality_evidence(),
+            opened_identity,
+            opened.opened_volume_disks.as_deref(),
+        ) {
             let bundle = self.classified_bundle(
                 classification,
                 &revalidated,
@@ -3630,8 +3680,8 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             }
         };
 
-        // Step 8: emit the bundle with the bound identity of the OPENED
-        // handle, plus exactly one human stderr line for the admitted read.
+        // Step 8: emit the bundle with the successfully bound identity,
+        // plus exactly one human stderr line for the admitted read.
         let bundle = self.classified_bundle(
             classification,
             &revalidated,
@@ -4270,16 +4320,24 @@ impl<'program, 'output> Interpreter<'program, 'output> {
     }
 
     /// Trust evidence bundle: attestation / allow / classifier /
-    /// bound-identity lines, plus the classifier's observed facts and the
-    /// P1–P4 enforcement outcomes. Never any P1–P4 proved lines. The
+    /// bound-identity lines, the classifier's observed facts, and the P1–P4
+    /// observation/enforcement outcomes. Never any proof claim: each P-line
+    /// reports what was observed or enforced, qualified as unproven. The
     /// classifier line carries the classifier's exact `Unproven` reason
     /// verbatim — no normalization, no substitution. Observed facts are
     /// observations only, never admission.
+    ///
+    /// `bound` is the successfully bound identity: `Some` only when the
+    /// walked-to-opened bind succeeded — never the merely-opened identity.
+    /// `p2_line` is the P2 bind verdict. `open_succeeded` gates the P3/P4
+    /// lines: the component walk and the ordinary-file check only ran when
+    /// the open succeeded.
     fn trust_evidence_lines(
         &self,
         revalidated: &ValidatedNativePath,
         bound: Option<FileObjectIdentity>,
-        _p2_line: String,
+        p2_line: String,
+        open_succeeded: bool,
     ) -> Vec<String> {
         let attested = self
             .grant_policy
@@ -4302,11 +4360,27 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         // The classifier's observed facts, verbatim: observations only,
         // never admission. Distinguishes what was seen from what was proven.
         lines.extend(classifier_observed_facts(revalidated));
-        // On the external-trust path, P1-P4 are enforcement outcomes, not
-        // proof claims: P1 is the unproven classifier verdict above; the
-        // bind, walk, and ordinary-file checks ran but are not proof. The
-        // evidence carries the bound identity fact without P-prefix lines,
-        // so no line can be mistaken for a proved claim.
+        // P1–P4 as observation/enforcement outcomes, never proof claims.
+        // P1 is the classifier's verdict (unproven on the trust path); P2
+        // is the walked-to-opened bind verdict; P3/P4 report whether the
+        // walk and the ordinary-file check ran.
+        lines.push(format!(
+            "P1: observed classifier verdict: unproven ({classifier_reason}); proof unavailable"
+        ));
+        lines.push(p2_line);
+        if open_succeeded {
+            lines.push(
+                "P3: enforced component walk: symlink_metadata per component, no links followed"
+                    .to_string(),
+            );
+            lines.push("P4: enforced ordinary-file check on opened handle".to_string());
+        } else {
+            lines.push("P3: component walk did not complete (open failed)".to_string());
+            lines.push("P4: ordinary-file check did not run (open failed)".to_string());
+        }
+        // The bound identity is the successfully bound one, or explicitly
+        // unavailable: the text evidence can never render an opened-but-
+        // unbound identity as "bound".
         lines.push(match bound {
             Some(identity) => format!("bound identity: {}", identity.render()),
             None => "bound identity: unavailable (bind did not succeed)".to_string(),
@@ -4322,7 +4396,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
     ///   verdict (open failure, walked-bind failure); `None` derives the
     ///   bound P2 line from `walked`/`opened`.
     /// - `bind_succeeded`: whether the walked-to-opened bind succeeded.
-    ///   `bound_identity` is set only on success: an opened-but-unbound
+    ///   The bound identity — structured `bound_identity` and the text
+    ///   evidence's "bound identity" line — is set from one shared `bound`
+    ///   value, so the two can never disagree: an opened-but-unbound
     ///   identity is not a bound identity.
     fn classified_bundle(
         &self,
@@ -4334,13 +4410,8 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         bind_succeeded: bool,
     ) -> LocalityBundle {
         let mut bundle = self.locality_bundle_base(classification, revalidated);
-        // Distinguish opened identity from successfully bound identity: the
-        // bound identity is recorded only when the bind succeeded.
-        bundle.bound_identity = if bind_succeeded {
-            opened.map(|identity| identity.render())
-        } else {
-            None
-        };
+        let bound = if bind_succeeded { opened } else { None };
+        bundle.bound_identity = bound.map(|identity| identity.render());
         let p2 = match (p2_override, opened) {
             (Some(line), _) => line,
             (None, Some(opened)) => p2_bound_line(walked, opened),
@@ -4348,7 +4419,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         };
         bundle.evidence_lines = match classification {
             "proved" => proof_evidence_lines(revalidated, p2.clone()),
-            _ => self.trust_evidence_lines(revalidated, opened, p2),
+            _ => self.trust_evidence_lines(revalidated, bound, p2, opened.is_some()),
         };
         bundle
     }
@@ -5981,17 +6052,27 @@ pub(crate) mod tests {
     }
 
     /// Distinctive volume serial for the fabricated Windows test identity.
-    /// Leaf A: `fixed_local_for_test` must attach `Windows(ClassifiedDrive)`
-    /// evidence with `volume_serial: Some(WINDOWS_TEST_VOLUME_SERIAL)` for
-    /// the step-6 proof bind to admit these fixtures.
+    /// `fixed_local_for_test` attaches `Windows(ClassifiedDrive)` evidence
+    /// with no observed serial and no recorded disk numbers, so these
+    /// fixtures exercise the live backing bind's missing-observation
+    /// (trust-coverable) path; the bind's contradiction matrix is covered
+    /// by direct unit tests below.
     #[cfg(windows)]
-    const WINDOWS_TEST_VOLUME_SERIAL: u32 = 0xC0DE_1234;
+    const WINDOWS_TEST_VOLUME_SERIAL: u64 = 0xC0DE_1234;
+
+    /// Distinctive 128-bit file ID for the fabricated Windows test identity.
+    #[cfg(windows)]
+    const WINDOWS_TEST_FILE_ID: [u8; 16] = [
+        0xF0, 0x0D, 0x42, 0x42, 0x00, 0x00, 0x00, 0x00, //
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    ];
 
     #[cfg(windows)]
     struct RecordingFileRead {
         open_error: Option<FileReadAdapterError>,
         read_result: Result<String, FileReadAdapterError>,
         opened_identity: super::FileObjectIdentity,
+        opened_volume_disks: Option<Vec<u32>>,
         calls: usize,
         read_calls: usize,
         paths: Vec<OsString>,
@@ -6005,8 +6086,9 @@ pub(crate) mod tests {
                 read_result: Ok(text.to_string()),
                 opened_identity: super::FileObjectIdentity::WindowsVolumeFile {
                     volume_serial: WINDOWS_TEST_VOLUME_SERIAL,
-                    file_index: 0xF00D_4242,
+                    file_id: WINDOWS_TEST_FILE_ID,
                 },
+                opened_volume_disks: None,
                 calls: 0,
                 read_calls: 0,
                 paths: Vec::new(),
@@ -6019,8 +6101,9 @@ pub(crate) mod tests {
                 read_result: Err(error),
                 opened_identity: super::FileObjectIdentity::WindowsVolumeFile {
                     volume_serial: WINDOWS_TEST_VOLUME_SERIAL,
-                    file_index: 0xF00D_4242,
+                    file_id: WINDOWS_TEST_FILE_ID,
                 },
+                opened_volume_disks: None,
                 calls: 0,
                 read_calls: 0,
                 paths: Vec::new(),
@@ -6042,10 +6125,12 @@ pub(crate) mod tests {
                     handle: None,
                     // The test double fabricates a matching walked identity:
                     // production captures the walked identity from the final
-                    // component's metadata. A mismatch is injected by
-                    // overriding `opened_identity` after construction.
+                    // component's reparse-point-blind open. A mismatch is
+                    // injected by overriding `opened_identity` after
+                    // construction.
                     walked_identity: Some(self.opened_identity),
                     opened_identity: self.opened_identity,
+                    opened_volume_disks: self.opened_volume_disks.clone(),
                 }),
             }
         }
@@ -6719,6 +6804,7 @@ pub(crate) mod tests {
                     handle: None,
                     walked_identity: self.walked_identity,
                     opened_identity: self.opened_identity,
+                    opened_volume_disks: None,
                 }),
             }
         }
@@ -6888,7 +6974,8 @@ pub(crate) mod tests {
     }
 
     /// Control (b): Unproven classifier + matching attestation admits
-    /// `external-trust` with trust evidence lines and no P1–P4 proved lines.
+    /// `external-trust` with trust evidence lines carrying the P1–P4
+    /// observation/enforcement outcomes — never proof claims.
     #[cfg(unix)]
     #[test]
     fn unproven_with_matching_attestation_admits_external_trust() {
@@ -6950,16 +7037,16 @@ pub(crate) mod tests {
                 .any(|line| line.starts_with("bound identity: ")),
             "bound identity fact present: {evidence:?}"
         );
-        // No line may claim proof, and no P1–P4 line may appear: on the
-        // external-trust path the enforcement outcomes are not proof claims,
-        // so the P-prefix vocabulary is absent entirely (CLI contract).
+        // P1–P4 are observation/enforcement outcomes, never proof claims:
+        // each property reports what was observed or enforced. No line may
+        // claim proof.
+        for prefix in ["P1:", "P2:", "P3:", "P4:"] {
+            assert!(
+                evidence.iter().any(|line| line.starts_with(prefix)),
+                "external-trust evidence must carry a {prefix} observation/enforcement outcome: {evidence:?}"
+            );
+        }
         for line in evidence {
-            for prefix in ["P1:", "P2:", "P3:", "P4:"] {
-                assert!(
-                    !line.starts_with(prefix),
-                    "external-trust evidence must carry no {prefix} line: {line}"
-                );
-            }
             assert!(
                 !line.contains("proved"),
                 "no proof claims on the trust path: {line}"
@@ -7283,6 +7370,96 @@ pub(crate) mod tests {
             ino: 7,
         };
         assert_eq!(bind_proof_evidence(Some(&evidence), opened), Ok(()));
+    }
+
+    /// P1-2 (Windows): the live backing bind consumes the classifier's
+    /// recorded serial and the complete recorded disk-number topology
+    /// against observations taken from the OPENED OBJECT.
+    ///
+    /// - Matching serial + exact disk set → admission.
+    /// - Serial mismatch → `ContradictoryBackingEvidence`.
+    /// - Disk-set mismatch (classifier recorded [0, 1], opened sees [0]) →
+    ///   `ContradictoryBackingEvidence`: the bind is exact-set, never
+    ///   subset, so a silently lost mirror member cannot hide.
+    /// - Classifier recorded disks but the opened object supplied no disk
+    ///   observation → `ContradictoryBackingEvidence` (unavailable opened
+    ///   evidence against existing classifier evidence).
+    /// - Classifier recorded nothing (no serial, empty disk record) →
+    ///   missing observations, covered by external trust → admission.
+    /// - Wrong identity family (Linux evidence shape is unreachable here;
+    ///   a Unix identity against Windows evidence) → contradiction.
+    #[cfg(windows)]
+    #[test]
+    fn windows_backing_bind_consumes_serial_and_full_disk_topology() {
+        use super::bind_observed_backing_evidence;
+        use crate::native_path::LocalityEvidence;
+
+        fn classified(serial: Option<u32>, disks: Vec<u32>) -> LocalityEvidence {
+            LocalityEvidence::Windows(windows_drive_locality::ClassifiedDrive {
+                locality: windows_drive_locality::DriveLocality::FixedLocal,
+                backing_device_identity: disks,
+                observed_facts: Vec::new(),
+                unproven_reason: None,
+                volume_serial: serial,
+            })
+        }
+        fn opened(serial: u64) -> FileObjectIdentity {
+            FileObjectIdentity::WindowsVolumeFile {
+                volume_serial: serial,
+                file_id: [0x42; 16],
+            }
+        }
+        // The classifier's DWORD serial zero-extends into FILE_ID_INFO's
+        // 64-bit volume serial.
+        let evidence = classified(Some(0xC0DE_1234), vec![0, 1]);
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&evidence), opened(0xC0DE_1234), Some(&[0, 1])),
+            Ok(())
+        );
+        // Serial mismatch.
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&evidence), opened(0xC0DE_1235), Some(&[0, 1]))
+                .expect_err("serial mismatch must fail closed")
+                .variant(),
+            "contradictory_backing_evidence"
+        );
+        // Disk-set mismatch: opened volume lost disk 1.
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&evidence), opened(0xC0DE_1234), Some(&[0]))
+                .expect_err("disk-set mismatch must fail closed")
+                .variant(),
+            "contradictory_backing_evidence"
+        );
+        // Unavailable opened disk observation against recorded disks.
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&evidence), opened(0xC0DE_1234), None)
+                .expect_err("unavailable opened disks must fail closed")
+                .variant(),
+            "contradictory_backing_evidence"
+        );
+        // Missing classifier observations: trust-coverable.
+        let missing = classified(None, Vec::new());
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&missing), opened(0xC0DE_1234), None),
+            Ok(())
+        );
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&missing), opened(0xC0DE_1234), Some(&[0, 1])),
+            Ok(())
+        );
+        // No evidence at all: trust-coverable.
+        assert_eq!(
+            bind_observed_backing_evidence(None, opened(0xC0DE_1234), Some(&[0, 1])),
+            Ok(())
+        );
+        // Wrong identity family: contradiction, not a bind.
+        let unix_opened = FileObjectIdentity::UnixDeviceInode { dev: 8, ino: 1 };
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&evidence), unix_opened, Some(&[0, 1]))
+                .expect_err("family mismatch must fail closed")
+                .variant(),
+            "contradictory_backing_evidence"
+        );
     }
 
     /// Control (a2): the proof path always carries evidence; `None` fails

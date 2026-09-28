@@ -689,10 +689,60 @@ fn cli_trust_locality_no_trust_refusal_and_attested_admission() {
         "refusal must read no payload: byte_count must be 0: {refusal_event}"
     );
 
-    // Human trust run: attestation admits; byte-exact stdout; the
-    // trusted-not-proven evidence label on stderr.
+    // Human trust run: attestation admits with the external-trust label on
+    // coherent storage. On storage where the classifier's selected
+    // mountinfo device contradicts stat (p1_mountinfo_stat_contradiction_v0)
+    // -- e.g. namespaced sandbox mounts -- the live backing bind rejects
+    // fail-closed: attestation covers missing observations, never
+    // contradictions.
     let trusted = run_with_trust(&program, &fixture, false);
     let trusted_stderr = String::from_utf8_lossy(&trusted.stderr);
+    if trusted_stderr.contains("p1_mountinfo_stat_contradiction_v0") {
+        assert_eq!(
+            trusted.status.code(),
+            Some(1),
+            "contradictory backing evidence must fail closed: {trusted_stderr}"
+        );
+        assert!(
+            trusted.stdout.is_empty(),
+            "contradictory backing evidence must read no payload"
+        );
+        assert!(
+            trusted_stderr.contains("FileReadError.contradictory_backing_evidence"),
+            "contradiction must surface the typed rejection: {trusted_stderr}"
+        );
+        assert!(
+            !trusted_stderr.contains("panicked"),
+            "contradiction must fail closed without panicking: {trusted_stderr}"
+        );
+        // The JSON run takes the same rejection path; the envelope still
+        // carries the contradiction reason and the verbatim classifier
+        // reason for forensics.
+        let trusted_json = run_with_trust(&program, &fixture, true);
+        let json_stderr = String::from_utf8_lossy(&trusted_json.stderr);
+        assert_eq!(
+            trusted_json.status.code(),
+            Some(1),
+            "JSON contradiction run must exit 1: {json_stderr}"
+        );
+        let envelope = String::from_utf8_lossy(&trusted_json.stdout);
+        assert!(
+            envelope.trim_start().starts_with('{'),
+            "JSON mode stdout must carry only the envelope: {envelope}"
+        );
+        let trust_event = files_read_exercise_event(&envelope);
+        assert_eq!(
+            event_string_field(trust_event, "result"),
+            "observed_backing_identity_mismatch_before_read_v0",
+            "rejection event must record the contradiction reason"
+        );
+        assert_eq!(
+            event_string_field(trust_event, "classifier_reason"),
+            refusal_classifier_reason,
+            "rejection must preserve the classifier reason verbatim"
+        );
+        return;
+    }
     assert_eq!(
         trusted.status.code(),
         Some(0),
@@ -752,7 +802,8 @@ fn cli_trust_locality_no_trust_refusal_and_attested_admission() {
 
     // Trust evidence bundle: the attestation fact, the matching-grant fact,
     // the classifier's Unproven reason marked honestly as unproven, the
-    // bound file identity -- and never any P1-P4 proved line.
+    // bound file identity -- and the P1-P4 observation/enforcement
+    // outcomes, never proof claims.
     let evidence_arrays = envelope_string_array_field_values(&envelope, "locality_evidence");
     assert_eq!(
         evidence_arrays.len(),
@@ -779,13 +830,17 @@ fn cli_trust_locality_no_trust_refusal_and_attested_admission() {
                 == &format!("classifier: {refusal_classifier_reason} (proof unavailable)")),
         "evidence must honestly record the classifier's Unproven reason: {evidence_lines:?}"
     );
+    for prefix in ["P1:", "P2:", "P3:", "P4:"] {
+        assert!(
+            evidence_lines.iter().any(|line| line.starts_with(prefix)),
+            "external-trust evidence must carry a {prefix} observation/enforcement outcome: {evidence_lines:?}"
+        );
+    }
     for line in evidence_lines {
-        for prefix in ["P1:", "P2:", "P3:", "P4:"] {
-            assert!(
-                !line.starts_with(prefix),
-                "external-trust evidence must carry no {prefix} proved line: {line}"
-            );
-        }
+        assert!(
+            !line.contains("proved"),
+            "no proof claims on the trust path: {line}"
+        );
     }
 
     // Bound file identity: the opened file's platform-correct identity, per
@@ -815,21 +870,24 @@ fn cli_trust_locality_no_trust_refusal_and_attested_admission() {
         assert_eq!(
             parts.len(),
             2,
-            "bound_file_identity must be 'volume_serial=<n> file_index=<n>', got {identity:?}"
+            "bound_file_identity must be 'volume_serial=<n> file_id=<32 hex>', got {identity:?}"
         );
         let serial = parts[0].strip_prefix("volume_serial=").unwrap_or_else(|| {
             panic!("bound_file_identity must start with volume_serial=, got {identity:?}")
         });
-        let index = parts[1].strip_prefix("file_index=").unwrap_or_else(|| {
-            panic!("bound_file_identity must carry file_index=, got {identity:?}")
-        });
+        let file_id = parts[1]
+            .strip_prefix("file_id=")
+            .unwrap_or_else(|| panic!("bound_file_identity must carry file_id=, got {identity:?}"));
         assert!(
             !serial.is_empty() && serial.chars().all(|c| c.is_ascii_digit()),
             "volume_serial must be numeric, got {identity:?}"
         );
         assert!(
-            !index.is_empty() && index.chars().all(|c| c.is_ascii_digit()),
-            "file_index must be numeric, got {identity:?}"
+            file_id.len() == 32
+                && file_id
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "file_id must be 32 lowercase hex digits, got {identity:?}"
         );
     }
     #[cfg(not(any(unix, windows)))]

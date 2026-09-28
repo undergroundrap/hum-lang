@@ -71,6 +71,11 @@ impl FileReadAdapterError {
 /// opened handle's identity *before* any payload byte is read, so a
 /// component swapped between the component walk and the open cannot
 /// redirect the read undetected.
+///
+/// The Windows variant is the documented stable identity contract:
+/// `FILE_ID_INFO`'s 64-bit volume serial plus the 128-bit file reference
+/// number (`GetFileInformationByHandleEx` with `FileIdInfo`) — unique and
+/// stable on ReFS, unlike the legacy 64-bit `nFileIndex`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FileObjectIdentity {
     UnixDeviceInode {
@@ -79,8 +84,8 @@ pub(crate) enum FileObjectIdentity {
     },
     #[cfg(windows)]
     WindowsVolumeFile {
-        volume_serial: u32,
-        file_index: u64,
+        volume_serial: u64,
+        file_id: [u8; 16],
     },
 }
 
@@ -91,24 +96,34 @@ impl FileObjectIdentity {
             #[cfg(windows)]
             Self::WindowsVolumeFile {
                 volume_serial,
-                file_index,
-            } => format!("volume_serial={volume_serial} file_index={file_index}"),
+                file_id,
+            } => {
+                let mut hex = String::with_capacity(32);
+                for byte in file_id {
+                    hex.push_str(&format!("{byte:02x}"));
+                }
+                format!("volume_serial={volume_serial} file_id={hex}")
+            }
         }
     }
 }
 
 /// The output of [`FileReadAdapter::open_checked`]: an opened, checked file
 /// whose payload has NOT been read yet. `walked_identity` is the identity
-/// observed during the component walk (`Some` on unix); it is `None` on
-/// Windows, where no stable API exposes a walked-path (dev, ino) equivalent
-/// (documented gap — the bind there runs on the opened handle's
-/// volume/file-index identity instead). `opened_identity` is always
-/// present: a missing identity surfaces as `Err`, never as a sentinel.
+/// observed during the component walk (`Some` on unix and on Windows, where
+/// the final component's `FILE_ID_INFO` identity is read without following
+/// reparse points); `opened_identity` is always present: a missing identity
+/// surfaces as `Err`, never as a sentinel. `opened_volume_disks` is the
+/// physical disk-number observation for the opened file's volume (`Some`
+/// on Windows when the observation succeeded, `None` elsewhere): the live
+/// backing bind consumes it against the classifier's recorded disk
+/// numbers. A missing observation is trust-coverable; a mismatch rejects.
 #[derive(Debug)]
 pub(crate) struct OpenedCheckedFile {
     pub(crate) handle: Option<std::fs::File>,
     pub(crate) walked_identity: Option<FileObjectIdentity>,
     pub(crate) opened_identity: FileObjectIdentity,
+    pub(crate) opened_volume_disks: Option<Vec<u32>>,
 }
 
 /// Open/read split file adapter (WO29 Slice A). `open_checked` performs the
@@ -127,9 +142,9 @@ pub(crate) trait FileReadAdapter {
 /// Unix arm: the walk must have produced an identity and it must equal the
 /// opened handle's identity (via [`opened_file_matches_walked_target`]),
 /// else `UnsafePath`. Windows arm: the walk produces the final component's
-/// volume-serial/file-index identity (stable `MetadataExt`) and it must
-/// equal the opened handle's identity, else `UnsafePath`. A missing walked
-/// identity fails closed: there is nothing to bind against.
+/// 128-bit `FILE_ID_INFO` identity (read without following reparse points)
+/// and it must equal the opened handle's identity, else `UnsafePath`. A
+/// missing walked identity fails closed: there is nothing to bind against.
 pub(crate) fn bind_walked_to_opened(
     walked: Option<FileObjectIdentity>,
     opened: FileObjectIdentity,
@@ -157,7 +172,7 @@ pub(crate) fn bind_walked_to_opened(
     {
         let Some(FileObjectIdentity::WindowsVolumeFile {
             volume_serial: walked_serial,
-            file_index: walked_index,
+            file_id: walked_id,
         }) = walked
         else {
             return Err(FileReadAdapterError::UnsafePath);
@@ -166,12 +181,12 @@ pub(crate) fn bind_walked_to_opened(
         // bindable opened file: fail closed.
         let FileObjectIdentity::WindowsVolumeFile {
             volume_serial: opened_serial,
-            file_index: opened_index,
+            file_id: opened_id,
         } = opened
         else {
             return Err(FileReadAdapterError::UnsafePath);
         };
-        if walked_serial == opened_serial && walked_index == opened_index {
+        if walked_serial == opened_serial && walked_id == opened_id {
             Ok(())
         } else {
             Err(FileReadAdapterError::UnsafePath)
@@ -333,8 +348,9 @@ fn read_bounded_utf8<R: Read>(reader: R) -> Result<String, FileReadAdapterError>
 /// `symlink_metadata` (never follows links), reparse-point rejection, then
 /// open with NO payload read. Slice A adds the ordinary-file check on the
 /// opened handle (fstat-style handle metadata: no path lookup, no symlink
-/// following) plus capture of the opened handle's volume/file-index
-/// identity; a missing identity fails closed with `IdentityUnavailable`.
+/// following) plus capture of the opened handle's 128-bit `FILE_ID_INFO`
+/// identity and the opened volume's backing-disk observation; a missing
+/// identity fails closed with `IdentityUnavailable`.
 #[cfg(windows)]
 fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileReadAdapterError> {
     use std::fs::{self, File};
@@ -381,7 +397,7 @@ fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileRead
                 .ok_or(FileReadAdapterError::IdentityUnavailable)?;
             walked_identity = Some(FileObjectIdentity::WindowsVolumeFile {
                 volume_serial: identity.volume_serial,
-                file_index: identity.file_index,
+                file_id: identity.file_id,
             });
         }
         evidence.push(ComponentEvidence {
@@ -407,16 +423,23 @@ fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileRead
     }
     let identity = windows_drive_locality::opened_file_identity(file.as_raw_handle())
         .ok_or(FileReadAdapterError::IdentityUnavailable)?;
+    // The opened volume's backing-disk observation, taken from the opened
+    // object itself (not re-derived from the path): the live backing bind
+    // consumes it against the classifier's recorded disk numbers. A
+    // missing observation is trust-coverable; it never invents disks.
+    let opened_volume_disks =
+        windows_drive_locality::opened_volume_disk_numbers(file.as_raw_handle());
     Ok(OpenedCheckedFile {
         handle: Some(file),
         // The walked identity comes from the final component's
-        // `symlink_metadata` above (stable `MetadataExt`); run.rs binds it
-        // against the opened handle's identity before any payload read.
+        // reparse-point-blind open above; run.rs binds it against the
+        // opened handle's identity before any payload read.
         walked_identity,
         opened_identity: FileObjectIdentity::WindowsVolumeFile {
             volume_serial: identity.volume_serial,
-            file_index: identity.file_index,
+            file_id: identity.file_id,
         },
+        opened_volume_disks,
     })
 }
 
@@ -493,6 +516,9 @@ fn open_checked_unix_file(path: &OsStr) -> Result<OpenedCheckedFile, FileReadAda
             dev: opened.dev(),
             ino: opened.ino(),
         },
+        // No volume-disk observation on unix: the (major, minor) device
+        // bind covers the backing identity there.
+        opened_volume_disks: None,
     })
 }
 
@@ -648,12 +674,15 @@ mod tests {
         assert_eq!(
             FileObjectIdentity::WindowsVolumeFile {
                 volume_serial: 0x1234_5678,
-                file_index: 0x9ABC_DEF0_1234_5678,
+                file_id: [
+                    0x9A, 0xBC, 0xDE, 0xF0, 0x12, 0x34, 0x56, 0x78, //
+                    0x9A, 0xBC, 0xDE, 0xF0, 0x12, 0x34, 0x56, 0x78,
+                ],
             }
             .render(),
-            // 0x1234_5678 = 305419896; 0x9ABC_DEF0_1234_5678 =
-            // 11150031900141442680 (decimal, verified).
-            "volume_serial=305419896 file_index=11150031900141442680"
+            // 0x1234_5678 = 305419896; the file ID renders as 32 lowercase
+            // hex digits.
+            "volume_serial=305419896 file_id=9abcdef0123456789abcdef012345678"
         );
     }
 
@@ -709,6 +738,7 @@ mod tests {
             handle: None,
             walked_identity: None,
             opened_identity: FileObjectIdentity::UnixDeviceInode { dev: 8, ino: 4242 },
+            opened_volume_disks: None,
         };
         assert_eq!(
             read_opened_handle(opened),
@@ -792,16 +822,55 @@ mod tests {
 
         let opened = FileObjectIdentity::WindowsVolumeFile {
             volume_serial: 1,
-            file_index: 2,
+            file_id: [2; 16],
         };
-        // Windows has no walked identity (documented stable-API gap): a
-        // `Some` walked value means the caller fabricated it.
+        // A Unix walked identity against a Windows opened identity is a
+        // caller fabrication, not a bindable opened file: fail closed.
         let fabricated = FileObjectIdentity::UnixDeviceInode { dev: 8, ino: 4242 };
         assert_eq!(
             bind_walked_to_opened(Some(fabricated), opened),
             Err(FileReadAdapterError::UnsafePath)
         );
-        assert_eq!(bind_walked_to_opened(None, opened), Ok(()));
+        // A missing walked identity is also fail-closed: there is nothing
+        // to bind against. Production always captures the final
+        // component's reparse-point-blind identity, so `None` here means a
+        // test double skipped the walk.
+        assert_eq!(
+            bind_walked_to_opened(None, opened),
+            Err(FileReadAdapterError::UnsafePath)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bind_walked_to_opened_requires_full_file_id_equality() {
+        use super::bind_walked_to_opened;
+
+        let walked = FileObjectIdentity::WindowsVolumeFile {
+            volume_serial: 0xC0DE_1234,
+            file_id: [0x42; 16],
+        };
+        // Matching serial and full 128-bit file ID: the bind admits.
+        assert_eq!(bind_walked_to_opened(Some(walked), walked), Ok(()));
+        // Same volume serial, different file (different 128-bit ID): the
+        // bind rejects. The serial alone never identifies the file.
+        let other_file = FileObjectIdentity::WindowsVolumeFile {
+            volume_serial: 0xC0DE_1234,
+            file_id: [0x43; 16],
+        };
+        assert_eq!(
+            bind_walked_to_opened(Some(walked), other_file),
+            Err(FileReadAdapterError::UnsafePath)
+        );
+        // Different volume serial: the bind rejects.
+        let other_volume = FileObjectIdentity::WindowsVolumeFile {
+            volume_serial: 0xC0DE_1235,
+            file_id: [0x42; 16],
+        };
+        assert_eq!(
+            bind_walked_to_opened(Some(walked), other_volume),
+            Err(FileReadAdapterError::UnsafePath)
+        );
     }
 
     #[cfg(unix)]
@@ -862,6 +931,7 @@ mod tests {
             handle: None,
             walked_identity: None,
             opened_identity: FileObjectIdentity::UnixDeviceInode { dev: 0, ino: 0 },
+            opened_volume_disks: None,
         };
         assert_eq!(
             adapter.read_opened(opened),
