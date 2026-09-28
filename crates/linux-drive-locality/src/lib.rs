@@ -171,6 +171,16 @@ impl LinuxLocality {
             Self::Unproven { device, .. } => *device,
         }
     }
+
+    /// Whether this verdict carries contradictory evidence: the selected
+    /// mountinfo entry's device disagrees with the path's `st_dev`
+    /// (`p1_mountinfo_stat_contradiction_v0`). Contradictions are never
+    /// attestation-coverable: the Slice A consumers reject them
+    /// independently of any opened-device comparison, before any payload
+    /// read.
+    pub fn is_contradiction(&self) -> bool {
+        self.reason() == REASON_MOUNTINFO_STAT_CONTRADICTION
+    }
 }
 
 /// Host-bus-adapter driver modules admitted to grant-first observed-fact

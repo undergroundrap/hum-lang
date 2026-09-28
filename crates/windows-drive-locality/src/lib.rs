@@ -77,9 +77,12 @@ pub struct ClassifiedDrive {
     /// demoted ATA/SATA/NVMe path). `None` unless
     /// `locality == DriveLocality::Unproven`.
     pub unproven_reason: Option<&'static str>,
-    /// Volume serial number from `GetVolumeInformationW` on the drive root.
-    /// `None` on any failure (including the non-Windows stub).
-    pub volume_serial: Option<u32>,
+    /// Full 64-bit volume serial from `FILE_ID_INFO` on the classified
+    /// volume's device handle — the same unit as the opened file's
+    /// identity serial. `None` on any failure (including the non-Windows
+    /// stub). Never truncated, never zero-extended: the consumer binds
+    /// this against `FILE_ID_INFO` serials with direct equality.
+    pub volume_serial: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,9 +204,13 @@ fn classify_preliminary(observation: &PreliminaryObservation) -> PreliminaryClas
 /// backing, so the evidence is insufficient for admission. Exact string is
 /// the builder's choice (decision 0029 §14, reviewed).
 #[cfg(any(windows, test))]
-const REASON_INSUFFICIENT_EVIDENCE: &str = "windows_locality_unproven_insufficient_evidence_v0";
+pub const REASON_INSUFFICIENT_EVIDENCE: &str = "windows_locality_unproven_insufficient_evidence_v0";
 
-#[cfg(any(windows, test))]
+/// Test-only projection of the classification verdict: the bundled tests
+/// exercise the evidence-to-verdict mapping without opening real devices.
+/// (Previously also compiled on Windows; narrowed after the cross-target
+/// build flagged it as dead code there.)
+#[cfg(test)]
 fn classify_evidence(evidence: &InspectionEvidence) -> DriveLocality {
     classify_evidence_detail(evidence).locality
 }
@@ -382,8 +389,23 @@ pub fn classify(_root: DriveRoot) -> ClassifiedDrive {
 
 #[cfg(windows)]
 pub fn classify(root: DriveRoot) -> ClassifiedDrive {
-    let volume_serial = query_volume_serial(root);
-    let verdict = classify_full(root);
+    let Some(volume) = open_device(&root.volume_device()) else {
+        // The device cannot be opened: the volume serial is unobservable
+        // and the full inspection below would report the same `Unknown`.
+        return ClassifiedDrive {
+            locality: DriveLocality::Unknown,
+            backing_device_identity: Vec::new(),
+            observed_facts: Vec::new(),
+            unproven_reason: None,
+            volume_serial: None,
+        };
+    };
+    // The serial is read from the SAME opened volume device the full
+    // inspection below queries: one open, one coherent observation. Both
+    // are the full 64-bit `FILE_ID_INFO` serial — never truncated, never
+    // zero-extended.
+    let volume_serial = query_volume_serial(volume.raw);
+    let verdict = classify_full(root, volume);
     ClassifiedDrive {
         locality: verdict.locality,
         backing_device_identity: verdict.backing_device_identity,
@@ -393,27 +415,48 @@ pub fn classify(root: DriveRoot) -> ClassifiedDrive {
     }
 }
 
-/// Volume serial number for the drive root via `GetVolumeInformationW`.
-/// Read-only query; `None` on any API failure.
+/// Full 64-bit volume serial from `FILE_ID_INFO` on an opened volume
+/// device handle — the same unit as the file identity serial, so the
+/// consumer binds classification and open with direct equality. Any
+/// failure yields `None`: fail closed.
 #[cfg(windows)]
-fn query_volume_serial(root: DriveRoot) -> Option<u32> {
-    let mut serial = 0u32;
-    let success = unsafe {
-        // SAFETY: DriveRoot owns a four-unit NUL-terminated drive root for
-        // the duration of this read-only query. The out-buffers the caller
-        // does not need are null with zero capacity; `serial` stays live.
-        GetVolumeInformationW(
-            root.root.as_ptr(),
-            core::ptr::null_mut(),
-            0,
-            &mut serial,
-            core::ptr::null_mut(),
-            core::ptr::null_mut(),
-            core::ptr::null_mut(),
-            0,
+fn query_volume_serial(volume_raw: *mut core::ffi::c_void) -> Option<u64> {
+    file_id_info(volume_raw).map(|info| info.volume_serial_number)
+}
+
+/// Read one `FILE_ID_INFO` from a live handle via
+/// `GetFileInformationByHandleEx` (`FileIdInfo`, class 18). Shared by the
+/// file-identity reader and the volume-serial reader so both observe the
+/// same unit. Returns `None` on null handle or API failure; the caller
+/// applies its own validity rules (e.g. the zero-file-ID rejection).
+#[cfg(windows)]
+fn file_id_info(raw_handle: *mut core::ffi::c_void) -> Option<FileIdInfoLayout> {
+    /// `FILE_INFO_BY_HANDLE_CLASS::FileIdInfo`.
+    const FILE_ID_INFO_CLASS: u32 = 18;
+    if raw_handle.is_null() {
+        return None;
+    }
+    let mut info = core::mem::MaybeUninit::<FileIdInfoLayout>::uninit();
+    let succeeded = unsafe {
+        // SAFETY: `raw_handle` is non-null and, per the caller's contract,
+        // a live open handle. `info` is a properly aligned 24-byte
+        // out-buffer that stays alive for the call and is only read when
+        // the call reports success.
+        GetFileInformationByHandleEx(
+            raw_handle,
+            FILE_ID_INFO_CLASS,
+            info.as_mut_ptr().cast(),
+            core::mem::size_of::<FileIdInfoLayout>() as u32,
         )
     };
-    (success != 0).then_some(serial)
+    if succeeded == 0 {
+        return None;
+    }
+    Some(unsafe {
+        // SAFETY: the API reported success, so the out-buffer is fully
+        // initialized with one `FILE_ID_INFO`.
+        info.assume_init()
+    })
 }
 
 /// Identity of an already-opened file: the 64-bit volume serial plus the
@@ -444,32 +487,7 @@ pub struct WindowsFileIdentity {
 /// only; no new dependencies.
 #[cfg(windows)]
 pub fn opened_file_identity(raw_handle: *mut core::ffi::c_void) -> Option<WindowsFileIdentity> {
-    /// `FILE_INFO_BY_HANDLE_CLASS::FileIdInfo`.
-    const FILE_ID_INFO_CLASS: u32 = 18;
-    if raw_handle.is_null() {
-        return None;
-    }
-    let mut info = core::mem::MaybeUninit::<FileIdInfoLayout>::uninit();
-    let succeeded = unsafe {
-        // SAFETY: `raw_handle` is non-null and, per the caller's contract,
-        // a live open file handle. `info` is a properly aligned 24-byte
-        // out-buffer that stays alive for the call and is only read when
-        // the call reports success.
-        GetFileInformationByHandleEx(
-            raw_handle,
-            FILE_ID_INFO_CLASS,
-            info.as_mut_ptr().cast(),
-            core::mem::size_of::<FileIdInfoLayout>() as u32,
-        )
-    };
-    if succeeded == 0 {
-        return None;
-    }
-    let info = unsafe {
-        // SAFETY: the API reported success, so the out-buffer is fully
-        // initialized with one `FILE_ID_INFO`.
-        info.assume_init()
-    };
+    let info = file_id_info(raw_handle)?;
     if info.file_id == [0; 16] {
         // A zero file ID is not a usable identity: the filesystem did
         // not provide one. Fail closed rather than bind against a
@@ -527,47 +545,53 @@ pub fn walked_file_identity(path_nul_terminated_utf16: &[u16]) -> Option<Windows
     identity
 }
 
-/// Physical disk numbers backing the volume of an already-opened file,
-/// observed from the OPENED OBJECT — never re-derived from the classified
-/// path. The handle's final path names the volume; the volume device is
-/// opened and its extents queried live, with the same decoder the
-/// classifier uses. Sorted and deduplicated, mirroring the classifier's
-/// `backing_device_identity`, so the live consumer can check that every
-/// disk number the classifier recorded is still present on the opened
-/// volume's extents.
+/// One coherent observation of the volume actually containing an opened
+/// file: the full 64-bit volume serial from `FILE_ID_INFO` plus the
+/// complete sorted/deduplicated extent set, both read from the volume
+/// device resolved from the opened handle's own volume-GUID final path.
+/// The two fields are observed together so the consumer binds the serial
+/// and the extents as a single unit; neither is ever re-derived from the
+/// walk's drive letter (which names the wrong volume for folder-mounted
+/// and redirected topology).
+#[cfg(windows)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenedVolumeObservation {
+    /// Full 64-bit serial from `FILE_ID_INFO` on the volume device handle.
+    pub volume_serial: u64,
+    /// Sorted, deduplicated physical disk numbers backing the volume.
+    pub disk_numbers: Vec<u32>,
+}
+
+/// Resolve the volume actually containing an already-opened file, from
+/// the OPENED OBJECT — never re-derived from the classified path. The
+/// handle's volume-GUID final path names the true containing volume
+/// (correct for folder-mounted and redirected topology, where reopening
+/// a drive letter can name the wrong volume); the volume device is
+/// opened by GUID and the full 64-bit serial (`FILE_ID_INFO`) and the
+/// extent list are both read live from that same device, with the same
+/// decoder the classifier uses.
 ///
 /// `None` means the observation is unavailable (null handle, API failure,
-/// or a final path that does not name a drive-letter volume) — never a
-/// partial or invented list. The classifier only names drive-letter roots
-/// (`DriveRoot::from_ascii_letter`), so a non-drive-letter final path
-/// (UNC, volume-GUID, or folder-mounted volume) is unobservable in the
-/// classifier's naming scheme; the volume-serial bind still runs on the
-/// opened identity and fails closed on any cross-volume confusion, so the
-/// disk observation can never wrongly pass there.
+/// a final path that is not a volume-GUID form, or an empty extent set)
+/// — never a partial or invented list.
 #[cfg(windows)]
-pub fn opened_volume_disk_numbers(raw_handle: *mut core::ffi::c_void) -> Option<Vec<u32>> {
+pub fn opened_volume_observation(
+    raw_handle: *mut core::ffi::c_void,
+) -> Option<OpenedVolumeObservation> {
     if raw_handle.is_null() {
         return None;
     }
-    let final_path = final_path_by_handle(raw_handle)?;
-    let letter = drive_letter(&final_path)?;
-    // The volume device path for drive letter X is the Win32 device
-    // namespace form: a double backslash, a dot, a backslash, then `X:`.
-    let volume_device: [u16; 7] = [
-        u16::from(b'\\'),
-        u16::from(b'\\'),
-        u16::from(b'.'),
-        u16::from(b'\\'),
-        letter,
-        u16::from(b':'),
-        0,
-    ];
-    let handle = open_device(&volume_device)?;
+    let guid_path = volume_guid_path_by_handle(raw_handle)?;
+    let device = volume_device_path(&guid_path)?;
+    let volume = open_device(&device)?;
+    // The serial is read on the same unit as the file identity
+    // (`FILE_ID_INFO`): direct equality, no truncation, no zero-extension.
+    let serial = query_volume_serial(volume.raw)?;
     let mut buffer = Box::new(AlignedBuffer::<EXTENT_BUFFER_BYTES>(
         [0; EXTENT_BUFFER_BYTES],
     ));
     let returned = device_io_control(
-        &handle,
+        &volume,
         IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
         &[],
         &mut buffer.0,
@@ -575,20 +599,31 @@ pub fn opened_volume_disk_numbers(raw_handle: *mut core::ffi::c_void) -> Option<
     let QueryState::Complete(extents) = decode_extent_information(&buffer.0, returned) else {
         return None;
     };
-    let mut numbers: Vec<u32> = extents.iter().map(|extent| extent.disk_number).collect();
-    numbers.sort_unstable();
-    numbers.dedup();
-    (!numbers.is_empty()).then_some(numbers)
+    let mut disk_numbers: Vec<u32> = extents.iter().map(|extent| extent.disk_number).collect();
+    disk_numbers.sort_unstable();
+    disk_numbers.dedup();
+    if disk_numbers.is_empty() {
+        let _already_unknown = volume.close();
+        return None;
+    }
+    // Explicit close per the crate's handle convention: the observation is
+    // complete (serial + extents already read), so the close result is
+    // cleanup, not evidence — named as already-unknown rather than left to
+    // `Drop`.
+    let _already_unknown = volume.close();
+    Some(OpenedVolumeObservation {
+        volume_serial: serial,
+        disk_numbers,
+    })
 }
 
-/// The handle's final path in `VOLUME_NAME_DOS` form (the extended-length
-/// DOS path: double backslash, question mark, backslash, drive letter),
-/// without the trailing NUL. Two-call pattern: the first call reports the
-/// required length, the second fills the buffer. `None` on any failure.
+/// The handle's final path in volume-GUID form, without the trailing
+/// NUL. Two-call pattern: the first call reports the required length,
+/// the second fills the buffer. `None` on any failure.
 #[cfg(windows)]
-fn final_path_by_handle(raw_handle: *mut core::ffi::c_void) -> Option<Vec<u16>> {
-    /// `VOLUME_NAME_DOS`.
-    const DOS_VOLUME_NAME: u32 = 0x0;
+fn volume_guid_path_by_handle(raw_handle: *mut core::ffi::c_void) -> Option<Vec<u16>> {
+    /// `VOLUME_NAME_GUID`.
+    const GUID_VOLUME_NAME: u32 = 0x1;
     /// Sanity bound: a final path longer than this is not a usable
     /// observation.
     const MAX_FINAL_PATH_UNITS: u32 = 32 * 1024;
@@ -596,7 +631,7 @@ fn final_path_by_handle(raw_handle: *mut core::ffi::c_void) -> Option<Vec<u16>> 
         // SAFETY: `raw_handle` is a live open handle per the caller's
         // contract; a null buffer with zero capacity only queries the
         // required length and writes nothing.
-        GetFinalPathNameByHandleW(raw_handle, core::ptr::null_mut(), 0, DOS_VOLUME_NAME)
+        GetFinalPathNameByHandleW(raw_handle, core::ptr::null_mut(), 0, GUID_VOLUME_NAME)
     };
     if needed == 0 || needed > MAX_FINAL_PATH_UNITS {
         return None;
@@ -605,7 +640,7 @@ fn final_path_by_handle(raw_handle: *mut core::ffi::c_void) -> Option<Vec<u16>> 
     let written = unsafe {
         // SAFETY: `buffer` offers exactly `needed` writable units and
         // stays alive for the call; `raw_handle` is live.
-        GetFinalPathNameByHandleW(raw_handle, buffer.as_mut_ptr(), needed, DOS_VOLUME_NAME)
+        GetFinalPathNameByHandleW(raw_handle, buffer.as_mut_ptr(), needed, GUID_VOLUME_NAME)
     };
     if written == 0 || written >= needed {
         return None;
@@ -614,51 +649,53 @@ fn final_path_by_handle(raw_handle: *mut core::ffi::c_void) -> Option<Vec<u16>> 
     Some(buffer)
 }
 
-/// Extract the drive letter from a `VOLUME_NAME_DOS` final path
-/// (extended-length DOS path), uppercased. Anything else (UNC, volume-GUID,
-/// folder-mounted volumes surfacing through a host volume's namespace)
-/// has no drive-letter naming in the classifier's scheme: `None`.
-#[cfg(windows)]
-fn drive_letter(final_path: &[u16]) -> Option<u16> {
-    let [
-        backslash1,
-        backslash2,
-        question,
-        backslash3,
-        letter,
-        colon,
-        ..,
-    ] = final_path
-    else {
-        return None;
-    };
-    let is_dos_volume_prefix = *backslash1 == u16::from(b'\\')
-        && *backslash2 == u16::from(b'\\')
-        && *question == u16::from(b'?')
-        && *backslash3 == u16::from(b'\\')
-        && *colon == u16::from(b':');
-    let is_ascii_letter = (*letter >= u16::from(b'A') && *letter <= u16::from(b'Z'))
-        || (*letter >= u16::from(b'a') && *letter <= u16::from(b'z'));
-    if !is_dos_volume_prefix || !is_ascii_letter {
+/// Build the NUL-terminated Win32 device-namespace path for a
+/// volume-GUID final path: the GUID path names the volume, and the
+/// device namespace form opens it directly. The device path is the
+/// final path minus its trailing separator, plus the NUL. The path is
+/// validated structurally (GUID prefix, brace-closed GUID body, trailing
+/// separator); the exact GUID text is the OS's to validate when the
+/// device is opened. Anything else is `None`.
+#[cfg(any(windows, test))]
+fn volume_device_path(guid_path: &[u16]) -> Option<Vec<u16>> {
+    const PREFIX: [u16; 11] = [
+        b'\\' as u16,
+        b'\\' as u16,
+        b'?' as u16,
+        b'\\' as u16,
+        b'V' as u16,
+        b'o' as u16,
+        b'l' as u16,
+        b'u' as u16,
+        b'm' as u16,
+        b'e' as u16,
+        b'{' as u16,
+    ];
+    // Prefix, at least one GUID body unit plus the closing brace, and the
+    // trailing separator.
+    if guid_path.len() < PREFIX.len() + 2
+        || guid_path[..PREFIX.len()] != PREFIX
+        || guid_path[guid_path.len() - 1] != u16::from(b'\\')
+    {
         return None;
     }
-    Some(if *letter >= u16::from(b'a') {
-        *letter - (u16::from(b'a') - u16::from(b'A'))
-    } else {
-        *letter
-    })
+    let body = &guid_path[PREFIX.len()..guid_path.len() - 1];
+    if body.is_empty() || body[body.len() - 1] != u16::from(b'}') {
+        return None;
+    }
+    let mut device: Vec<u16> = guid_path[..guid_path.len() - 1].to_vec();
+    device.push(0);
+    Some(device)
 }
 
 #[cfg(windows)]
-fn classify_full(root: DriveRoot) -> EvidenceVerdict {
+fn classify_full(root: DriveRoot, volume: OwnedHandle) -> EvidenceVerdict {
     let before = query_preliminary(root);
     if let PreliminaryClass::Closed(result) = classify_preliminary(&before) {
+        let _already_unknown = volume.close();
         return EvidenceVerdict::closed(result);
     }
 
-    let Some(volume) = open_device(&root.volume_device()) else {
-        return EvidenceVerdict::closed(DriveLocality::Unknown);
-    };
     let dependency = query_dependencies(&volume);
     if dependency != QueryState::Complete(DependencyObservation::None) {
         let _already_unknown = volume.close();
@@ -1248,16 +1285,6 @@ unsafe extern "system" {
         overlapped: *mut core::ffi::c_void,
     ) -> i32;
     fn CloseHandle(object: *mut core::ffi::c_void) -> i32;
-    fn GetVolumeInformationW(
-        lp_root_path_name: *const u16,
-        lp_volume_name_buffer: *mut u16,
-        n_volume_name_size: u32,
-        lp_volume_serial_number: *mut u32,
-        lp_maximum_component_length: *mut u32,
-        lp_file_system_flags: *mut u32,
-        lp_file_system_name_buffer: *mut u16,
-        n_file_system_name_size: u32,
-    ) -> i32;
     fn GetFileInformationByHandleEx(
         file: *mut core::ffi::c_void,
         file_information_class: u32,
@@ -2023,5 +2050,54 @@ mod tests {
         drop(first);
         drop(second);
         std::fs::remove_file(&path).ok();
+    }
+
+    /// Volume-GUID final path fixture, built without literal backslashes
+    /// (repo text-hygiene rule). The real `GetFinalPathNameByHandleW`
+    /// `VOLUME_NAME_GUID` form starts with a double-backslash sequence
+    /// before `?`, then `Volume{...}` and a trailing separator.
+    fn guid_final_path_fixture() -> Vec<u16> {
+        let bs = char::from(92);
+        format!("{bs}{bs}?{bs}Volume{{b75e2c83-0000-0000-0000-602f00000000}}{bs}")
+            .encode_utf16()
+            .collect()
+    }
+
+    #[test]
+    fn volume_device_path_drops_trailing_separator_and_adds_nul() {
+        let guid_path = guid_final_path_fixture();
+        let device = super::volume_device_path(&guid_path).expect("device path");
+        let mut expected: Vec<u16> = guid_path[..guid_path.len() - 1].to_vec();
+        expected.push(0);
+        assert_eq!(device, expected);
+        assert_eq!(device.last(), Some(&0));
+    }
+
+    #[test]
+    fn volume_device_path_rejects_dos_letter_paths() {
+        // A drive-letter final path is not a volume-GUID form: the
+        // device path builder must not re-derive a letter device.
+        let bs = char::from(92);
+        let dos_path: Vec<u16> = format!("{bs}{bs}?{bs}C:{bs}Windows{bs}")
+            .encode_utf16()
+            .collect();
+        assert_eq!(super::volume_device_path(&dos_path), None);
+    }
+
+    #[test]
+    fn volume_device_path_rejects_missing_trailing_separator() {
+        let mut guid_path = guid_final_path_fixture();
+        guid_path.pop();
+        assert_eq!(super::volume_device_path(&guid_path), None);
+    }
+
+    #[test]
+    fn volume_device_path_rejects_empty_and_unc_paths() {
+        assert_eq!(super::volume_device_path(&[]), None);
+        let bs = char::from(92);
+        let unc_path: Vec<u16> = format!("{bs}{bs}host{bs}share{bs}")
+            .encode_utf16()
+            .collect();
+        assert_eq!(super::volume_device_path(&unc_path), None);
     }
 }

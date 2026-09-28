@@ -4354,7 +4354,7 @@ mod tests {
 
     use crate::file_read::{
         FileLocalityAdapter, FileLocalityError, FileReadAdapter, FileReadAdapterError,
-        OpenedCheckedFile,
+        OpenCheckedFailure, OpenProgress, OpenedCheckedFile,
     };
     use crate::native_path::ValidatedNativePath;
 
@@ -4531,12 +4531,12 @@ mod tests {
     }
 
     impl FileReadAdapter for PostAqCountingFileRead {
-        fn open_checked(
-            &mut self,
-            _path: &OsStr,
-        ) -> Result<OpenedCheckedFile, FileReadAdapterError> {
+        fn open_checked(&mut self, _path: &OsStr) -> Result<OpenedCheckedFile, OpenCheckedFailure> {
             self.calls += 1;
-            Err(FileReadAdapterError::IoFailed)
+            Err(OpenCheckedFailure::new(
+                FileReadAdapterError::IoFailed,
+                OpenProgress::NONE,
+            ))
         }
 
         fn read_opened(

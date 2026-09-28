@@ -170,22 +170,25 @@ impl ValidatedNativePath {
     }
 
     #[cfg(all(test, windows))]
-    pub(crate) fn fixed_local_for_test(&self) -> Self {
+    pub(crate) fn unproven_for_test(&self) -> Self {
         Self {
             raw: self.raw.clone(),
-            locality: NativePathLocality::FixedLocal,
-            // Leaf D's ClassifiedDrive record, test-constructed to match the
-            // legacy FixedLocal status this helper used to set alone. The
-            // `FixedLocal` label is defined-but-unreachable from the live
-            // classifier in this WO version (decision 0029 §14 grant-first
-            // demotion), so the new fields take their neutral values: no
-            // observed facts, no `Unproven` reason.
+            // Grant-first (decision 0029 §14): the live classifier never
+            // emits `FixedLocal`; insufficient evidence is `Unproven` and
+            // maps to `Unclassified`, admitting only via operator
+            // attestation on the external-trust path.
+            locality: NativePathLocality::Unclassified,
+            // Leaf D's ClassifiedDrive record, test-constructed to match
+            // the live insufficient-evidence verdict: `Unproven` with the
+            // insufficient-evidence reason, and neutral observation fields
+            // (no serial, no disk extents) so fixtures exercise the live
+            // backing bind's missing-observation (trust-coverable) path.
             evidence: Some(LocalityEvidence::Windows(
                 windows_drive_locality::ClassifiedDrive {
-                    locality: DriveLocality::FixedLocal,
+                    locality: DriveLocality::Unproven,
                     backing_device_identity: Vec::new(),
                     observed_facts: Vec::new(),
-                    unproven_reason: None,
+                    unproven_reason: Some(windows_drive_locality::REASON_INSUFFICIENT_EVIDENCE),
                     volume_serial: None,
                 },
             )),

@@ -2674,9 +2674,8 @@ function Invoke-HumCompilerFrontChecks {
     'DeviceIoControl' = 2                 # decl + device_io_control
     'GetStorageDependencyInformation' = 2 # decl + query_dependencies
     'CloseHandle' = 3                     # decl + close_raw_handle + walked_file_identity
-    'GetVolumeInformationW' = 2           # decl + query_volume_serial
     'GetFileInformationByHandleEx' = 2    # decl + opened_file_identity (FileIdInfo)
-    'GetFinalPathNameByHandleW' = 3       # decl + final_path_by_handle (two-call pattern)
+    'GetFinalPathNameByHandleW' = 3       # decl + volume_guid_path_by_handle (two-call pattern)
   }
   $LocalityDeclaredForeign = @(
     [regex]::Matches($LocalityProduction, 'unsafe\s+extern\s+"system"\s*\{(.*?)\}', 'Singleline') |
@@ -2697,7 +2696,7 @@ function Invoke-HumCompilerFrontChecks {
   }
   $Ioctls = @([regex]::Matches($LocalityProduction, '\bIOCTL_[A-Z0-9_]+\b') | ForEach-Object { $_.Value } | Sort-Object -Unique)
   if ($Ioctls.Count -ne 2 -or $Ioctls[0] -ne 'IOCTL_STORAGE_QUERY_PROPERTY' -or $Ioctls[1] -ne 'IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS') { throw 'Session AC locality adapter IOCTL allowlist drifted' }
-  if ([regex]::Matches($LocalityProduction, '\bunsafe\s*\{').Count -ne 13 -or [regex]::Matches($LocalityProduction, 'unsafe\s+extern').Count -ne 2) { throw 'Session AC locality adapter unsafe-block inventory drifted' }
+  if ([regex]::Matches($LocalityProduction, '\bunsafe\s*\{').Count -ne 12 -or [regex]::Matches($LocalityProduction, 'unsafe\s+extern').Count -ne 2) { throw 'Session AC locality adapter unsafe-block inventory drifted' }
   foreach ($Forbidden in @('std::fs', 'File::open', 'OpenOptions', 'canonicalize(', 'metadata(', 'read_to_', 'std::process', 'std::env', 'Command::', 'RegOpenKey', 'WMI', 'CoCreateInstance', 'SetupDi', 'LoadLibrary', 'GetProcAddress', 'WinHttp', 'WinSock', 'VendorIdOffset', 'ProductIdOffset')) {
     if ($LocalityProduction.Contains($Forbidden)) { throw "Session AC locality adapter contains forbidden host surface: $Forbidden" }
   }
@@ -5838,7 +5837,7 @@ function Invoke-HumCompilerCorpusChecks {
   if ($SessionAATooMany.ExitCode -ne 2 -or $SessionAATooMany.Stdout -ne '' -or -not $SessionAATooMany.Stderr.Contains('at most 1024')) { throw 'Session AA must reject more than 1024 replay ticks as CLI usage' }
 
   $SessionAAHelp = Read-NativeOutput 'Session AA help text' $Hum @('--help')
-  $SessionAAUsage = '  hum run [--timings] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--allow files.read=<path>] [--deny files.read] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]'
+  $SessionAAUsage = '  hum run [--timings] [--format human|json] [--trust-locality files.read=<path>] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--allow files.read=<path>] [--deny files.read] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]'
   if (-not $SessionAAHelp.Contains($SessionAAUsage)) { throw 'Session AA canonical Usage line must document exact output/replay consent and repeatable bounded runner input' }
 
   $SessionABPositive = 'examples/probes/opaque_native_path.hum'

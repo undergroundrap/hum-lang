@@ -65,6 +65,60 @@ impl FileReadAdapterError {
     }
 }
 
+/// A failed `open_checked`: the error plus explicit progress recording
+/// how far the open got before failing. Failure evidence must report
+/// only established progress — a late `IdentityUnavailable` happens
+/// after the component walk completed, the open succeeded, and the
+/// ordinary-file check ran — so the failure result carries that fact
+/// instead of letting the consumer infer progress from a missing
+/// identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OpenCheckedFailure {
+    pub(crate) error: FileReadAdapterError,
+    pub(crate) progress: OpenProgress,
+}
+
+impl OpenCheckedFailure {
+    pub(crate) fn new(error: FileReadAdapterError, progress: OpenProgress) -> Self {
+        Self { error, progress }
+    }
+}
+
+/// How far `open_checked` progressed before failing: which of the
+/// evidence-relevant checks actually ran.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OpenProgress {
+    /// The component walk completed: `symlink_metadata` per component,
+    /// no links followed, evidence validated.
+    pub(crate) walk_completed: bool,
+    /// The ordinary-file check ran on the opened handle — whether it
+    /// passed (a later stage failed) or rejected the object (`NotFile`).
+    pub(crate) ordinary_file_check_ran: bool,
+}
+
+impl OpenProgress {
+    /// Nothing established: the walk did not complete.
+    pub(crate) const NONE: Self = Self {
+        walk_completed: false,
+        ordinary_file_check_ran: false,
+    };
+    /// The walk completed — every component's metadata was collected and
+    /// the walk's enforcement ran — but the open did not reach the
+    /// ordinary-file check on the handle (validation, open, or metadata
+    /// failed).
+    pub(crate) const WALK_ONLY: Self = Self {
+        walk_completed: true,
+        ordinary_file_check_ran: false,
+    };
+    /// The open reached the identity stage: the walk completed and the
+    /// ordinary-file check ran. Used when the caller holds an opened
+    /// identity (any failure came after the open).
+    pub(crate) const COMPLETE: Self = Self {
+        walk_completed: true,
+        ordinary_file_check_ran: true,
+    };
+}
+
 /// Stable identity of the file object behind an opened handle.
 ///
 /// WO29 Slice A: the read gate binds the walked path's identity to the
@@ -78,10 +132,11 @@ impl FileReadAdapterError {
 /// stable on ReFS, unlike the legacy 64-bit `nFileIndex`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FileObjectIdentity {
-    UnixDeviceInode {
-        dev: u64,
-        ino: u64,
-    },
+    // Never constructed on Windows (the Windows identity is
+    // `WindowsVolumeFile`); still matched in `render`, so the allowance
+    // is scoped to this platform only.
+    #[cfg_attr(windows, allow(dead_code))]
+    UnixDeviceInode { dev: u64, ino: u64 },
     #[cfg(windows)]
     WindowsVolumeFile {
         volume_serial: u64,
@@ -123,16 +178,25 @@ pub(crate) struct OpenedCheckedFile {
     pub(crate) handle: Option<std::fs::File>,
     pub(crate) walked_identity: Option<FileObjectIdentity>,
     pub(crate) opened_identity: FileObjectIdentity,
-    pub(crate) opened_volume_disks: Option<Vec<u32>>,
+    /// Windows-only: one coherent observation of the volume actually
+    /// containing the opened file — the full 64-bit `FILE_ID_INFO`
+    /// serial plus the complete extent set, resolved from the opened
+    /// handle's own volume-GUID final path. On unix the (major, minor)
+    /// device bind covers the backing identity, so there is no field at
+    /// all (not even a `None`).
+    #[cfg(windows)]
+    pub(crate) opened_volume: Option<windows_drive_locality::OpenedVolumeObservation>,
 }
 
 /// Open/read split file adapter (WO29 Slice A). `open_checked` performs the
 /// component walk, evidence validation, open, and handle checks WITHOUT
 /// reading the payload; `read_opened` performs the bounded UTF-8 read on an
 /// already-opened file. run.rs binds walked-to-opened identity between the
-/// two calls, before any read.
+/// two calls, before any read. A failed open carries explicit progress
+/// (`OpenCheckedFailure`): the evidence must report only established
+/// progress, never infer it from a missing identity.
 pub(crate) trait FileReadAdapter {
-    fn open_checked(&mut self, path: &OsStr) -> Result<OpenedCheckedFile, FileReadAdapterError>;
+    fn open_checked(&mut self, path: &OsStr) -> Result<OpenedCheckedFile, OpenCheckedFailure>;
     fn read_opened(&mut self, opened: OpenedCheckedFile) -> Result<String, FileReadAdapterError>;
 }
 
@@ -236,8 +300,11 @@ pub(crate) struct HostFileReadAdapter;
 
 #[cfg(not(any(windows, unix)))]
 impl FileReadAdapter for HostFileReadAdapter {
-    fn open_checked(&mut self, _path: &OsStr) -> Result<OpenedCheckedFile, FileReadAdapterError> {
-        Err(FileReadAdapterError::IoFailed)
+    fn open_checked(&mut self, _path: &OsStr) -> Result<OpenedCheckedFile, OpenCheckedFailure> {
+        Err(OpenCheckedFailure::new(
+            FileReadAdapterError::IoFailed,
+            OpenProgress::NONE,
+        ))
     }
 
     fn read_opened(&mut self, _opened: OpenedCheckedFile) -> Result<String, FileReadAdapterError> {
@@ -247,7 +314,7 @@ impl FileReadAdapter for HostFileReadAdapter {
 
 #[cfg(windows)]
 impl FileReadAdapter for HostFileReadAdapter {
-    fn open_checked(&mut self, path: &OsStr) -> Result<OpenedCheckedFile, FileReadAdapterError> {
+    fn open_checked(&mut self, path: &OsStr) -> Result<OpenedCheckedFile, OpenCheckedFailure> {
         open_checked_windows_file(path)
     }
 
@@ -258,7 +325,7 @@ impl FileReadAdapter for HostFileReadAdapter {
 
 #[cfg(unix)]
 impl FileReadAdapter for HostFileReadAdapter {
-    fn open_checked(&mut self, path: &OsStr) -> Result<OpenedCheckedFile, FileReadAdapterError> {
+    fn open_checked(&mut self, path: &OsStr) -> Result<OpenedCheckedFile, OpenCheckedFailure> {
         open_checked_unix_file(path)
     }
 
@@ -352,13 +419,19 @@ fn read_bounded_utf8<R: Read>(reader: R) -> Result<String, FileReadAdapterError>
 /// identity and the opened volume's backing-disk observation; a missing
 /// identity fails closed with `IdentityUnavailable`.
 #[cfg(windows)]
-fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileReadAdapterError> {
+fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, OpenCheckedFailure> {
     use std::fs::{self, File};
     use std::os::windows::fs::MetadataExt;
     use std::os::windows::io::AsRawHandle;
     use std::path::{Component, Path, PathBuf};
 
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+
+    // Every failure below carries the progress established so far: the
+    // evidence lines must report only what ran, never infer it.
+    let fail = |error: FileReadAdapterError, progress: OpenProgress| {
+        OpenCheckedFailure::new(error, progress)
+    };
 
     let path = Path::new(path);
     let mut prefixes = Vec::new();
@@ -369,7 +442,7 @@ fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileRead
             Component::Prefix(_) | Component::RootDir => {}
             Component::Normal(_) => prefixes.push(current.clone()),
             Component::CurDir | Component::ParentDir => {
-                return Err(FileReadAdapterError::UnsafePath);
+                return Err(fail(FileReadAdapterError::UnsafePath, OpenProgress::NONE));
             }
         }
     }
@@ -387,14 +460,20 @@ fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileRead
     // handle against.
     let mut walked_identity: Option<FileObjectIdentity> = None;
     for (index, prefix) in prefixes.iter().enumerate() {
-        let metadata = fs::symlink_metadata(prefix).map_err(map_host_error)?;
+        let metadata = fs::symlink_metadata(prefix)
+            .map_err(|error| fail(map_host_error(error), OpenProgress::NONE))?;
         let file_type = metadata.file_type();
         if index + 1 == prefixes.len() {
             use std::os::windows::ffi::OsStrExt;
             let mut wide: Vec<u16> = prefix.as_os_str().encode_wide().collect();
             wide.push(0);
-            let identity = windows_drive_locality::walked_file_identity(&wide)
-                .ok_or(FileReadAdapterError::IdentityUnavailable)?;
+            let identity =
+                windows_drive_locality::walked_file_identity(&wide).ok_or_else(|| {
+                    fail(
+                        FileReadAdapterError::IdentityUnavailable,
+                        OpenProgress::NONE,
+                    )
+                })?;
             walked_identity = Some(FileObjectIdentity::WindowsVolumeFile {
                 volume_serial: identity.volume_serial,
                 file_id: identity.file_id,
@@ -414,21 +493,30 @@ fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileRead
             final_component: index + 1 == prefixes.len(),
         });
     }
-    validate_component_evidence(&evidence)?;
+    validate_component_evidence(&evidence).map_err(|error| fail(error, OpenProgress::WALK_ONLY))?;
 
-    let file = File::open(path).map_err(map_host_error)?;
-    let opened_metadata = file.metadata().map_err(map_host_error)?;
+    let file =
+        File::open(path).map_err(|error| fail(map_host_error(error), OpenProgress::WALK_ONLY))?;
+    let opened_metadata = file
+        .metadata()
+        .map_err(|error| fail(map_host_error(error), OpenProgress::WALK_ONLY))?;
     if !opened_metadata.is_file() {
-        return Err(FileReadAdapterError::NotFile);
+        return Err(fail(FileReadAdapterError::NotFile, OpenProgress::COMPLETE));
     }
-    let identity = windows_drive_locality::opened_file_identity(file.as_raw_handle())
-        .ok_or(FileReadAdapterError::IdentityUnavailable)?;
-    // The opened volume's backing-disk observation, taken from the opened
-    // object itself (not re-derived from the path): the live backing bind
-    // consumes it against the classifier's recorded disk numbers. A
-    // missing observation is trust-coverable; it never invents disks.
-    let opened_volume_disks =
-        windows_drive_locality::opened_volume_disk_numbers(file.as_raw_handle());
+    let identity =
+        windows_drive_locality::opened_file_identity(file.as_raw_handle()).ok_or_else(|| {
+            fail(
+                FileReadAdapterError::IdentityUnavailable,
+                OpenProgress::COMPLETE,
+            )
+        })?;
+    // The opened volume's coherent observation (full 64-bit serial plus
+    // complete extent set), taken from the opened object itself via its
+    // volume-GUID final path — never re-derived from the walk's drive
+    // letter. The live backing bind consumes it against the classifier's
+    // recorded serial and disk numbers. A missing observation is
+    // trust-coverable; it never invents a serial or disks.
+    let opened_volume = windows_drive_locality::opened_volume_observation(file.as_raw_handle());
     Ok(OpenedCheckedFile {
         handle: Some(file),
         // The walked identity comes from the final component's
@@ -439,7 +527,7 @@ fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileRead
             volume_serial: identity.volume_serial,
             file_id: identity.file_id,
         },
-        opened_volume_disks,
+        opened_volume,
     })
 }
 
@@ -455,10 +543,16 @@ fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileRead
 /// are unreachable; the walk keeps the guard anyway so the evidence chain
 /// stays total.
 #[cfg(unix)]
-fn open_checked_unix_file(path: &OsStr) -> Result<OpenedCheckedFile, FileReadAdapterError> {
+fn open_checked_unix_file(path: &OsStr) -> Result<OpenedCheckedFile, OpenCheckedFailure> {
     use std::fs::{self, File};
     use std::os::unix::fs::MetadataExt;
     use std::path::{Component, Path, PathBuf};
+
+    // Every failure below carries the progress established so far: the
+    // evidence lines must report only what ran, never infer it.
+    let fail = |error: FileReadAdapterError, progress: OpenProgress| {
+        OpenCheckedFailure::new(error, progress)
+    };
 
     let path = Path::new(path);
     let mut prefixes = Vec::new();
@@ -469,7 +563,7 @@ fn open_checked_unix_file(path: &OsStr) -> Result<OpenedCheckedFile, FileReadAda
             Component::Prefix(_) | Component::RootDir => {}
             Component::Normal(_) => prefixes.push(current.clone()),
             Component::CurDir | Component::ParentDir => {
-                return Err(FileReadAdapterError::UnsafePath);
+                return Err(fail(FileReadAdapterError::UnsafePath, OpenProgress::NONE));
             }
         }
     }
@@ -477,7 +571,8 @@ fn open_checked_unix_file(path: &OsStr) -> Result<OpenedCheckedFile, FileReadAda
     let mut evidence = Vec::with_capacity(prefixes.len());
     let mut walked_identity: Option<(u64, u64)> = None;
     for (index, prefix) in prefixes.iter().enumerate() {
-        let metadata = fs::symlink_metadata(prefix).map_err(map_host_error)?;
+        let metadata = fs::symlink_metadata(prefix)
+            .map_err(|error| fail(map_host_error(error), OpenProgress::NONE))?;
         let file_type = metadata.file_type();
         let final_component = index + 1 == prefixes.len();
         if final_component {
@@ -498,13 +593,17 @@ fn open_checked_unix_file(path: &OsStr) -> Result<OpenedCheckedFile, FileReadAda
             final_component,
         });
     }
-    let walked = walked_identity.ok_or(FileReadAdapterError::UnsafePath)?;
-    validate_component_evidence(&evidence)?;
+    let walked = walked_identity
+        .ok_or_else(|| fail(FileReadAdapterError::UnsafePath, OpenProgress::NONE))?;
+    validate_component_evidence(&evidence).map_err(|error| fail(error, OpenProgress::WALK_ONLY))?;
 
-    let file = File::open(path).map_err(map_host_error)?;
-    let opened = file.metadata().map_err(map_host_error)?;
+    let file =
+        File::open(path).map_err(|error| fail(map_host_error(error), OpenProgress::WALK_ONLY))?;
+    let opened = file
+        .metadata()
+        .map_err(|error| fail(map_host_error(error), OpenProgress::WALK_ONLY))?;
     if !opened.is_file() {
-        return Err(FileReadAdapterError::NotFile);
+        return Err(fail(FileReadAdapterError::NotFile, OpenProgress::COMPLETE));
     }
     Ok(OpenedCheckedFile {
         handle: Some(file),
@@ -516,9 +615,6 @@ fn open_checked_unix_file(path: &OsStr) -> Result<OpenedCheckedFile, FileReadAda
             dev: opened.dev(),
             ino: opened.ino(),
         },
-        // No volume-disk observation on unix: the (major, minor) device
-        // bind covers the backing identity there.
-        opened_volume_disks: None,
     })
 }
 
@@ -544,6 +640,8 @@ fn map_host_error(error: std::io::Error) -> FileReadAdapterError {
 mod tests {
     use std::ffi::OsStr;
 
+    #[cfg(unix)]
+    use super::OpenProgress;
     #[cfg(unix)]
     use super::bind_walked_to_opened;
     #[cfg(unix)]
@@ -579,7 +677,9 @@ mod tests {
         adapter: &mut HostFileReadAdapter,
         path: &OsStr,
     ) -> Result<String, FileReadAdapterError> {
-        let opened = adapter.open_checked(path)?;
+        let opened = adapter
+            .open_checked(path)
+            .map_err(|failure| failure.error)?;
         adapter.read_opened(opened)
     }
 
@@ -738,7 +838,8 @@ mod tests {
             handle: None,
             walked_identity: None,
             opened_identity: FileObjectIdentity::UnixDeviceInode { dev: 8, ino: 4242 },
-            opened_volume_disks: None,
+            #[cfg(windows)]
+            opened_volume: None,
         };
         assert_eq!(
             read_opened_handle(opened),
@@ -917,6 +1018,30 @@ mod tests {
         );
     }
 
+    /// Production-connected progress: the real adapter's failures carry
+    /// explicit progress. A missing path fails in the walk (`NotFound`,
+    /// nothing established); a directory completes the walk but is
+    /// rejected by the walk's own enforcement (`NotFile`, walk done,
+    /// handle never opened so the handle check did not run). The
+    /// evidence layer must report exactly this.
+    #[cfg(unix)]
+    #[test]
+    fn production_open_failures_carry_explicit_progress() {
+        let mut adapter = HostFileReadAdapter;
+        let missing = adapter
+            .open_checked(OsStr::new("/hum-definitely-absent-opaque"))
+            .expect_err("missing path must fail");
+        assert_eq!(missing.error, FileReadAdapterError::NotFound);
+        assert_eq!(missing.progress, OpenProgress::NONE);
+
+        let dir = std::env::temp_dir();
+        let not_file = adapter
+            .open_checked(dir.as_os_str())
+            .expect_err("directory must fail the walk's file enforcement");
+        assert_eq!(not_file.error, FileReadAdapterError::NotFile);
+        assert_eq!(not_file.progress, OpenProgress::WALK_ONLY);
+    }
+
     #[cfg(not(any(windows, unix)))]
     #[test]
     fn unsupported_host_adapter_is_unavailable_without_file_access() {
@@ -925,13 +1050,13 @@ mod tests {
         // so the rejection is pinned with `matches!`, not `assert_eq!`.
         assert!(matches!(
             adapter.open_checked(OsStr::new("/not-accessed")),
-            Err(FileReadAdapterError::IoFailed)
+            Err(failure) if failure.error == FileReadAdapterError::IoFailed
+                && failure.progress == OpenProgress::NONE
         ));
         let opened = OpenedCheckedFile {
             handle: None,
             walked_identity: None,
             opened_identity: FileObjectIdentity::UnixDeviceInode { dev: 0, ino: 0 },
-            opened_volume_disks: None,
         };
         assert_eq!(
             adapter.read_opened(opened),
