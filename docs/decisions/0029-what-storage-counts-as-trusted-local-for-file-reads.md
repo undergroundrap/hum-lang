@@ -434,3 +434,69 @@ QEMU network block backends beneath any frontend
 (https://documentation.suse.com/sles/15-SP6/html/SLES-all/cha-qemu-running.html);
 the QEMU emulated NVMe device
 (https://github.com/xemu-project/xemu/blob/HEAD/docs/system/devices/nvme.rst).
+
+## 15. Amendment (2026-09-28): P4 — file-object ordinariness, not fixed-volume backing class
+
+**Standing.** BDFL resolution of a genuine ambiguity in the accepted
+record — not a new policy, and not a claim that the prior text was
+unambiguous. Historical §§1–14 are preserved as written, including §4's P4
+wording and its `is_ordinary_fixed_target` citation. This section supersedes
+only the *reading* under which P4 additionally required a fixed-volume
+backing class on the trust path.
+
+**Ruling (BDFL, 2026-09-28).** P4 requires **file-object ordinariness**,
+not a fixed-volume backing class:
+
+- The P4 obligation is §4's definition: the opened target is an ordinary
+  file — not a symlink, reparse point, device, FIFO, or pipe.
+- The Windows `is_ordinary_fixed_target` predicate
+  (`crates/windows-drive-locality/src/lib.rs`: the
+  `\Device\HarddiskVolume<N>` target check) is **backing observation** —
+  it is not a sufficient file-object check, and not an additional
+  non-waivable fixed-volume admission requirement. It is used by
+  preliminary backing classification; it does not substitute for the
+  opened-handle ordinary-file enforcement.
+- Matching trust may cover absent/unproven locality and the already
+  specified storage-substitution assumption. It never waives: capability
+  consent (0017), exact-path matching (the attestation, the `--allow` grant,
+  and the request path must all name the same path), the existing
+  lexical/component/reparse checks, ordinary-file enforcement,
+  file-identity binding before payload consumption, contradictory-evidence
+  rejection, the 1 MiB read bound, or strict UTF-8 validation. No CLI path
+  syntax widens.
+
+**Actual Windows ordinary-file enforcement owners (Slice A, reviewed at
+`5d508f0813e6199b2df89609d48a36a97ab703e4`).** The per-read enforcement
+lives in the open phase, not the classifier:
+
+- `src/file_read.rs`, `open_checked_windows_file`: the component walk uses
+  `symlink_metadata` per component; `validate_component_evidence` rejects
+  any reparse component (`UnsafePath`) and a non-file final component
+  (`NotFile`); after `File::open`, the opened handle's own metadata must
+  satisfy `is_file()`, else `NotFile` — all before payload consumption.
+  (Walked identity is captured earlier in the walk; it is distinct from the
+  opened handle's identity, which `run.rs` binds to the walked identity
+  before the read.)
+- `src/run.rs`, Step 4 of the file-read gate: every admitted path,
+  including `external-trust`, calls `open_checked` unconditionally; the
+  payload read runs only after the open phase and the identity/binding
+  checks.
+
+**Report corrections recorded with this amendment** (precision, not
+policy):
+
+- Direct UNC syntax is rejected at path validation — only
+  drive-letter-rooted paths pass Windows validation
+  (`NamespacePrefix` / `not_ordinary_drive_letter_rooted_v0`). A valid
+  drive-letter-rooted path may pass lexical validation; classification then
+  depends on observed mapping and drive type. Remote observations and
+  substituted mappings remain distinct: a network-backed drive classifies
+  `Remote`, a `\DosDevices\`-style substitution classifies `Substituted` —
+  both fail closed without the grant, and the grant covers unproven
+  locality without guaranteeing successful admission. The two behaviors are
+  distinct.
+- Native-hardware observation of SD/MMC remains **unavailable, not
+  impossible**.
+- Unexecuted cross-target checks receive no credit: selectors that compile
+  for a target without native execution there are not evidence of that
+  target's behavior.

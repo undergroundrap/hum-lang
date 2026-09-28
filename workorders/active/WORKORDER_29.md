@@ -94,6 +94,45 @@ flag, unproven storage is refused exactly as today. Evidence on the trust
 path must say exactly this: locality is `trusted-not-proven` /
 `external-trust`; the read hardening still ran.
 
+### P4 resolution (BDFL, 2026-09-28) — superseding clarification
+
+The P4 named in the non-waiver list above ("ordinary file — the unix
+component-kind and reparse checks, Windows `is_ordinary_fixed_target`") was
+genuinely ambiguous about whether it additionally required a fixed-volume
+backing class on the trust path. It did not unambiguously say so, and this
+draft does not recast it as having done so. The BDFL resolution (decision
+0029 §15, 2026-09-28) is:
+
+- P4 requires **file-object ordinariness** (decision 0029 §4: not a symlink,
+  reparse point, device, FIFO, or pipe), not a fixed-volume backing class.
+- The Windows `is_ordinary_fixed_target` predicate is **backing
+  observation**, not a sufficient file-object check and not an additional
+  non-waivable fixed-volume admission requirement.
+- Matching trust may cover absent/unproven locality and the already
+  specified storage-substitution assumption. It never waives capability
+  consent, exact-path matching, the existing lexical/component/reparse
+  checks, ordinary-file enforcement, file-identity binding,
+  contradictory-evidence rejection, the 1 MiB read bound, or strict UTF-8
+  validation. No CLI path syntax widens.
+
+The actual Windows ordinary-file enforcement owners are the open phase, not
+the classifier: `src/file_read.rs` (`open_checked_windows_file` — the
+component-walk reparse rejection, the non-file final-component rejection,
+and the opened-handle `is_file()` check, all before payload consumption —
+walked identity is captured earlier and is distinct from the opened
+handle's identity), invoked unconditionally by `src/run.rs` Step 4 on
+every admitted path including `external-trust`.
+
+Report corrections recorded alongside (precision, not policy): direct UNC
+syntax is rejected at path validation — only drive-letter-rooted paths pass
+Windows validation; a valid drive-letter-rooted path may pass lexical
+validation, and classification then depends on observed mapping and drive
+type. Remote observations and substituted mappings remain distinct — both
+fail closed without the grant, and the grant covers unproven locality
+without guaranteeing successful admission. Native-hardware SD/MMC
+observation is unavailable, not impossible. Unexecuted cross-target checks
+receive no credit as evidence.
+
 ### BDFL rulings incorporated (2026-09-27)
 
 - **CLI spelling:** the space form `--trust-locality files.read=<path>` is
