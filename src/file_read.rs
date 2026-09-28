@@ -126,10 +126,10 @@ pub(crate) trait FileReadAdapter {
 ///
 /// Unix arm: the walk must have produced an identity and it must equal the
 /// opened handle's identity (via [`opened_file_matches_walked_target`]),
-/// else `UnsafePath`. Windows arm: the walk produces no identity (documented
-/// stable-API gap), so `walked` must be `None` — a `Some` here means the
-/// caller fabricated it — and the opened identity must be the Windows
-/// volume/file-index form, else `UnsafePath`.
+/// else `UnsafePath`. Windows arm: the walk produces the final component's
+/// volume-serial/file-index identity (stable `MetadataExt`) and it must
+/// equal the opened handle's identity, else `UnsafePath`. A missing walked
+/// identity fails closed: there is nothing to bind against.
 pub(crate) fn bind_walked_to_opened(
     walked: Option<FileObjectIdentity>,
     opened: FileObjectIdentity,
@@ -155,13 +155,27 @@ pub(crate) fn bind_walked_to_opened(
     }
     #[cfg(windows)]
     {
-        if walked.is_some() {
-            return Err(FileReadAdapterError::UnsafePath);
-        }
-        let FileObjectIdentity::WindowsVolumeFile { .. } = opened else {
+        let Some(FileObjectIdentity::WindowsVolumeFile {
+            volume_serial: walked_serial,
+            file_index: walked_index,
+        }) = walked
+        else {
             return Err(FileReadAdapterError::UnsafePath);
         };
-        Ok(())
+        // A Unix identity on the Windows arm is a caller fabrication, not a
+        // bindable opened file: fail closed.
+        let FileObjectIdentity::WindowsVolumeFile {
+            volume_serial: opened_serial,
+            file_index: opened_index,
+        } = opened
+        else {
+            return Err(FileReadAdapterError::UnsafePath);
+        };
+        if walked_serial == opened_serial && walked_index == opened_index {
+            Ok(())
+        } else {
+            Err(FileReadAdapterError::UnsafePath)
+        }
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -345,9 +359,31 @@ fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileRead
     }
 
     let mut evidence = Vec::with_capacity(prefixes.len());
+    // The walked identity: the final component's volume serial and file
+    // index, read WITHOUT following reparse points (the
+    // `FILE_FLAG_OPEN_REPARSE_POINT` open in `walked_file_identity`). The
+    // reparse rejection in `validate_component_evidence` guarantees the
+    // final component is a real file, so this is the file's own identity.
+    // Stable Rust's `MetadataExt` does not expose these (unstable
+    // `windows_by_handle`); the FFI lives in the audited
+    // `windows-drive-locality` crate. A missing identity fails closed:
+    // without a walked identity there is nothing to bind the opened
+    // handle against.
+    let mut walked_identity: Option<FileObjectIdentity> = None;
     for (index, prefix) in prefixes.iter().enumerate() {
         let metadata = fs::symlink_metadata(prefix).map_err(map_host_error)?;
         let file_type = metadata.file_type();
+        if index + 1 == prefixes.len() {
+            use std::os::windows::ffi::OsStrExt;
+            let mut wide: Vec<u16> = prefix.as_os_str().encode_wide().collect();
+            wide.push(0);
+            let identity = windows_drive_locality::walked_file_identity(&wide)
+                .ok_or(FileReadAdapterError::IdentityUnavailable)?;
+            walked_identity = Some(FileObjectIdentity::WindowsVolumeFile {
+                volume_serial: identity.volume_serial,
+                file_index: identity.file_index,
+            });
+        }
         evidence.push(ComponentEvidence {
             kind: if file_type.is_dir() {
                 ComponentKind::Directory
@@ -373,11 +409,10 @@ fn open_checked_windows_file(path: &OsStr) -> Result<OpenedCheckedFile, FileRead
         .ok_or(FileReadAdapterError::IdentityUnavailable)?;
     Ok(OpenedCheckedFile {
         handle: Some(file),
-        // Documented stable-API gap: Windows exposes no (dev, ino) for the
-        // walked path, so there is no walked identity to compare. run.rs
-        // binds the opened handle's volume/file-index identity against the
-        // classifier's volume serial instead (step 6 of the Slice A gate).
-        walked_identity: None,
+        // The walked identity comes from the final component's
+        // `symlink_metadata` above (stable `MetadataExt`); run.rs binds it
+        // against the opened handle's identity before any payload read.
+        walked_identity,
         opened_identity: FileObjectIdentity::WindowsVolumeFile {
             volume_serial: identity.volume_serial,
             file_index: identity.file_index,
@@ -616,7 +651,9 @@ mod tests {
                 file_index: 0x9ABC_DEF0_1234_5678,
             }
             .render(),
-            "volume_serial=305419896 file_index=11150031900141485208"
+            // 0x1234_5678 = 305419896; 0x9ABC_DEF0_1234_5678 =
+            // 11150031900141442680 (decimal, verified).
+            "volume_serial=305419896 file_index=11150031900141442680"
         );
     }
 

@@ -1547,10 +1547,10 @@ fn render_run_command_execution(execution: RunCommandExecution, show_timings: bo
 /// `run::run_command_capture_json`, signature (frozen contract):
 /// `pub(crate) fn run_command_capture_json(program: &Program, diagnostics:
 /// &[Diagnostic], occurrences: &DiagnosticOccurrenceSet, entry: Option<&str>,
-/// raw_args: &[OsString], grant_policy: &OperatorGrantPolicy, native_layout:
-/// Option<&app_entry::CanonicalNativeLayout<'_>>, native_feature:
-/// Option<&native_program::NativeProgramFeature>) -> (ExitCode, Vec<u8>,
-/// RunReport)`.
+/// raw_args: &[OsString], grant_policy: &OperatorGrantPolicy, replay_ticks:
+/// &[i64], native_layout: Option<&app_entry::CanonicalNativeLayout<'_>>,
+/// native_feature: Option<&native_program::NativeProgramFeature>) ->
+/// (ExitCode, Vec<u8>, RunReport)`.
 /// The returned `ExitCode` is intentionally ignored here: `outcome` and
 /// `exit_code` derive from the same `RunOutcome` mapping as the human-mode
 /// renderer so the two modes can never disagree.
@@ -1580,6 +1580,7 @@ fn execute_run_command_json(
                 entry,
                 raw_args,
                 grant_policy,
+                &options.run_replay_ticks,
                 native_layout,
                 native_feature,
             );
@@ -1862,16 +1863,19 @@ fn json_authority_audit_event(event: &run::AuthorityAuditEvent) -> String {
 /// `{"outcome": ..., "exit_code": ..., "program_output_bytes": [...],
 /// "authority_events": [...]}`.
 ///
-/// Returns `Err` only as a defensive seam: hand-rolled construction over
-/// owned strings is infallible, but the caller must still implement the
-/// failure branch (exit code 3, stderr diagnostics, no stdout) per the
-/// frozen contract.
+/// Infallible by construction: the envelope is built by pure string
+/// concatenation over owned strings with no fallible operations (no I/O,
+/// no parsing, no allocation failure handling). The `String` return type
+/// is the machine-checked proof — there is no `Result`, no error arm, and
+/// no synthetic failure path. Reviewers verify infallibility by inspecting
+/// this function body: every operation (`push_str`, `to_string`, integer
+/// formatting) is infallible.
 fn build_run_json_envelope(
     outcome: &str,
     exit_code: u8,
     program_bytes: &[u8],
     authority_events: &[run::AuthorityAuditEvent],
-) -> Result<String, String> {
+) -> String {
     let mut out = String::from("{\"outcome\":");
     out.push_str(&json_string(outcome));
     out.push_str(",\"exit_code\":");
@@ -1891,7 +1895,7 @@ fn build_run_json_envelope(
         out.push_str(&json_authority_audit_event(event));
     }
     out.push_str("]}");
-    Ok(out)
+    out
 }
 
 fn emit_run_json_envelope(
@@ -1900,17 +1904,9 @@ fn emit_run_json_envelope(
     program_bytes: &[u8],
     authority_events: &[run::AuthorityAuditEvent],
 ) -> Result<ExitCode, String> {
-    match build_run_json_envelope(outcome, exit_code, program_bytes, authority_events) {
-        Ok(envelope) => {
-            println!("{envelope}");
-            Ok(ExitCode::from(exit_code))
-        }
-        Err(context) => {
-            let (code, diagnostics) = json_report_failure_diagnostics(&context);
-            eprint!("{diagnostics}");
-            Ok(code)
-        }
-    }
+    let envelope = build_run_json_envelope(outcome, exit_code, program_bytes, authority_events);
+    println!("{envelope}");
+    Ok(ExitCode::from(exit_code))
 }
 
 /// Diagnostics for the envelope-construction failure branch: exit code 3,
@@ -5462,8 +5458,9 @@ mod tests {
 
     #[test]
     fn run_json_envelope_shape_is_well_formed() {
-        let envelope = super::build_run_json_envelope("success", 0, &[104, 105], &[])
-            .expect("envelope builds");
+        // `build_run_json_envelope` is infallible: it returns `String`
+        // directly, with no `Result` and no error arm.
+        let envelope = super::build_run_json_envelope("success", 0, &[104, 105], &[]);
         assert_eq!(
             envelope,
             "{\"outcome\":\"success\",\"exit_code\":0,\"program_output_bytes\":[104,105],\"authority_events\":[]}"

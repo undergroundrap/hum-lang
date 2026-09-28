@@ -24,10 +24,10 @@
 // `walked_opened_identity_mismatch_before_read_v0` and
 // `proof_evidence_identity_mismatch_before_read_v0` only on real races
 // between the component walk and the handle open, which the synchronous
-// CLI surface cannot induce. They are NOT faked here. Likewise D5: the
-// `build_run_json_envelope` `Err` arm is a defensive seam only; the
-// hand-rolled construction is infallible, so no CLI input reaches a real
-// envelope-construction failure.
+// CLI surface cannot induce. They are NOT faked here. Likewise D5:
+// `build_run_json_envelope` is infallible by construction (returns `String`
+// directly, no `Result`); the hand-rolled construction has no failure path,
+// so no CLI input reaches an envelope-construction failure.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

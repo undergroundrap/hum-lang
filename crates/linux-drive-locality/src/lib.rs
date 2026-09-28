@@ -3,15 +3,25 @@
 //! The classifier walks a fail-closed pipeline over the guest-visible
 //! storage stack:
 //!
-//! `/proc/self/mountinfo` (octal escapes decoded before matching; longest
-//! component-wise mount prefix wins; duplicate identical mount points fail
-//! closed) -> `/sys/dev/block/<major>:<minor>` (symlink followed, or the
-//! node read as a directory) -> the block device's `device/` directory
-//! (partition nodes expose no `device/`, so one level of parent walk-up to
-//! the containing disk is used) -> the `driver` symlink basename -> HBA
-//! allowlist check -> `removable == "0"`.
+//! `/proc/self/mountinfo` (octal escapes decoded before matching; strict
+//! numeric mount and parent IDs; the unique topmost entry per mountpoint
+//! wins — the entry not covered by a child mount at the same mountpoint;
+//! hidden child mounts under a covered lower stack are excluded;
+//! ambiguous or dangling topology fails closed) -> `/sys/dev/block/<major>:<minor>`
+//! (symlink followed, or the node read as a directory) -> the block
+//! device's `device/` directory (partition nodes expose no `device/`, so
+//! one level of parent walk-up to the containing disk is used) -> the
+//! upward driver chain (nearest first; a leading generic `sd` never masks a
+//! farther allowlisted HBA) -> HBA allowlist / NVMe / MMC fact extraction ->
+//! `removable == "0"`.
 //!
 //! `queue/rotational` is read for the evidence record only; it never gates.
+//!
+//! `dev_t` handling: the classifier decodes the userspace `dev_t` from
+//! `MetadataExt::dev()` with the Linux userspace `<sys/sysmacros.h>`
+//! (glibc) formulas — major `((dev >> 8) & 0xfff) | ((dev >> 32) & !0xfff)`,
+//! minor `(dev & 0xff) | ((dev >> 12) & !0xff)` — never the kernel
+//! `<linux/kdev_t.h>` `MINORBITS=20` packing. `0x801` decodes to `8:1`.
 //!
 //! Grant-first (decision 0029 §14, amendment 2026-09-27, accepted on
 //! PR #58): no classifier in this Work Order version emits `proved`.
@@ -31,16 +41,18 @@
 //! `xvd*`, and the `virtio_blk`/`nvme-tcp`/`storvsc`/`pvscsi` drivers yield
 //! `p1_guest_invisible_backing_v0`.
 //!
+//! Filesystem-type classification: known-network filesystems (`nfs`,
+//! `nfs4`, `cifs`, `smb3`, `smb`, `ncpfs`, `afp`, `ceph`) are
+//! known-network; `fuse`-prefixed filesystems are unclassifiable
+//! (insufficient evidence, never local); host-shared filesystems (`9p`,
+//! `virtiofs`) are guest-invisible. Anonymous filesystems (`tmpfs`,
+//! `overlay`) stay grant-only guest-invisible, as before.
+//!
 //! Every other outcome is fail-closed `Unproven` with a stable reason
 //! string. Evidence lines record observations only.
 
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
-
-/// dev_t packing width per `<linux/kdev_t.h>`: `MINORBITS = 20`.
-const DEV_T_MINOR_BITS: u32 = 20;
-/// dev_t minor mask per `<linux/kdev_t.h>`: the low 20 bits.
-const DEV_T_MINOR_MASK: u64 = 0xF_FFFF;
 
 /// `Unproven` reason vocabulary. Each constant is unique and stable; the
 /// emission site in `classify_with` names the constant it returns, and the
@@ -59,11 +71,25 @@ const REASON_AMBIGUOUS_MOUNT_TOPOLOGY: &str = "p1_ambiguous_mount_topology_v0";
 /// stacked/network names (`dm-*`, `md*`, `loop*`, `nbd*`, `rbd*`, `drbd*`).
 const REASON_INSUFFICIENT_EVIDENCE: &str = "p1_insufficient_evidence_v0";
 /// Emitted only when extra observations establish a network fabric: an
-/// NVMe `transport` attribute of `tcp`/`rdma`/`fc`, or an iSCSI initiator
+/// NVMe `transport` attribute of `tcp`/`rdma`/`fc`, an iSCSI initiator
 /// driver anywhere in the upward driver chain (CORRECTION 1,
-/// BDFL-authorized 2026-09-27). Never emitted from a device name alone
+/// BDFL-authorized 2026-09-27), or a known-network filesystem type
+/// observed in mountinfo. Never emitted from a device name alone
 /// (finding 4).
 const REASON_KNOWN_NETWORK: &str = "p1_known_network_backing_v0";
+/// Filesystem-level network evidence: the mountinfo filesystem type names
+/// a network filesystem outright (`nfs`, `nfs4`, `cifs`, `smb3`, `smb`,
+/// `ncpfs`, `afp`, `ceph`). Distinct from the block/fabric
+/// `p1_known_network_backing_v0`: the observation is the filesystem type,
+/// not the device transport.
+const REASON_KNOWN_NETWORK_FILESYSTEM: &str = "p1_known_network_filesystem_v0";
+/// `fuse`-prefixed filesystem types: the backing is whatever the
+/// userspace filesystem server says it is, which the guest cannot
+/// observe. Unclassifiable — insufficient evidence, never local.
+const REASON_FUSE_FILESYSTEM: &str = "p1_fuse_filesystem_insufficient_evidence_v0";
+/// Host-shared filesystem types (`9p`, `virtiofs`): the files are served
+/// by the host, invisible to the guest's block layer by construction.
+const REASON_HOST_SHARED_FILESYSTEM: &str = "p1_host_shared_filesystem_v0";
 /// Removability-naming reason (CORRECTION 2, BDFL-authorized 2026-09-27):
 /// emitted only when the `<disk>/removable` attribute genuinely reads `1`.
 /// The accepted spec (WORKORDER_29.md) requires "the reason naming
@@ -92,9 +118,19 @@ pub enum LinuxLocality {
     /// `observed_facts` are single-line observation strings: what the guest
     /// saw (mountinfo selection, sysfs nodes, driver/transport identity).
     /// They record observations only — never a locality claim.
+    ///
+    /// `device` is the backing device identity `(major, minor)` the
+    /// classifier observed for this path (the selected mountinfo entry's
+    /// device, which the consistency check tied to the path's `st_dev`).
+    /// It is `Some` exactly when mount/device selection yielded a usable
+    /// identity, `None` when selection failed before observing one. The
+    /// Slice A external-trust consumer binds this observed identity
+    /// against the opened handle's device before any payload read:
+    /// external trust covers missing observations, never contradictions.
     Unproven {
         reason: &'static str,
         observed_facts: Vec<String>,
+        device: Option<(u32, u32)>,
     },
 }
 
@@ -113,6 +149,17 @@ impl LinuxLocality {
     pub fn as_str(&self) -> &'static str {
         self.reason()
     }
+
+    /// The backing device identity `(major, minor)` the classifier
+    /// observed for this path, when mount/device selection yielded a
+    /// usable one. `None` on `Proven` (unreachable) and on `Unproven`
+    /// results that failed before observing a device.
+    pub fn observed_device(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::Proven { device, .. } => Some(*device),
+            Self::Unproven { device, .. } => *device,
+        }
+    }
 }
 
 /// Host-bus-adapter driver modules admitted to grant-first observed-fact
@@ -125,16 +172,24 @@ pub fn hba_allowlist() -> &'static [&'static str] {
     &["ahci", "ata_piix", "mpt2sas", "mpt3sas"]
 }
 
-/// Decode a `dev_t` into `(major, minor)` without libc, per
-/// `<linux/kdev_t.h>`: `MINORBITS = 20`, so the device number packs as
-/// `(major << 20) | minor`.
-fn decode_dev(dev: u64) -> (u32, u32) {
-    let major = (dev >> DEV_T_MINOR_BITS) as u32;
-    let minor = (dev & DEV_T_MINOR_MASK) as u32;
+/// Decode a userspace `dev_t` into `(major, minor)` without libc, per the
+/// Linux userspace `<sys/sysmacros.h>` (glibc) formulas — the encoding
+/// `MetadataExt::dev()` actually returns. This is NOT the kernel
+/// `<linux/kdev_t.h>` `MINORBITS=20` packing: `0x801` decodes to `8:1`
+/// here, while the kernel packing would read it as `0:0x801`.
+///
+/// `pub` so the Slice A external-trust consumer can decode an opened
+/// handle's `dev_t` with the same function the classifier used — one
+/// decoder, no drift.
+pub fn decode_dev(dev: u64) -> (u32, u32) {
+    let major = (((dev >> 8) & 0xfff) | ((dev >> 32) & !0xfff)) as u32;
+    let minor = ((dev & 0xff) | ((dev >> 12) & !0xff)) as u32;
     (major, minor)
 }
 
 struct MountEntry {
+    mount_id: u64,
+    parent_id: u64,
     mountpoint: PathBuf,
     fstype: String,
     source: String,
@@ -142,14 +197,23 @@ struct MountEntry {
     minor: u32,
 }
 
-fn parse_mountinfo(mountinfo: &str) -> Vec<MountEntry> {
-    mountinfo.lines().filter_map(parse_mountinfo_line).collect()
+/// Malformed mountinfo input: any line that does not carry strict numeric
+/// mount/parent IDs and a numeric `major:minor` fails the whole parse —
+/// malformed lines are never silently skipped.
+fn parse_mountinfo(mountinfo: &str) -> Result<Vec<MountEntry>, &'static str> {
+    mountinfo
+        .lines()
+        .map(parse_mountinfo_line)
+        .collect::<Option<Vec<_>>>()
+        .ok_or(REASON_NO_MOUNTINFO_ENTRY)
 }
 
 fn parse_mountinfo_line(line: &str) -> Option<MountEntry> {
     // mountinfo fields: id parent major:minor root mountpoint options...
     // "-" fstype source super-options. Whitespace inside fields is octal
     // escaped (\040), so splitting on whitespace before decoding is safe.
+    // The mount and parent IDs are strict numerics: a malformed ID fails
+    // the line, and a failed line fails the parse (never skipped).
     let tokens: Vec<&str> = line.split_whitespace().collect();
     let separator = tokens.iter().position(|token| *token == "-")?;
     let pre = &tokens[..separator];
@@ -157,8 +221,12 @@ fn parse_mountinfo_line(line: &str) -> Option<MountEntry> {
     if pre.len() < 6 || post.len() < 2 {
         return None;
     }
+    let mount_id: u64 = pre[0].parse().ok()?;
+    let parent_id: u64 = pre[1].parse().ok()?;
     let (major, minor) = pre[2].split_once(':')?;
     Some(MountEntry {
+        mount_id,
+        parent_id,
         mountpoint: PathBuf::from(unescape_mountinfo_field(pre[4])),
         fstype: unescape_mountinfo_field(post[0]),
         source: unescape_mountinfo_field(post[1]),
@@ -211,38 +279,125 @@ fn is_component_prefix(mountpoint: &Path, path: &Path) -> bool {
     }
 }
 
-/// Select the mountinfo entry for `path`: the longest component-wise prefix
-/// wins (documented topology: the most specific mount is the topmost).
-/// Duplicate identical mount points — or any otherwise ambiguous selection —
-/// fail closed with `p1_ambiguous_mount_topology_v0`; there is deliberately
-/// no tiebreak, in particular never by numeric mount ID.
+/// Select the mountinfo entry for `path` using the mount topology.
+///
+/// Among entries whose mountpoint is a component-wise prefix of `path`,
+/// each distinct mountpoint contributes its unique topmost entry: the one
+/// that is not covered by another entry at the same mountpoint. An entry
+/// is covered when a direct child (by parent ID) is mounted at the same
+/// mountpoint — the child is stacked on top and hides it. Numeric mount-ID
+/// ordering is never used as a tiebreak.
+///
+/// Hidden child mounts are excluded: an entry whose ancestry passes
+/// through a covered mount is not visible to the guest, unless the
+/// covering mount is the entry itself (the stacking case: the topmost
+/// entry covers its own parent). A parent ID absent from the entry set is
+/// tolerated — the parent lives outside this process's namespace root —
+/// and the walk simply stops there.
+///
+/// Genuinely ambiguous topology fails closed with
+/// `p1_ambiguous_mount_topology_v0`: more than one uncovered entry at the
+/// same mountpoint (a dangling duplicate with no parent relationship), or
+/// no reachable entry at all. There is deliberately no tiebreak.
 fn select_mount<'a>(
     entries: &'a [MountEntry],
     path: &Path,
 ) -> Result<&'a MountEntry, &'static str> {
-    let mut best: Option<&MountEntry> = None;
-    let mut best_components = 0usize;
-    let mut ambiguous = false;
+    // Index by mount ID for the ancestry walk.
+    let by_id: std::collections::HashMap<u64, &MountEntry> = entries
+        .iter()
+        .map(|entry| (entry.mount_id, entry))
+        .collect();
+
+    // Covered(entry) <=> some other entry is a direct child of it at the
+    // same mountpoint (stacked on top, hiding it).
+    let is_covered = |entry: &MountEntry| {
+        entries.iter().any(|other| {
+            other.mount_id != entry.mount_id
+                && other.parent_id == entry.mount_id
+                && other.mountpoint == entry.mountpoint
+        })
+    };
+
+    // The mount covering `entry`, if any: its child at the same mountpoint.
+    let coverer = |entry: &MountEntry| {
+        entries.iter().find(|other| {
+            other.mount_id != entry.mount_id
+                && other.parent_id == entry.mount_id
+                && other.mountpoint == entry.mountpoint
+        })
+    };
+
+    // Reachable(entry): no ancestor (strict, via parent IDs) is covered by
+    // a mount other than the entry itself. The entry's own covering of its
+    // parent is the stacking case and does not hide it.
+    let is_reachable = |entry: &MountEntry| {
+        let mut cursor_id = entry.parent_id;
+        // Bound the walk: a parent-ID cycle can never resolve to a
+        // visible mount, so fail closed rather than loop.
+        for _ in 0..entries.len().saturating_add(1) {
+            let Some(ancestor) = by_id.get(&cursor_id) else {
+                // Parent outside this namespace: tolerated, walk stops.
+                return true;
+            };
+            if is_covered(ancestor) {
+                let covered_by_self =
+                    coverer(ancestor).is_some_and(|covering| covering.mount_id == entry.mount_id);
+                if !covered_by_self {
+                    return false;
+                }
+            }
+            cursor_id = ancestor.parent_id;
+        }
+        false
+    };
+
+    // Group prefix-matching entries by mountpoint; each mountpoint keeps
+    // its unique uncovered (topmost) entry.
+    let mut topmost_by_mountpoint: Vec<&MountEntry> = Vec::new();
+    let mut seen_mountpoints: Vec<&Path> = Vec::new();
     for entry in entries {
         if !is_component_prefix(&entry.mountpoint, path) {
             continue;
         }
-        let components = entry.mountpoint.components().count();
-        if best.is_none() || components > best_components {
-            best = Some(entry);
-            best_components = components;
-            ambiguous = false;
-        } else if components == best_components {
-            // Same component length and both prefix `path` means identical
-            // mount points: the selection is ambiguous, never tiebreak.
-            ambiguous = true;
+        if seen_mountpoints.contains(&entry.mountpoint.as_path()) {
+            continue;
+        }
+        seen_mountpoints.push(entry.mountpoint.as_path());
+        let at_mountpoint: Vec<&MountEntry> = entries
+            .iter()
+            .filter(|other| {
+                other.mountpoint == entry.mountpoint && is_component_prefix(&other.mountpoint, path)
+            })
+            .collect();
+        let uncovered: Vec<&MountEntry> = at_mountpoint
+            .iter()
+            .filter(|other| !is_covered(other))
+            .copied()
+            .collect();
+        // Exactly one uncovered entry per mountpoint: zero means a
+        // parent-ID cycle, more than one means a dangling duplicate with
+        // no stacking relationship. Both fail closed.
+        if uncovered.len() != 1 {
+            return Err(REASON_AMBIGUOUS_MOUNT_TOPOLOGY);
+        }
+        topmost_by_mountpoint.push(uncovered[0]);
+    }
+    if topmost_by_mountpoint.is_empty() {
+        return Err(REASON_NO_MOUNTINFO_ENTRY);
+    }
+
+    // Longest mountpoint first; the first reachable topmost wins. A
+    // topmost entry hidden under a covered lower stack is skipped, never
+    // selected.
+    topmost_by_mountpoint
+        .sort_by_key(|entry| std::cmp::Reverse(entry.mountpoint.components().count()));
+    for entry in topmost_by_mountpoint {
+        if is_reachable(entry) {
+            return Ok(entry);
         }
     }
-    match (best, ambiguous) {
-        (None, _) => Err(REASON_NO_MOUNTINFO_ENTRY),
-        (Some(_), true) => Err(REASON_AMBIGUOUS_MOUNT_TOPOLOGY),
-        (Some(entry), false) => Ok(entry),
-    }
+    Err(REASON_AMBIGUOUS_MOUNT_TOPOLOGY)
 }
 
 /// Filesystems with no block device behind them. Their backing is invisible
@@ -250,6 +405,31 @@ fn select_mount<'a>(
 /// prove — the honest bucket is guest-invisible, not a lookup failure.
 fn is_guest_invisible_fstype(fstype: &str) -> bool {
     matches!(fstype, "tmpfs" | "overlay")
+}
+
+/// Known-network filesystem types: the mountinfo filesystem type names a
+/// network filesystem outright. The backing traverses the network by
+/// definition of the filesystem type — no block-layer observation needed.
+fn is_known_network_fstype(fstype: &str) -> bool {
+    matches!(
+        fstype,
+        "nfs" | "nfs4" | "cifs" | "smb3" | "smb" | "ncpfs" | "afp" | "ceph"
+    )
+}
+
+/// `fuse`-prefixed filesystem types (including `fuseblk` and
+/// `fuse.<subtype>`): the backing is whatever the userspace filesystem
+/// server provides, which the guest cannot observe through the block
+/// layer. Unclassifiable — insufficient evidence, never local.
+fn is_fuse_fstype(fstype: &str) -> bool {
+    fstype.starts_with("fuse")
+}
+
+/// Host-shared filesystem types: the files are served directly by the
+/// host (`9p` virtio, `virtiofs`). The guest's block layer never sees the
+/// backing — guest-invisible by construction.
+fn is_host_shared_fstype(fstype: &str) -> bool {
+    matches!(fstype, "9p" | "virtiofs")
 }
 
 /// Paravirtual block names whose backing is invisible to the guest by
@@ -431,16 +611,31 @@ pub fn classify_with(
     path: &Path,
     st_dev: u64,
 ) -> LinuxLocality {
-    // dev_t decode per <linux/kdev_t.h> MINORBITS=20, no libc.
+    // dev_t decode per the Linux userspace <sys/sysmacros.h> (glibc)
+    // formulas — the encoding MetadataExt::dev() returns. Never the
+    // kernel <linux/kdev_t.h> MINORBITS=20 packing.
     let (major, minor) = decode_dev(st_dev);
 
-    let entries = parse_mountinfo(mountinfo);
+    let entries = match parse_mountinfo(mountinfo) {
+        Ok(entries) => entries,
+        Err(reason) => {
+            // Malformed mountinfo (including a malformed mount ID) fails
+            // the whole parse: no entry is silently skipped, and no
+            // device was observed.
+            return LinuxLocality::Unproven {
+                reason,
+                observed_facts: Vec::new(),
+                device: None,
+            };
+        }
+    };
     let entry = match select_mount(&entries, path) {
         Ok(entry) => entry,
         Err(reason) => {
             return LinuxLocality::Unproven {
                 reason,
                 observed_facts: Vec::new(),
+                device: None,
             };
         }
     };
@@ -451,13 +646,56 @@ pub fn classify_with(
         return LinuxLocality::Unproven {
             reason: REASON_NO_MOUNTINFO_ENTRY,
             observed_facts: Vec::new(),
+            device: None,
         };
     }
+    // From here on the classifier has observed a usable backing device
+    // identity: the selected entry's (major, minor), tied to the path's
+    // st_dev by the consistency check above. Every Unproven below carries
+    // it so the external-trust consumer can bind it against the opened
+    // handle.
+    let observed_device = Some((entry.major, entry.minor));
 
+    // Filesystem-type classification, before any block-layer walk: the
+    // mountinfo fstype alone determines these buckets.
+    if is_known_network_fstype(&entry.fstype) {
+        return LinuxLocality::Unproven {
+            reason: REASON_KNOWN_NETWORK_FILESYSTEM,
+            observed_facts: vec![format!(
+                "mountinfo: fstype={} names a known-network filesystem for path={} (network by filesystem type; no block device observed)",
+                entry.fstype,
+                path.display(),
+            )],
+            device: observed_device,
+        };
+    }
+    if is_fuse_fstype(&entry.fstype) {
+        return LinuxLocality::Unproven {
+            reason: REASON_FUSE_FILESYSTEM,
+            observed_facts: vec![format!(
+                "mountinfo: fstype={} is fuse-prefixed for path={} (userspace filesystem server; backing unobservable; insufficient evidence, never local)",
+                entry.fstype,
+                path.display(),
+            )],
+            device: observed_device,
+        };
+    }
+    if is_host_shared_fstype(&entry.fstype) {
+        return LinuxLocality::Unproven {
+            reason: REASON_HOST_SHARED_FILESYSTEM,
+            observed_facts: vec![format!(
+                "mountinfo: fstype={} is host-shared for path={} (files served by the host; guest block layer sees no backing)",
+                entry.fstype,
+                path.display(),
+            )],
+            device: observed_device,
+        };
+    }
     if is_guest_invisible_fstype(&entry.fstype) {
         return LinuxLocality::Unproven {
             reason: REASON_GUEST_INVISIBLE_BACKING,
             observed_facts: Vec::new(),
+            device: observed_device,
         };
     }
 
@@ -468,6 +706,7 @@ pub fn classify_with(
         return LinuxLocality::Unproven {
             reason: REASON_BLOCK_DEVICE_UNRESOLVED,
             observed_facts: Vec::new(),
+            device: observed_device,
         };
     };
 
@@ -479,6 +718,7 @@ pub fn classify_with(
         return LinuxLocality::Unproven {
             reason: REASON_GUEST_INVISIBLE_BACKING,
             observed_facts: Vec::new(),
+            device: observed_device,
         };
     }
     if is_unproven_stacked_block_name(block_name) {
@@ -491,6 +731,7 @@ pub fn classify_with(
                 "sysfs: observed fact {{device_class: {}}} (stacked/network device name observed; backing unresolved; no slave recursion)",
                 stacked_device_class(block_name),
             )],
+            device: observed_device,
         };
     }
 
@@ -500,6 +741,7 @@ pub fn classify_with(
         return LinuxLocality::Unproven {
             reason: REASON_BLOCK_DEVICE_UNRESOLVED,
             observed_facts: Vec::new(),
+            device: observed_device,
         };
     };
 
@@ -516,6 +758,7 @@ pub fn classify_with(
         return LinuxLocality::Unproven {
             reason: REASON_GUEST_INVISIBLE_BACKING,
             observed_facts: Vec::new(),
+            device: observed_device,
         };
     }
     let chain_fact = format!(
@@ -526,10 +769,13 @@ pub fn classify_with(
     // Nearest-first recognition, in the authorized priority order:
     // (a) an iSCSI initiator driver anywhere in the chain is known-network
     // per the accepted spec; (b) otherwise any guest-invisible driver in
-    // the chain is guest-invisible; (c) otherwise the immediate (nearest
-    // resolved) driver gates the observed-fact extraction below; (d)
-    // otherwise the stack is unrecognized. Every route stays Unproven: no
-    // automatic proof, no admission widening.
+    // the chain is guest-invisible; (c) otherwise the effective driver
+    // gates the observed-fact extraction below; (d) otherwise the stack is
+    // unrecognized. Every route stays Unproven: no automatic proof, no
+    // admission widening.
+    //
+    // iSCSI keeps whole-chain priority: it is checked before
+    // guest-invisible drivers, exactly as before.
     if driver_chain.iter().any(|d| is_iscsi_initiator_driver(d)) {
         return LinuxLocality::Unproven {
             reason: REASON_KNOWN_NETWORK,
@@ -538,19 +784,34 @@ pub fn classify_with(
                 "sysfs: iSCSI initiator driver in chain (iSCSI protocol evidence; known-network, never host-local backing)"
                     .to_string(),
             ],
+            device: observed_device,
         };
     }
     if driver_chain.iter().any(|d| is_guest_invisible_driver(d)) {
         return LinuxLocality::Unproven {
             reason: REASON_GUEST_INVISIBLE_BACKING,
             observed_facts: vec![chain_fact],
+            device: observed_device,
         };
     }
-    let driver: &str = &driver_chain[0];
-    if !is_observed_fact_driver(driver) {
+    // Effective driver: a nearer generic `sd` (the SCSI disk upper driver
+    // present on every SCSI-transport disk) must not mask a farther
+    // allowlisted HBA. The full chain is searched for the HBA, and the
+    // recorded driver skips a leading `sd`; the complete chain stays in
+    // the observed facts.
+    let hba_driver = driver_chain
+        .iter()
+        .find(|driver| hba_allowlist().contains(&driver.as_str()));
+    let driver: &str = driver_chain
+        .iter()
+        .find(|driver| driver.as_str() != "sd")
+        .map(String::as_str)
+        .unwrap_or(&driver_chain[0]);
+    if !is_observed_fact_driver(driver) && hba_driver.is_none() {
         return LinuxLocality::Unproven {
             reason: REASON_UNRECOGNIZED_STORAGE_STACK,
             observed_facts: vec![chain_fact],
+            device: observed_device,
         };
     }
 
@@ -567,6 +828,7 @@ pub fn classify_with(
         return LinuxLocality::Unproven {
             reason: REASON_BLOCK_DEVICE_UNRESOLVED,
             observed_facts: vec![chain_fact],
+            device: observed_device,
         };
     };
     match removable.as_str() {
@@ -575,12 +837,14 @@ pub fn classify_with(
             return LinuxLocality::Unproven {
                 reason: REASON_REMOVABLE_MEDIA,
                 observed_facts: vec![chain_fact],
+                device: observed_device,
             };
         }
         _ => {
             return LinuxLocality::Unproven {
                 reason: REASON_UNRECOGNIZED_STORAGE_STACK,
                 observed_facts: vec![chain_fact],
+                device: observed_device,
             };
         }
     }
@@ -591,7 +855,9 @@ pub fn classify_with(
         .unwrap_or_else(|_| "unread".to_string());
 
     // The driver chain was read successfully (non-empty, checked above);
-    // record it first, then the existing mount/sysfs facts.
+    // record it first, then the existing mount/sysfs facts. The recorded
+    // driver is the effective driver (a leading generic `sd` skipped); the
+    // complete chain stays in the chain fact above.
     let mut observed_facts = vec![
         chain_fact,
         format!(
@@ -602,7 +868,7 @@ pub fn classify_with(
             path.display(),
         ),
         format!(
-            "mountinfo: st_dev={st_dev} decodes to {major}:{minor} via MINORBITS=20 (<linux/kdev_t.h>); selected entry dev={}:{} matches",
+            "mountinfo: st_dev={st_dev} decodes to {major}:{minor} via <sys/sysmacros.h> (glibc userspace dev_t); selected entry dev={}:{} matches",
             entry.major, entry.minor,
         ),
         format!(
@@ -611,7 +877,7 @@ pub fn classify_with(
             block_dir.display(),
         ),
         format!(
-            "sysfs: disk={} driver={driver} (basename of {}/driver symlink target)",
+            "sysfs: disk={} driver={driver} (effective driver; basename of {}/driver symlink target, leading sd skipped)",
             disk_dir.display(),
             device_dir.display(),
         ),
@@ -620,12 +886,31 @@ pub fn classify_with(
         ),
     ];
 
+    // Branch selector for fact extraction: plain NVMe first, then the
+    // allowlisted HBA found anywhere in the chain (a nearer `sd` or other
+    // upper driver never masks it), then non-removable MMC/SD. The
+    // admission check above guarantees one of these holds; anything else
+    // fails closed.
+    let fact_branch: &str = if driver == "nvme" {
+        "nvme"
+    } else if let Some(hba) = hba_driver {
+        hba
+    } else if driver == "mmcblk" {
+        "mmcblk"
+    } else {
+        return LinuxLocality::Unproven {
+            reason: REASON_UNRECOGNIZED_STORAGE_STACK,
+            observed_facts,
+            device: observed_device,
+        };
+    };
+
     // GRANT-FIRST (decision 0029 §14, amendment 2026-09-27): the branches
     // below extract observed facts and return `Unproven`. Guest-visible
     // transport/HBA observations are facts for the operator's trust
     // decision — never proof of invisible host-local backing. No branch in
     // the live admission path constructs `LinuxLocality::Proven`.
-    match driver {
+    match fact_branch {
         "nvme" => {
             // Per the accepted spec, for NVMe namespaces the disk's parent
             // device IS the controller (`device_add_disk(ctrl->device,
@@ -645,6 +930,7 @@ pub fn classify_with(
                     return LinuxLocality::Unproven {
                         reason: REASON_KNOWN_NETWORK,
                         observed_facts,
+                        device: observed_device,
                     };
                 }
                 Ok(transport) if transport == "pcie" => {
@@ -669,23 +955,43 @@ pub fn classify_with(
             }
         }
         driver if hba_allowlist().contains(&driver) => {
+            // `driver` here is the allowlisted HBA found anywhere in the
+            // chain (never masked by a nearer `sd`): record the found
+            // name. The complete chain stays in the observed facts.
             observed_facts.push(format!(
                 "sysfs: observed fact {{local_hba_driver: {driver}}} (allowlisted HBA driver observed in the guest; host-local backing not established)"
             ));
         }
         "mmcblk" => {
-            observed_facts.push(
-                "sysfs: observed fact {mmc: non-removable media, removable=0} (MMC/SD fixed media observed; host-local backing not established)"
-                    .to_string(),
-            );
+            // MMC/SD fact requires the observed `<disk>/device/type` to
+            // read `MMC` or `SD`: the driver name alone does not establish
+            // the media kind. Any other (or unreadable) value fails
+            // closed with the unrecognized reason — the removable gate
+            // above already admitted only removable=0.
+            let device_type = std::fs::read_to_string(device_dir.join("type"))
+                .map(|text| text.trim().to_string())
+                .unwrap_or_default();
+            if device_type == "MMC" || device_type == "SD" {
+                observed_facts.push(
+                    "sysfs: observed fact {mmc: non-removable media, removable=0} (MMC/SD fixed media observed; host-local backing not established)"
+                        .to_string(),
+                );
+            } else {
+                return LinuxLocality::Unproven {
+                    reason: REASON_UNRECOGNIZED_STORAGE_STACK,
+                    observed_facts,
+                    device: observed_device,
+                };
+            }
         }
         _ => {
-            // Unreachable: `is_observed_fact_driver` admitted exactly the
-            // three arms above. Fail closed rather than panic if the
-            // admission set ever drifts.
+            // Unreachable: the branch selector admitted exactly the arms
+            // above. Fail closed rather than panic if the admission set
+            // ever drifts.
             return LinuxLocality::Unproven {
                 reason: REASON_UNRECOGNIZED_STORAGE_STACK,
                 observed_facts,
+                device: observed_device,
             };
         }
     }
@@ -693,6 +999,7 @@ pub fn classify_with(
     LinuxLocality::Unproven {
         reason: REASON_INSUFFICIENT_EVIDENCE,
         observed_facts,
+        device: observed_device,
     }
 }
 
@@ -709,6 +1016,7 @@ pub fn classify_host_path(path: &OsStr) -> LinuxLocality {
         return LinuxLocality::Unproven {
             reason: REASON_NO_MOUNTINFO_ENTRY,
             observed_facts: Vec::new(),
+            device: None,
         };
     };
     classify_with(
@@ -728,6 +1036,7 @@ pub fn classify_host_path(_path: &OsStr) -> LinuxLocality {
     LinuxLocality::Unproven {
         reason: REASON_NO_MOUNTINFO_ENTRY,
         observed_facts: Vec::new(),
+        device: None,
     }
 }
 
@@ -776,6 +1085,7 @@ mod quarantined_promotion {
             return LinuxLocality::Unproven {
                 reason: REASON_UNRECOGNIZED_STORAGE_STACK,
                 observed_facts: Vec::new(),
+                device: None,
             };
         }
         LinuxLocality::Proven { device, evidence }
@@ -913,6 +1223,19 @@ mod tests {
             format!("100 99 {major}:{minor} / {mountpoint} rw,relatime - {fstype} {source} rw\n")
         }
 
+        /// Writes `<disk>/device/type` (the MMC/SD media type attribute:
+        /// `MMC` or `SD`). Requires `device_dir = true` in `add_block`.
+        fn set_device_type(&self, disk: &str, device_type: &str) {
+            std::fs::write(
+                self.sysfs
+                    .join("devices/fake/block")
+                    .join(disk)
+                    .join("device/type"),
+                device_type,
+            )
+            .expect("fixture device type");
+        }
+
         fn classify(&self, mountinfo: &str, path: &str, major: u32, minor: u32) -> LinuxLocality {
             classify_with(mountinfo, &self.sysfs, Path::new(path), dev(major, minor))
         }
@@ -925,7 +1248,11 @@ mod tests {
     }
 
     fn dev(major: u32, minor: u32) -> u64 {
-        ((major as u64) << DEV_T_MINOR_BITS) | (minor as u64)
+        // Fixture oracle: the glibc <sys/sysmacros.h> makedev encoding,
+        // matching MetadataExt::dev() on Linux and decode_dev above.
+        let major = major as u64;
+        let minor = minor as u64;
+        ((major & 0xfff) << 8) | ((major & !0xfff) << 32) | (minor & 0xff) | ((minor & !0xff) << 12)
     }
 
     fn assert_unproven(locality: &LinuxLocality, expected_reason: &str) {
@@ -952,6 +1279,7 @@ mod tests {
             LinuxLocality::Unproven {
                 reason,
                 observed_facts,
+                device,
             } => {
                 assert_eq!(*reason, expected_reason);
                 for substring in expected_fact_substrings {
@@ -968,6 +1296,11 @@ mod tests {
                 }
                 assert!(!locality.is_fixed_local());
                 assert_eq!(locality.as_str(), expected_reason);
+                // The demoted branches observed a usable backing device.
+                assert!(
+                    device.is_some(),
+                    "demoted branch must carry the observed device; got {locality:?}"
+                );
                 observed_facts
             }
             LinuxLocality::Proven { device, .. } => {
@@ -982,12 +1315,17 @@ mod tests {
     }
 
     #[test]
-    fn dev_t_decode_uses_minorbits_20() {
-        // Per <linux/kdev_t.h>: MINORBITS=20, device = (major << 20) | minor.
-        assert_eq!(decode_dev((8u64 << 20) | 1), (8, 1));
-        assert_eq!(decode_dev((259u64 << 20) | 3), (259, 3));
-        assert_eq!(decode_dev(0), (0, 0));
-        assert_eq!(decode_dev(0xF_FFFF), (0, 0xF_FFFF));
+    fn dev_t_decode_uses_sysmacros_not_minorbits_20() {
+        // Linux userspace <sys/sysmacros.h> (glibc), NOT the kernel
+        // <linux/kdev_t.h> MINORBITS=20 packing: 0x801 decodes to 8:1.
+        // The fixture oracle dev() must round-trip through decode_dev.
+        assert_eq!(decode_dev(0x801), (8, 1));
+        assert_eq!(decode_dev(dev(8, 1)), (8, 1));
+        assert_eq!(decode_dev(dev(259, 3)), (259, 3));
+        assert_eq!(decode_dev(dev(0, 0)), (0, 0));
+        assert_eq!(decode_dev(dev(0, 0xF_FFFF)), (0, 0xF_FFFF));
+        // A large major exercises the high bits ((dev >> 32) & !0xfff).
+        assert_eq!(decode_dev(dev(4096, 7)), (4096, 7));
     }
 
     // GRANT-FIRST (decision 0029 §14): the disputed promotion is demoted.
@@ -1046,9 +1384,10 @@ mod tests {
     }
 
     // GRANT-FIRST (decision 0029 §14): the disputed promotion is demoted.
-    // Non-removable MMC/SD (driver mmcblk, removable=0) is an observed fact
-    // with Unproven + the insufficient-evidence reason; the removable gate
-    // below keeps removable cards Unproven without reaching fact extraction.
+    // Non-removable MMC/SD (driver mmcblk, removable=0, device/type=MMC)
+    // is an observed fact with Unproven + the insufficient-evidence
+    // reason; the removable gate below keeps removable cards Unproven
+    // without reaching fact extraction.
     #[test]
     fn grant_first_mmc_nonremovable_is_observed_fact_not_proof() {
         let fixture = FakeSysfs::new("mmc");
@@ -1062,6 +1401,7 @@ mod tests {
             "0\n",
             "0\n",
         );
+        fixture.set_device_type("mmcblk0", "MMC\n");
         let mountinfo = fixture.mountinfo(179, 1, "/data", "ext4", "/dev/mmcblk0p1");
         let locality = fixture.classify(&mountinfo, "/data/x", 179, 1);
         let facts = assert_demoted(
@@ -1306,6 +1646,81 @@ mod tests {
     }
 
     #[test]
+    fn stacked_mount_top_is_selected_not_ambiguous() {
+        // A valid stacked mount: entry 101 (parent 100) is stacked on top
+        // of entry 100 at the same mountpoint /data. The topmost entry
+        // (101, dev 8:2) is the unique visible mount — not ambiguous.
+        // Numeric mount-ID ordering is never consulted.
+        let fixture = FakeSysfs::new("stackedtop");
+        fixture.add_block(8, 2, "sdb", "sdb1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = [
+            "100 99 8:1 / /data rw,relatime - ext4 /dev/sda1 rw\n",
+            "101 100 8:2 / /data rw,relatime - ext4 /dev/sdb1 rw\n",
+        ]
+        .concat();
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 2);
+        let facts = assert_demoted(
+            &locality,
+            "p1_insufficient_evidence_v0",
+            &["mountpoint=/data", "dev=8:2", "{local_hba_driver: ahci}"],
+        );
+        assert!(facts.iter().any(|fact| fact.contains("dev=8:2")));
+    }
+
+    #[test]
+    fn hidden_child_mount_is_not_selected() {
+        // Entry 102 at /data/sub is a child of entry 100, but entry 100
+        // is covered by entry 101 (stacked on top at /data). Entry 102's
+        // ancestry passes through the covered mount 100, so 102 is hidden
+        // and must not be selected. The visible mount is 101 at /data.
+        let fixture = FakeSysfs::new("hiddenchild");
+        fixture.add_block(8, 2, "sdb", "sdb1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = [
+            "100 99 8:1 / /data rw,relatime - ext4 /dev/sda1 rw\n",
+            "101 100 8:2 / /data rw,relatime - ext4 /dev/sdb1 rw\n",
+            "102 100 8:3 / /data/sub rw,relatime - ext4 /dev/sdc1 rw\n",
+        ]
+        .concat();
+        // st_dev 8:2 matches the visible topmost entry 101, not the hidden
+        // child 102 (8:3).
+        let locality = fixture.classify(&mountinfo, "/data/sub/x", 8, 2);
+        let facts = assert_demoted(
+            &locality,
+            "p1_insufficient_evidence_v0",
+            &["mountpoint=/data", "dev=8:2"],
+        );
+        assert!(
+            !facts
+                .iter()
+                .any(|fact| fact.contains("mountpoint=/data/sub")),
+            "hidden child mount must not be selected; facts: {facts:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_mount_id_fails_parse_not_skipped() {
+        // A malformed mount ID is a parse failure, not a skipped line: the
+        // whole mountinfo is unusable and the classifier fails closed at
+        // the mountinfo stage.
+        let fixture = FakeSysfs::new("badmountid");
+        fixture.add_block(8, 1, "sda", "sda1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = "XXX 99 8:1 / /data rw,relatime - ext4 /dev/sda1 rw\n";
+        let locality = fixture.classify(mountinfo, "/data/x", 8, 1);
+        assert_unproven(&locality, "p1_no_mountinfo_entry_v0");
+        assert_eq!(locality.observed_device(), None);
+    }
+
+    #[test]
+    fn malformed_parent_id_fails_parse_not_skipped() {
+        let fixture = FakeSysfs::new("badparentid");
+        fixture.add_block(8, 1, "sda", "sda1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = "100 YYY 8:1 / /data rw,relatime - ext4 /dev/sda1 rw\n";
+        let locality = fixture.classify(mountinfo, "/data/x", 8, 1);
+        assert_unproven(&locality, "p1_no_mountinfo_entry_v0");
+        assert_eq!(locality.observed_device(), None);
+    }
+
+    #[test]
     fn tmpfs_backing_is_guest_invisible() {
         let fixture = FakeSysfs::new("tmpfs");
         let mountinfo = fixture.mountinfo(0, 50, "/data", "tmpfs", "tmpfs");
@@ -1319,6 +1734,144 @@ mod tests {
         let mountinfo = fixture.mountinfo(0, 60, "/", "overlay", "overlay");
         let locality = fixture.classify(&mountinfo, "/x", 0, 60);
         assert_unproven(&locality, "p1_guest_invisible_backing_v0");
+    }
+
+    #[test]
+    fn known_network_filesystems_are_known_network() {
+        // The mountinfo fstype names a network filesystem outright: no
+        // block-layer observation is needed, and the reason names the
+        // filesystem (not the device transport).
+        for (tag, fstype) in [
+            ("nfs", "nfs"),
+            ("nfs4", "nfs4"),
+            ("cifs", "cifs"),
+            ("smb3", "smb3"),
+            ("smb", "smb"),
+            ("ncpfs", "ncpfs"),
+            ("afp", "afp"),
+            ("ceph", "ceph"),
+        ] {
+            let fixture = FakeSysfs::new(&format!("netfs-{tag}"));
+            let mountinfo = fixture.mountinfo(0, 70, "/data", fstype, "server:/share");
+            let locality = fixture.classify(&mountinfo, "/data/x", 0, 70);
+            assert_unproven(&locality, "p1_known_network_filesystem_v0");
+            assert_eq!(locality.observed_device(), Some((0, 70)));
+        }
+    }
+
+    #[test]
+    fn fuse_filesystems_are_insufficient_evidence_never_local() {
+        // fuse-prefixed filesystems: the backing is whatever the userspace
+        // server provides — unclassifiable, never local.
+        for (tag, fstype) in [
+            ("fuse", "fuse"),
+            ("fuseblk", "fuseblk"),
+            ("fusesshfs", "fuse.sshfs"),
+        ] {
+            let fixture = FakeSysfs::new(&format!("fuse-{tag}"));
+            let mountinfo = fixture.mountinfo(0, 71, "/data", fstype, "sshfs#server");
+            let locality = fixture.classify(&mountinfo, "/data/x", 0, 71);
+            assert_unproven(&locality, "p1_fuse_filesystem_insufficient_evidence_v0");
+            assert_eq!(locality.observed_device(), Some((0, 71)));
+        }
+    }
+
+    #[test]
+    fn host_shared_filesystems_are_guest_invisible() {
+        // 9p and virtiofs: files served by the host, invisible to the
+        // guest's block layer by construction.
+        for (tag, fstype) in [("9p", "9p"), ("virtiofs", "virtiofs")] {
+            let fixture = FakeSysfs::new(&format!("hostshared-{tag}"));
+            let mountinfo = fixture.mountinfo(0, 72, "/data", fstype, "hostshare");
+            let locality = fixture.classify(&mountinfo, "/data/x", 0, 72);
+            assert_unproven(&locality, "p1_host_shared_filesystem_v0");
+            assert_eq!(locality.observed_device(), Some((0, 72)));
+        }
+    }
+
+    #[test]
+    fn nearer_sd_does_not_mask_farther_allowlisted_hba() {
+        // Chain ["sd" (nearest), "ahci" (farther)]: the generic SCSI disk
+        // upper driver must not mask the allowlisted HBA. The HBA is
+        // found by searching the complete chain, and the recorded fact
+        // names it.
+        let fixture = FakeSysfs::new("sdhba");
+        fixture.add_block(8, 1, "sda", "sda1", Some("sd"), true, "0\n", "1\n");
+        fixture.set_chain_driver("sda", 1, "ahci");
+        let mountinfo = fixture.mountinfo(8, 1, "/data", "ext4", "/dev/sda1");
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 1);
+        let facts = assert_demoted(
+            &locality,
+            "p1_insufficient_evidence_v0",
+            &[
+                "{local_hba_driver: ahci}",
+                "driver chain (nearest first): sd -> ahci",
+            ],
+        );
+        // The full chain is preserved in the observed facts.
+        assert!(facts[0].contains("sd -> ahci"));
+    }
+
+    #[test]
+    fn mmc_without_observed_device_type_is_unrecognized() {
+        // The mmcblk driver alone does not establish MMC/SD media: without
+        // an observed <disk>/device/type of MMC or SD, the stack is
+        // unrecognized. The removable gate already admitted removable=0.
+        let fixture = FakeSysfs::new("mmcnotype");
+        fixture.add_block(
+            179,
+            1,
+            "mmcblk0",
+            "mmcblk0p1",
+            Some("mmcblk"),
+            true,
+            "0\n",
+            "0\n",
+        );
+        let mountinfo = fixture.mountinfo(179, 1, "/data", "ext4", "/dev/mmcblk0p1");
+        let locality = fixture.classify(&mountinfo, "/data/x", 179, 1);
+        assert_unproven(&locality, "p1_unrecognized_storage_stack_v0");
+        assert_eq!(locality.observed_device(), Some((179, 1)));
+    }
+
+    #[test]
+    fn mmc_with_unexpected_device_type_is_unrecognized() {
+        let fixture = FakeSysfs::new("mmcbadtype");
+        fixture.add_block(
+            179,
+            1,
+            "mmcblk0",
+            "mmcblk0p1",
+            Some("mmcblk"),
+            true,
+            "0\n",
+            "0\n",
+        );
+        fixture.set_device_type("mmcblk0", "USB\n");
+        let mountinfo = fixture.mountinfo(179, 1, "/data", "ext4", "/dev/mmcblk0p1");
+        let locality = fixture.classify(&mountinfo, "/data/x", 179, 1);
+        assert_unproven(&locality, "p1_unrecognized_storage_stack_v0");
+    }
+
+    #[test]
+    fn observed_device_is_carried_on_demoted_branches() {
+        // The structured backing-device identity is usable by the
+        // external-trust consumer: it matches the selected entry's device.
+        let fixture = FakeSysfs::new("observeddev");
+        fixture.add_block(8, 1, "sda", "sda1", Some("ahci"), true, "0\n", "1\n");
+        let mountinfo = fixture.mountinfo(8, 1, "/data", "ext4", "/dev/sda1");
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 1);
+        assert_eq!(locality.observed_device(), Some((8, 1)));
+    }
+
+    #[test]
+    fn observed_device_is_none_when_selection_fails() {
+        // No usable identity was observed: selection failed before any
+        // device could be tied to the path.
+        let fixture = FakeSysfs::new("nodevice");
+        let locality = fixture.classify("", "/data/x", 8, 1);
+        assert_unproven(&locality, "p1_no_mountinfo_entry_v0");
+        assert_eq!(locality.observed_device(), None);
     }
 
     #[test]
@@ -1677,6 +2230,7 @@ mod tests {
                     "0\n",
                     "0\n",
                 );
+                fixture.set_device_type("mmcblk0", "MMC\n");
                 (
                     fixture.mountinfo(179, 1, "/data", "ext4", "/dev/mmcblk0p1"),
                     "/data/x".to_string(),

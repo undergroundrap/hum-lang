@@ -2663,7 +2663,7 @@ function Invoke-HumCompilerFrontChecks {
   }
   $Ioctls = @([regex]::Matches($LocalitySource, '\bIOCTL_[A-Z0-9_]+\b') | ForEach-Object { $_.Value } | Sort-Object -Unique)
   if ($Ioctls.Count -ne 2 -or $Ioctls[0] -ne 'IOCTL_STORAGE_QUERY_PROPERTY' -or $Ioctls[1] -ne 'IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS') { throw 'Session AC locality adapter IOCTL allowlist drifted' }
-  if ([regex]::Matches($LocalitySource, '\bunsafe\s*\{').Count -ne 6 -or [regex]::Matches($LocalitySource, 'unsafe\s+extern').Count -ne 2) { throw 'Session AC locality adapter unsafe-block inventory drifted' }
+  if ([regex]::Matches($LocalitySource, '\bunsafe\s*\{').Count -ne 10 -or [regex]::Matches($LocalitySource, 'unsafe\s+extern').Count -ne 2) { throw 'Session AC locality adapter unsafe-block inventory drifted' }
   foreach ($Forbidden in @('std::fs', 'File::open', 'OpenOptions', 'canonicalize(', 'metadata(', 'read_to_', 'std::process', 'std::env', 'Command::', 'RegOpenKey', 'WMI', 'CoCreateInstance', 'SetupDi', 'LoadLibrary', 'GetProcAddress', 'WinHttp', 'WinSock', 'VendorIdOffset', 'ProductIdOffset')) {
     if ($LocalitySource.Contains($Forbidden)) { throw "Session AC locality adapter contains forbidden host surface: $Forbidden" }
   }

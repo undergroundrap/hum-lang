@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 
-use crate::native_path::{ValidatedNativePath, strip_ascii_prefix, validate_native_path};
+use crate::native_path::{ValidatedNativePath, strip_ascii_prefix, validate_native_path_lexical};
 
 pub(crate) const STDOUT_WRITE: &str = "stdout.write";
 pub(crate) const CLOCK_REPLAY: &str = "clock.replay";
@@ -56,7 +56,10 @@ impl OperatorGrantPolicy {
                         .to_string(),
                 );
             }
-            let validated = validate_native_path(&payload).map_err(|issue| {
+            // Lexical validation only: no host observation during CLI
+            // parsing. Host classification happens at runtime revalidation
+            // after the allowed decision.
+            let validated = validate_native_path_lexical(&payload).map_err(|issue| {
                 format!(
                     "`hum run --allow files.read=<path>` rejected because {}; reason={}; no host access was attempted",
                     issue.description(),
@@ -119,7 +122,10 @@ impl OperatorGrantPolicy {
                     .to_string(),
             );
         }
-        let validated = validate_native_path(&payload).map_err(|issue| {
+        // Lexical validation only: no host observation during CLI
+        // parsing. Host classification happens at runtime revalidation
+        // after the allowed decision.
+        let validated = validate_native_path_lexical(&payload).map_err(|issue| {
             format!(
                 "`hum run --trust-locality files.read=<path>` rejected because {}; reason={}; no host access was attempted",
                 issue.description(),
@@ -258,16 +264,63 @@ mod tests {
         );
     }
 
+    // Platform-native paths for the attestation tests: the policy only
+    // needs a lexically valid native path; the exact value is irrelevant.
+    // Windows paths avoid literal double-backslash (public-readiness).
+    #[cfg(unix)]
+    const ATTEST_PATH: &str = "/hum-session-ab/trusted.bin";
+    #[cfg(windows)]
+    fn attest_path() -> String {
+        let bs = char::from(92);
+        format!("C:{bs}{bs}hum-session-ab{bs}trusted.bin")
+    }
+    #[cfg(not(any(unix, windows)))]
+    const ATTEST_PATH: &str = "/hum-session-ab/trusted.bin";
+    #[cfg(unix)]
+    const ATTEST_OTHER: &str = "/hum-session-ab/other.bin";
+    #[cfg(windows)]
+    fn attest_other() -> String {
+        let bs = char::from(92);
+        format!("C:{bs}{bs}hum-session-ab{bs}other.bin")
+    }
+    #[cfg(not(any(unix, windows)))]
+    const ATTEST_OTHER: &str = "/hum-session-ab/other.bin";
+
+    #[cfg(unix)]
+    fn attest_path_str() -> &'static str {
+        ATTEST_PATH
+    }
+    #[cfg(windows)]
+    fn attest_path_str() -> String {
+        attest_path()
+    }
+    #[cfg(not(any(unix, windows)))]
+    fn attest_path_str() -> &'static str {
+        ATTEST_PATH
+    }
+    #[cfg(unix)]
+    fn attest_other_str() -> &'static str {
+        ATTEST_OTHER
+    }
+    #[cfg(windows)]
+    fn attest_other_str() -> String {
+        attest_other()
+    }
+    #[cfg(not(any(unix, windows)))]
+    fn attest_other_str() -> &'static str {
+        ATTEST_OTHER
+    }
+
     #[test]
     fn trust_locality_attestation_is_single_idempotent_and_never_a_grant() {
         let mut policy = OperatorGrantPolicy::default();
         assert!(!policy.trust_locality_attested());
         assert!(policy.trust_locality_grant().is_none());
         policy
-            .trust_locality("files.read=/hum-session-ab/trusted.bin")
+            .trust_locality(&format!("files.read={}", attest_path_str()))
             .expect("attestation");
         policy
-            .trust_locality("files.read=/hum-session-ab/trusted.bin")
+            .trust_locality(&format!("files.read={}", attest_path_str()))
             .expect("duplicate attestation");
         assert!(policy.trust_locality_attested());
         assert!(policy.trust_locality_grant().is_some());
@@ -277,7 +330,7 @@ mod tests {
         assert!(policy.files_read_grant().is_none());
         assert!(
             policy
-                .trust_locality("files.read=/hum-session-ab/other.bin")
+                .trust_locality(&format!("files.read={}", attest_other_str()))
                 .unwrap_err()
                 .contains("at most one distinct")
         );

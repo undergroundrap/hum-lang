@@ -451,6 +451,51 @@ pub fn opened_file_identity(raw_handle: *mut core::ffi::c_void) -> Option<Window
     })
 }
 
+/// Read the identity of the file at `path` (a NUL-terminated UTF-16 path)
+/// WITHOUT following reparse points: the handle is opened with
+/// `FILE_FLAG_OPEN_REPARSE_POINT`, so a symlink or mount-point reparse at
+/// the final component yields the reparse point's own identity, not its
+/// target's. Returns `None` on any failure. Stable Rust only; the FFI is
+/// confined to this crate's audited `kernel32` block.
+#[cfg(windows)]
+pub fn walked_file_identity(path_nul_terminated_utf16: &[u16]) -> Option<WindowsFileIdentity> {
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+    const OPEN_EXISTING: u32 = 3;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    if path_nul_terminated_utf16.last() != Some(&0) {
+        return None;
+    }
+    let handle = unsafe {
+        // SAFETY: the path is NUL-terminated per the checked precondition
+        // and remains alive for the call. Desired access is zero (metadata
+        // only); share mode allows concurrent readers/writers/deleters;
+        // `OPEN_EXISTING` never creates; the reparse-point flag prevents
+        // link following; backup semantics permits directory handles.
+        CreateFileW(
+            path_nul_terminated_utf16.as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            core::ptr::null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+            core::ptr::null_mut(),
+        )
+    };
+    if handle.is_null() || handle == (-1isize as *mut core::ffi::c_void) {
+        return None;
+    }
+    let identity = opened_file_identity(handle);
+    unsafe {
+        // SAFETY: `handle` came from the successful `CreateFileW` above and
+        // is closed exactly once here.
+        CloseHandle(handle);
+    }
+    identity
+}
+
 #[cfg(windows)]
 fn classify_full(root: DriveRoot) -> EvidenceVerdict {
     let before = query_preliminary(root);
@@ -1103,11 +1148,15 @@ mod tests {
     use super::{
         BUS_TYPE_ATA, BUS_TYPE_FIBRE, BUS_TYPE_FILE_BACKED_VIRTUAL, BUS_TYPE_ISCSI, BUS_TYPE_NVME,
         BUS_TYPE_NVMEOF, BUS_TYPE_RAID, BUS_TYPE_SAS, BUS_TYPE_SATA, BUS_TYPE_SCSI,
-        BUS_TYPE_SPACES, BUS_TYPE_VIRTUAL, ClassifiedDrive, DependencyObservation, DiskObservation,
-        DriveLocality, DriveRoot, DriveTypeObservation, ExtentObservation, InspectionEvidence,
+        BUS_TYPE_SPACES, BUS_TYPE_VIRTUAL, DependencyObservation, DiskObservation, DriveLocality,
+        DriveRoot, DriveTypeObservation, ExtentObservation, InspectionEvidence,
         PreliminaryObservation, QueryState, REASON_INSUFFICIENT_EVIDENCE, classify_evidence,
         classify_evidence_detail,
     };
+    // `ClassifiedDrive` is only constructed by the non-Windows test below;
+    // on the Windows target that test is cfg'd out.
+    #[cfg(not(windows))]
+    use super::ClassifiedDrive;
 
     fn mapping(text: &str) -> QueryState<Vec<u16>> {
         QueryState::Complete(text.encode_utf16().collect())

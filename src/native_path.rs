@@ -105,6 +105,11 @@ impl ValidatedNativePath {
                     LocalityEvidence::Windows(classified) => {
                         classified.locality == DriveLocality::FixedLocal
                     }
+                    // Test-only: the Windows test build also defines the
+                    // Linux evidence variant so cross-platform tests can
+                    // construct it; it carries the same fixed-local meaning.
+                    #[cfg(test)]
+                    LocalityEvidence::Linux(locality) => locality.is_fixed_local(),
                 })
         }
         #[cfg(all(test, not(unix), not(windows)))]
@@ -273,14 +278,42 @@ impl NativePathIssue {
     }
 }
 
-pub(crate) fn validate_native_path(raw: &OsStr) -> Result<ValidatedNativePath, NativePathIssue> {
+/// Lexical-only native path validation: checks the path's syntactic form
+/// without any host observation (no mountinfo, no stat, no device queries).
+/// Use at CLI-parse time for `--allow` and `--trust-locality`: authority,
+/// consent, and exact scope come first; host classification is delayed
+/// until runtime revalidation after the allowed decision. The returned
+/// path carries no locality evidence; call `classify_native_path` to add
+/// it.
+pub(crate) fn validate_native_path_lexical(
+    raw: &OsStr,
+) -> Result<ValidatedNativePath, NativePathIssue> {
     validate_platform_path(raw)?;
-    let (locality, evidence) = classify_validated_drive(raw);
     Ok(ValidatedNativePath {
         raw: raw.to_os_string(),
+        locality: NativePathLocality::Unclassified,
+        evidence: None,
+    })
+}
+
+/// Host classification for a lexically-validated path: observes the host
+/// (mountinfo/stat on unix, drive classification on Windows) and attaches
+/// the locality evidence. Call at runtime after the allowed decision, never
+/// during CLI parsing.
+pub(crate) fn classify_native_path(
+    validated: &ValidatedNativePath,
+) -> Result<ValidatedNativePath, NativePathIssue> {
+    let (locality, evidence) = classify_validated_drive(validated.as_os_str());
+    Ok(ValidatedNativePath {
+        raw: validated.as_os_str().to_os_string(),
         locality,
         evidence,
     })
+}
+
+pub(crate) fn validate_native_path(raw: &OsStr) -> Result<ValidatedNativePath, NativePathIssue> {
+    let validated = validate_native_path_lexical(raw)?;
+    classify_native_path(&validated)
 }
 
 #[cfg(windows)]
@@ -814,11 +847,14 @@ mod tests {
         .expect("fixture block symlink");
 
         let mountinfo = "100 99 8:32 / /media/usb rw,relatime - vfat /dev/sdc1 rw\n";
+        // Userspace dev_t encoding for 8:32: ((8 & 0xfff) << 8) | (32 & 0xff).
+        // The old kernel `(8 << 20) | 32` encoding no longer decodes to 8:32
+        // under the userspace `decode_dev`.
         let locality = linux_drive_locality::classify_with(
             mountinfo,
             &sysfs,
             std::path::Path::new("/media/usb/x"),
-            (8u64 << 20) | 32,
+            0x820u64,
         );
         assert_eq!(locality.reason(), "p1_unrecognized_storage_stack_v0");
         assert_eq!(locality.as_str(), "p1_unrecognized_storage_stack_v0");
