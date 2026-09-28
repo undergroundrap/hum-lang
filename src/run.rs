@@ -6682,7 +6682,14 @@ pub(crate) mod tests {
         assert_eq!(file_events[0].request_id, file_events[1].request_id);
         assert_eq!(file_events[0].native_path_identity, Some(path.clone()));
         assert_eq!(file_events[0].native_path_matched, Some(true));
-        assert_eq!(file_events[1].locality_status, Some("external-trust"));
+        assert_eq!(
+            file_events[1].locality_status,
+            Some("locality_unclassified")
+        );
+        assert_eq!(
+            file_events[1].locality_classification,
+            Some("external-trust")
+        );
         assert_eq!(file_events[1].byte_count, text.len());
         assert!(file_events[1].adapter_called);
         assert_eq!(
