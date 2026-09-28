@@ -24,10 +24,13 @@
 // `walked_opened_identity_mismatch_before_read_v0` and
 // `proof_evidence_identity_mismatch_before_read_v0` only on real races
 // between the component walk and the handle open, which the synchronous
-// CLI surface cannot induce. They are NOT faked here. Likewise D5:
+// CLI surface cannot induce. They are NOT faked here. D5's
 // `build_run_json_envelope` is infallible by construction (returns `String`
 // directly, no `Result`); the hand-rolled construction has no failure path,
-// so no CLI input reaches an envelope-construction failure.
+// so no CLI input reaches an envelope-construction failure -- and the
+// `json_envelope_*` tests below pin the output shapes it must preserve
+// (empty output, trailing newline, partial output on failure, authoritative
+// exit code) through the real `hum run --format json` command.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -141,6 +144,137 @@ app quiet_probe {
 // The app entry completes with AppSuccess, so the CLI prints nothing beyond
 // the program's own writes.
 const EXPECTED_STDOUT: &[u8] = b"hum  lang\nhum\n";
+
+// D5 output-shape probes: small programs exercising the JSON run envelope's
+// `program_output_bytes` / `exit_code` contract through the real
+// `hum run --format json` command. The envelope constructor itself is
+// infallible (returns `String` directly, no `Result`); these pin the shapes
+// it must preserve on the wire.
+const EMPTY_OUTPUT_PROGRAM: &str = r#"type EmptyError {
+  code: Text
+}
+
+app empty_output_probe {
+  why:
+    succeed without writing any bytes; the envelope must carry an empty
+    program_output_bytes array
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_empty
+
+  task run_empty(input: Path) -> Result Unit, EmptyError {
+    why:
+      the CLI arg is accepted and ignored; nothing is written
+
+    uses:
+      stdout.write
+
+    fails when:
+      never; the empty path always succeeds
+
+    does:
+      return
+  }
+}
+"#;
+
+const TRAILING_NEWLINE_PROGRAM: &str = r#"type NewlineError {
+  code: Text
+}
+
+app trailing_newline_probe {
+  why:
+    write bytes ending in a newline; the envelope must preserve the
+    trailing newline byte exactly
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_newline
+
+  task run_newline(input: Path) -> Result Unit, NewlineError {
+    why:
+      emit one line with its terminator; the CLI arg is ignored
+
+    uses:
+      stdout.write
+
+    fails when:
+      the write cannot complete
+
+    does:
+      let wrote = try stdout_write("abc\n") or fail NewlineError.output
+      return wrote
+  }
+}
+"#;
+
+const PARTIAL_FAILURE_PROGRAM: &str = r#"type PartialError {
+  code: Text
+}
+
+app partial_failure_probe {
+  why:
+    write partial bytes then fail outright; the envelope must carry the
+    partial program_output_bytes with the authoritative nonzero exit code
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_partial
+
+  task run_partial(input: Path) -> Result Unit, PartialError {
+    why:
+      emit bytes, then take the unconditional failure path
+
+    uses:
+      stdout.write
+
+    fails when:
+      always, after the partial write
+
+    does:
+      let wrote = try stdout_write("partial-bytes") or fail PartialError.output
+      if true {
+        fail PartialError.boom
+      }
+      return wrote
+  }
+}
+"#;
+
+const EMPTY_FAILURE_PROGRAM: &str = r#"type EmptyFailureError {
+  code: Text
+}
+
+app empty_failure_probe {
+  why:
+    fail without writing anything; the envelope exit_code must equal the
+    process exit code
+
+  starts with:
+    run_empty_failure
+
+  task run_empty_failure(input: Path) -> Result Unit, EmptyFailureError {
+    why:
+      take the failure path immediately
+
+    fails when:
+      the failure probe is exercised
+
+    does:
+      if true {
+        fail EmptyFailureError.boom
+      }
+      return
+  }
+}
+"#;
 
 /// The gate reason recorded in the files.read exercise event's `result` on
 /// the no-grant refusal. Platform-selected by
@@ -296,6 +430,45 @@ fn envelope_program_output_bytes(envelope: &str) -> Vec<u8> {
             })
         })
         .collect()
+}
+
+/// The envelope prefix before `program_output_bytes`: carries the top-level
+/// `outcome` and `exit_code` without interference from nested authority
+/// events (which may repeat field names with their own values).
+fn envelope_head(envelope: &str) -> &str {
+    let pos = envelope
+        .find("\"program_output_bytes\"")
+        .unwrap_or_else(|| panic!("envelope must contain program_output_bytes: {envelope}"));
+    &envelope[..pos]
+}
+
+/// The top-level `outcome` string of the run envelope (e.g. `app_success`,
+/// `app_failure`), read from the envelope head only.
+fn envelope_head_outcome(envelope: &str) -> String {
+    let head = envelope_head(envelope);
+    let key = "\"outcome\":\"";
+    let pos = head
+        .find(key)
+        .unwrap_or_else(|| panic!("envelope head must contain outcome: {envelope}"));
+    let (decoded, _) = decode_json_string_body(&head[pos + key.len()..], "outcome");
+    decoded
+}
+
+/// The top-level `exit_code` number of the run envelope, read from the
+/// envelope head only.
+fn envelope_head_exit_code(envelope: &str) -> u64 {
+    let head = envelope_head(envelope);
+    let key = "\"exit_code\":";
+    let pos = head
+        .find(key)
+        .unwrap_or_else(|| panic!("envelope head must contain exit_code: {envelope}"));
+    let rest = head[pos + key.len()..].trim_start();
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..end]
+        .parse()
+        .unwrap_or_else(|_| panic!("exit_code must be numeric: {envelope}"))
 }
 
 /// Collect every non-null string value of a named JSON field in the
@@ -826,4 +999,161 @@ fn cli_trust_locality_quiet_program_emits_no_file_read_evidence() {
             "quiet run must emit no file-read evidence line on stderr: {line}"
         );
     }
+}
+
+#[test]
+fn json_envelope_empty_output_shape() {
+    // D5 output control 1: a successful program that writes nothing yields
+    // an envelope with an empty program_output_bytes array, exit_code 0,
+    // and stdout carrying only the envelope line.
+    let (_dir, program) = write_program("d5_empty_output", EMPTY_OUTPUT_PROGRAM);
+    let fixture = fixture_path();
+    let args = vec![
+        "--format".to_owned(),
+        "json".to_owned(),
+        "--allow".to_owned(),
+        "stdout.write".to_owned(),
+        "--args".to_owned(),
+        fixture,
+    ];
+    let run = run_hum_run(&args, &program, None);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "empty-output run must exit 0: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    // println! emits the envelope plus exactly one trailing newline: stdout
+    // carries nothing else.
+    assert_eq!(
+        stdout.lines().count(),
+        1,
+        "JSON mode stdout must be exactly the envelope line: {stdout:?}"
+    );
+    let envelope = stdout.trim_end_matches('\n');
+    assert_eq!(
+        stdout,
+        format!("{envelope}\n"),
+        "stdout must be the envelope plus one trailing newline"
+    );
+    assert_eq!(
+        envelope_head_outcome(envelope),
+        "app_success",
+        "empty-output run must report app_success"
+    );
+    assert_eq!(
+        envelope_head_exit_code(envelope),
+        0,
+        "empty-output run must report exit_code 0"
+    );
+    assert_eq!(
+        envelope_program_output_bytes(envelope),
+        Vec::<u8>::new(),
+        "empty output must produce an empty program_output_bytes array"
+    );
+}
+
+#[test]
+fn json_envelope_preserves_trailing_newline() {
+    // D5 output control 2: the trailing newline byte is preserved exactly
+    // in program_output_bytes -- neither stripped nor added.
+    let (_dir, program) = write_program("d5_trailing_newline", TRAILING_NEWLINE_PROGRAM);
+    let fixture = fixture_path();
+    let args = vec![
+        "--format".to_owned(),
+        "json".to_owned(),
+        "--allow".to_owned(),
+        "stdout.write".to_owned(),
+        "--args".to_owned(),
+        fixture,
+    ];
+    let run = run_hum_run(&args, &program, None);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "trailing-newline run must exit 0: {stderr}"
+    );
+    let envelope = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        envelope_program_output_bytes(envelope.trim_end()),
+        b"abc\n",
+        "envelope must preserve the trailing newline byte exactly"
+    );
+}
+
+#[test]
+fn json_envelope_partial_output_on_ordinary_failure() {
+    // D5 output control 3: bytes written before an ordinary failure are
+    // preserved in program_output_bytes, with the authoritative nonzero
+    // exit code -- the envelope is still emitted on failure.
+    let (_dir, program) = write_program("d5_partial_failure", PARTIAL_FAILURE_PROGRAM);
+    let fixture = fixture_path();
+    let args = vec![
+        "--format".to_owned(),
+        "json".to_owned(),
+        "--allow".to_owned(),
+        "stdout.write".to_owned(),
+        "--args".to_owned(),
+        fixture,
+    ];
+    let run = run_hum_run(&args, &program, None);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        run.status.code(),
+        Some(1),
+        "partial-failure run must exit 1: {stderr}"
+    );
+    let envelope = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        envelope_head_outcome(envelope.trim_end()),
+        "app_failure",
+        "partial-failure run must report app_failure"
+    );
+    assert_eq!(
+        envelope_head_exit_code(envelope.trim_end()),
+        1,
+        "partial-failure run must report exit_code 1"
+    );
+    assert_eq!(
+        envelope_program_output_bytes(envelope.trim_end()),
+        b"partial-bytes",
+        "envelope must preserve the bytes written before the failure"
+    );
+}
+
+#[test]
+fn json_envelope_exit_code_is_authoritative() {
+    // D5 output control 4: the envelope's exit_code equals the process exit
+    // code the CLI reports -- the envelope is authoritative, never a second
+    // rendering. The failing program writes nothing, so the bytes stay
+    // empty while the code stays nonzero.
+    let (_dir, program) = write_program("d5_empty_failure", EMPTY_FAILURE_PROGRAM);
+    let fixture = fixture_path();
+    let args = vec![
+        "--format".to_owned(),
+        "json".to_owned(),
+        "--args".to_owned(),
+        fixture,
+    ];
+    let run = run_hum_run(&args, &program, None);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        run.status.code(),
+        Some(1),
+        "empty-failure run must exit 1: {stderr}"
+    );
+    let envelope = String::from_utf8_lossy(&run.stdout);
+    let envelope = envelope.trim_end();
+    assert_eq!(
+        envelope_head_exit_code(envelope),
+        u64::from(run.status.code().expect("exit code present") as u32),
+        "envelope exit_code must equal the process exit code"
+    );
+    assert_eq!(
+        envelope_program_output_bytes(envelope),
+        Vec::<u8>::new(),
+        "failed run with no writes must carry empty program_output_bytes"
+    );
 }
