@@ -1,7 +1,6 @@
 # Hum Work Order 30: the checker enforces declared task signatures
 
 Date: 2026-09-25
-<!-- hum-active-workorder:v1 -->
 Status: ACTIVE. Supersedes WO28 as the active Work Order. WO28 closed with
 its full mission complete — all six items, the decision-0028 builtins, and
 the optional `word: count` summary (see closure record in
