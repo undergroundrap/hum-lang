@@ -272,7 +272,7 @@ mod tests {
     #[cfg(windows)]
     fn attest_path() -> String {
         let bs = char::from(92);
-        format!("C:{bs}{bs}hum-session-ab{bs}trusted.bin")
+        format!("C:{bs}hum-session-ab{bs}trusted.bin")
     }
     #[cfg(not(any(unix, windows)))]
     const ATTEST_PATH: &str = "/hum-session-ab/trusted.bin";
@@ -281,7 +281,7 @@ mod tests {
     #[cfg(windows)]
     fn attest_other() -> String {
         let bs = char::from(92);
-        format!("C:{bs}{bs}hum-session-ab{bs}other.bin")
+        format!("C:{bs}hum-session-ab{bs}other.bin")
     }
     #[cfg(not(any(unix, windows)))]
     const ATTEST_OTHER: &str = "/hum-session-ab/other.bin";

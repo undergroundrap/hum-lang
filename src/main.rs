@@ -4387,6 +4387,23 @@ mod tests {
         grant
     }
 
+    /// Platform-correct `--trust-locality` payload for the parse tests.
+    /// The trust payload is lexically validated by `native_operator_policy`
+    /// before command dispatch, so the tests must use an absolute path
+    /// the host's validation accepts; production validation is untouched.
+    /// The Windows form avoids literal double-backslash in source
+    /// (public-readiness).
+    #[cfg(windows)]
+    fn native_trust_attestation_value() -> String {
+        let bs = char::from(92);
+        format!("files.read=C:{bs}hum-session-ab{bs}trusted.bin")
+    }
+
+    #[cfg(not(windows))]
+    fn native_trust_attestation_value() -> String {
+        "files.read=/hum-session-ab/trusted.bin".to_string()
+    }
+
     #[test]
     fn parses_check_json_format() {
         let options = parse_cli(vec![
@@ -5313,7 +5330,7 @@ mod tests {
             "run".to_string(),
             "examples/probes/bounded_stdout.hum".to_string(),
             "--trust-locality".to_string(),
-            "files.read=/hum-session-ab/trusted.bin".to_string(),
+            native_trust_attestation_value(),
         ])
         .expect("trust-locality space form");
         assert!(options.run_authority.trust_locality_attested());
@@ -5324,7 +5341,7 @@ mod tests {
         let options = parse_cli(vec![
             "run".to_string(),
             "examples/probes/bounded_stdout.hum".to_string(),
-            "--trust-locality=files.read=/hum-session-ab/trusted.bin".to_string(),
+            format!("--trust-locality={}", native_trust_attestation_value()),
         ])
         .expect("trust-locality equals form");
         assert!(options.run_authority.trust_locality_attested());
@@ -5360,7 +5377,7 @@ mod tests {
         let error = parse_cli(vec![
             "check".to_string(),
             "--trust-locality".to_string(),
-            "files.read=/hum-session-ab/trusted.bin".to_string(),
+            native_trust_attestation_value(),
             "examples".to_string(),
         ])
         .expect_err("non-run trust-locality");
@@ -5368,7 +5385,7 @@ mod tests {
 
         let error = parse_cli(vec![
             "check".to_string(),
-            "--trust-locality=files.read=/hum-session-ab/trusted.bin".to_string(),
+            format!("--trust-locality={}", native_trust_attestation_value()),
             "examples".to_string(),
         ])
         .expect_err("non-run trust-locality equals");
@@ -5394,7 +5411,7 @@ mod tests {
             "run".to_string(),
             "examples/probes/bounded_stdout.hum".to_string(),
             "--trust-locality".to_string(),
-            "files.read=/hum-session-ab/trusted.bin".to_string(),
+            native_trust_attestation_value(),
         ])
         .expect("attested run");
         assert!(attested.run_authority.trust_locality_attested());

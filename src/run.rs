@@ -3502,8 +3502,13 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                 // Late-failure evidence honesty: when the open itself
                 // reached the identity stage (COMPLETE progress), the P2
                 // line must not claim the open failed — the failure is
-                // late, before the bind. Only NONE/WALK_ONLY progress
-                // keeps the default "open failed" line.
+                // late, before the bind. Only NONE progress keeps the
+                // default "open failed" line: WALK_ONLY establishes that
+                // the walk completed but the open phase itself is not
+                // established (the open may have failed, or it may have
+                // succeeded and a later handle check failed), so the
+                // evidence uses neutral wording and never claims the open
+                // failed.
                 let p2_override = match (failure.error, failure.progress) {
                     (FileReadAdapterError::IdentityUnavailable, OpenProgress::COMPLETE) => {
                         Some("P2: file opened; identity unavailable before bind".to_string())
@@ -3511,6 +3516,10 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                     (FileReadAdapterError::NotFile, OpenProgress::COMPLETE) => {
                         Some("P2: opened object is not an ordinary file; no bind".to_string())
                     }
+                    (_, OpenProgress::WALK_ONLY) => Some(
+                        "P2: component walk completed; open phase not established before identity bind"
+                            .to_string(),
+                    ),
                     _ => None,
                 };
                 let bundle = self.classified_bundle(
@@ -6331,8 +6340,37 @@ pub(crate) mod tests {
 
     #[cfg(windows)]
     fn integrated_policy(path: &OsStr) -> OperatorGrantPolicy {
+        // The integrated app reads the file under external trust, so its
+        // fixtures attest the exact path — matching the unix
+        // `trust_admission_policy`. The authority-precedence fixtures stay
+        // on the untrusted `exact_file_policy`: deny/outside-grant must
+        // reject before locality regardless of attestation.
         let mut policy = exact_file_policy(path, false);
+        let mut trust = OsString::from("files.read=");
+        trust.push(path);
+        policy
+            .trust_locality_os(&trust)
+            .expect("matching trust-locality attestation");
         policy.allow("clock.replay").expect("exact replay allow");
+        policy
+    }
+
+    /// Windows trust-admission policy for a single file read: the exact
+    /// `files.read` allow for `path` plus the matching `--trust-locality`
+    /// attestation for the same path — the triple equality the
+    /// external-trust gate requires. Mirrors the unix
+    /// `trust_admission_policy`; used only by fixtures whose intended
+    /// owner is admission (successful read, read-error, replay, and
+    /// adapter-failure causes). The negative authority-precedence
+    /// fixtures stay on the untrusted `exact_file_policy`.
+    #[cfg(windows)]
+    fn trusted_file_policy(path: &OsStr) -> OperatorGrantPolicy {
+        let mut policy = exact_file_policy(path, false);
+        let mut trust = OsString::from("files.read=");
+        trust.push(path);
+        policy
+            .trust_locality_os(&trust)
+            .expect("matching trust-locality attestation");
         policy
     }
 
@@ -6620,7 +6658,7 @@ pub(crate) mod tests {
             &program,
             None,
             std::slice::from_ref(&path),
-            &exact_file_policy(&path, false),
+            &trusted_file_policy(&path),
             RunAdapters {
                 output: &mut output,
                 replay: &mut replay,
@@ -6783,7 +6821,7 @@ pub(crate) mod tests {
                 &program,
                 None,
                 std::slice::from_ref(&input),
-                &exact_file_policy(&input, false),
+                &trusted_file_policy(&input),
                 RunAdapters {
                     output: &mut output,
                     replay: &mut replay,
@@ -7303,6 +7341,25 @@ pub(crate) mod tests {
                 // The open succeeded and the ordinary-file check ran: the
                 // P2 line must not claim the open failed.
                 expected_p2: Some("P2: opened object is not an ordinary file; no bind"),
+            },
+            Case {
+                name: "WALK_ONLY failure keeps the open phase neutral",
+                open_error: Some(OpenCheckedFailure::new(
+                    FileReadAdapterError::IoFailed,
+                    OpenProgress::WALK_ONLY,
+                )),
+                walked: Some(matched),
+                opened: matched,
+                expected_caused_by: "caused by: FileReadError.io_failed",
+                expected_reason: "opaque_host_io_failure_v0",
+                // The walk completed, but the open phase is not
+                // established: the open may have failed, or it may have
+                // succeeded and a later handle check failed. The P2 line
+                // reports only what was established and must never claim
+                // the open failed.
+                expected_p2: Some(
+                    "P2: component walk completed; open phase not established before identity bind",
+                ),
             },
             Case {
                 name: "open-phase path safeguard violation",
