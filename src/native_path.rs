@@ -856,9 +856,11 @@ mod tests {
                 "p1_unrecognized_storage_stack_v0",
                 "p1_ambiguous_mount_topology_v0",
                 // Grant-first demotion vocabulary (decision 0029 §14):
-                // insufficient-evidence and known-network reasons.
+                // insufficient-evidence, known-network, and
+                // removability-naming reasons.
                 "p1_insufficient_evidence_v0",
                 "p1_known_network_backing_v0",
+                "p1_removable_media_v0",
             ]
             .contains(&reason),
             "unknown locality reason: {reason}"

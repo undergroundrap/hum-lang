@@ -58,10 +58,21 @@ const REASON_AMBIGUOUS_MOUNT_TOPOLOGY: &str = "p1_ambiguous_mount_topology_v0";
 /// allowlisted HBA driver, non-removable MMC/SD) and by the re-bucketed
 /// stacked/network names (`dm-*`, `md*`, `loop*`, `nbd*`, `rbd*`, `drbd*`).
 const REASON_INSUFFICIENT_EVIDENCE: &str = "p1_insufficient_evidence_v0";
-/// Emitted only when extra observations establish a network fabric — in
-/// this crate, an NVMe `transport` attribute of `tcp`/`rdma`/`fc`. Never
-/// emitted from a device name alone (finding 4).
+/// Emitted only when extra observations establish a network fabric: an
+/// NVMe `transport` attribute of `tcp`/`rdma`/`fc`, or an iSCSI initiator
+/// driver anywhere in the upward driver chain (CORRECTION 1,
+/// BDFL-authorized 2026-09-27). Never emitted from a device name alone
+/// (finding 4).
 const REASON_KNOWN_NETWORK: &str = "p1_known_network_backing_v0";
+/// Removability-naming reason (CORRECTION 2, BDFL-authorized 2026-09-27):
+/// emitted only when the `<disk>/removable` attribute genuinely reads `1`.
+/// The accepted spec (WORKORDER_29.md) requires "the reason naming
+/// removability" but names no literal; this literal is the builder's choice
+/// in the existing `p1_*_v0` vocabulary, for review at implementation. It is
+/// reserved strictly for a valid `removable=1` observation:
+/// missing/unreadable keeps `p1_block_device_unresolved_v0`, and malformed
+/// values fail closed with a non-observation reason, never this one.
+const REASON_REMOVABLE_MEDIA: &str = "p1_removable_media_v0";
 /// Emitted only by `LinuxLocality::Proven::reason()`. The `Proven` variant
 /// is unreachable from the live admission path in this Work Order version
 /// (grant-first); the only construction site is the quarantined predecessor.
@@ -291,6 +302,28 @@ fn is_guest_invisible_driver(driver: &str) -> bool {
     matches!(driver, "virtio_blk" | "nvme-tcp" | "storvsc" | "pvscsi")
 }
 
+/// iSCSI initiator/transport driver modules whose presence anywhere in the
+/// upward driver chain identifies iSCSI protocol evidence (CORRECTION 1,
+/// BDFL-authorized 2026-09-27). Rationale: each of these is an in-kernel
+/// iSCSI initiator — `iscsi_tcp` (the software initiator, the common case),
+/// `ib_iser` (iSCSI over RDMA), and the hardware offload initiators
+/// `qla4xxx` (QLogic), `bnx2i` (Broadcom), `be2iscsi` (Emulex), `cxgb3i` /
+/// `cxgb4i` (Chelsio). Their names appear as `driver` symlink basenames in
+/// the device chain of disks whose backing traverses the iSCSI network
+/// protocol, so the accepted spec (WORKORDER_29.md sd* bullet) buckets them
+/// known-network. This set is the builder's choice, reviewed at
+/// implementation; widening it is a decision, not an implementation detail.
+/// Matching is exact on the basename. `sd` — the SCSI disk upper driver
+/// present on every SCSI-transport disk — is deliberately absent: the
+/// upward walk looks past it to the ancestor evidence instead of treating
+/// the upper driver as the transport.
+fn is_iscsi_initiator_driver(driver: &str) -> bool {
+    matches!(
+        driver,
+        "iscsi_tcp" | "ib_iser" | "qla4xxx" | "bnx2i" | "be2iscsi" | "cxgb3i" | "cxgb4i"
+    )
+}
+
 /// Admission check for the driver name feeding grant-first observed-fact
 /// extraction. The allowlist names HBA controller driver modules; plain
 /// NVMe attaches via the in-kernel `nvme` host driver with no HBA in the
@@ -352,6 +385,44 @@ fn dir_or_symlink(path: &Path) -> bool {
         || std::fs::symlink_metadata(path)
             .map(|metadata| metadata.file_type().is_symlink())
             .unwrap_or(false)
+}
+
+/// Upward driver-chain inspection (CORRECTION 1, BDFL-authorized
+/// 2026-09-27): from `device_dir` (`<disk>/device`) upward through parent
+/// directories, read each level's `driver` symlink and collect the basename
+/// of its target, nearest first. Levels whose `driver` entry is missing,
+/// unreadable, or yields no basename are skipped — never fabricated — and
+/// the walk continues upward; it stops at the sysfs root or the filesystem
+/// root, whichever comes first. Returns the chain, possibly empty.
+///
+/// Mechanism note: `read_link` does not follow the symlink target, so a
+/// dangling `driver` symlink still resolves to its basename; genuinely
+/// unreadable means `read_link` itself fails (missing entry, non-symlink,
+/// permission). An immediate `sd` upper driver therefore never hides
+/// ancestor evidence: the walk looks past it.
+fn read_driver_chain(device_dir: &Path, sysfs_root: &Path) -> Vec<String> {
+    let mut chain = Vec::new();
+    let mut cursor = device_dir.to_path_buf();
+    loop {
+        if let Some(name) = std::fs::read_link(cursor.join("driver"))
+            .ok()
+            .and_then(|target| {
+                target
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            })
+        {
+            chain.push(name);
+        }
+        let Some(parent) = cursor.parent() else {
+            break;
+        };
+        if parent == cursor || !parent.starts_with(sysfs_root) {
+            break;
+        }
+        cursor = parent.to_path_buf();
+    }
+    chain
 }
 
 pub fn classify_with(
@@ -432,48 +503,86 @@ pub fn classify_with(
         };
     };
 
-    let driver = std::fs::read_link(device_dir.join("driver"))
-        .ok()
-        .and_then(|target| {
-            target
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-        });
-    let Some(driver) = driver else {
-        // A missing driver link means the guest cannot see the backing:
-        // the guest-invisible bucket, per the contract.
-        return LinuxLocality::Unproven {
-            reason: REASON_GUEST_INVISIBLE_BACKING,
-            observed_facts: Vec::new(),
-        };
-    };
-
-    if is_guest_invisible_driver(&driver) {
+    // Upward driver-chain inspection (CORRECTION 1, BDFL-authorized
+    // 2026-09-27): the old code read only the immediate `<device>/driver`
+    // symlink, so an `sd` upper driver hid ancestor evidence — notably an
+    // iSCSI initiator. The chain is recorded as observed facts on every
+    // path below where it was successfully read.
+    let driver_chain = read_driver_chain(&device_dir, sysfs_root);
+    if driver_chain.is_empty() {
+        // No driver resolvable at any level: the guest cannot see the
+        // backing. Fail closed with the existing guest-invisible reason; no
+        // facts are fabricated for the unreadable chain.
         return LinuxLocality::Unproven {
             reason: REASON_GUEST_INVISIBLE_BACKING,
             observed_facts: Vec::new(),
         };
     }
-    if !is_observed_fact_driver(&driver) {
+    let chain_fact = format!(
+        "sysfs: driver chain (nearest first): {} (basenames of driver symlink targets walking up from {})",
+        driver_chain.join(" -> "),
+        device_dir.join("driver").display(),
+    );
+    // Nearest-first recognition, in the authorized priority order:
+    // (a) an iSCSI initiator driver anywhere in the chain is known-network
+    // per the accepted spec; (b) otherwise any guest-invisible driver in
+    // the chain is guest-invisible; (c) otherwise the immediate (nearest
+    // resolved) driver gates the observed-fact extraction below; (d)
+    // otherwise the stack is unrecognized. Every route stays Unproven: no
+    // automatic proof, no admission widening.
+    if driver_chain.iter().any(|d| is_iscsi_initiator_driver(d)) {
+        return LinuxLocality::Unproven {
+            reason: REASON_KNOWN_NETWORK,
+            observed_facts: vec![
+                chain_fact,
+                "sysfs: iSCSI initiator driver in chain (iSCSI protocol evidence; known-network, never host-local backing)"
+                    .to_string(),
+            ],
+        };
+    }
+    if driver_chain.iter().any(|d| is_guest_invisible_driver(d)) {
+        return LinuxLocality::Unproven {
+            reason: REASON_GUEST_INVISIBLE_BACKING,
+            observed_facts: vec![chain_fact],
+        };
+    }
+    let driver: &str = &driver_chain[0];
+    if !is_observed_fact_driver(driver) {
         return LinuxLocality::Unproven {
             reason: REASON_UNRECOGNIZED_STORAGE_STACK,
-            observed_facts: Vec::new(),
+            observed_facts: vec![chain_fact],
         };
     }
 
+    // Three-way removable gate (CORRECTION 2, BDFL-authorized 2026-09-27).
+    // "0" proceeds to fact extraction; "1" is Unproven with the
+    // removability-naming reason; missing/unreadable keeps the existing
+    // fail-closed p1_block_device_unresolved_v0; any other (malformed)
+    // value fails closed with a non-observation reason — never the
+    // removability reason, which is reserved for a genuine removable=1
+    // observation. The value is trimmed at read time, as before.
     let removable =
         std::fs::read_to_string(disk_dir.join("removable")).map(|text| text.trim().to_string());
     let Ok(removable) = removable else {
         return LinuxLocality::Unproven {
             reason: REASON_BLOCK_DEVICE_UNRESOLVED,
-            observed_facts: Vec::new(),
+            observed_facts: vec![chain_fact],
         };
     };
-    if removable != "0" {
-        return LinuxLocality::Unproven {
-            reason: REASON_UNRECOGNIZED_STORAGE_STACK,
-            observed_facts: Vec::new(),
-        };
+    match removable.as_str() {
+        "0" => {}
+        "1" => {
+            return LinuxLocality::Unproven {
+                reason: REASON_REMOVABLE_MEDIA,
+                observed_facts: vec![chain_fact],
+            };
+        }
+        _ => {
+            return LinuxLocality::Unproven {
+                reason: REASON_UNRECOGNIZED_STORAGE_STACK,
+                observed_facts: vec![chain_fact],
+            };
+        }
     }
 
     // Informational only: read for the evidence record, never a gate.
@@ -481,7 +590,10 @@ pub fn classify_with(
         .map(|text| text.trim().to_string())
         .unwrap_or_else(|_| "unread".to_string());
 
+    // The driver chain was read successfully (non-empty, checked above);
+    // record it first, then the existing mount/sysfs facts.
     let mut observed_facts = vec![
+        chain_fact,
         format!(
             "mountinfo: selected mountpoint={} fstype={} source={} dev={major}:{minor} for path={}",
             entry.mountpoint.display(),
@@ -513,7 +625,7 @@ pub fn classify_with(
     // transport/HBA observations are facts for the operator's trust
     // decision — never proof of invisible host-local backing. No branch in
     // the live admission path constructs `LinuxLocality::Proven`.
-    match driver.as_str() {
+    match driver {
         "nvme" => {
             // Per the accepted spec, for NVMe namespaces the disk's parent
             // device IS the controller (`device_add_disk(ctrl->device,
@@ -766,6 +878,30 @@ mod tests {
             .expect("fixture transport");
         }
 
+        /// Adds a `driver` symlink at an ancestor level of the device chain:
+        /// `levels_up = 1` writes `<disk>/driver` (the parent of
+        /// `<disk>/device/`), `levels_up = 2` writes
+        /// `<devices/fake/block>/driver`, and so on. Models the upward
+        /// device chain the production walk (`read_driver_chain`) inspects:
+        /// the immediate `device/driver` symlink comes from `add_block`,
+        /// and each ancestor level contributes its own driver basename,
+        /// nearest first.
+        fn set_chain_driver(&self, disk: &str, levels_up: u32, driver: &str) {
+            let mut dir = self
+                .sysfs
+                .join("devices/fake/block")
+                .join(disk)
+                .join("device");
+            for _ in 0..levels_up {
+                dir = dir.parent().expect("fixture chain parent").to_path_buf();
+            }
+            std::os::unix::fs::symlink(
+                format!("../../../../bus/fake/drivers/{driver}"),
+                dir.join("driver"),
+            )
+            .expect("fixture chain driver symlink");
+        }
+
         fn mountinfo(
             &self,
             major: u32,
@@ -877,9 +1013,14 @@ mod tests {
         let facts = assert_demoted(
             &locality,
             "p1_insufficient_evidence_v0",
-            &["{transport: pcie}", "mountpoint=/data", "driver=nvme"],
+            &[
+                "{transport: pcie}",
+                "mountpoint=/data",
+                "driver=nvme",
+                "driver chain (nearest first): nvme",
+            ],
         );
-        assert_eq!(facts.len(), 6);
+        assert_eq!(facts.len(), 7);
     }
 
     // GRANT-FIRST (decision 0029 §14): the disputed promotion is demoted.
@@ -895,9 +1036,13 @@ mod tests {
         let facts = assert_demoted(
             &locality,
             "p1_insufficient_evidence_v0",
-            &["{local_hba_driver: ahci}", "rotational=1"],
+            &[
+                "{local_hba_driver: ahci}",
+                "rotational=1",
+                "driver chain (nearest first): ahci",
+            ],
         );
-        assert_eq!(facts.len(), 6);
+        assert_eq!(facts.len(), 7);
     }
 
     // GRANT-FIRST (decision 0029 §14): the disputed promotion is demoted.
@@ -922,15 +1067,23 @@ mod tests {
         let facts = assert_demoted(
             &locality,
             "p1_insufficient_evidence_v0",
-            &["{mmc: non-removable media, removable=0}", "driver=mmcblk"],
+            &[
+                "{mmc: non-removable media, removable=0}",
+                "driver=mmcblk",
+                "driver chain (nearest first): mmcblk",
+            ],
         );
-        assert_eq!(facts.len(), 6);
+        assert_eq!(facts.len(), 7);
     }
 
     #[test]
-    fn removable_mmc_backing_is_unrecognized() {
-        // The same mmcblk driver with removable=1 stays Unproven: the
-        // removability gate, not the driver, decides.
+    fn removable_mmc_backing_names_removability() {
+        // CORRECTION 2 (BDFL-authorized 2026-09-27): the same mmcblk driver
+        // with removable=1 stays Unproven, but the reason now names
+        // removability (p1_removable_media_v0, the builder's literal choice)
+        // instead of the generic unrecognized-storage-stack reason. The
+        // removability gate, not the driver, decides; admission is unchanged
+        // (Unproven either way).
         let fixture = FakeSysfs::new("mmcremovable");
         fixture.add_block(
             179,
@@ -944,7 +1097,107 @@ mod tests {
         );
         let mountinfo = fixture.mountinfo(179, 2, "/data", "ext4", "/dev/mmcblk1p1");
         let locality = fixture.classify(&mountinfo, "/data/x", 179, 2);
+        assert_unproven(&locality, "p1_removable_media_v0");
+    }
+
+    #[test]
+    fn removable_malformed_value_fails_closed_without_removability_reason() {
+        // CORRECTION 2: a malformed `removable` value (anything other than
+        // "0"/"1" after trimming) is not a valid removable observation, so
+        // it must not receive the removability-naming reason. It fails
+        // closed with the non-observation unrecognized-storage-stack
+        // reason — fail closed, never a fabricated observation.
+        let fixture = FakeSysfs::new("mmcmalformed");
+        fixture.add_block(
+            179,
+            3,
+            "mmcblk2",
+            "mmcblk2p1",
+            Some("mmcblk"),
+            true,
+            "2\n",
+            "0\n",
+        );
+        let mountinfo = fixture.mountinfo(179, 3, "/data", "ext4", "/dev/mmcblk2p1");
+        let locality = fixture.classify(&mountinfo, "/data/x", 179, 3);
         assert_unproven(&locality, "p1_unrecognized_storage_stack_v0");
+        assert_ne!(locality.reason(), "p1_removable_media_v0");
+    }
+
+    // CORRECTION 1 (BDFL-authorized 2026-09-27): upward driver-chain
+    // inspection. The immediate `sd` upper driver (present on every
+    // SCSI-transport disk) must not hide ancestor evidence: with `sd` at the
+    // device level and `iscsi_tcp` one level up, the verdict is
+    // known-network with the collected chain in the observed facts.
+    // Behavior distinction: under the previous immediate-driver-only code
+    // this same fixture yields p1_unrecognized_storage_stack_v0 (`sd` was
+    // unadmitted); the asserted p1_known_network_backing_v0 literal is
+    // unreachable under the old code here.
+    #[test]
+    fn iscsi_ancestor_recognized_as_known_network_not_hidden_by_sd() {
+        let fixture = FakeSysfs::new("iscsichain");
+        fixture.add_block(8, 112, "sdh", "sdh1", Some("sd"), true, "0\n", "1\n");
+        fixture.set_chain_driver("sdh", 1, "iscsi_tcp");
+        let mountinfo = fixture.mountinfo(8, 112, "/data", "ext4", "/dev/sdh1");
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 112);
+        let facts = assert_demoted(
+            &locality,
+            "p1_known_network_backing_v0",
+            &[
+                "driver chain (nearest first): sd -> iscsi_tcp",
+                "iSCSI initiator driver in chain",
+            ],
+        );
+        assert_eq!(facts.len(), 2);
+    }
+
+    // CORRECTION 1: no driver symlink at any level of the device chain
+    // fails closed with the existing guest-invisible reason, and no facts
+    // are fabricated for the unreadable chain.
+    #[test]
+    fn missing_driver_chain_fails_closed_guest_invisible() {
+        let fixture = FakeSysfs::new("nochain");
+        fixture.add_block(8, 116, "sdi", "sdi1", None, true, "0\n", "1\n");
+        let mountinfo = fixture.mountinfo(8, 116, "/data", "ext4", "/dev/sdi1");
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 116);
+        assert_unproven(&locality, "p1_guest_invisible_backing_v0");
+        let LinuxLocality::Unproven { observed_facts, .. } = locality else {
+            panic!("assert_unproven already established Unproven");
+        };
+        assert!(
+            observed_facts.is_empty(),
+            "no facts may be fabricated for an unreadable chain: {observed_facts:?}"
+        );
+    }
+
+    // CORRECTION 1: a `driver` entry that `read_link` cannot resolve (here a
+    // regular file, not a symlink) is skipped — not fabricated — and does
+    // not stop the upward walk: the ancestor's `sd` is still collected and
+    // the verdict follows the normal rules (unrecognized, Unproven).
+    // Documented mechanism note: `read_link` does not follow its target, so
+    // a merely dangling symlink still resolves to its basename; genuinely
+    // unreadable means `read_link` itself fails (missing entry, non-symlink,
+    // permission).
+    #[test]
+    fn unreadable_mid_chain_driver_is_skipped_not_fabricated() {
+        let fixture = FakeSysfs::new("badchain");
+        fixture.add_block(8, 120, "sdj", "sdj1", None, true, "0\n", "1\n");
+        std::fs::write(
+            fixture.sysfs.join("devices/fake/block/sdj/device/driver"),
+            "not-a-symlink",
+        )
+        .expect("fixture non-symlink driver");
+        fixture.set_chain_driver("sdj", 1, "sd");
+        let mountinfo = fixture.mountinfo(8, 120, "/data", "ext4", "/dev/sdj1");
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 120);
+        let facts = assert_demoted(
+            &locality,
+            "p1_unrecognized_storage_stack_v0",
+            &["driver chain (nearest first): sd"],
+        );
+        // Exactly the chain fact: nothing fabricated for the unreadable
+        // immediate level.
+        assert_eq!(facts.len(), 1);
     }
 
     // GRANT-FIRST (decision 0029 §14): the disputed promotion is demoted.
@@ -1273,12 +1526,16 @@ mod tests {
     }
 
     #[test]
-    fn removable_backing_is_unrecognized() {
+    fn removable_backing_names_removability() {
+        // CORRECTION 2 (BDFL-authorized 2026-09-27): removable=1 with an
+        // admitted driver stays Unproven, but the reason now names
+        // removability instead of the generic unrecognized-storage-stack
+        // reason. Admission is unchanged (Unproven either way).
         let fixture = FakeSysfs::new("removable");
         fixture.add_block(8, 64, "sde", "sde1", Some("ahci"), true, "1\n", "1\n");
         let mountinfo = fixture.mountinfo(8, 64, "/data", "ext4", "/dev/sde1");
         let locality = fixture.classify(&mountinfo, "/data/x", 8, 64);
-        assert_unproven(&locality, "p1_unrecognized_storage_stack_v0");
+        assert_unproven(&locality, "p1_removable_media_v0");
     }
 
     #[test]
@@ -1609,7 +1866,7 @@ mod tests {
             ("nvme_tcp", "p1_known_network_backing_v0"),
             ("sata_ahci", "p1_insufficient_evidence_v0"),
             ("mmc_fixed", "p1_insufficient_evidence_v0"),
-            ("mmc_removable", "p1_unrecognized_storage_stack_v0"),
+            ("mmc_removable", "p1_removable_media_v0"),
             ("dm", "p1_insufficient_evidence_v0"),
             ("md", "p1_insufficient_evidence_v0"),
             ("loop", "p1_insufficient_evidence_v0"),
@@ -1623,7 +1880,7 @@ mod tests {
             ("pvscsi", "p1_guest_invisible_backing_v0"),
             ("usb", "p1_unrecognized_storage_stack_v0"),
             ("megaraid", "p1_unrecognized_storage_stack_v0"),
-            ("removable_ahci", "p1_unrecognized_storage_stack_v0"),
+            ("removable_ahci", "p1_removable_media_v0"),
             ("tmpfs", "p1_guest_invisible_backing_v0"),
             ("no_driver", "p1_guest_invisible_backing_v0"),
             ("no_block_node", "p1_block_device_unresolved_v0"),
