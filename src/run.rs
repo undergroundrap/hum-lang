@@ -1536,12 +1536,10 @@ fn bind_observed_backing_evidence(
             // classifier serial is trust-coverable; a mismatch is a
             // contradiction.
             match classified.volume_serial {
-                None => {}
-                Some(recorded_serial) => {
-                    if recorded_serial != opened_serial {
-                        return Err(FileReadAdapterError::ContradictoryBackingEvidence);
-                    }
+                Some(recorded_serial) if recorded_serial != opened_serial => {
+                    return Err(FileReadAdapterError::ContradictoryBackingEvidence);
                 }
+                _ => {}
             }
             // The disk-number bind: the coherent opened-volume
             // observation carries the full serial AND the complete extent
@@ -3501,12 +3499,26 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         {
             Ok(opened) => opened,
             Err(failure) => {
+                // Late-failure evidence honesty: when the open itself
+                // reached the identity stage (COMPLETE progress), the P2
+                // line must not claim the open failed — the failure is
+                // late, before the bind. Only NONE/WALK_ONLY progress
+                // keeps the default "open failed" line.
+                let p2_override = match (failure.error, failure.progress) {
+                    (FileReadAdapterError::IdentityUnavailable, OpenProgress::COMPLETE) => {
+                        Some("P2: file opened; identity unavailable before bind".to_string())
+                    }
+                    (FileReadAdapterError::NotFile, OpenProgress::COMPLETE) => {
+                        Some("P2: opened object is not an ordinary file; no bind".to_string())
+                    }
+                    _ => None,
+                };
                 let bundle = self.classified_bundle(
                     classification,
                     &revalidated,
                     None,
                     None,
-                    None,
+                    p2_override,
                     false,
                     failure.progress,
                 );
@@ -4444,8 +4456,13 @@ impl<'program, 'output> Interpreter<'program, 'output> {
     /// - `opened`: `Some` once `open_checked` succeeded; `None` when the
     ///   open itself failed.
     /// - `p2_override`: the P2 line when the bind did not reach its normal
-    ///   verdict (open failure, walked-bind failure); `None` derives the
-    ///   bound P2 line from `walked`/`opened`.
+    ///   verdict (open failure, walked-bind failure, late identity
+    ///   failure); `None` derives the bound P2 line from
+    ///   `walked`/`opened` — or, when the open itself failed before
+    ///   reaching the identity stage, reports `P2: open failed before
+    ///   identity bind`. Late failures (open succeeded, identity
+    ///   unavailable) must pass an explicit override: the default line
+    ///   would falsely claim the open failed.
     /// - `bind_succeeded`: whether the walked-to-opened bind succeeded.
     ///   The bound identity — structured `bound_identity` and the text
     ///   evidence's "bound identity" line — is set from one shared `bound`
@@ -7150,7 +7167,7 @@ pub(crate) mod tests {
         assert_eq!(exercise.result, "file_identity_unavailable_before_read_v0");
         assert!(
             exercise.bound_file_identity.is_none(),
-            "open failed: nothing was bound"
+            "late identity failure: nothing was bound"
         );
         // Late-failure evidence honesty: the adapter reported COMPLETE
         // progress (walk done, open done, ordinary-file check done —
@@ -7170,6 +7187,18 @@ pub(crate) mod tests {
                 .iter()
                 .any(|line| line == "P4: enforced ordinary-file check on opened handle"),
             "late failure reports the completed ordinary-file check: {evidence:?}"
+        );
+        // The open SUCCEEDED — only the identity is unavailable — so the
+        // P2 line must report exactly that, never "open failed".
+        assert!(
+            evidence
+                .iter()
+                .any(|line| line == "P2: file opened; identity unavailable before bind"),
+            "late identity failure reports the succeeded open honestly: {evidence:?}"
+        );
+        assert!(
+            evidence.iter().all(|line| !line.contains("open failed")),
+            "no late-failure evidence may claim the open failed: {evidence:?}"
         );
     }
 
@@ -7224,6 +7253,10 @@ pub(crate) mod tests {
             opened: FileObjectIdentity,
             expected_caused_by: &'static str,
             expected_reason: &'static str,
+            // The exact P2 evidence line for open-phase failures; `None`
+            // for cases that reach the step-5 walked/opened bind (those
+            // carry their own explicit bind-failure P2 line).
+            expected_p2: Option<&'static str>,
         }
         let matched = FileObjectIdentity::UnixDeviceInode { dev: 8, ino: 4242 };
         for case in [
@@ -7234,6 +7267,7 @@ pub(crate) mod tests {
                 opened: FileObjectIdentity::UnixDeviceInode { dev: 8, ino: 4243 },
                 expected_caused_by: "caused by: FileReadError.unsafe_path",
                 expected_reason: "walked_opened_identity_mismatch_before_read_v0",
+                expected_p2: None,
             },
             Case {
                 name: "same volume, different file",
@@ -7245,6 +7279,7 @@ pub(crate) mod tests {
                 opened: FileObjectIdentity::UnixDeviceInode { dev: 8, ino: 9999 },
                 expected_caused_by: "caused by: FileReadError.unsafe_path",
                 expected_reason: "walked_opened_identity_mismatch_before_read_v0",
+                expected_p2: None,
             },
             Case {
                 name: "missing walked identity",
@@ -7253,6 +7288,7 @@ pub(crate) mod tests {
                 opened: matched,
                 expected_caused_by: "caused by: FileReadError.unsafe_path",
                 expected_reason: "walked_opened_identity_mismatch_before_read_v0",
+                expected_p2: None,
             },
             Case {
                 name: "open yields NotFile",
@@ -7264,6 +7300,9 @@ pub(crate) mod tests {
                 opened: matched,
                 expected_caused_by: "caused by: FileReadError.not_file",
                 expected_reason: "candidate_is_not_one_regular_file_v0",
+                // The open succeeded and the ordinary-file check ran: the
+                // P2 line must not claim the open failed.
+                expected_p2: Some("P2: opened object is not an ordinary file; no bind"),
             },
             Case {
                 name: "open-phase path safeguard violation",
@@ -7275,6 +7314,9 @@ pub(crate) mod tests {
                 opened: matched,
                 expected_caused_by: "caused by: FileReadError.unsafe_path",
                 expected_reason: "reparse_or_unsafe_component_rejected_v0",
+                // Nothing established (walk did not complete): the open
+                // did fail before the bind, and the evidence says so.
+                expected_p2: Some("P2: open failed before identity bind"),
             },
         ] {
             let mut files = TrustPathFileRead::success("must never be read\n", case.opened);
@@ -7311,6 +7353,17 @@ pub(crate) mod tests {
                 case.name
             );
             assert_eq!(exercise.result, case.expected_reason, "{}", case.name);
+            if let Some(expected_p2) = case.expected_p2 {
+                let evidence = exercise
+                    .locality_evidence
+                    .as_ref()
+                    .expect("trust path carries evidence lines");
+                assert!(
+                    evidence.iter().any(|line| line == expected_p2),
+                    "{}: P2 evidence line must be {expected_p2:?}: {evidence:?}",
+                    case.name
+                );
+            }
         }
     }
 

@@ -546,9 +546,9 @@ pub fn walked_file_identity(path_nul_terminated_utf16: &[u16]) -> Option<Windows
 }
 
 /// One coherent observation of the volume actually containing an opened
-/// file: the full 64-bit volume serial from `FILE_ID_INFO` plus the
-/// complete sorted/deduplicated extent set, both read from the volume
-/// device resolved from the opened handle's own volume-GUID final path.
+/// file: the full 64-bit volume serial from the opened file handle's own
+/// `FILE_ID_INFO` plus the complete sorted/deduplicated extent set from
+/// the volume device resolved from the handle's volume-GUID final path.
 /// The two fields are observed together so the consumer binds the serial
 /// and the extents as a single unit; neither is ever re-derived from the
 /// walk's drive letter (which names the wrong volume for folder-mounted
@@ -556,7 +556,8 @@ pub fn walked_file_identity(path_nul_terminated_utf16: &[u16]) -> Option<Windows
 #[cfg(windows)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenedVolumeObservation {
-    /// Full 64-bit serial from `FILE_ID_INFO` on the volume device handle.
+    /// Full 64-bit serial from `FILE_ID_INFO` on the opened file handle —
+    /// the same unit as the opened file identity's serial.
     pub volume_serial: u64,
     /// Sorted, deduplicated physical disk numbers backing the volume.
     pub disk_numbers: Vec<u32>,
@@ -564,12 +565,14 @@ pub struct OpenedVolumeObservation {
 
 /// Resolve the volume actually containing an already-opened file, from
 /// the OPENED OBJECT — never re-derived from the classified path. The
-/// handle's volume-GUID final path names the true containing volume
+/// serial is read on the opened file handle's own `FILE_ID_INFO` — the
+/// same unit as the opened file identity, queried on the same handle —
+/// never on the volume-device handle (that query is unreliable natively).
+/// The handle's volume-GUID final path names the true containing volume
 /// (correct for folder-mounted and redirected topology, where reopening
 /// a drive letter can name the wrong volume); the volume device is
-/// opened by GUID and the full 64-bit serial (`FILE_ID_INFO`) and the
-/// extent list are both read live from that same device, with the same
-/// decoder the classifier uses.
+/// opened by GUID and the extent list is read live from that device,
+/// with the same decoder the classifier uses.
 ///
 /// `None` means the observation is unavailable (null handle, API failure,
 /// a final path that is not a volume-GUID form, or an empty extent set)
@@ -581,12 +584,16 @@ pub fn opened_volume_observation(
     if raw_handle.is_null() {
         return None;
     }
+    // The serial comes from the OPENED FILE handle's own `FILE_ID_INFO`:
+    // the same handle that produced the file identity, the same unit the
+    // consumer binds with direct equality — no truncation, no
+    // zero-extension, and no unreliable volume-device query.
+    let serial = file_id_info(raw_handle)?.volume_serial_number;
+    // The containing volume device, derived from the handle's own
+    // volume-GUID final path — never re-derived from a drive letter.
     let guid_path = volume_guid_path_by_handle(raw_handle)?;
-    let device = volume_device_path(&guid_path)?;
+    let device = containing_volume_device_path(&guid_path)?;
     let volume = open_device(&device)?;
-    // The serial is read on the same unit as the file identity
-    // (`FILE_ID_INFO`): direct equality, no truncation, no zero-extension.
-    let serial = query_volume_serial(volume.raw)?;
     let mut buffer = Box::new(AlignedBuffer::<EXTENT_BUFFER_BYTES>(
         [0; EXTENT_BUFFER_BYTES],
     ));
@@ -649,15 +656,18 @@ fn volume_guid_path_by_handle(raw_handle: *mut core::ffi::c_void) -> Option<Vec<
     Some(buffer)
 }
 
-/// Build the NUL-terminated Win32 device-namespace path for a
-/// volume-GUID final path: the GUID path names the volume, and the
-/// device namespace form opens it directly. The device path is the
-/// final path minus its trailing separator, plus the NUL. The path is
-/// validated structurally (GUID prefix, brace-closed GUID body, trailing
-/// separator); the exact GUID text is the OS's to validate when the
+/// Build the NUL-terminated Win32 device-namespace path for the volume
+/// containing the file named by a volume-GUID final path. The real
+/// `GetFinalPathNameByHandleW` `VOLUME_NAME_GUID` form names the full
+/// file path inside the volume (volume GUID followed by the in-volume
+/// path), not a volume root: the containing volume's device path is the
+/// GUID root through the closing brace, plus the NUL; the file's path
+/// within the volume is dropped. The root-only form is accepted too. The
+/// path is validated structurally (GUID prefix, non-empty brace-closed
+/// GUID body); the exact GUID text is the OS's to validate when the
 /// device is opened. Anything else is `None`.
 #[cfg(any(windows, test))]
-fn volume_device_path(guid_path: &[u16]) -> Option<Vec<u16>> {
+fn containing_volume_device_path(guid_path: &[u16]) -> Option<Vec<u16>> {
     const PREFIX: [u16; 11] = [
         b'\\' as u16,
         b'\\' as u16,
@@ -671,19 +681,21 @@ fn volume_device_path(guid_path: &[u16]) -> Option<Vec<u16>> {
         b'e' as u16,
         b'{' as u16,
     ];
-    // Prefix, at least one GUID body unit plus the closing brace, and the
-    // trailing separator.
-    if guid_path.len() < PREFIX.len() + 2
-        || guid_path[..PREFIX.len()] != PREFIX
-        || guid_path[guid_path.len() - 1] != u16::from(b'\\')
-    {
+    if guid_path.len() < PREFIX.len() + 1 || guid_path[..PREFIX.len()] != PREFIX {
         return None;
     }
-    let body = &guid_path[PREFIX.len()..guid_path.len() - 1];
-    if body.is_empty() || body[body.len() - 1] != u16::from(b'}') {
+    // The GUID body runs from the prefix through the first closing brace.
+    // Everything after that brace is the file's path within the volume
+    // and is dropped; the body must be non-empty.
+    let body_and_rest = &guid_path[PREFIX.len()..];
+    let brace_offset = body_and_rest
+        .iter()
+        .position(|&unit| unit == u16::from(b'}'))?;
+    if brace_offset == 0 {
         return None;
     }
-    let mut device: Vec<u16> = guid_path[..guid_path.len() - 1].to_vec();
+    let root_end = PREFIX.len() + brace_offset + 1;
+    let mut device: Vec<u16> = guid_path[..root_end].to_vec();
     device.push(0);
     Some(device)
 }
@@ -2052,52 +2064,123 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
-    /// Volume-GUID final path fixture, built without literal backslashes
+    /// Volume-GUID final path fixtures, built without literal backslashes
     /// (repo text-hygiene rule). The real `GetFinalPathNameByHandleW`
-    /// `VOLUME_NAME_GUID` form starts with a double-backslash sequence
-    /// before `?`, then `Volume{...}` and a trailing separator.
-    fn guid_final_path_fixture() -> Vec<u16> {
+    /// `VOLUME_NAME_GUID` form names the full file path inside the volume
+    /// — the volume GUID followed by the in-volume path — which is the
+    /// form the opened-handle producer actually returns. The root-only
+    /// fixture covers the degenerate input the old root-only parser was
+    /// written against; production never emits it.
+    fn guid_final_file_path_fixture() -> Vec<u16> {
+        let bs = char::from(92);
+        format!("{bs}{bs}?{bs}Volume{{b75e2c83-0000-0000-0000-602f00000000}}{bs}opaque{bs}file.bin")
+            .encode_utf16()
+            .collect()
+    }
+
+    fn guid_final_root_path_fixture() -> Vec<u16> {
         let bs = char::from(92);
         format!("{bs}{bs}?{bs}Volume{{b75e2c83-0000-0000-0000-602f00000000}}{bs}")
             .encode_utf16()
             .collect()
     }
 
+    fn guid_root_device_fixture() -> Vec<u16> {
+        let bs = char::from(92);
+        let mut device: Vec<u16> =
+            format!("{bs}{bs}?{bs}Volume{{b75e2c83-0000-0000-0000-602f00000000}}")
+                .encode_utf16()
+                .collect();
+        device.push(0);
+        device
+    }
+
     #[test]
-    fn volume_device_path_drops_trailing_separator_and_adds_nul() {
-        let guid_path = guid_final_path_fixture();
-        let device = super::volume_device_path(&guid_path).expect("device path");
-        let mut expected: Vec<u16> = guid_path[..guid_path.len() - 1].to_vec();
-        expected.push(0);
-        assert_eq!(device, expected);
+    fn containing_volume_device_path_extracts_root_from_full_file_path() {
+        // The real producer's form: a full GUID file path reduces to the
+        // containing volume's device path, dropping the in-volume suffix.
+        let device = super::containing_volume_device_path(&guid_final_file_path_fixture())
+            .expect("device path");
+        assert_eq!(device, guid_root_device_fixture());
         assert_eq!(device.last(), Some(&0));
     }
 
     #[test]
-    fn volume_device_path_rejects_dos_letter_paths() {
+    fn containing_volume_device_path_accepts_root_only_form() {
+        let device = super::containing_volume_device_path(&guid_final_root_path_fixture())
+            .expect("device path");
+        assert_eq!(device, guid_root_device_fixture());
+        assert_eq!(device.last(), Some(&0));
+    }
+
+    #[test]
+    fn containing_volume_device_path_rejects_dos_letter_paths() {
         // A drive-letter final path is not a volume-GUID form: the
         // device path builder must not re-derive a letter device.
         let bs = char::from(92);
         let dos_path: Vec<u16> = format!("{bs}{bs}?{bs}C:{bs}Windows{bs}")
             .encode_utf16()
             .collect();
-        assert_eq!(super::volume_device_path(&dos_path), None);
+        assert_eq!(super::containing_volume_device_path(&dos_path), None);
     }
 
     #[test]
-    fn volume_device_path_rejects_missing_trailing_separator() {
-        let mut guid_path = guid_final_path_fixture();
-        guid_path.pop();
-        assert_eq!(super::volume_device_path(&guid_path), None);
+    fn containing_volume_device_path_rejects_missing_closing_brace() {
+        let bs = char::from(92);
+        let unclosed: Vec<u16> =
+            format!("{bs}{bs}?{bs}Volume{{b75e2c83-0000-0000-0000-602f00000000{bs}file.bin")
+                .encode_utf16()
+                .collect();
+        assert_eq!(super::containing_volume_device_path(&unclosed), None);
     }
 
     #[test]
-    fn volume_device_path_rejects_empty_and_unc_paths() {
-        assert_eq!(super::volume_device_path(&[]), None);
+    fn containing_volume_device_path_rejects_empty_and_unc_paths() {
+        assert_eq!(super::containing_volume_device_path(&[]), None);
         let bs = char::from(92);
         let unc_path: Vec<u16> = format!("{bs}{bs}host{bs}share{bs}")
             .encode_utf16()
             .collect();
-        assert_eq!(super::volume_device_path(&unc_path), None);
+        assert_eq!(super::containing_volume_device_path(&unc_path), None);
+    }
+
+    /// Production-connected control: the opened-file → containing-volume
+    /// → serial/extents chain on a REAL handle. This traverses the actual
+    /// producers — `GetFinalPathNameByHandleW` GUID final path, GUID-root
+    /// extraction, volume-device open, `FILE_ID_INFO` serial on the opened
+    /// file handle, the disk-extent ioctl — which a synthetic
+    /// `OpenedVolumeObservation` fixture cannot prove. The observation's
+    /// serial must equal the opened file identity's serial from the SAME
+    /// handle, and the extent set must be complete (non-empty, sorted,
+    /// deduplicated).
+    #[cfg(windows)]
+    #[test]
+    fn opened_volume_observation_traverses_real_producers_coherently() {
+        use std::os::windows::io::AsRawHandle;
+
+        let path = std::env::temp_dir().join("wo29-slice-a-volume-observation-probe.tmp");
+        std::fs::write(&path, b"probe").expect("create probe file");
+        let file = std::fs::File::open(&path).expect("open probe file");
+        let handle = file.as_raw_handle();
+        let identity = super::opened_file_identity(handle).expect("identity for open handle");
+        let observation = super::opened_volume_observation(handle)
+            .expect("volume observation for a real opened file");
+        assert_eq!(
+            observation.volume_serial, identity.volume_serial,
+            "the observation serial and the file identity serial name the same volume"
+        );
+        assert!(
+            !observation.disk_numbers.is_empty(),
+            "the observation carries the complete extent set"
+        );
+        let mut sorted = observation.disk_numbers.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            observation.disk_numbers, sorted,
+            "disk numbers are sorted and deduplicated"
+        );
+        drop(file);
+        std::fs::remove_file(&path).ok();
     }
 }
