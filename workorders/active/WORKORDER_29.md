@@ -118,16 +118,20 @@ draft does not recast it as having done so. The BDFL resolution (decision
 The actual Windows ordinary-file enforcement owners are the open phase, not
 the classifier: `src/file_read.rs` (`open_checked_windows_file` — the
 component-walk reparse rejection, the non-file final-component rejection,
-and the opened-handle `is_file()` check, all before identity capture and
-before any payload byte), invoked unconditionally by `src/run.rs` Step 4 on
+and the opened-handle `is_file()` check, all before payload consumption —
+walked identity is captured earlier and is distinct from the opened
+handle's identity), invoked unconditionally by `src/run.rs` Step 4 on
 every admitted path including `external-trust`.
 
 Report corrections recorded alongside (precision, not policy): direct UNC
 syntax is rejected at path validation — only drive-letter-rooted paths pass
-Windows validation; mapped drives pass lexical validation and classify
-`Remote` (fail-closed without grant) — the two behaviors are distinct.
-Native-hardware SD/MMC observation is unavailable, not impossible.
-Unexecuted cross-target checks receive no credit as evidence.
+Windows validation; a valid drive-letter-rooted path may pass lexical
+validation, and classification then depends on observed mapping and drive
+type. Remote observations and substituted mappings remain distinct — both
+fail closed without the grant, and the grant covers unproven locality
+without guaranteeing successful admission. Native-hardware SD/MMC
+observation is unavailable, not impossible. Unexecuted cross-target checks
+receive no credit as evidence.
 
 ### BDFL rulings incorporated (2026-09-27)
 
