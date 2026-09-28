@@ -1151,6 +1151,38 @@ mod tests {
         assert_eq!(facts.len(), 2);
     }
 
+    // CLARIFICATION (BDFL, 2026-09-27): "nearest-first" describes traversal
+    // order only — it must not mean "first recognized driver wins". A
+    // nearer allowlisted HBA observation must not mask recognized iSCSI
+    // evidence farther along the chain: iSCSI recognition scans the entire
+    // collected chain, and the full chain is retained in the observed
+    // facts. Behavior distinction: a nearest-wins reading would take the
+    // HBA observed-fact path (p1_insufficient_evidence_v0 with a
+    // {local_hba_driver: ahci} fact) here; the asserted
+    // p1_known_network_backing_v0 literal is unreachable under that
+    // reading.
+    #[test]
+    fn nearer_hba_does_not_mask_farther_iscsi_evidence() {
+        let fixture = FakeSysfs::new("hbaandiscsi");
+        fixture.add_block(8, 124, "sdk", "sdk1", Some("ahci"), true, "0\n", "1\n");
+        fixture.set_chain_driver("sdk", 1, "iscsi_tcp");
+        let mountinfo = fixture.mountinfo(8, 124, "/data", "ext4", "/dev/sdk1");
+        let locality = fixture.classify(&mountinfo, "/data/x", 8, 124);
+        let facts = assert_demoted(
+            &locality,
+            "p1_known_network_backing_v0",
+            &[
+                "driver chain (nearest first): ahci -> iscsi_tcp",
+                "iSCSI initiator driver in chain",
+            ],
+        );
+        assert_eq!(facts.len(), 2);
+        assert!(
+            !facts.iter().any(|fact| fact.contains("local_hba_driver")),
+            "the nearer HBA observation must not mask the farther iSCSI evidence: {facts:?}"
+        );
+    }
+
     // CORRECTION 1: no driver symlink at any level of the device chain
     // fails closed with the existing guest-invisible reason, and no facts
     // are fabricated for the unreadable chain.
