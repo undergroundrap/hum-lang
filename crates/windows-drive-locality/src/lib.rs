@@ -370,6 +370,27 @@ impl EvidenceVerdict {
         }
     }
 
+    /// A closed verdict for an unavailable after mapping with otherwise
+    /// completely validated observations (WO29 Slice B correction,
+    /// finding P1): the verdict stays closed (nothing admits), but the
+    /// VALIDATED disk identities are retained for the runtime binder —
+    /// preserving facts only in rendered text is insufficient, because
+    /// the binder consumes the identity vector, not the text. The
+    /// binder binds the retained identities against the opened
+    /// observation: a mismatch rejects; agreement with otherwise
+    /// consistent evidence stays trust-coverable. No contradiction
+    /// marker: genuinely unavailable with otherwise consistent evidence
+    /// is trust-coverable absence, never invalidity.
+    fn closed_retained(backing_device_identity: Vec<u32>, observed_facts: Vec<String>) -> Self {
+        Self {
+            locality: DriveLocality::Unknown,
+            backing_device_identity,
+            observed_facts,
+            unproven_reason: None,
+            contradiction: false,
+        }
+    }
+
     /// A closed verdict for INVALID producer evidence: outer
     /// disk-record membership failures and inner observed-disk identity
     /// mismatches. The available observations are preserved, but the
@@ -469,6 +490,29 @@ fn preliminary_summary(observation: &PreliminaryObservation) -> String {
         QueryState::Partial => "partial".to_string(),
     };
     format!("drive_type {:?}, mapping {mapping}", observation.drive_type)
+}
+
+/// Whether the after drive-type observation positively disagrees with
+/// the before observation, independently of the mapping query. On this
+/// path the before observation is already validated as a candidate
+/// (Fixed with an ordinary target), so a positively observed non-local
+/// after drive type (Remote, Removable, Optical, RamDisk) is a genuine
+/// contradiction even when the after mapping is unavailable. An
+/// unobserved after drive type (Unknown, MissingRoot, Other) is
+/// missing evidence — never disagreement.
+#[cfg(any(windows, test))]
+fn drive_type_observed_changed(
+    before: &DriveTypeObservation,
+    after: &DriveTypeObservation,
+) -> bool {
+    before != after
+        && matches!(
+            after,
+            DriveTypeObservation::Remote
+                | DriveTypeObservation::Removable
+                | DriveTypeObservation::Optical
+                | DriveTypeObservation::RamDisk
+        )
 }
 
 /// Dependency-observation fact line shared by the unproven record and
@@ -631,8 +675,13 @@ fn observed_fact_body(
     }
     let equality = if evidence.before == evidence.after {
         "match"
-    } else {
+    } else if matches!(&evidence.after.mapping, QueryState::Complete(_)) {
         "mismatch"
+    } else {
+        // The after mapping is unavailable: the equality cannot be
+        // computed — never "match", never "mismatch". An unavailable
+        // observation cannot disagree.
+        "unavailable (cannot compare)"
     };
     facts.push(format!(
         "before: {}; after: {}; equality: {}",
@@ -848,53 +897,55 @@ fn extent_closed_facts(evidence: &InspectionEvidence) -> Vec<String> {
     facts
 }
 
-/// Preserved facts for an unavailable after observation (WO29 Slice B
-/// correction): the before observation and whatever the dependency,
-/// extent, disk, and cleanup stages produced are available and are
-/// rendered as observed; failed or partial stages are named as
-/// unavailable, never as contradictions. The after observation is
-/// recorded as unavailable with no equality verdict — it cannot be
-/// compared.
+/// Preserved facts for a closed verdict whose after mapping is
+/// unavailable but whose other observations validated completely
+/// (WO29 Slice B correction, finding P1): dependency, extent, and disk
+/// facts are the available observations they are (the disk records are
+/// rendered in required-disk order — required-set membership and inner
+/// identity already validated on this path); the after field is named
+/// as unavailable with no equality verdict — it cannot be compared.
+/// The classification line names the verdict honestly: closed
+/// `Unknown` that is trust-coverable absence, never a contradiction.
 #[cfg(any(windows, test))]
-fn after_unavailable_facts(evidence: &InspectionEvidence, after_state: &str) -> Vec<String> {
-    let mut facts = vec![
-        format!("before: {}", preliminary_summary(&evidence.before)),
-        format!(
-            "after: {after_state} (observation unavailable); equality: unavailable (cannot compare)"
-        ),
-        dependency_fact_line(&evidence.dependency),
-    ];
-    match &evidence.extents {
-        QueryState::Complete(extents) => {
-            for extent in extents {
-                facts.push(extent_fact_line(extent));
-            }
-        }
-        QueryState::ApiFailure => {
-            facts.push("extents: query_failed (observation unavailable)".to_string());
-        }
-        QueryState::Partial => {
-            facts.push("extents: partial_result (observation unavailable)".to_string());
-        }
+fn after_unavailable_closed_facts(
+    evidence: &InspectionEvidence,
+    extents: &[ExtentObservation],
+    records: &[DiskQueryRecord],
+    required_disks: &[u32],
+    after_state: &str,
+) -> Vec<String> {
+    let mut facts = Vec::with_capacity(4 + extents.len() + required_disks.len());
+    facts.push(format!("before: {}", preliminary_summary(&evidence.before)));
+    facts.push(format!(
+        "after: {after_state} (observation unavailable); equality: unavailable (cannot compare)"
+    ));
+    facts.push(dependency_fact_line(&evidence.dependency));
+    for extent in extents {
+        facts.push(extent_fact_line(extent));
     }
-    match &evidence.disks {
-        QueryState::Complete(records) => {
-            // Rendered in walk order. Required-set membership is not
-            // established on this path (the topology check runs later),
-            // so records are listed as observed — never as a complete
-            // matrix.
-            for record in records {
-                facts.push(disk_fact_line(record.disk_number, Some(record)));
-            }
-        }
-        QueryState::ApiFailure => {
-            facts.push("disks: query_failed (observation unavailable)".to_string());
-        }
-        QueryState::Partial => {
-            facts.push("disks: partial_result (observation unavailable)".to_string());
-        }
+    for disk_number in required_disks {
+        let record = records
+            .iter()
+            .find(|record| record.disk_number == *disk_number);
+        facts.push(disk_fact_line(*disk_number, record));
     }
     facts.push(cleanup_fact_line(&evidence.closes));
+    facts.push(format!(
+        "observed_bus_list: {}",
+        OBSERVED_BUS_TYPES
+            .iter()
+            .map(|(value, name)| format!("{name}({value})"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    // P4 per decision 0029 §15: file-object ordinariness is enforced at
+    // read time on the opened handle (`open_checked_windows_file`,
+    // `run.rs` Step 4), never by this classifier — the classifier maps
+    // P1 only. P2/P4 outcomes are reported separately at read time.
+    facts.push(
+        "P1-P4: P1 unknown (after observation unavailable; before/after equality cannot be established); P2-P4 enforced at read time, not by this classifier"
+            .to_string(),
+    );
     facts.push(
         "classification: Unknown (after observation unavailable; missing evidence is trust-coverable, never a contradiction)"
             .to_string(),
@@ -940,34 +991,47 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
         );
     };
 
-    // A known before/after contradiction requires two SUCCESSFULLY
-    // OBSERVED preliminary observations that disagree. An unavailable
-    // after observation (`ApiFailure`/`Partial`) is missing evidence,
-    // not a contradiction: only a successfully observed after mapping
-    // can contradict the before observation. Genuinely missing
-    // observations are trust-coverable; contradictory evidence is not.
-    // The available observations are preserved either way.
-    match &evidence.after.mapping {
+    // An unavailable after mapping (`ApiFailure`/`Partial`) is missing
+    // evidence (trust-coverable), never a contradiction — but the
+    // missingness applies to the AFTER FIELD ONLY, never to the entire
+    // inspection record (WO29 Slice B correction, finding P1). The flag
+    // below is carried THROUGH the full validation chain: every
+    // available observation is validated, independent contradictions
+    // reject, and the validated disk identities are retained for the
+    // runtime binder. Returning a closed verdict here — before
+    // validation — both bypasses the disk-record and contradiction
+    // checks and clears the disk identities, so the binder admits
+    // inconsistent evidence as trust-coverable.
+    let after_unavailable: Option<&'static str> = match &evidence.after.mapping {
         QueryState::Complete(_) => {
+            // A known before/after contradiction requires two
+            // SUCCESSFULLY OBSERVED preliminary observations that
+            // disagree: only a successfully observed after mapping can
+            // contradict the before observation.
             if evidence.before != evidence.after
                 || classify_preliminary(&evidence.after) != PreliminaryClass::Candidate
             {
                 return EvidenceVerdict::closed_contradiction(&evidence.before, &evidence.after);
             }
+            None
         }
-        QueryState::ApiFailure => {
-            return EvidenceVerdict::closed_preserved(
-                DriveLocality::Unknown,
-                after_unavailable_facts(evidence, "query_failed"),
-            );
+        QueryState::ApiFailure | QueryState::Partial => {
+            // The drive type is observed independently of the mapping
+            // query: a positively observed drive-type change (e.g.
+            // Fixed -> Remote) is a genuine contradiction even when the
+            // after mapping itself is unavailable. An unobserved drive
+            // type (Unknown/MissingRoot/Other) is missing evidence —
+            // never disagreement.
+            if drive_type_observed_changed(&evidence.before.drive_type, &evidence.after.drive_type)
+            {
+                return EvidenceVerdict::closed_contradiction(&evidence.before, &evidence.after);
+            }
+            Some(match &evidence.after.mapping {
+                QueryState::ApiFailure => "query_failed",
+                _ => "partial_result",
+            })
         }
-        QueryState::Partial => {
-            return EvidenceVerdict::closed_preserved(
-                DriveLocality::Unknown,
-                after_unavailable_facts(evidence, "partial_result"),
-            );
-        }
-    }
+    };
 
     // A failed or present dependency keeps its available observations:
     // the before observation and the dependency observation that closed
@@ -1150,8 +1214,34 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     // unreachable from the live classifier — mirroring Linux's `Proven`.
     // ------------------------------------------------------------------
     let reason = cause.unwrap_or(REASON_INSUFFICIENT_EVIDENCE);
-    let facts = observed_facts(evidence, extents, Some(records), &required_disks, reason);
-    EvidenceVerdict::observed_unproven(reason, required_disks, facts)
+    match after_unavailable {
+        None => {
+            let facts = observed_facts(evidence, extents, Some(records), &required_disks, reason);
+            EvidenceVerdict::observed_unproven(reason, required_disks, facts)
+        }
+        Some(after_state) => {
+            // The after mapping is unavailable: before/after equality
+            // cannot be established, so nothing admits — but the
+            // missingness applies to the after field only. Every
+            // available observation above validated, so the VALIDATED
+            // disk identities are retained for the runtime binder: it
+            // binds them against the opened observation (a mismatch
+            // rejects; agreement with otherwise consistent evidence
+            // stays trust-coverable). Preserving facts only in rendered
+            // text is insufficient — the retained identities must reach
+            // the binder. No contradiction marker: genuinely unavailable
+            // with otherwise consistent evidence is trust-coverable
+            // absence, never invalidity.
+            let facts = after_unavailable_closed_facts(
+                evidence,
+                extents,
+                records,
+                &required_disks,
+                after_state,
+            );
+            EvidenceVerdict::closed_retained(required_disks, facts)
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -2997,6 +3087,15 @@ mod tests {
                 "{facts:?}",
                 facts = detail.observed_facts
             );
+            // Finding P1: the validated disk identities are retained
+            // for the runtime binder — preserving facts only in
+            // rendered text is insufficient. The binder binds them
+            // against the opened observation: a mismatch rejects.
+            assert_eq!(
+                detail.backing_device_identity,
+                vec![0],
+                "validated disk identities must reach the binder even when the after mapping is unavailable"
+            );
         }
 
         // Positive control: a SUCCESSFULLY OBSERVED after observation
@@ -3011,6 +3110,133 @@ mod tests {
             detail.contradiction,
             "observed disagreement must keep the contradiction marker"
         );
+    }
+
+    #[test]
+    fn unavailable_after_with_inner_identity_mismatch_still_rejects() {
+        // WO29 Slice B correction (finding P1), combined cause: an
+        // unavailable after mapping (`ApiFailure` AND `Partial`) no
+        // longer skips the disk-record validation. Required disk 0 with
+        // an outer record for disk 0 whose inner observation names disk
+        // 99 fails closed with the rejecting marker — the same marker
+        // the runtime binder refuses before payload consumption.
+        for after_mapping in [
+            QueryState::<Vec<u16>>::ApiFailure,
+            QueryState::<Vec<u16>>::Partial,
+        ] {
+            let mut evidence = multi_disk_evidence(
+                &[0],
+                vec![DiskQueryRecord {
+                    disk_number: 0,
+                    outcome: DiskQueryOutcome::Observed(DiskObservation {
+                        disk_number: 99,
+                        removable: false,
+                        bus_type: BUS_TYPE_NVME,
+                    }),
+                }],
+            );
+            evidence.after.mapping = after_mapping;
+            let detail = classify_evidence_detail(&evidence);
+            assert_eq!(detail.locality, DriveLocality::Unknown);
+            assert_eq!(detail.unproven_reason, None);
+            assert!(
+                detail.contradiction,
+                "invalid inner identity must carry the rejecting marker even when the after mapping is unavailable"
+            );
+            assert!(
+                detail
+                    .observed_facts
+                    .iter()
+                    .any(|fact| fact.contains("inner observed-disk identity")),
+                "{facts:?}",
+                facts = detail.observed_facts
+            );
+        }
+    }
+
+    #[test]
+    fn unavailable_after_with_observed_drive_type_change_is_contradiction() {
+        // WO29 Slice B correction (finding P1), combined cause: the
+        // drive type is observed independently of the mapping query. A
+        // positively observed Fixed -> Remote change with an unavailable
+        // after mapping (`ApiFailure` AND `Partial`) is a genuine
+        // contradiction — the rejecting marker is set — while an
+        // unobserved drive type stays missing evidence.
+        for after_mapping in [
+            QueryState::<Vec<u16>>::ApiFailure,
+            QueryState::<Vec<u16>>::Partial,
+        ] {
+            let mut evidence = evidence(BUS_TYPE_NVME);
+            evidence.after.mapping = after_mapping;
+            evidence.after.drive_type = DriveTypeObservation::Remote;
+            let detail = classify_evidence_detail(&evidence);
+            assert_eq!(detail.locality, DriveLocality::Unknown);
+            assert!(
+                detail.contradiction,
+                "positively observed drive-type change must carry the rejecting marker even when the after mapping is unavailable"
+            );
+            assert!(
+                detail
+                    .observed_facts
+                    .iter()
+                    .any(|fact| fact.contains("known before/after contradiction")),
+                "{facts:?}",
+                facts = detail.observed_facts
+            );
+        }
+
+        // Control: an unobserved after drive type (Unknown) with an
+        // unavailable mapping is missing evidence, never disagreement.
+        let mut unobserved = evidence(BUS_TYPE_NVME);
+        unobserved.after.mapping = QueryState::ApiFailure;
+        unobserved.after.drive_type = DriveTypeObservation::Unknown;
+        let detail = classify_evidence_detail(&unobserved);
+        assert_eq!(detail.locality, DriveLocality::Unknown);
+        assert!(
+            !detail.contradiction,
+            "unobserved drive type must not carry the contradiction marker"
+        );
+        assert_eq!(
+            detail.backing_device_identity,
+            vec![0],
+            "validated identities are retained for missing evidence"
+        );
+    }
+
+    #[test]
+    fn unavailable_after_keeps_cause_specific_unproven_for_unreadable_disks() {
+        // WO29 Slice B correction (finding P1), combined cause: when
+        // the after mapping is unavailable but the disk query genuinely
+        // failed, the verdict is still the cause-specific `Unproven`
+        // (not the after-unavailable closed verdict) — the cause
+        // selection runs. The unavailable after is named as unavailable
+        // in the facts, never as a mismatch.
+        for after_mapping in [
+            QueryState::<Vec<u16>>::ApiFailure,
+            QueryState::<Vec<u16>>::Partial,
+        ] {
+            let mut evidence = evidence(BUS_TYPE_NVME);
+            evidence.after.mapping = after_mapping;
+            evidence.disks = QueryState::Complete(vec![DiskQueryRecord {
+                disk_number: 0,
+                outcome: DiskQueryOutcome::Failed,
+            }]);
+            let detail = classify_evidence_detail(&evidence);
+            assert_eq!(detail.locality, DriveLocality::Unproven);
+            assert_eq!(
+                detail.unproven_reason,
+                Some(REASON_REMOVABLE_STATUS_UNREADABLE)
+            );
+            assert!(!detail.contradiction);
+            assert!(
+                detail
+                    .observed_facts
+                    .iter()
+                    .any(|fact| fact.contains("equality: unavailable (cannot compare)")),
+                "{facts:?}",
+                facts = detail.observed_facts
+            );
+        }
     }
 
     #[test]
@@ -3829,6 +4055,57 @@ mod tests {
         thread_local! {
             static CLOSE_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
             static PRELIMINARY_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+            // Selects the unavailable after-mapping state for the
+            // second preliminary call: `false` = `ApiFailure`,
+            // `true` = `Partial`. Both states are missing evidence, and
+            // both must behave identically through the chain.
+            static AFTER_PARTIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        }
+
+        /// Second preliminary call returns an unavailable after mapping
+        /// (`ApiFailure` or `Partial`, per `AFTER_PARTIAL`) with an
+        /// unchanged Fixed drive type: missing after evidence with
+        /// otherwise consistent observations.
+        fn before_ok_after_unavailable(_: DriveRoot) -> PreliminaryObservation {
+            PRELIMINARY_CALLS.with(|calls| {
+                let n = calls.get();
+                calls.set(n + 1);
+                if n == 0 {
+                    preliminary()
+                } else {
+                    PreliminaryObservation {
+                        drive_type: DriveTypeObservation::Fixed,
+                        mapping: if AFTER_PARTIAL.with(|p| p.get()) {
+                            QueryState::Partial
+                        } else {
+                            QueryState::ApiFailure
+                        },
+                    }
+                }
+            })
+        }
+
+        /// Second preliminary call returns an unavailable after mapping
+        /// with a positively observed Fixed -> Remote drive-type change:
+        /// an independent contradiction even though the mapping query
+        /// itself is unavailable.
+        fn before_fixed_after_remote_unavailable(_: DriveRoot) -> PreliminaryObservation {
+            PRELIMINARY_CALLS.with(|calls| {
+                let n = calls.get();
+                calls.set(n + 1);
+                if n == 0 {
+                    preliminary()
+                } else {
+                    PreliminaryObservation {
+                        drive_type: DriveTypeObservation::Remote,
+                        mapping: if AFTER_PARTIAL.with(|p| p.get()) {
+                            QueryState::Partial
+                        } else {
+                            QueryState::ApiFailure
+                        },
+                    }
+                }
+            })
         }
 
         fn reset_counters() {
@@ -4099,20 +4376,7 @@ mod tests {
             // the verdict stays closed with the available observations
             // preserved and NO contradiction marker — an unavailable
             // after-query is missing evidence, not a contradiction.
-            fn before_ok_after_unavailable(_: DriveRoot) -> PreliminaryObservation {
-                PRELIMINARY_CALLS.with(|calls| {
-                    let n = calls.get();
-                    calls.set(n + 1);
-                    if n == 0 {
-                        preliminary()
-                    } else {
-                        PreliminaryObservation {
-                            drive_type: DriveTypeObservation::Fixed,
-                            mapping: QueryState::ApiFailure,
-                        }
-                    }
-                })
-            }
+            AFTER_PARTIAL.with(|p| p.set(false));
             reset_counters();
             let stages = QueryStages {
                 query_preliminary: before_ok_after_unavailable,
@@ -4128,6 +4392,14 @@ mod tests {
                 !verdict.contradiction,
                 "unavailable after-query must not carry the contradiction marker"
             );
+            // Finding P1: the validated disk identities are retained so
+            // the actual runtime binder can compare them against the
+            // opened observation.
+            assert_eq!(
+                verdict.backing_device_identity,
+                vec![0],
+                "validated disk identities must be retained for the binder"
+            );
             assert!(has_fact(&verdict, "before: drive_type Fixed"));
             assert!(has_fact(
                 &verdict,
@@ -4135,6 +4407,127 @@ mod tests {
             ));
             assert!(has_fact(&verdict, "disk 0: bus_type 17 (NVMe)"));
             assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_unavailable_after_retains_identities_for_binder() {
+            // WO29 Slice B correction (finding P1) through the REAL
+            // orchestration: an unavailable after mapping (`ApiFailure`
+            // AND `Partial`) with otherwise fully consistent evidence
+            // stays closed `Unknown` with NO contradiction marker — and
+            // the validated disk identities are retained so the actual
+            // runtime binder can compare them against the opened
+            // observation. This is the positive control: genuinely
+            // unavailable with otherwise consistent evidence is
+            // trust-coverable, never a contradiction, and never a
+            // blanket rejection of every unavailable query.
+            for (partial, after_state) in [(false, "query_failed"), (true, "partial_result")] {
+                AFTER_PARTIAL.with(|p| p.set(partial));
+                reset_counters();
+                let stages = QueryStages {
+                    query_preliminary: before_ok_after_unavailable,
+                    query_dependencies: no_dependencies,
+                    query_extents: single_extent,
+                    query_backing_disks: nvme_disk,
+                    close_volume: close_ok,
+                };
+                let verdict = orchestrate_classification(root(), (), &stages);
+                assert_eq!(PRELIMINARY_CALLS.with(|c| c.get()), 2);
+                assert_eq!(verdict.locality, DriveLocality::Unknown);
+                assert!(
+                    !verdict.contradiction,
+                    "unavailable after-query must not carry the contradiction marker"
+                );
+                assert_eq!(
+                    verdict.backing_device_identity,
+                    vec![0],
+                    "validated disk identities must be retained for the binder ({after_state})"
+                );
+                assert!(has_fact(&verdict, "before: drive_type Fixed"));
+                assert!(has_fact(
+                    &verdict,
+                    &format!(
+                        "after: {after_state} (observation unavailable); equality: unavailable"
+                    )
+                ));
+                assert!(has_fact(&verdict, "disk 0: bus_type 17 (NVMe)"));
+                assert_eq!(close_calls(), 1);
+            }
+        }
+
+        #[test]
+        fn orchestration_unavailable_after_with_inner_identity_mismatch_rejects() {
+            // WO29 Slice B correction (finding P1) through the REAL
+            // orchestration: an unavailable after mapping (`ApiFailure`
+            // AND `Partial`) no longer skips the disk-record validation.
+            // Outer disk 0 containing Observed(inner disk 99) fails
+            // closed with the rejecting contradiction marker — never
+            // trust-coverable absence.
+            fn inner_mismatch_disk(
+                _: &[ExtentObservation],
+            ) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+                (
+                    QueryState::Complete(vec![DiskQueryRecord {
+                        disk_number: 0,
+                        outcome: DiskQueryOutcome::Observed(DiskObservation {
+                            disk_number: 99,
+                            removable: false,
+                            bus_type: BUS_TYPE_NVME,
+                        }),
+                    }]),
+                    true,
+                )
+            }
+            for partial in [false, true] {
+                AFTER_PARTIAL.with(|p| p.set(partial));
+                reset_counters();
+                let stages = QueryStages {
+                    query_preliminary: before_ok_after_unavailable,
+                    query_dependencies: no_dependencies,
+                    query_extents: single_extent,
+                    query_backing_disks: inner_mismatch_disk,
+                    close_volume: close_ok,
+                };
+                let verdict = orchestrate_classification(root(), (), &stages);
+                assert_eq!(verdict.locality, DriveLocality::Unknown);
+                assert!(
+                    verdict.contradiction,
+                    "invalid inner identity must carry the rejecting marker even when the after mapping is unavailable"
+                );
+                assert!(has_fact(&verdict, "inner observed-disk identity"));
+                assert!(has_fact(&verdict, "disk 99: bus_type 17 (NVMe)"));
+                assert_eq!(close_calls(), 1);
+            }
+        }
+
+        #[test]
+        fn orchestration_unavailable_after_with_drive_type_change_rejects() {
+            // WO29 Slice B correction (finding P1) through the REAL
+            // orchestration: an unavailable after mapping (`ApiFailure`
+            // AND `Partial`) does NOT hide a positively observed Fixed
+            // -> Remote drive-type change. The drive type is observed
+            // independently of the mapping query, so the verdict carries
+            // the rejecting contradiction marker.
+            for partial in [false, true] {
+                AFTER_PARTIAL.with(|p| p.set(partial));
+                reset_counters();
+                let stages = QueryStages {
+                    query_preliminary: before_fixed_after_remote_unavailable,
+                    query_dependencies: no_dependencies,
+                    query_extents: single_extent,
+                    query_backing_disks: nvme_disk,
+                    close_volume: close_ok,
+                };
+                let verdict = orchestrate_classification(root(), (), &stages);
+                assert_eq!(PRELIMINARY_CALLS.with(|c| c.get()), 2);
+                assert_eq!(verdict.locality, DriveLocality::Unknown);
+                assert!(
+                    verdict.contradiction,
+                    "observed drive-type change must carry the rejecting marker even when the after mapping is unavailable"
+                );
+                assert!(has_fact(&verdict, "known before/after contradiction"));
+                assert_eq!(close_calls(), 1);
+            }
         }
 
         #[test]
