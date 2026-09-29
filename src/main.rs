@@ -362,6 +362,9 @@ fn run() -> Result<ExitCode, String> {
         });
     }
     if options.command == "run" {
+        if options.run_format == RunFormat::Json {
+            return execute_run_command_json(&options, loaded);
+        }
         let mut output_adapter = run::StdoutOutputAdapter;
         let mut replay_adapter = run::RunnerReplayAdapter::new(options.run_replay_ticks.clone());
         let execution = execute_run_command(
@@ -1499,7 +1502,10 @@ fn render_run_command_execution(execution: RunCommandExecution, show_timings: bo
         }
         RunCommandDisposition::Executed(report) => {
             print_diagnostics(&report.diagnostics);
-            match report.outcome {
+            // WO29 Slice A: the human stderr locality evidence lines are emitted
+            // by the run pipeline itself (run.rs step 8, exactly one per
+            // admitted classified read), so nothing is re-emitted here.
+            match &report.outcome {
                 run::RunOutcome::Success(output) => {
                     println!("{output}");
                     ExitCode::SUCCESS
@@ -1530,6 +1536,388 @@ fn render_run_command_execution(execution: RunCommandExecution, show_timings: bo
         print_timings(&timings, total);
     }
     code
+}
+
+/// Executes `hum run --format json`: the run flows through the same pipeline
+/// as human mode, but program output is captured to bytes and the only stdout
+/// payload is the JSON envelope. Diagnostics, timings, and locality evidence
+/// lines still go to stderr.
+///
+/// WO29 Slice A integration note: program capture comes from Leaf C's
+/// `run::run_command_capture_json`, signature (frozen contract):
+/// `pub(crate) fn run_command_capture_json(program: &Program, diagnostics:
+/// &[Diagnostic], occurrences: &DiagnosticOccurrenceSet, entry: Option<&str>,
+/// raw_args: &[OsString], grant_policy: &OperatorGrantPolicy, replay_ticks:
+/// &[i64], native_layout: Option<&app_entry::CanonicalNativeLayout<'_>>,
+/// native_feature: Option<&native_program::NativeProgramFeature>) ->
+/// (ExitCode, Vec<u8>, RunReport)`.
+/// The returned `ExitCode` is intentionally ignored here: `outcome` and
+/// `exit_code` derive from the same `RunOutcome` mapping as the human-mode
+/// renderer so the two modes can never disagree.
+fn execute_run_command_json(
+    options: &CliOptions,
+    loaded: LoadedProgram,
+) -> Result<ExitCode, String> {
+    let mut captured: Option<Vec<u8>> = None;
+    let execution = execute_run_command(
+        loaded,
+        options.run_native,
+        options.run_entry.as_deref(),
+        &options.run_args,
+        &options.run_authority,
+        |program,
+         diagnostics,
+         occurrences,
+         entry,
+         raw_args,
+         grant_policy,
+         native_layout,
+         native_feature| {
+            let (_exit_code, bytes, report) = run::run_command_capture_json(
+                program,
+                diagnostics,
+                occurrences,
+                entry,
+                raw_args,
+                grant_policy,
+                &options.run_replay_ticks,
+                native_layout,
+                native_feature,
+            );
+            captured = Some(bytes);
+            report
+        },
+    )?;
+    let RunCommandExecution {
+        disposition,
+        diagnostics,
+        timings,
+        total,
+        ..
+    } = execution;
+    if options.show_timings {
+        print_timings(&timings, total);
+    }
+    match disposition {
+        RunCommandDisposition::ComposedDiagnostics { exit_code } => {
+            print_diagnostics(&diagnostics);
+            emit_run_json_envelope("not_executed", exit_code, &[], &[])
+        }
+        RunCommandDisposition::SelectedDiagnostics {
+            diagnostics: selected,
+            exit_code,
+        } => {
+            print_diagnostics(&selected);
+            emit_run_json_envelope("not_executed", exit_code, &[], &[])
+        }
+        RunCommandDisposition::Text { text, exit_code } => {
+            eprint!("{text}");
+            emit_run_json_envelope("not_executed", exit_code, &[], &[])
+        }
+        RunCommandDisposition::Executed(report) => {
+            print_diagnostics(&report.diagnostics);
+            // The run pipeline itself emits the locality evidence stderr lines
+            // (run.rs step 8, exactly one per admitted classified read), so
+            // JSON mode still emits them without re-emitting here; stdout
+            // carries only the envelope.
+            let outcome = render_run_outcome(&report.outcome);
+            let exit_code = run_outcome_exit_code(&report.outcome);
+            let Some(bytes) = captured else {
+                let (code, failure) = json_report_failure_diagnostics(
+                    "executed run produced no captured program output",
+                );
+                eprint!("{failure}");
+                return Ok(code);
+            };
+            emit_run_json_envelope(outcome, exit_code, &bytes, &report.authority_events)
+        }
+    }
+}
+
+/// Maps a `RunOutcome` to the same exit code the human-mode renderer assigns
+/// (see `render_run_command_execution`).
+fn run_outcome_exit_code(outcome: &run::RunOutcome) -> u8 {
+    match outcome {
+        run::RunOutcome::Success(_) | run::RunOutcome::AppSuccess => 0,
+        run::RunOutcome::Failure(_)
+        | run::RunOutcome::AppFailure(_)
+        | run::RunOutcome::ContractViolation
+        | run::RunOutcome::NativeFailure(_) => 1,
+        run::RunOutcome::PreflightRejected | run::RunOutcome::Trap(_) => 2,
+    }
+}
+
+fn render_run_outcome(outcome: &run::RunOutcome) -> &'static str {
+    match outcome {
+        run::RunOutcome::Success(_) => "success",
+        run::RunOutcome::AppSuccess => "app_success",
+        run::RunOutcome::Failure(_) => "failure",
+        run::RunOutcome::AppFailure(_) => "app_failure",
+        run::RunOutcome::ContractViolation => "contract_violation",
+        run::RunOutcome::PreflightRejected => "preflight_rejected",
+        run::RunOutcome::NativeFailure(_) => "native_failure",
+        run::RunOutcome::Trap(_) => "trap",
+    }
+}
+
+/// Hand-rolled JSON string escaping (no new dependencies): escapes `"`, `\`,
+/// and control characters (short forms for `\n` etc., `\u00XX` otherwise).
+fn json_escape_into(out: &mut String, text: &str) {
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0C}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+}
+
+fn json_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    json_escape_into(&mut out, text);
+    out.push('"');
+    out
+}
+
+/// Mirrors the existing `Span` JSON shape (`line`/`column` as in
+/// `backend_input::push_span`), plus the `file` field so the projection is
+/// complete.
+fn json_span(span: &crate::diagnostic::Span) -> String {
+    format!(
+        "{{\"file\":{},\"line\":{},\"column\":{}}}",
+        json_string(&span.file),
+        span.line,
+        span.column
+    )
+}
+
+fn json_optional_str(value: Option<&str>) -> String {
+    match value {
+        Some(text) => json_string(text),
+        None => "null".to_string(),
+    }
+}
+
+fn json_optional_os_string(value: &Option<OsString>) -> String {
+    match value {
+        Some(path) => json_string(&path.to_string_lossy()),
+        None => "null".to_string(),
+    }
+}
+
+fn json_string_array(values: &[String]) -> String {
+    let mut out = String::from("[");
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str(&json_string(value));
+    }
+    out.push(']');
+    out
+}
+
+fn json_optional_string_array(values: &Option<Vec<String>>) -> String {
+    match values {
+        Some(lines) => json_string_array(lines),
+        None => "null".to_string(),
+    }
+}
+
+/// Projects every `AuthorityAuditEvent` field keyed by field name.
+///
+/// WO29 Slice A integration note (Leaf B): the seven locality/trust fields
+/// come from Leaf C (landed in this worktree). Observed types, verified
+/// against `run::AuthorityAuditEvent` in `src/run.rs`:
+/// - `locality_status: Option<&'static str>` (still Option, not non-Option)
+/// - `locality_classification: Option<&'static str>`
+/// - `locality_evidence: Option<Vec<String>>`
+/// - `trust_locality_present: bool`
+/// - `trust_attested_path: Option<OsString>`
+/// - `trust_allowed_path: Option<OsString>`
+/// - `classifier_reason: Option<&'static str>`
+/// - `bound_file_identity: Option<String>`
+fn json_authority_audit_event(event: &run::AuthorityAuditEvent) -> String {
+    let mut out = String::from("{");
+    let mut first = true;
+    let mut field = |name: &str, value: String| {
+        if !first {
+            out.push(',');
+        }
+        first = false;
+        out.push('"');
+        out.push_str(name);
+        out.push_str("\":");
+        out.push_str(&value);
+    };
+    field("event_id", json_string(&event.event_id));
+    field("event_sequence", event.event_sequence.to_string());
+    field("request_id", json_string(&event.request_id));
+    field("source_policy_id", json_string(&event.source_policy_id));
+    field("event_kind", json_string(event.event_kind));
+    field("authority_surface", json_string(event.authority_surface));
+    field("capability_id", json_string(event.capability_id));
+    field("grant_kind", json_string(event.grant_kind));
+    field("grant_scope", json_string(event.grant_scope));
+    field("grant_strength", json_string(event.grant_strength));
+    field("grant_lifetime", json_string(event.grant_lifetime));
+    field("app_name", json_optional_str(event.app_name.as_deref()));
+    field("task", json_string(&event.task));
+    field("call_span", json_span(&event.call_span));
+    field("source_route", json_string_array(&event.source_route));
+    let mut route_spans = String::from("[");
+    for (index, span) in event.source_route_spans.iter().enumerate() {
+        if index > 0 {
+            route_spans.push(',');
+        }
+        route_spans.push_str(&json_span(span));
+    }
+    route_spans.push(']');
+    field("source_route_spans", route_spans);
+    field(
+        "source_task_authorized",
+        event.source_task_authorized.to_string(),
+    );
+    field(
+        "source_app_authorized",
+        event.source_app_authorized.to_string(),
+    );
+    field(
+        "operator_allow_present",
+        event.operator_allow_present.to_string(),
+    );
+    field(
+        "operator_deny_present",
+        event.operator_deny_present.to_string(),
+    );
+    field("effective_decision", json_string(event.effective_decision));
+    field("decision_reason", json_string(event.decision_reason));
+    field("adapter_called", event.adapter_called.to_string());
+    field("byte_count", event.byte_count.to_string());
+    field(
+        "replay_index",
+        event
+            .replay_index
+            .map_or("null".to_string(), |index| index.to_string()),
+    );
+    field(
+        "replay_tick",
+        event
+            .replay_tick
+            .map_or("null".to_string(), |tick| tick.to_string()),
+    );
+    field(
+        "native_path_identity",
+        json_optional_os_string(&event.native_path_identity),
+    );
+    field(
+        "native_path_matched",
+        event
+            .native_path_matched
+            .map_or("null".to_string(), |matched| matched.to_string()),
+    );
+    field("locality_status", json_optional_str(event.locality_status));
+    field("result", json_string(event.result));
+    field(
+        "locality_classification",
+        json_optional_str(event.locality_classification),
+    );
+    field(
+        "locality_evidence",
+        json_optional_string_array(&event.locality_evidence),
+    );
+    field(
+        "trust_locality_present",
+        event.trust_locality_present.to_string(),
+    );
+    field(
+        "trust_attested_path",
+        json_optional_os_string(&event.trust_attested_path),
+    );
+    field(
+        "trust_allowed_path",
+        json_optional_os_string(&event.trust_allowed_path),
+    );
+    field(
+        "classifier_reason",
+        json_optional_str(event.classifier_reason),
+    );
+    field(
+        "bound_file_identity",
+        json_optional_str(event.bound_file_identity.as_deref()),
+    );
+    out.push('}');
+    out
+}
+
+/// Builds the `hum run --format json` envelope:
+/// `{"outcome": ..., "exit_code": ..., "program_output_bytes": [...],
+/// "authority_events": [...]}`.
+///
+/// Infallible by construction: the envelope is built by pure string
+/// concatenation over owned strings with no fallible operations (no I/O,
+/// no parsing, no allocation failure handling). The `String` return type
+/// is the machine-checked proof — there is no `Result`, no error arm, and
+/// no synthetic failure path. Reviewers verify infallibility by inspecting
+/// this function body: every operation (`push_str`, `to_string`, integer
+/// formatting) is infallible.
+fn build_run_json_envelope(
+    outcome: &str,
+    exit_code: u8,
+    program_bytes: &[u8],
+    authority_events: &[run::AuthorityAuditEvent],
+) -> String {
+    let mut out = String::from("{\"outcome\":");
+    out.push_str(&json_string(outcome));
+    out.push_str(",\"exit_code\":");
+    out.push_str(&exit_code.to_string());
+    out.push_str(",\"program_output_bytes\":[");
+    for (index, byte) in program_bytes.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str(&byte.to_string());
+    }
+    out.push_str("],\"authority_events\":[");
+    for (index, event) in authority_events.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str(&json_authority_audit_event(event));
+    }
+    out.push_str("]}");
+    out
+}
+
+fn emit_run_json_envelope(
+    outcome: &str,
+    exit_code: u8,
+    program_bytes: &[u8],
+    authority_events: &[run::AuthorityAuditEvent],
+) -> Result<ExitCode, String> {
+    let envelope = build_run_json_envelope(outcome, exit_code, program_bytes, authority_events);
+    println!("{envelope}");
+    Ok(ExitCode::from(exit_code))
+}
+
+/// Diagnostics for the envelope-construction failure branch: exit code 3,
+/// nothing on stdout. Pinned by unit test.
+fn json_report_failure_diagnostics(context: &str) -> (ExitCode, String) {
+    (
+        ExitCode::from(3),
+        format!(
+            "hum run --format json: envelope construction failed ({context}); no JSON was written to stdout\n"
+        ),
+    )
 }
 
 fn runtime_diagnostic_occurrences(
@@ -1805,6 +2193,12 @@ enum CheckFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunFormat {
+    Human,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SyntaxFormat {
     Json,
     TextMate,
@@ -1951,6 +2345,7 @@ struct CliOptions {
     run_args: Vec<OsString>,
     run_authority: operator_grant::OperatorGrantPolicy,
     run_replay_ticks: Vec<i64>,
+    run_format: RunFormat,
     show_timings: bool,
     check_format: CheckFormat,
     syntax_format: SyntaxFormat,
@@ -2033,6 +2428,20 @@ fn parse_cli_os(args: Vec<OsString>) -> Result<CliOptions, String> {
             {
                 return Ok(native_file_grant_value_placeholder());
             }
+            if crate::native_path::strip_ascii_prefix(arg, "--trust-locality=")
+                .and_then(|attestation| {
+                    crate::native_path::strip_ascii_prefix(&attestation, "files.read=")
+                })
+                .is_some()
+            {
+                return Ok(native_trust_locality_placeholder());
+            }
+            if index > 0
+                && args[index - 1] == OsStr::new("--trust-locality")
+                && crate::native_path::strip_ascii_prefix(arg, "files.read=").is_some()
+            {
+                return Ok(native_trust_locality_value_placeholder());
+            }
             Err("non-Unicode CLI input is accepted only as a structural app Path argument or native `files.read=<path>` grant".to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -2094,6 +2503,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
     let mut run_args = Vec::new();
     let mut run_authority = operator_grant::OperatorGrantPolicy::default();
     let mut run_replay_ticks = Vec::new();
+    let mut run_format = RunFormat::Human;
     let mut check_format = CheckFormat::Human;
     let mut syntax_format = SyntaxFormat::Json;
     let mut version_format = VersionFormat::Human;
@@ -2186,6 +2596,23 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                 }
                 push_replay_tick(&mut run_replay_ticks, value)?;
             }
+            "--trust-locality" if command == "run" => {
+                let Some(value) = args.next() else {
+                    return Err(
+                        "`hum run --trust-locality` requires an exact attestation".to_string()
+                    );
+                };
+                run_authority.trust_locality(&value)?;
+            }
+            flag if command == "run" && flag.starts_with("--trust-locality=") => {
+                let value = flag.trim_start_matches("--trust-locality=");
+                if value.is_empty() {
+                    return Err(
+                        "`hum run --trust-locality` requires an exact attestation".to_string()
+                    );
+                }
+                run_authority.trust_locality(value)?;
+            }
             "--allow" | "--deny" => {
                 return Err(format!("`{arg}` is supported only by `hum run`"));
             }
@@ -2198,6 +2625,12 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             }
             flag if flag.starts_with("--replay-tick=") => {
                 return Err("`--replay-tick` is supported only by `hum run`".to_string());
+            }
+            "--trust-locality" => {
+                return Err("`--trust-locality` is supported only by `hum run`".to_string());
+            }
+            flag if flag.starts_with("--trust-locality=") => {
+                return Err("`--trust-locality` is supported only by `hum run`".to_string());
             }
             "--args" if command == "run" => {
                 run_args.extend(args.map(OsString::from));
@@ -2258,6 +2691,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                         | "ir-readiness"
                         | "backend-probe"
                         | "ir-verify"
+                        | "run"
                 ) =>
             {
                 let Some(value) = args.next() else {
@@ -2301,6 +2735,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(&value)?,
                     "backend-probe" => ir_readiness_format = parse_backend_probe_format(&value)?,
                     "ir-verify" => ir_readiness_format = parse_ir_verify_format(&value)?,
+                    "run" => run_format = parse_run_format(&value)?,
                     _ => unreachable!(),
                 }
             }
@@ -2337,6 +2772,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     | "ir-readiness"
                     | "backend-probe"
                     | "ir-verify"
+                    | "run"
             ) && flag.starts_with("--format=") =>
             {
                 let value = flag.trim_start_matches("--format=");
@@ -2378,6 +2814,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
                     "ir-readiness" => ir_readiness_format = parse_ir_readiness_format(value)?,
                     "backend-probe" => ir_readiness_format = parse_backend_probe_format(value)?,
                     "ir-verify" => ir_readiness_format = parse_ir_verify_format(value)?,
+                    "run" => run_format = parse_run_format(value)?,
                     _ => unreachable!(),
                 }
             }
@@ -2400,6 +2837,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2445,6 +2883,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2490,6 +2929,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2535,6 +2975,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2580,6 +3021,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2625,6 +3067,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2670,6 +3113,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2715,6 +3159,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2760,6 +3205,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2805,6 +3251,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2856,6 +3303,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2901,6 +3349,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -2946,6 +3395,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
             run_native: false,
             run_args: Vec::new(),
             run_authority: run_authority.clone(),
+            run_format,
             run_replay_ticks: run_replay_ticks.clone(),
             show_timings,
             check_format,
@@ -3041,6 +3491,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         run_args,
         run_authority,
         run_replay_ticks,
+        run_format,
         show_timings,
         check_format,
         syntax_format,
@@ -3122,10 +3573,24 @@ fn native_operator_policy(
             index += 2;
             continue;
         }
+        if arg == OsStr::new("--trust-locality") {
+            let Some(value) = args.get(index + 1) else {
+                break;
+            };
+            policy.trust_locality_os(value)?;
+            index += 2;
+            continue;
+        }
         if let Some(value) = crate::native_path::strip_ascii_prefix(arg, "--allow=") {
             policy.allow_os(&value)?;
         } else if let Some(value) = crate::native_path::strip_ascii_prefix(arg, "--deny=") {
             policy.deny_os(&value)?;
+        } else if let Some(value) = crate::native_path::strip_ascii_prefix(arg, "--trust-locality=")
+        {
+            if value.is_empty() {
+                return Err("`hum run --trust-locality` requires an exact attestation".to_string());
+            }
+            policy.trust_locality_os(&value)?;
         }
         index += 1;
     }
@@ -3160,6 +3625,34 @@ fn native_file_grant_value_placeholder() -> String {
     "files.read=/native-path-unavailable".to_string()
 }
 
+#[cfg(windows)]
+fn native_trust_locality_placeholder() -> String {
+    format!(
+        "--trust-locality=files.read=C:{}hum-session-ab{}native-placeholder",
+        char::from(92),
+        char::from(92)
+    )
+}
+
+#[cfg(not(windows))]
+fn native_trust_locality_placeholder() -> String {
+    "--trust-locality=files.read=/native-path-unavailable".to_string()
+}
+
+#[cfg(windows)]
+fn native_trust_locality_value_placeholder() -> String {
+    format!(
+        "files.read=C:{}hum-session-ab{}native-placeholder",
+        char::from(92),
+        char::from(92)
+    )
+}
+
+#[cfg(not(windows))]
+fn native_trust_locality_value_placeholder() -> String {
+    "files.read=/native-path-unavailable".to_string()
+}
+
 const MAX_REPLAY_TICKS: usize = 1024;
 
 fn push_replay_tick(ticks: &mut Vec<i64>, text: &str) -> Result<(), String> {
@@ -3186,6 +3679,16 @@ fn parse_check_format(value: &str) -> Result<CheckFormat, String> {
         "json" => Ok(CheckFormat::Json),
         other => Err(format!(
             "unknown check format `{other}`; expected `human` or `json`"
+        )),
+    }
+}
+
+fn parse_run_format(value: &str) -> Result<RunFormat, String> {
+    match value {
+        "human" => Ok(RunFormat::Human),
+        "json" => Ok(RunFormat::Json),
+        other => Err(format!(
+            "unknown run format `{other}`; expected `human` or `json`"
         )),
     }
 }
@@ -3731,7 +4234,7 @@ fn print_help() {
     println!("Usage:");
     println!("  hum check [--format human|json] [--timings] <file-or-dir>...");
     println!(
-        "  hum run [--timings] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--allow files.read=<path>] [--deny files.read] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]"
+        "  hum run [--timings] [--format human|json] [--trust-locality files.read=<path>] [--allow stdout.write] [--deny stdout.write] [--allow clock.replay] [--deny clock.replay] [--allow files.read=<path>] [--deny files.read] [--replay-tick <UInt>]... <file> [--entry <task>] [--args ...]"
     );
     println!("  hum graph [--timings] <file-or-dir>...");
     println!("  hum evidence [--format human|json] [--timings] <file-or-dir>...");
@@ -3820,6 +4323,12 @@ fn print_help() {
     println!("  --deny      Deny exactly: stdout.write, clock.replay, or files.read; deny wins");
     println!("  --replay-tick  Add one ordered runner replay UInt; repeatable up to 1024 values");
     println!("  --args      Pass all remaining values to `hum run`");
+    println!(
+        "  --trust-locality  Attest exactly one native files.read=<path> as operator-trusted (run only; CLI-only, per invocation)"
+    );
+    println!(
+        "  --format and --trust-locality must precede --args; after --args they are program args"
+    );
 }
 
 #[cfg(test)]
@@ -3845,6 +4354,7 @@ mod tests {
 
     use crate::file_read::{
         FileLocalityAdapter, FileLocalityError, FileReadAdapter, FileReadAdapterError,
+        OpenCheckedFailure, OpenProgress, OpenedCheckedFile,
     };
     use crate::native_path::ValidatedNativePath;
 
@@ -3858,9 +4368,9 @@ mod tests {
         CoreLowerFormat, CorePreviewFormat, CoreVerifyFormat, DiagnosticsFormat, DoctorFormat,
         EvidenceFormat, ExplainFormat, IrContractFormat, IrReadinessFormat, LspFormat,
         MathObligationsFormat, ReanalysisProducer, ReanalyzableProjection, ReanalyzedProjection,
-        ResolveFormat, ResourceReportFormat, RunCommandDisposition, RuntimeProfilesFormat,
-        StateModelFormat, SyntaxFormat, TargetFactsFormat, TypeCheckFormat, TypeEnvFormat,
-        VersionFormat, execute_run_command, insert_capability_projections,
+        ResolveFormat, ResourceReportFormat, RunCommandDisposition, RunFormat,
+        RuntimeProfilesFormat, StateModelFormat, SyntaxFormat, TargetFactsFormat, TypeCheckFormat,
+        TypeEnvFormat, VersionFormat, execute_run_command, insert_capability_projections,
         insert_reanalyzed_projection, load_program, parse_cli, remove_loaded_app_projections,
         remove_reanalyzed_projection,
     };
@@ -3875,6 +4385,23 @@ mod tests {
         let mut grant = OsString::from("files.read=");
         grant.push(native_drive_path(drive, suffix));
         grant
+    }
+
+    /// Platform-correct `--trust-locality` payload for the parse tests.
+    /// The trust payload is lexically validated by `native_operator_policy`
+    /// before command dispatch, so the tests must use an absolute path
+    /// the host's validation accepts; production validation is untouched.
+    /// The Windows form avoids literal double-backslash in source
+    /// (public-readiness).
+    #[cfg(windows)]
+    fn native_trust_attestation_value() -> String {
+        let bs = char::from(92);
+        format!("files.read=C:{bs}hum-session-ab{bs}trusted.bin")
+    }
+
+    #[cfg(not(windows))]
+    fn native_trust_attestation_value() -> String {
+        "files.read=/hum-session-ab/trusted.bin".to_string()
     }
 
     #[test]
@@ -4021,7 +4548,18 @@ mod tests {
     }
 
     impl FileReadAdapter for PostAqCountingFileRead {
-        fn read_text(&mut self, _path: &OsStr) -> Result<String, FileReadAdapterError> {
+        fn open_checked(&mut self, _path: &OsStr) -> Result<OpenedCheckedFile, OpenCheckedFailure> {
+            self.calls += 1;
+            Err(OpenCheckedFailure::new(
+                FileReadAdapterError::IoFailed,
+                OpenProgress::NONE,
+            ))
+        }
+
+        fn read_opened(
+            &mut self,
+            _opened: OpenedCheckedFile,
+        ) -> Result<String, FileReadAdapterError> {
             self.calls += 1;
             Err(FileReadAdapterError::IoFailed)
         }
@@ -4784,6 +5322,221 @@ mod tests {
         ])
         .expect_err("payload grant");
         assert!(payload.contains("forbidden payload"));
+    }
+
+    #[test]
+    fn parses_run_trust_locality_space_and_equals_forms() {
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+            "--trust-locality".to_string(),
+            native_trust_attestation_value(),
+        ])
+        .expect("trust-locality space form");
+        assert!(options.run_authority.trust_locality_attested());
+        assert!(options.run_authority.trust_locality_grant().is_some());
+        // An attestation is not an --allow grant.
+        assert!(!options.run_authority.allows_files_read());
+
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+            format!("--trust-locality={}", native_trust_attestation_value()),
+        ])
+        .expect("trust-locality equals form");
+        assert!(options.run_authority.trust_locality_attested());
+    }
+
+    #[test]
+    fn rejects_run_trust_locality_missing_value() {
+        let error = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+            "--trust-locality".to_string(),
+        ])
+        .expect_err("missing attestation");
+        assert_eq!(
+            error,
+            "`hum run --trust-locality` requires an exact attestation"
+        );
+
+        let error = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+            "--trust-locality=".to_string(),
+        ])
+        .expect_err("empty attestation");
+        assert_eq!(
+            error,
+            "`hum run --trust-locality` requires an exact attestation"
+        );
+    }
+
+    #[test]
+    fn rejects_trust_locality_outside_run() {
+        let error = parse_cli(vec![
+            "check".to_string(),
+            "--trust-locality".to_string(),
+            native_trust_attestation_value(),
+            "examples".to_string(),
+        ])
+        .expect_err("non-run trust-locality");
+        assert_eq!(error, "`--trust-locality` is supported only by `hum run`");
+
+        let error = parse_cli(vec![
+            "check".to_string(),
+            format!("--trust-locality={}", native_trust_attestation_value()),
+            "examples".to_string(),
+        ])
+        .expect_err("non-run trust-locality equals");
+        assert_eq!(error, "`--trust-locality` is supported only by `hum run`");
+    }
+
+    #[test]
+    fn trust_locality_after_args_is_a_program_argument() {
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+            "--args".to_string(),
+            "--trust-locality".to_string(),
+        ])
+        .expect("trust-locality after --args");
+        assert!(!options.run_authority.trust_locality_attested());
+        assert_eq!(options.run_args, [OsString::from("--trust-locality")]);
+    }
+
+    #[test]
+    fn trust_locality_is_per_invocation_and_cli_only() {
+        let attested = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+            "--trust-locality".to_string(),
+            native_trust_attestation_value(),
+        ])
+        .expect("attested run");
+        assert!(attested.run_authority.trust_locality_attested());
+
+        // A fresh parse (a new invocation) starts unattested: no persistent
+        // construction and no environment fallback: an attestation exists
+        // only on the command line that carried it. (`std::env::set_var` is
+        // `unsafe` in edition 2024 and this crate is `#![deny(unsafe_code)]`,
+        // so the "no env var attests" property is enforced structurally: no
+        // code on the CLI path reads `std::env` for attestation.)
+        let fresh = parse_cli(vec![
+            "run".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+        ])
+        .expect("fresh run");
+        assert!(!fresh.run_authority.trust_locality_attested());
+        assert!(fresh.run_authority.trust_locality_grant().is_none());
+    }
+
+    #[test]
+    fn parses_run_json_format() {
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "--format=json".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+        ])
+        .expect("run json format");
+        assert_eq!(options.run_format, RunFormat::Json);
+
+        let options = parse_cli(vec![
+            "run".to_string(),
+            "--format".to_string(),
+            "human".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+        ])
+        .expect("run human format");
+        assert_eq!(options.run_format, RunFormat::Human);
+    }
+
+    #[test]
+    fn rejects_unknown_run_format() {
+        let error = parse_cli(vec![
+            "run".to_string(),
+            "--format=yaml".to_string(),
+            "examples/probes/bounded_stdout.hum".to_string(),
+        ])
+        .expect_err("unknown run format");
+        assert_eq!(
+            error,
+            "unknown run format `yaml`; expected `human` or `json`"
+        );
+    }
+
+    #[test]
+    fn json_report_failure_diagnostics_pins_exit_code_three() {
+        let (code, diagnostics) = super::json_report_failure_diagnostics("slice-a-test-context-v0");
+        assert_eq!(code, std::process::ExitCode::from(3));
+        assert!(diagnostics.contains("slice-a-test-context-v0"));
+        assert!(diagnostics.contains("no JSON was written to stdout"));
+    }
+
+    #[test]
+    fn run_json_envelope_shape_is_well_formed() {
+        // `build_run_json_envelope` is infallible: it returns `String`
+        // directly, with no `Result` and no error arm.
+        let envelope = super::build_run_json_envelope("success", 0, &[104, 105], &[]);
+        assert_eq!(
+            envelope,
+            "{\"outcome\":\"success\",\"exit_code\":0,\"program_output_bytes\":[104,105],\"authority_events\":[]}"
+        );
+        let bs = char::from(92);
+        // Input value: a, quote, b, backslash, c, newline, d, 0x01, e.
+        // Built without literal backslash sequences in source (the
+        // readiness scanner flags double-backslash sequences).
+        let input: String = ['a', '"', 'b', bs, 'c', '\n', 'd', '\u{1}', 'e']
+            .iter()
+            .collect();
+        let escaped = super::json_string(&input);
+        // Expected JSON: the input quoted, with quote/backslash/newline/0x01
+        // escaped per the JSON string rules.
+        let expected: String = [
+            '"', 'a', bs, '"', 'b', bs, bs, 'c', bs, 'n', 'd', bs, 'u', '0', '0', '0', '1', 'e',
+            '"',
+        ]
+        .iter()
+        .collect();
+        assert_eq!(escaped, expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_non_utf8_trust_locality_attestation() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let mut raw = b"files.read=/hum-session-ab/opaque-".to_vec();
+        raw.extend_from_slice(&[0xff, 0xfe]);
+        let attestation = OsString::from_vec(raw);
+        let options = super::parse_cli_os(vec![
+            OsString::from("run"),
+            OsString::from("examples/probes/opaque_native_path.hum"),
+            OsString::from("--trust-locality"),
+            attestation.clone(),
+        ])
+        .expect("non-UTF8 trust-locality CLI");
+        assert!(options.run_authority.trust_locality_attested());
+        assert_eq!(
+            options
+                .run_authority
+                .trust_locality_grant()
+                .expect("attestation")
+                .as_os_str()
+                .as_bytes(),
+            &attestation.as_bytes()[b"files.read=".len()..]
+        );
+
+        let mut raw_equals = b"--trust-locality=files.read=/hum-session-ab/opaque-".to_vec();
+        raw_equals.extend_from_slice(&[0xfe, 0xff]);
+        let options = super::parse_cli_os(vec![
+            OsString::from("run"),
+            OsString::from("examples/probes/opaque_native_path.hum"),
+            OsString::from_vec(raw_equals),
+        ])
+        .expect("non-UTF8 trust-locality equals form");
+        assert!(options.run_authority.trust_locality_attested());
+        assert!(!options.run_authority.allows_files_read());
     }
 
     #[cfg(windows)]

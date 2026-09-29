@@ -35,12 +35,54 @@ impl DriveRoot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DriveLocality {
+    /// Defined (decision 0015's `proved` vocabulary) but unreachable from
+    /// the live classifier: the grant-first demotion (decision 0029 §14,
+    /// WO29 Slice A) demoted the only positive admission to `Unproven`,
+    /// mirroring Linux's `Proven`.
     FixedLocal,
+    /// Grant-first verdict: the recorded observations are plausible-local
+    /// but insufficient to admit; the named reason lives in
+    /// `ClassifiedDrive::unproven_reason`.
+    Unproven,
     Remote,
     Substituted,
     Removable,
     Unsupported,
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassifiedDrive {
+    pub locality: DriveLocality,
+    /// Sorted, deduplicated physical disk numbers backing this drive, taken
+    /// from the same completely-observed disk list that feeds the locality
+    /// classification (the `required_disks` source). Non-empty only on the
+    /// grant-first `Unproven` path that observed the complete extent/disk
+    /// topology; empty on every closed path (Remote, Substituted,
+    /// Removable, Unknown, Unsupported).
+    ///
+    /// These numbers are *backing-device* identity only, never *file*
+    /// identity and never *admission*: they name the physical disks behind
+    /// the volume as observed, not a proof that the backing is local. A
+    /// file's identity comes from `opened_file_identity`, never from these
+    /// numbers.
+    pub backing_device_identity: Vec<u32>,
+    /// Observed-fact lines recorded on the grant-first `Unproven` path:
+    /// bus-type evidence, `RemovableMedia` flags, disk extents, and the
+    /// dependency-walk observation. Empty on every closed path. Facts are
+    /// observations only; they never admit.
+    pub observed_facts: Vec<String>,
+    /// Named reason for the `Unproven` verdict
+    /// (`windows_locality_unproven_insufficient_evidence_v0` for the
+    /// demoted ATA/SATA/NVMe path). `None` unless
+    /// `locality == DriveLocality::Unproven`.
+    pub unproven_reason: Option<&'static str>,
+    /// Full 64-bit volume serial from `FILE_ID_INFO` on the classified
+    /// volume's device handle — the same unit as the opened file's
+    /// identity serial. `None` on any failure (including the non-Windows
+    /// stub). Never truncated, never zero-extended: the consumer binds
+    /// this against `FILE_ID_INFO` serials with direct equality.
+    pub volume_serial: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,13 +198,110 @@ fn classify_preliminary(observation: &PreliminaryObservation) -> PreliminaryClas
     }
 }
 
+/// Named reason for the demoted grant-first `Unproven` verdict: the
+/// ATA/SATA/NVMe observations are plausible-local, but guest-visible
+/// bus-type evidence cannot exclude invisible (hypervisor-interposed)
+/// backing, so the evidence is insufficient for admission. Exact string is
+/// the builder's choice (decision 0029 §14, reviewed).
 #[cfg(any(windows, test))]
+pub const REASON_INSUFFICIENT_EVIDENCE: &str = "windows_locality_unproven_insufficient_evidence_v0";
+
+/// Test-only projection of the classification verdict: the bundled tests
+/// exercise the evidence-to-verdict mapping without opening real devices.
+/// (Previously also compiled on Windows; narrowed after the cross-target
+/// build flagged it as dead code there.)
+#[cfg(test)]
 fn classify_evidence(evidence: &InspectionEvidence) -> DriveLocality {
+    classify_evidence_detail(evidence).locality
+}
+
+/// The full classification verdict for one complete inspection: locality,
+/// the sorted/deduplicated backing-disk numbers kept as device observation
+/// (not admission), the observed-fact lines, and the named `Unproven`
+/// reason (`None` unless the verdict is `Unproven`).
+///
+/// The classification logic matches `classify_evidence`; this widens the
+/// return so the Windows `classify` entry point can thread observations
+/// through to `ClassifiedDrive`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(any(windows, test))]
+struct EvidenceVerdict {
+    locality: DriveLocality,
+    backing_device_identity: Vec<u32>,
+    observed_facts: Vec<String>,
+    unproven_reason: Option<&'static str>,
+}
+
+#[cfg(any(windows, test))]
+impl EvidenceVerdict {
+    /// A closed (non-candidate) verdict carries no disk identity, no
+    /// observed facts, and no `Unproven` reason.
+    fn closed(locality: DriveLocality) -> Self {
+        debug_assert_ne!(
+            locality,
+            DriveLocality::Unproven,
+            "the only Unproven path is the demoted grant-first admission"
+        );
+        Self {
+            locality,
+            backing_device_identity: Vec::new(),
+            observed_facts: Vec::new(),
+            unproven_reason: None,
+        }
+    }
+}
+
+/// Observed-fact lines for the demoted grant-first path: the
+/// dependency-walk observation, each disk extent, and each required disk's
+/// bus type and removable-media flag. Recorded in a deterministic order.
+/// These are observations only — they never admit.
+#[cfg(any(windows, test))]
+fn observed_facts(
+    extents: &[ExtentObservation],
+    disks: &[DiskObservation],
+    required_disks: &[u32],
+) -> Vec<String> {
+    let mut facts = Vec::with_capacity(1 + extents.len() + required_disks.len());
+    facts.push("dependency_walk: no_dependencies".to_string());
+    for extent in extents {
+        facts.push(format!(
+            "extent: disk {} starting_offset {} extent_length {}",
+            extent.disk_number, extent.starting_offset, extent.extent_length
+        ));
+    }
+    for disk_number in required_disks {
+        if let Some(disk) = disks.iter().find(|disk| disk.disk_number == *disk_number) {
+            facts.push(format!(
+                "disk {}: bus_type {} removable_media {}",
+                disk.disk_number,
+                bus_type_label(disk.bus_type),
+                disk.removable
+            ));
+        }
+    }
+    facts
+}
+
+/// Short label for an observed bus type, for the observed-fact record.
+/// Only ATA/SATA/NVMe can appear on the demoted path; anything else is
+/// reported by number.
+#[cfg(any(windows, test))]
+fn bus_type_label(bus_type: u32) -> String {
+    match bus_type {
+        BUS_TYPE_ATA => "ATA".to_string(),
+        BUS_TYPE_SATA => "SATA".to_string(),
+        BUS_TYPE_NVME => "NVMe".to_string(),
+        other => format!("bus_{other}"),
+    }
+}
+
+#[cfg(any(windows, test))]
+fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     let PreliminaryClass::Candidate = classify_preliminary(&evidence.before) else {
         let PreliminaryClass::Closed(result) = classify_preliminary(&evidence.before) else {
             unreachable!();
         };
-        return result;
+        return EvidenceVerdict::closed(result);
     };
 
     if evidence.before != evidence.after
@@ -170,21 +309,21 @@ fn classify_evidence(evidence: &InspectionEvidence) -> DriveLocality {
         || evidence.dependency != QueryState::Complete(DependencyObservation::None)
         || evidence.closes != QueryState::Complete(())
     {
-        return DriveLocality::Unknown;
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
 
     let QueryState::Complete(extents) = &evidence.extents else {
-        return DriveLocality::Unknown;
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     };
     let QueryState::Complete(disks) = &evidence.disks else {
-        return DriveLocality::Unknown;
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     };
     if extents.is_empty()
         || extents
             .iter()
             .any(|extent| extent.starting_offset < 0 || extent.extent_length <= 0)
     {
-        return DriveLocality::Unknown;
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
 
     let mut required_disks = extents
@@ -194,41 +333,385 @@ fn classify_evidence(evidence: &InspectionEvidence) -> DriveLocality {
     required_disks.sort_unstable();
     required_disks.dedup();
     if disks.len() != required_disks.len() {
-        return DriveLocality::Unknown;
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
 
-    for disk_number in required_disks {
-        let Some(disk) = disks.iter().find(|disk| disk.disk_number == disk_number) else {
-            return DriveLocality::Unknown;
+    for disk_number in &required_disks {
+        let Some(disk) = disks.iter().find(|disk| disk.disk_number == *disk_number) else {
+            return EvidenceVerdict::closed(DriveLocality::Unknown);
         };
         if disk.removable || !matches!(disk.bus_type, BUS_TYPE_ATA | BUS_TYPE_SATA | BUS_TYPE_NVME)
         {
-            return DriveLocality::Unknown;
+            return EvidenceVerdict::closed(DriveLocality::Unknown);
         }
     }
 
-    DriveLocality::FixedLocal
+    // ------------------------------------------------------------------
+    // GRANT-FIRST DEMOTION (decision 0029 §14, WO29 Slice A).
+    //
+    // Predecessor behavior: when every backing disk was observed as
+    // non-removable with bus type ATA/SATA/NVMe over a completely-observed
+    // extent/disk topology with no dependencies and observed closes, the
+    // classifier emitted `(DriveLocality::FixedLocal, required_disks)` — a
+    // positive admission that the drive was trusted-local.
+    //
+    // Why demoted: guest-visible bus-type observations do not establish
+    // invisible backing. A hypervisor or other invisible intermediary can
+    // interpose network/file backing beneath guest-visible ATA/SATA/NVMe
+    // frontends, and the guest cannot observe the difference. For this
+    // WO29 version no classifier emits a positive admission: the
+    // observation logic above is unchanged, only the verdict is demoted
+    // to grant-first `Unproven` with the insufficient-evidence reason.
+    // The observed disk numbers are kept as `backing_device_identity`
+    // (device observation, not admission). `DriveLocality::FixedLocal`
+    // stays defined (decision 0015's `proved` vocabulary) but is
+    // unreachable from the live classifier — mirroring Linux's `Proven`.
+    // ------------------------------------------------------------------
+    let facts = observed_facts(extents, disks, &required_disks);
+    EvidenceVerdict {
+        locality: DriveLocality::Unproven,
+        backing_device_identity: required_disks,
+        observed_facts: facts,
+        unproven_reason: Some(REASON_INSUFFICIENT_EVIDENCE),
+    }
 }
 
 #[cfg(not(windows))]
-pub fn classify(_root: DriveRoot) -> DriveLocality {
-    DriveLocality::Unsupported
+pub fn classify(_root: DriveRoot) -> ClassifiedDrive {
+    ClassifiedDrive {
+        locality: DriveLocality::Unsupported,
+        backing_device_identity: Vec::new(),
+        observed_facts: Vec::new(),
+        unproven_reason: None,
+        volume_serial: None,
+    }
 }
 
 #[cfg(windows)]
-pub fn classify(root: DriveRoot) -> DriveLocality {
+pub fn classify(root: DriveRoot) -> ClassifiedDrive {
+    let Some(volume) = open_device(&root.volume_device()) else {
+        // The device cannot be opened: the volume serial is unobservable
+        // and the full inspection below would report the same `Unknown`.
+        return ClassifiedDrive {
+            locality: DriveLocality::Unknown,
+            backing_device_identity: Vec::new(),
+            observed_facts: Vec::new(),
+            unproven_reason: None,
+            volume_serial: None,
+        };
+    };
+    // The serial is read from the SAME opened volume device the full
+    // inspection below queries: one open, one coherent observation. Both
+    // are the full 64-bit `FILE_ID_INFO` serial — never truncated, never
+    // zero-extended.
+    let volume_serial = query_volume_serial(volume.raw);
+    let verdict = classify_full(root, volume);
+    ClassifiedDrive {
+        locality: verdict.locality,
+        backing_device_identity: verdict.backing_device_identity,
+        observed_facts: verdict.observed_facts,
+        unproven_reason: verdict.unproven_reason,
+        volume_serial,
+    }
+}
+
+/// Full 64-bit volume serial from `FILE_ID_INFO` on an opened volume
+/// device handle — the same unit as the file identity serial, so the
+/// consumer binds classification and open with direct equality. Any
+/// failure yields `None`: fail closed.
+#[cfg(windows)]
+fn query_volume_serial(volume_raw: *mut core::ffi::c_void) -> Option<u64> {
+    file_id_info(volume_raw).map(|info| info.volume_serial_number)
+}
+
+/// Read one `FILE_ID_INFO` from a live handle via
+/// `GetFileInformationByHandleEx` (`FileIdInfo`, class 18). Shared by the
+/// file-identity reader and the volume-serial reader so both observe the
+/// same unit. Returns `None` on null handle or API failure; the caller
+/// applies its own validity rules (e.g. the zero-file-ID rejection).
+#[cfg(windows)]
+fn file_id_info(raw_handle: *mut core::ffi::c_void) -> Option<FileIdInfoLayout> {
+    /// `FILE_INFO_BY_HANDLE_CLASS::FileIdInfo`.
+    const FILE_ID_INFO_CLASS: u32 = 18;
+    if raw_handle.is_null() {
+        return None;
+    }
+    let mut info = core::mem::MaybeUninit::<FileIdInfoLayout>::uninit();
+    let succeeded = unsafe {
+        // SAFETY: `raw_handle` is non-null and, per the caller's contract,
+        // a live open handle. `info` is a properly aligned 24-byte
+        // out-buffer that stays alive for the call and is only read when
+        // the call reports success.
+        GetFileInformationByHandleEx(
+            raw_handle,
+            FILE_ID_INFO_CLASS,
+            info.as_mut_ptr().cast(),
+            core::mem::size_of::<FileIdInfoLayout>() as u32,
+        )
+    };
+    if succeeded == 0 {
+        return None;
+    }
+    Some(unsafe {
+        // SAFETY: the API reported success, so the out-buffer is fully
+        // initialized with one `FILE_ID_INFO`.
+        info.assume_init()
+    })
+}
+
+/// Identity of an already-opened file: the 64-bit volume serial plus the
+/// 128-bit file reference number from `FILE_ID_INFO`
+/// (`GetFileInformationByHandleEx` with `FileIdInfo`, class 18). This is
+/// the documented stable identity contract: unlike the legacy 64-bit
+/// `nFileIndex` from `GetFileInformationByHandle`, the 128-bit file ID is
+/// unique and stable on ReFS, which is the filesystem this contract is
+/// documented for.
+///
+/// `None` means the identity is unavailable (null handle, invalid handle,
+/// API failure, a zero file ID, or a filesystem that does not expose
+/// 128-bit file IDs) — never a sentinel value and never a downgrade to
+/// the legacy index. There is deliberately no FAT/exFAT special case:
+/// where the supported identity is unavailable or insufficient, the bind
+/// fails closed.
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowsFileIdentity {
+    pub volume_serial: u64,
+    pub file_id: [u8; 16],
+}
+
+/// Read the identity of an already-opened file handle via
+/// `GetFileInformationByHandleEx` (`FileIdInfo`): `volume_serial` is
+/// `FILE_ID_INFO.VolumeSerialNumber` and `file_id` is the 128-bit
+/// `FILE_ID_INFO.FileId`. Returns `None` on any failure. Stable Rust
+/// only; no new dependencies.
+#[cfg(windows)]
+pub fn opened_file_identity(raw_handle: *mut core::ffi::c_void) -> Option<WindowsFileIdentity> {
+    let info = file_id_info(raw_handle)?;
+    if info.file_id == [0; 16] {
+        // A zero file ID is not a usable identity: the filesystem did
+        // not provide one. Fail closed rather than bind against a
+        // sentinel.
+        return None;
+    }
+    Some(WindowsFileIdentity {
+        volume_serial: info.volume_serial_number,
+        file_id: info.file_id,
+    })
+}
+
+/// Read the identity of the file at `path` (a NUL-terminated UTF-16 path)
+/// WITHOUT following reparse points: the handle is opened with
+/// `FILE_FLAG_OPEN_REPARSE_POINT`, so a symlink or mount-point reparse at
+/// the final component yields the reparse point's own identity, not its
+/// target's. Returns `None` on any failure. Stable Rust only; the FFI is
+/// confined to this crate's audited `kernel32` block.
+#[cfg(windows)]
+pub fn walked_file_identity(path_nul_terminated_utf16: &[u16]) -> Option<WindowsFileIdentity> {
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+    const OPEN_EXISTING: u32 = 3;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    if path_nul_terminated_utf16.last() != Some(&0) {
+        return None;
+    }
+    let handle = unsafe {
+        // SAFETY: the path is NUL-terminated per the checked precondition
+        // and remains alive for the call. Desired access is zero (metadata
+        // only); share mode allows concurrent readers/writers/deleters;
+        // `OPEN_EXISTING` never creates; the reparse-point flag prevents
+        // link following; backup semantics permits directory handles.
+        CreateFileW(
+            path_nul_terminated_utf16.as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            core::ptr::null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+            core::ptr::null_mut(),
+        )
+    };
+    if handle.is_null() || handle == (-1isize as *mut core::ffi::c_void) {
+        return None;
+    }
+    let identity = opened_file_identity(handle);
+    unsafe {
+        // SAFETY: `handle` came from the successful `CreateFileW` above and
+        // is closed exactly once here.
+        CloseHandle(handle);
+    }
+    identity
+}
+
+/// One coherent observation of the volume actually containing an opened
+/// file: the full 64-bit volume serial from the opened file handle's own
+/// `FILE_ID_INFO` plus the complete sorted/deduplicated extent set from
+/// the volume device resolved from the handle's volume-GUID final path.
+/// The two fields are observed together so the consumer binds the serial
+/// and the extents as a single unit; neither is ever re-derived from the
+/// walk's drive letter (which names the wrong volume for folder-mounted
+/// and redirected topology).
+#[cfg(windows)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenedVolumeObservation {
+    /// Full 64-bit serial from `FILE_ID_INFO` on the opened file handle —
+    /// the same unit as the opened file identity's serial.
+    pub volume_serial: u64,
+    /// Sorted, deduplicated physical disk numbers backing the volume.
+    pub disk_numbers: Vec<u32>,
+}
+
+/// Resolve the volume actually containing an already-opened file, from
+/// the OPENED OBJECT — never re-derived from the classified path. The
+/// serial is read on the opened file handle's own `FILE_ID_INFO` — the
+/// same unit as the opened file identity, queried on the same handle —
+/// never on the volume-device handle (that query is unreliable natively).
+/// The handle's volume-GUID final path names the true containing volume
+/// (correct for folder-mounted and redirected topology, where reopening
+/// a drive letter can name the wrong volume); the volume device is
+/// opened by GUID and the extent list is read live from that device,
+/// with the same decoder the classifier uses.
+///
+/// `None` means the observation is unavailable (null handle, API failure,
+/// a final path that is not a volume-GUID form, or an empty extent set)
+/// — never a partial or invented list.
+#[cfg(windows)]
+pub fn opened_volume_observation(
+    raw_handle: *mut core::ffi::c_void,
+) -> Option<OpenedVolumeObservation> {
+    if raw_handle.is_null() {
+        return None;
+    }
+    // The serial comes from the OPENED FILE handle's own `FILE_ID_INFO`:
+    // the same handle that produced the file identity, the same unit the
+    // consumer binds with direct equality — no truncation, no
+    // zero-extension, and no unreliable volume-device query.
+    let serial = file_id_info(raw_handle)?.volume_serial_number;
+    // The containing volume device, derived from the handle's own
+    // volume-GUID final path — never re-derived from a drive letter.
+    let guid_path = volume_guid_path_by_handle(raw_handle)?;
+    let device = containing_volume_device_path(&guid_path)?;
+    let volume = open_device(&device)?;
+    let mut buffer = Box::new(AlignedBuffer::<EXTENT_BUFFER_BYTES>(
+        [0; EXTENT_BUFFER_BYTES],
+    ));
+    let returned = device_io_control(
+        &volume,
+        IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+        &[],
+        &mut buffer.0,
+    );
+    let QueryState::Complete(extents) = decode_extent_information(&buffer.0, returned) else {
+        return None;
+    };
+    let mut disk_numbers: Vec<u32> = extents.iter().map(|extent| extent.disk_number).collect();
+    disk_numbers.sort_unstable();
+    disk_numbers.dedup();
+    if disk_numbers.is_empty() {
+        let _already_unknown = volume.close();
+        return None;
+    }
+    // Explicit close per the crate's handle convention: the observation is
+    // complete (serial + extents already read), so the close result is
+    // cleanup, not evidence — named as already-unknown rather than left to
+    // `Drop`.
+    let _already_unknown = volume.close();
+    Some(OpenedVolumeObservation {
+        volume_serial: serial,
+        disk_numbers,
+    })
+}
+
+/// The handle's final path in volume-GUID form, without the trailing
+/// NUL. Two-call pattern: the first call reports the required length,
+/// the second fills the buffer. `None` on any failure.
+#[cfg(windows)]
+fn volume_guid_path_by_handle(raw_handle: *mut core::ffi::c_void) -> Option<Vec<u16>> {
+    /// `VOLUME_NAME_GUID`.
+    const GUID_VOLUME_NAME: u32 = 0x1;
+    /// Sanity bound: a final path longer than this is not a usable
+    /// observation.
+    const MAX_FINAL_PATH_UNITS: u32 = 32 * 1024;
+    let needed = unsafe {
+        // SAFETY: `raw_handle` is a live open handle per the caller's
+        // contract; a null buffer with zero capacity only queries the
+        // required length and writes nothing.
+        GetFinalPathNameByHandleW(raw_handle, core::ptr::null_mut(), 0, GUID_VOLUME_NAME)
+    };
+    if needed == 0 || needed > MAX_FINAL_PATH_UNITS {
+        return None;
+    }
+    let mut buffer = vec![0u16; needed as usize];
+    let written = unsafe {
+        // SAFETY: `buffer` offers exactly `needed` writable units and
+        // stays alive for the call; `raw_handle` is live.
+        GetFinalPathNameByHandleW(raw_handle, buffer.as_mut_ptr(), needed, GUID_VOLUME_NAME)
+    };
+    if written == 0 || written >= needed {
+        return None;
+    }
+    buffer.truncate(written as usize);
+    Some(buffer)
+}
+
+/// Build the NUL-terminated Win32 device-namespace path for the volume
+/// containing the file named by a volume-GUID final path. The real
+/// `GetFinalPathNameByHandleW` `VOLUME_NAME_GUID` form names the full
+/// file path inside the volume (volume GUID followed by the in-volume
+/// path), not a volume root: the containing volume's device path is the
+/// GUID root through the closing brace, plus the NUL; the file's path
+/// within the volume is dropped. The root-only form is accepted too. The
+/// path is validated structurally (GUID prefix, non-empty brace-closed
+/// GUID body); the exact GUID text is the OS's to validate when the
+/// device is opened. Anything else is `None`.
+#[cfg(any(windows, test))]
+fn containing_volume_device_path(guid_path: &[u16]) -> Option<Vec<u16>> {
+    const PREFIX: [u16; 11] = [
+        b'\\' as u16,
+        b'\\' as u16,
+        b'?' as u16,
+        b'\\' as u16,
+        b'V' as u16,
+        b'o' as u16,
+        b'l' as u16,
+        b'u' as u16,
+        b'm' as u16,
+        b'e' as u16,
+        b'{' as u16,
+    ];
+    if guid_path.len() < PREFIX.len() + 1 || guid_path[..PREFIX.len()] != PREFIX {
+        return None;
+    }
+    // The GUID body runs from the prefix through the first closing brace.
+    // Everything after that brace is the file's path within the volume
+    // and is dropped; the body must be non-empty.
+    let body_and_rest = &guid_path[PREFIX.len()..];
+    let brace_offset = body_and_rest
+        .iter()
+        .position(|&unit| unit == u16::from(b'}'))?;
+    if brace_offset == 0 {
+        return None;
+    }
+    let root_end = PREFIX.len() + brace_offset + 1;
+    let mut device: Vec<u16> = guid_path[..root_end].to_vec();
+    device.push(0);
+    Some(device)
+}
+
+#[cfg(windows)]
+fn classify_full(root: DriveRoot, volume: OwnedHandle) -> EvidenceVerdict {
     let before = query_preliminary(root);
     if let PreliminaryClass::Closed(result) = classify_preliminary(&before) {
-        return result;
+        let _already_unknown = volume.close();
+        return EvidenceVerdict::closed(result);
     }
 
-    let Some(volume) = open_device(&root.volume_device()) else {
-        return DriveLocality::Unknown;
-    };
     let dependency = query_dependencies(&volume);
     if dependency != QueryState::Complete(DependencyObservation::None) {
         let _already_unknown = volume.close();
-        return DriveLocality::Unknown;
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
     let extents = query_extents(&volume);
     let (disks, disk_closes) = match &extents {
@@ -239,7 +722,7 @@ pub fn classify(root: DriveRoot) -> DriveLocality {
     let volume_closed = volume.close();
     let after = query_preliminary(root);
 
-    classify_evidence(&InspectionEvidence {
+    classify_evidence_detail(&InspectionEvidence {
         before,
         dependency,
         extents,
@@ -351,8 +834,9 @@ impl Drop for OwnedHandle {
     fn drop(&mut self) {
         if !self.closed {
             // This is a best-effort unwind/early-failure fallback. Every path
-            // that can produce FixedLocal calls `close`, observes its result,
-            // and marks the handle closed before Drop.
+            // that can reach the demoted grant-first admission verdict calls
+            // `close`, observes its result, and marks the handle closed
+            // before Drop.
             let _already_unknown = close_raw_handle(self.raw);
             self.closed = true;
         }
@@ -778,6 +1262,16 @@ struct StorageDeviceDescriptorLayout {
     raw_properties_length: u32,
 }
 
+/// `FILE_ID_INFO` as documented by the Windows API: the 64-bit volume
+/// serial number followed by the 128-bit file reference number. `repr(C)`
+/// gives the exact 24-byte Windows layout on every target.
+#[cfg(windows)]
+#[repr(C)]
+struct FileIdInfoLayout {
+    volume_serial_number: u64,
+    file_id: [u8; 16],
+}
+
 #[cfg(windows)]
 #[link(name = "Kernel32")]
 unsafe extern "system" {
@@ -803,6 +1297,18 @@ unsafe extern "system" {
         overlapped: *mut core::ffi::c_void,
     ) -> i32;
     fn CloseHandle(object: *mut core::ffi::c_void) -> i32;
+    fn GetFileInformationByHandleEx(
+        file: *mut core::ffi::c_void,
+        file_information_class: u32,
+        file_information: *mut core::ffi::c_void,
+        buffer_size: u32,
+    ) -> i32;
+    fn GetFinalPathNameByHandleW(
+        file: *mut core::ffi::c_void,
+        file_path: *mut u16,
+        file_path_size: u32,
+        flags: u32,
+    ) -> u32;
 }
 
 #[cfg(windows)]
@@ -824,8 +1330,13 @@ mod tests {
         BUS_TYPE_NVMEOF, BUS_TYPE_RAID, BUS_TYPE_SAS, BUS_TYPE_SATA, BUS_TYPE_SCSI,
         BUS_TYPE_SPACES, BUS_TYPE_VIRTUAL, DependencyObservation, DiskObservation, DriveLocality,
         DriveRoot, DriveTypeObservation, ExtentObservation, InspectionEvidence,
-        PreliminaryObservation, QueryState, classify_evidence,
+        PreliminaryObservation, QueryState, REASON_INSUFFICIENT_EVIDENCE, classify_evidence,
+        classify_evidence_detail,
     };
+    // `ClassifiedDrive` is only constructed by the non-Windows test below;
+    // on the Windows target that test is cfg'd out.
+    #[cfg(not(windows))]
+    use super::ClassifiedDrive;
 
     fn mapping(text: &str) -> QueryState<Vec<u16>> {
         QueryState::Complete(text.encode_utf16().collect())
@@ -877,9 +1388,33 @@ mod tests {
     }
 
     #[test]
-    fn direct_ata_sata_and_nvme_chains_are_fixed_local() {
+    fn direct_ata_sata_and_nvme_chains_are_unproven_with_observed_facts() {
+        for (bus, label) in [
+            (BUS_TYPE_ATA, "ATA"),
+            (BUS_TYPE_SATA, "SATA"),
+            (BUS_TYPE_NVME, "NVMe"),
+        ] {
+            let detail = classify_evidence_detail(&evidence(bus));
+            assert_eq!(detail.locality, DriveLocality::Unproven, "{label}");
+            assert_eq!(
+                detail.unproven_reason,
+                Some(REASON_INSUFFICIENT_EVIDENCE),
+                "{label}"
+            );
+            // The demoted path keeps the observed disk numbers as
+            // backing-device identity (observation, not admission).
+            assert_eq!(detail.backing_device_identity, vec![0], "{label}");
+            assert!(
+                detail
+                    .observed_facts
+                    .iter()
+                    .any(|fact| fact.contains(label) && fact.contains("disk 0")),
+                "{label}: {facts:?}",
+                facts = detail.observed_facts
+            );
+        }
         for bus in [BUS_TYPE_ATA, BUS_TYPE_SATA, BUS_TYPE_NVME] {
-            assert_eq!(classify_evidence(&evidence(bus)), DriveLocality::FixedLocal);
+            assert_eq!(classify_evidence(&evidence(bus)), DriveLocality::Unproven);
         }
     }
 
@@ -941,7 +1476,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_complete_extents_and_disks_are_accepted() {
+    fn multiple_complete_extents_and_disks_are_unproven() {
         let mut evidence = evidence(BUS_TYPE_ATA);
         evidence.extents = QueryState::Complete(vec![
             ExtentObservation {
@@ -972,7 +1507,10 @@ mod tests {
                 bus_type: BUS_TYPE_NVME,
             },
         ]);
-        assert_eq!(classify_evidence(&evidence), DriveLocality::FixedLocal);
+        let detail = classify_evidence_detail(&evidence);
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        assert_eq!(detail.backing_device_identity, vec![0, 1]);
+        assert_eq!(detail.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
     }
 
     #[test]
@@ -1069,10 +1607,14 @@ mod tests {
     }
 
     #[test]
-    fn close_failure_prevents_fixed_local() {
+    fn close_failure_still_fails_closed() {
         let mut evidence = evidence(BUS_TYPE_NVME);
         evidence.closes = QueryState::ApiFailure;
-        assert_eq!(classify_evidence(&evidence), DriveLocality::Unknown);
+        let detail = classify_evidence_detail(&evidence);
+        assert_eq!(detail.locality, DriveLocality::Unknown);
+        assert!(detail.backing_device_identity.is_empty());
+        assert!(detail.observed_facts.is_empty());
+        assert_eq!(detail.unproven_reason, None);
     }
 
     #[test]
@@ -1309,6 +1851,336 @@ mod tests {
     #[test]
     fn non_windows_classification_is_unsupported_without_foreign_calls() {
         let root = DriveRoot::from_ascii_letter(b'C').expect("drive root");
-        assert_eq!(super::classify(root), DriveLocality::Unsupported);
+        assert_eq!(
+            super::classify(root),
+            ClassifiedDrive {
+                locality: DriveLocality::Unsupported,
+                backing_device_identity: Vec::new(),
+                observed_facts: Vec::new(),
+                unproven_reason: None,
+                volume_serial: None,
+            }
+        );
+    }
+
+    #[test]
+    fn evidence_detail_threads_sorted_unique_backing_disk_numbers() {
+        let mut detail_evidence = evidence(BUS_TYPE_ATA);
+        detail_evidence.extents = QueryState::Complete(vec![
+            ExtentObservation {
+                disk_number: 2,
+                starting_offset: 0,
+                extent_length: 4096,
+            },
+            ExtentObservation {
+                disk_number: 0,
+                starting_offset: 4096,
+                extent_length: 4096,
+            },
+            ExtentObservation {
+                disk_number: 2,
+                starting_offset: 8192,
+                extent_length: 4096,
+            },
+            ExtentObservation {
+                disk_number: 1,
+                starting_offset: 12_288,
+                extent_length: 4096,
+            },
+        ]);
+        detail_evidence.disks = QueryState::Complete(vec![
+            DiskObservation {
+                disk_number: 2,
+                removable: false,
+                bus_type: BUS_TYPE_NVME,
+            },
+            DiskObservation {
+                disk_number: 0,
+                removable: false,
+                bus_type: BUS_TYPE_ATA,
+            },
+            DiskObservation {
+                disk_number: 1,
+                removable: false,
+                bus_type: BUS_TYPE_SATA,
+            },
+        ]);
+        let detail = classify_evidence_detail(&detail_evidence);
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        assert_eq!(detail.backing_device_identity, vec![0, 1, 2]);
+        assert_eq!(detail.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+        // One observed-fact line per required disk, in disk-number order.
+        let disk_facts: Vec<&String> = detail
+            .observed_facts
+            .iter()
+            .filter(|fact| fact.starts_with("disk "))
+            .collect();
+        assert_eq!(disk_facts.len(), 3);
+        assert!(disk_facts[0].starts_with("disk 0:"));
+        assert!(disk_facts[1].starts_with("disk 1:"));
+        assert!(disk_facts[2].starts_with("disk 2:"));
+    }
+
+    #[test]
+    fn demoted_path_carries_observed_identity_closed_paths_carry_none() {
+        let demoted = classify_evidence_detail(&evidence(BUS_TYPE_NVME));
+        assert_eq!(demoted.locality, DriveLocality::Unproven);
+        assert_eq!(demoted.backing_device_identity, vec![0]);
+        assert!(!demoted.observed_facts.is_empty());
+        assert_eq!(demoted.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+
+        let mut unknown = evidence(BUS_TYPE_NVME);
+        unknown.dependency = QueryState::ApiFailure;
+        let unknown = classify_evidence_detail(&unknown);
+        assert_eq!(unknown.locality, DriveLocality::Unknown);
+        assert!(unknown.backing_device_identity.is_empty());
+        assert!(unknown.observed_facts.is_empty());
+        assert_eq!(unknown.unproven_reason, None);
+
+        let mut remote = evidence(BUS_TYPE_NVME);
+        remote.before = PreliminaryObservation {
+            drive_type: DriveTypeObservation::Fixed,
+            mapping: mapping(r"\Device\Mup\server\share"),
+        };
+        let remote = classify_evidence_detail(&remote);
+        assert_eq!(remote.locality, DriveLocality::Remote);
+        assert!(remote.backing_device_identity.is_empty());
+        assert!(remote.observed_facts.is_empty());
+        assert_eq!(remote.unproven_reason, None);
+    }
+
+    #[test]
+    fn unproven_reason_is_set_only_on_the_demoted_path() {
+        let demoted = classify_evidence_detail(&evidence(BUS_TYPE_ATA));
+        assert_eq!(demoted.locality, DriveLocality::Unproven);
+        assert_eq!(demoted.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+
+        let mut substituted = evidence(BUS_TYPE_NVME);
+        substituted.before.mapping = mapping(r"\??\C:\workspace");
+        let mut removable_drive = evidence(BUS_TYPE_NVME);
+        removable_drive.before.drive_type = DriveTypeObservation::Removable;
+        let mut unknown = evidence(BUS_TYPE_NVME);
+        unknown.extents = QueryState::ApiFailure;
+        for fixture in [&substituted, &removable_drive, &unknown] {
+            let detail = classify_evidence_detail(fixture);
+            assert_ne!(detail.locality, DriveLocality::Unproven);
+            assert_eq!(detail.unproven_reason, None, "{:?}", detail.locality);
+            assert!(detail.observed_facts.is_empty());
+            assert!(detail.backing_device_identity.is_empty());
+        }
+    }
+
+    #[test]
+    fn no_classifier_path_emits_fixed_local() {
+        let mut fixtures = Vec::new();
+        for bus in [
+            BUS_TYPE_ATA,
+            BUS_TYPE_SATA,
+            BUS_TYPE_NVME,
+            BUS_TYPE_SCSI,
+            BUS_TYPE_FIBRE,
+            BUS_TYPE_RAID,
+            BUS_TYPE_ISCSI,
+            BUS_TYPE_SAS,
+            BUS_TYPE_VIRTUAL,
+            BUS_TYPE_FILE_BACKED_VIRTUAL,
+            BUS_TYPE_SPACES,
+            BUS_TYPE_NVMEOF,
+            0xfeed,
+        ] {
+            fixtures.push(evidence(bus));
+        }
+        let mut dependency_failed = evidence(BUS_TYPE_NVME);
+        dependency_failed.dependency = QueryState::ApiFailure;
+        fixtures.push(dependency_failed);
+        let mut closes_failed = evidence(BUS_TYPE_NVME);
+        closes_failed.closes = QueryState::ApiFailure;
+        fixtures.push(closes_failed);
+        let mut topology_changed = evidence(BUS_TYPE_NVME);
+        topology_changed.after.mapping = mapping(r"\Device\HarddiskVolume4");
+        fixtures.push(topology_changed);
+        let mut removable = evidence(BUS_TYPE_SATA);
+        let QueryState::Complete(disks) = &mut removable.disks else {
+            unreachable!();
+        };
+        disks[0].removable = true;
+        fixtures.push(removable);
+        let mut preliminary_closed = evidence(BUS_TYPE_NVME);
+        preliminary_closed.before = PreliminaryObservation {
+            drive_type: DriveTypeObservation::Fixed,
+            mapping: mapping(r"\??\C:\workspace"),
+        };
+        fixtures.push(preliminary_closed);
+
+        for fixture in &fixtures {
+            assert_ne!(
+                classify_evidence(fixture),
+                DriveLocality::FixedLocal,
+                "classify_evidence emitted FixedLocal"
+            );
+            assert_ne!(
+                classify_evidence_detail(fixture).locality,
+                DriveLocality::FixedLocal,
+                "classify_evidence_detail emitted FixedLocal"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_id_info_layout_matches_windows_abi() {
+        use super::FileIdInfoLayout;
+        use core::mem::{offset_of, size_of};
+        // `FILE_ID_INFO`: ULONGLONG VolumeSerialNumber followed by the
+        // 128-bit FILE_ID_128 — 24 bytes on every target.
+        assert_eq!(size_of::<FileIdInfoLayout>(), 24);
+        assert_eq!(offset_of!(FileIdInfoLayout, volume_serial_number), 0);
+        assert_eq!(offset_of!(FileIdInfoLayout, file_id), 8);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opened_file_identity_rejects_null_handle() {
+        assert_eq!(super::opened_file_identity(core::ptr::null_mut()), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opened_file_identity_is_stable_across_handles_to_the_same_file() {
+        use std::os::windows::io::AsRawHandle;
+        let path = std::env::temp_dir().join("wo29-slice-a-leaf-d-file-identity-probe.tmp");
+        let first = std::fs::File::create(&path).expect("create probe file");
+        let identity =
+            super::opened_file_identity(first.as_raw_handle()).expect("identity for open handle");
+        let second = std::fs::OpenOptions::new()
+            .read(true)
+            .open(&path)
+            .expect("reopen probe file");
+        let reopened = super::opened_file_identity(second.as_raw_handle())
+            .expect("identity for reopened handle");
+        assert_eq!(identity, reopened);
+        drop(first);
+        drop(second);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Volume-GUID final path fixtures, built without literal backslashes
+    /// (repo text-hygiene rule). The real `GetFinalPathNameByHandleW`
+    /// `VOLUME_NAME_GUID` form names the full file path inside the volume
+    /// — the volume GUID followed by the in-volume path — which is the
+    /// form the opened-handle producer actually returns. The root-only
+    /// fixture covers the degenerate input the old root-only parser was
+    /// written against; production never emits it.
+    fn guid_final_file_path_fixture() -> Vec<u16> {
+        let bs = char::from(92);
+        format!("{bs}{bs}?{bs}Volume{{b75e2c83-0000-0000-0000-602f00000000}}{bs}opaque{bs}file.bin")
+            .encode_utf16()
+            .collect()
+    }
+
+    fn guid_final_root_path_fixture() -> Vec<u16> {
+        let bs = char::from(92);
+        format!("{bs}{bs}?{bs}Volume{{b75e2c83-0000-0000-0000-602f00000000}}{bs}")
+            .encode_utf16()
+            .collect()
+    }
+
+    fn guid_root_device_fixture() -> Vec<u16> {
+        let bs = char::from(92);
+        let mut device: Vec<u16> =
+            format!("{bs}{bs}?{bs}Volume{{b75e2c83-0000-0000-0000-602f00000000}}")
+                .encode_utf16()
+                .collect();
+        device.push(0);
+        device
+    }
+
+    #[test]
+    fn containing_volume_device_path_extracts_root_from_full_file_path() {
+        // The real producer's form: a full GUID file path reduces to the
+        // containing volume's device path, dropping the in-volume suffix.
+        let device = super::containing_volume_device_path(&guid_final_file_path_fixture())
+            .expect("device path");
+        assert_eq!(device, guid_root_device_fixture());
+        assert_eq!(device.last(), Some(&0));
+    }
+
+    #[test]
+    fn containing_volume_device_path_accepts_root_only_form() {
+        let device = super::containing_volume_device_path(&guid_final_root_path_fixture())
+            .expect("device path");
+        assert_eq!(device, guid_root_device_fixture());
+        assert_eq!(device.last(), Some(&0));
+    }
+
+    #[test]
+    fn containing_volume_device_path_rejects_dos_letter_paths() {
+        // A drive-letter final path is not a volume-GUID form: the
+        // device path builder must not re-derive a letter device.
+        let bs = char::from(92);
+        let dos_path: Vec<u16> = format!("{bs}{bs}?{bs}C:{bs}Windows{bs}")
+            .encode_utf16()
+            .collect();
+        assert_eq!(super::containing_volume_device_path(&dos_path), None);
+    }
+
+    #[test]
+    fn containing_volume_device_path_rejects_missing_closing_brace() {
+        let bs = char::from(92);
+        let unclosed: Vec<u16> =
+            format!("{bs}{bs}?{bs}Volume{{b75e2c83-0000-0000-0000-602f00000000{bs}file.bin")
+                .encode_utf16()
+                .collect();
+        assert_eq!(super::containing_volume_device_path(&unclosed), None);
+    }
+
+    #[test]
+    fn containing_volume_device_path_rejects_empty_and_unc_paths() {
+        assert_eq!(super::containing_volume_device_path(&[]), None);
+        let bs = char::from(92);
+        let unc_path: Vec<u16> = format!("{bs}{bs}host{bs}share{bs}")
+            .encode_utf16()
+            .collect();
+        assert_eq!(super::containing_volume_device_path(&unc_path), None);
+    }
+
+    /// Production-connected control: the opened-file → containing-volume
+    /// → serial/extents chain on a REAL handle. This traverses the actual
+    /// producers — `GetFinalPathNameByHandleW` GUID final path, GUID-root
+    /// extraction, volume-device open, `FILE_ID_INFO` serial on the opened
+    /// file handle, the disk-extent ioctl — which a synthetic
+    /// `OpenedVolumeObservation` fixture cannot prove. The observation's
+    /// serial must equal the opened file identity's serial from the SAME
+    /// handle, and the extent set must be complete (non-empty, sorted,
+    /// deduplicated).
+    #[cfg(windows)]
+    #[test]
+    fn opened_volume_observation_traverses_real_producers_coherently() {
+        use std::os::windows::io::AsRawHandle;
+
+        let path = std::env::temp_dir().join("wo29-slice-a-volume-observation-probe.tmp");
+        std::fs::write(&path, b"probe").expect("create probe file");
+        let file = std::fs::File::open(&path).expect("open probe file");
+        let handle = file.as_raw_handle();
+        let identity = super::opened_file_identity(handle).expect("identity for open handle");
+        let observation = super::opened_volume_observation(handle)
+            .expect("volume observation for a real opened file");
+        assert_eq!(
+            observation.volume_serial, identity.volume_serial,
+            "the observation serial and the file identity serial name the same volume"
+        );
+        assert!(
+            !observation.disk_numbers.is_empty(),
+            "the observation carries the complete extent set"
+        );
+        let mut sorted = observation.disk_numbers.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            observation.disk_numbers, sorted,
+            "disk numbers are sorted and deduplicated"
+        );
+        drop(file);
+        std::fs::remove_file(&path).ok();
     }
 }
