@@ -227,6 +227,7 @@ impl ValidatedNativePath {
                     observed_facts: Vec::new(),
                     unproven_reason: Some(windows_drive_locality::REASON_INSUFFICIENT_EVIDENCE),
                     volume_serial: None,
+                    contradiction: false,
                 },
             )),
         }

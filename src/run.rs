@@ -1534,6 +1534,17 @@ fn bind_observed_backing_evidence(
         }
         #[cfg(windows)]
         LocalityEvidence::Windows(classified) => {
+            // Known before/after contradiction (WO29 Slice B): the
+            // classifier observed the drive's preliminary observation
+            // change (or stop being a candidate) mid-inspection.
+            // Contradictory evidence is never trust-coverable — reject
+            // here, before any payload byte is consumed, independently
+            // of the opened-device comparisons below. Agreement on
+            // serials or disk numbers does not waive a known
+            // contradiction.
+            if classified.contradiction {
+                return Err(FileReadAdapterError::ContradictoryBackingEvidence);
+            }
             // The opened object must be a Windows identity; anything else
             // is a caller fabrication, not a bindable opened file.
             let FileObjectIdentity::WindowsVolumeFile {
@@ -7773,6 +7784,7 @@ pub(crate) mod tests {
                 observed_facts: Vec::new(),
                 unproven_reason: Some(windows_drive_locality::REASON_INSUFFICIENT_EVIDENCE),
                 volume_serial: serial,
+                contradiction: false,
             })
         }
         fn opened(serial: u64) -> FileObjectIdentity {
@@ -7870,6 +7882,86 @@ pub(crate) mod tests {
                 .expect_err("family mismatch must fail closed")
                 .variant(),
             "contradictory_backing_evidence"
+        );
+    }
+
+    /// WO29 Slice B (Item 2/Item 3 audit): a known before/after
+    /// contradiction from the classifier's returned evidence rejects
+    /// through the ACTUAL external-trust binder — matching trust never
+    /// covers contradictory evidence. The rejection fires first, before
+    /// any payload byte is consumed, and even when the serials and disk
+    /// topology would otherwise agree: agreement does not waive a known
+    /// contradiction. The bundle here is constructed (not observed), but
+    /// it exercises the production bind against the exact shape the
+    /// reducer returns — the reducer side is covered by
+    /// `windows_drive_locality`'s
+    /// `before_after_contradiction_carries_marker_to_binder`.
+    #[cfg(windows)]
+    #[test]
+    fn windows_contradiction_rejects_through_binder_before_payload() {
+        use super::bind_observed_backing_evidence;
+        use crate::native_path::LocalityEvidence;
+        use windows_drive_locality::OpenedVolumeObservation;
+
+        // Mirrors the live contradiction verdict: closed `Unknown`,
+        // no identity, the before/after facts preserved, marker set.
+        fn contradicted() -> LocalityEvidence {
+            LocalityEvidence::Windows(windows_drive_locality::ClassifiedDrive {
+                locality: windows_drive_locality::DriveLocality::Unknown,
+                backing_device_identity: Vec::new(),
+                observed_facts: vec![
+                    "before: drive_type Fixed mapping ...; after: drive_type Fixed mapping ...; equality: mismatch"
+                        .to_string(),
+                    "classification: Unknown (known before/after contradiction; matching trust must not cover contradictory evidence)"
+                        .to_string(),
+                ],
+                unproven_reason: None,
+                volume_serial: Some(0xC0DE_1234),
+                contradiction: true,
+            })
+        }
+        fn opened(serial: u64) -> FileObjectIdentity {
+            FileObjectIdentity::WindowsVolumeFile {
+                volume_serial: serial,
+                file_id: [0x42; 16],
+            }
+        }
+        fn observation(serial: u64, disks: Vec<u32>) -> OpenedVolumeObservation {
+            OpenedVolumeObservation {
+                volume_serial: serial,
+                disk_numbers: disks,
+            }
+        }
+        let contradicted = contradicted();
+        let volume = observation(0xC0DE_1234, vec![]);
+        // Rejects even though serial and (empty) topology agree.
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&contradicted), opened(0xC0DE_1234), Some(&volume))
+                .expect_err("a known contradiction must fail closed before payload consumption")
+                .variant(),
+            "contradictory_backing_evidence"
+        );
+        // Rejects with no opened-volume observation either: the marker
+        // is checked first, independently of the opened evidence.
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&contradicted), opened(0xC0DE_1234), None)
+                .expect_err("contradiction rejects without an opened observation")
+                .variant(),
+            "contradictory_backing_evidence"
+        );
+        // Missing evidence stays trust-coverable: no marker, no serial,
+        // no disks — the binder still admits.
+        let missing = LocalityEvidence::Windows(windows_drive_locality::ClassifiedDrive {
+            locality: windows_drive_locality::DriveLocality::Unknown,
+            backing_device_identity: Vec::new(),
+            observed_facts: Vec::new(),
+            unproven_reason: None,
+            volume_serial: None,
+            contradiction: false,
+        });
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&missing), opened(0xC0DE_1234), None),
+            Ok(())
         );
     }
 

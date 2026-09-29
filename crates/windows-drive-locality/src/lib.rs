@@ -75,9 +75,11 @@ pub struct ClassifiedDrive {
     /// flag with the query that produced them, the before/after
     /// observation and equality verdict, the configured observed-bus
     /// list, the one-line P1–P4 mapping, and the classification with its
-    /// provenance. Empty on every closed path. Unavailable facts are
-    /// recorded as unavailable — never silently dropped. Facts are
-    /// observations only; they never admit.
+    /// provenance. Empty on every closed path except the known
+    /// before/after contradiction path, which preserves the before/after
+    /// facts so the contradiction stays visible to the runtime binder.
+    /// Unavailable facts are recorded as unavailable — never silently
+    /// dropped. Facts are observations only; they never admit.
     pub observed_facts: Vec<String>,
     /// Named reason for the `Unproven` verdict: the insufficient-evidence
     /// reason for the demoted grant-first path, or the cause-specific
@@ -91,6 +93,15 @@ pub struct ClassifiedDrive {
     /// stub). Never truncated, never zero-extended: the consumer binds
     /// this against `FILE_ID_INFO` serials with direct equality.
     pub volume_serial: Option<u64>,
+    /// Known before/after contradiction: the classifier observed the
+    /// drive's preliminary observation change (or stop being a
+    /// candidate) mid-inspection. Internal to the
+    /// producer→reducer→binder path — never admission policy, never
+    /// public schema. The runtime external-trust binder rejects a
+    /// contradicted bundle before payload consumption even when every
+    /// other comparison would agree: matching trust covers missing
+    /// evidence, never contradictory evidence.
+    pub contradiction: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,12 +176,18 @@ struct DiskObservation {
 enum DiskQueryOutcome {
     /// The descriptor query ran and returned a decodable observation.
     Observed(DiskObservation),
-    /// The descriptor query ran and failed (device open, IOCTL, or
-    /// close failure).
+    /// The device opened, but the descriptor query (IOCTL or response
+    /// validation before decode) failed. Distinct from `OpenFailed`:
+    /// this claims the query RAN and failed — the evidence must never
+    /// make that claim for a device that never opened.
     Failed,
     /// The descriptor query ran but the returned data failed validation
     /// (undecodable) — the determination is unavailable, not failed.
     Undecodable,
+    /// The device could not be opened, so no descriptor query ran. A
+    /// failed CloseHandle is NOT this outcome: cleanup failure is
+    /// recorded separately and a successful observation is preserved.
+    OpenFailed,
     /// The descriptor query never ran: an earlier disk's query aborted
     /// the producer's walk.
     NotAttempted,
@@ -298,6 +315,14 @@ struct EvidenceVerdict {
     backing_device_identity: Vec<u32>,
     observed_facts: Vec<String>,
     unproven_reason: Option<&'static str>,
+    /// Known before/after contradiction: the classifier observed the
+    /// drive's preliminary observation change (or stop being a
+    /// candidate) mid-inspection. Contradictory evidence is not
+    /// missing evidence — the runtime external-trust binder must reject
+    /// it before payload consumption, never cover it with matching
+    /// trust. Internal to the verdict-to-binder path; not admission
+    /// policy, not public schema.
+    contradiction: bool,
 }
 
 #[cfg(any(windows, test))]
@@ -315,6 +340,36 @@ impl EvidenceVerdict {
             backing_device_identity: Vec::new(),
             observed_facts: Vec::new(),
             unproven_reason: None,
+            contradiction: false,
+        }
+    }
+
+    /// A known before/after contradiction: the verdict stays closed
+    /// (nothing admits), but the before/after facts are preserved and
+    /// the contradiction marker is set so the runtime external-trust
+    /// binder can refuse it before payload consumption. Matching trust
+    /// must never reinterpret a known contradiction as acceptable
+    /// absence.
+    fn closed_contradiction(
+        before: &PreliminaryObservation,
+        after: &PreliminaryObservation,
+    ) -> Self {
+        let equality = if before == after { "match" } else { "mismatch" };
+        Self {
+            locality: DriveLocality::Unknown,
+            backing_device_identity: Vec::new(),
+            observed_facts: vec![
+                format!(
+                    "before: {}; after: {}; equality: {}",
+                    preliminary_summary(before),
+                    preliminary_summary(after),
+                    equality
+                ),
+                "classification: Unknown (known before/after contradiction; matching trust must not cover contradictory evidence)"
+                    .to_string(),
+            ],
+            unproven_reason: None,
+            contradiction: true,
         }
     }
 
@@ -334,6 +389,7 @@ impl EvidenceVerdict {
             backing_device_identity,
             observed_facts,
             unproven_reason: Some(reason),
+            contradiction: false,
         }
     }
 }
@@ -376,9 +432,11 @@ fn preliminary_summary(observation: &PreliminaryObservation) -> String {
 /// grant-first path and the cause-specific matrix): the dependency-walk
 /// observation, each disk extent, each required disk's bus type (numeric
 /// value plus name) and removable-media flag with the query that produced
-/// them, the before/after observation and equality verdict, the
-/// configured observed-bus list, the one-line P1–P4 mapping, and the
-/// classification with its provenance. Recorded in a deterministic order.
+/// them, the before/after observation and equality verdict, the cleanup
+/// outcome, the configured observed-bus list, the one-line P1–P4 mapping,
+/// and the classification with its provenance. Recorded in a deterministic
+/// order. A failed CloseHandle is cleanup failure, not evidence failure:
+/// it is recorded as its own named fact and never wipes the observations.
 /// Facts are observations only — they never admit. `disks` is `None` when
 /// the disk-descriptor query failed: the unavailable facts are recorded
 /// as unavailable, never silently dropped.
@@ -390,6 +448,7 @@ fn observed_facts(
     disks: Option<&[DiskQueryRecord]>,
     required_disks: &[u32],
     reason: &'static str,
+    cleanup_failed: bool,
 ) -> Vec<String> {
     let mut facts = Vec::with_capacity(4 + extents.len() + required_disks.len());
     facts.push("dependency_walk: no_dependencies".to_string());
@@ -414,10 +473,14 @@ fn observed_facts(
                 disk.removable,
                 disk.disk_number
             )),
-            // Failed vs undecodable vs not-attempted are distinct
-            // observations (WO29 Item 2): the bundle must not claim
-            // every descriptor query failed when earlier queries
-            // succeeded or later queries never ran.
+            // Failed vs undecodable vs not-attempted vs open-failed are
+            // distinct observations (WO29 Item 2): the bundle must not
+            // claim every descriptor query failed when earlier queries
+            // succeeded, a device never opened, or later queries never
+            // ran.
+            Some(DiskQueryOutcome::OpenFailed) => facts.push(format!(
+                "disk {disk_number}: device open failed (no handle to PhysicalDrive{disk_number}); descriptor query never ran; bus_type unavailable, removable_media unavailable"
+            )),
             Some(DiskQueryOutcome::Failed) => facts.push(format!(
                 "disk {disk_number}: descriptor query failed (STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{disk_number}); bus_type unavailable, removable_media unavailable"
             )),
@@ -440,6 +503,16 @@ fn observed_facts(
         preliminary_summary(after),
         equality
     ));
+    // A failed CloseHandle is cleanup failure, not evidence failure: the
+    // observations above were already read, so they are preserved and
+    // the cleanup failure is recorded as its own named fact rather than
+    // wiping the observations.
+    facts.push(if cleanup_failed {
+        "cleanup: close_failed (CloseHandle reported failure after observations completed; observations preserved)"
+            .to_string()
+    } else {
+        "cleanup: handles_closed".to_string()
+    });
     facts.push(format!(
         "observed_bus_list: {}",
         OBSERVED_BUS_TYPES
@@ -486,11 +559,19 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
         return EvidenceVerdict::closed(result);
     };
 
+    // A known before/after contradiction is contradictory evidence,
+    // never missing evidence: the verdict stays closed (nothing
+    // admits), but the contradiction marker and the before/after facts
+    // are preserved so the runtime external-trust binder can refuse
+    // them before payload consumption. Matching trust must never
+    // reinterpret a known contradiction as acceptable absence.
     if evidence.before != evidence.after
         || classify_preliminary(&evidence.after) != PreliminaryClass::Candidate
-        || evidence.dependency != QueryState::Complete(DependencyObservation::None)
-        || evidence.closes != QueryState::Complete(())
     {
+        return EvidenceVerdict::closed_contradiction(&evidence.before, &evidence.after);
+    }
+
+    if evidence.dependency != QueryState::Complete(DependencyObservation::None) {
         return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
 
@@ -524,6 +605,7 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
             None,
             &required_disks,
             REASON_REMOVABLE_STATUS_UNREADABLE,
+            evidence.closes != QueryState::Complete(()),
         );
         return EvidenceVerdict::observed_unproven(
             REASON_REMOVABLE_STATUS_UNREADABLE,
@@ -545,12 +627,28 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
         return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
 
+    // Inner identity validation: an `Observed` record's inner
+    // observation must name the same disk as the record's outer
+    // `disk_number`. Required disk 0 with an outer record for disk 0
+    // whose inner observation names disk 99 is not a complete observed
+    // matrix — it fails closed before any cause is selected. (The live
+    // producer always threads the walked disk number into the
+    // descriptor decode, so a mismatch cannot arise honestly; the check
+    // pins the invariant against reducer-side miswiring.)
+    let inner_mismatch = records.iter().any(|record| {
+        matches!(record.outcome, DiskQueryOutcome::Observed(disk) if disk.disk_number != record.disk_number)
+    });
+    if inner_mismatch {
+        return EvidenceVerdict::closed(DriveLocality::Unknown);
+    }
+
     // Per-disk outcome partition (WO29 Item 2): the determination is
     // only complete when every required disk's descriptor query was
-    // observed. Failed, undecodable, and not-attempted queries keep
-    // their distinct observed facts — the available observations are
-    // preserved, and the unavailable determination is named `Unproven`
-    // with the unreadable reason, never a reasonless `Unknown`.
+    // observed. Failed, undecodable, not-attempted, and open-failed
+    // queries keep their distinct observed facts — the available
+    // observations are preserved, and the unavailable determination is
+    // named `Unproven` with the unreadable reason, never a reasonless
+    // `Unknown`.
     let complete = records
         .iter()
         .all(|record| matches!(record.outcome, DiskQueryOutcome::Observed(_)));
@@ -562,6 +660,7 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
             Some(records),
             &required_disks,
             REASON_REMOVABLE_STATUS_UNREADABLE,
+            evidence.closes != QueryState::Complete(()),
         );
         return EvidenceVerdict::observed_unproven(
             REASON_REMOVABLE_STATUS_UNREADABLE,
@@ -630,6 +729,7 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
         Some(records),
         &required_disks,
         reason,
+        evidence.closes != QueryState::Complete(()),
     );
     EvidenceVerdict::observed_unproven(reason, required_disks, facts)
 }
@@ -642,6 +742,7 @@ pub fn classify(_root: DriveRoot) -> ClassifiedDrive {
         observed_facts: Vec::new(),
         unproven_reason: None,
         volume_serial: None,
+        contradiction: false,
     }
 }
 
@@ -656,6 +757,7 @@ pub fn classify(root: DriveRoot) -> ClassifiedDrive {
             observed_facts: Vec::new(),
             unproven_reason: None,
             volume_serial: None,
+            contradiction: false,
         };
     };
     // The serial is read from the SAME opened volume device the full
@@ -670,6 +772,7 @@ pub fn classify(root: DriveRoot) -> ClassifiedDrive {
         observed_facts: verdict.observed_facts,
         unproven_reason: verdict.unproven_reason,
         volume_serial,
+        contradiction: verdict.contradiction,
     }
 }
 
@@ -1356,19 +1459,26 @@ fn query_backing_disks(extents: &[ExtentObservation]) -> (QueryState<Vec<DiskQue
         name.extend(disk_number.to_string().encode_utf16());
         name.push(0);
         let outcome = match open_device(&name) {
-            None => DiskQueryOutcome::Failed,
+            // The device could not be opened: no descriptor query ran.
+            // This is distinct from a failed query — the evidence must
+            // never claim a descriptor query failed that never ran.
+            None => DiskQueryOutcome::OpenFailed,
             Some(handle) => {
                 let query = query_disk_descriptor(&handle, *disk_number);
                 let closed = handle.close();
                 if !closed {
                     closes = false;
-                    DiskQueryOutcome::Failed
-                } else {
-                    match query {
-                        QueryState::Complete(disk) => DiskQueryOutcome::Observed(disk),
-                        QueryState::ApiFailure => DiskQueryOutcome::Failed,
-                        QueryState::Partial => DiskQueryOutcome::Undecodable,
-                    }
+                }
+                // A failed CloseHandle is cleanup failure, not evidence
+                // failure: a successful observation is preserved and the
+                // walk continues, because the observations were already
+                // read. The cleanup failure is carried separately as a
+                // named fact — a successful observation must not
+                // disappear merely because close failed.
+                match query {
+                    QueryState::Complete(disk) => DiskQueryOutcome::Observed(disk),
+                    QueryState::ApiFailure => DiskQueryOutcome::Failed,
+                    QueryState::Partial => DiskQueryOutcome::Undecodable,
                 }
             }
         };
@@ -2211,14 +2321,162 @@ mod tests {
     }
 
     #[test]
-    fn close_failure_still_fails_closed() {
+    fn cleanup_failure_preserves_observations_with_named_cleanup_fact() {
+        // WO29 Slice B correction: a failed CloseHandle is cleanup
+        // failure, not evidence failure. The reducer no longer wipes the
+        // observations — the disk observations are preserved, the
+        // cleanup failure is carried as its own named fact, and the
+        // verdict follows the observed matrix (grant-first
+        // insufficient-evidence for this NVMe fixture) instead of
+        // collapsing to reasonless `Unknown`.
         let mut evidence = evidence(BUS_TYPE_NVME);
         evidence.closes = QueryState::ApiFailure;
         let detail = classify_evidence_detail(&evidence);
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        assert_eq!(detail.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+        assert_eq!(detail.backing_device_identity, vec![0]);
+        assert!(
+            detail.observed_facts.iter().any(|fact| fact
+                == "disk 0: bus_type 17 (NVMe) removable_media false (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive0)"),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.starts_with("cleanup: close_failed")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+        assert!(!detail.contradiction);
+    }
+
+    #[test]
+    fn open_failure_is_not_a_descriptor_query_failure() {
+        // WO29 Slice B correction: a device that never opened is not a
+        // descriptor query that ran and failed. The producer records
+        // `OpenFailed` (never `Failed`), the fact names the open failure
+        // and explicitly states no query ran, and the unavailable
+        // determination is named `Unproven` with the unreadable reason —
+        // never a claim that every descriptor query failed.
+        let open_failed = multi_disk_evidence(
+            &[0, 1],
+            vec![
+                DiskQueryRecord {
+                    disk_number: 0,
+                    outcome: DiskQueryOutcome::OpenFailed,
+                },
+                DiskQueryRecord {
+                    disk_number: 1,
+                    outcome: DiskQueryOutcome::NotAttempted,
+                },
+            ],
+        );
+        let detail = classify_evidence_detail(&open_failed);
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        assert_eq!(
+            detail.unproven_reason,
+            Some(REASON_REMOVABLE_STATUS_UNREADABLE)
+        );
+        assert!(
+            detail.observed_facts.iter().any(|fact| fact
+                == "disk 0: device open failed (no handle to PhysicalDrive0); descriptor query never ran; bus_type unavailable, removable_media unavailable"),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+        assert!(
+            !detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("disk 0: descriptor query failed")),
+            "an open failure must never claim a descriptor query failed: {facts:?}",
+            facts = detail.observed_facts
+        );
+        assert!(!detail.contradiction);
+    }
+
+    #[test]
+    fn before_after_contradiction_carries_marker_to_binder() {
+        // WO29 Slice B correction: a known before/after mismatch is
+        // contradictory evidence, never missing evidence. The locality
+        // verdict stays closed (`Unknown` — nothing admits), but the
+        // contradiction marker and the before/after facts are preserved
+        // so the runtime external-trust binder can refuse them before
+        // payload consumption. A non-contradictory `Unknown` (missing
+        // dependency evidence) carries no marker.
+        let mut changed = evidence(BUS_TYPE_NVME);
+        changed.after.mapping = mapping(r"\Device\HarddiskVolume4");
+        assert_eq!(classify_evidence(&changed), DriveLocality::Unknown);
+        let detail = classify_evidence_detail(&changed);
         assert_eq!(detail.locality, DriveLocality::Unknown);
-        assert!(detail.backing_device_identity.is_empty());
+        assert!(detail.contradiction);
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("equality: mismatch")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("known before/after contradiction")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+
+        // After stopped being a candidate: same marker.
+        let mut recandidate = evidence(BUS_TYPE_NVME);
+        recandidate.after.drive_type = DriveTypeObservation::Remote;
+        let detail = classify_evidence_detail(&recandidate);
+        assert_eq!(detail.locality, DriveLocality::Unknown);
+        assert!(detail.contradiction);
+
+        // Missing evidence is not contradiction: a dependency failure is
+        // still `Unknown`, with no marker and no preserved facts.
+        let mut missing = evidence(BUS_TYPE_NVME);
+        missing.dependency = QueryState::ApiFailure;
+        let detail = classify_evidence_detail(&missing);
+        assert_eq!(detail.locality, DriveLocality::Unknown);
+        assert!(!detail.contradiction);
         assert!(detail.observed_facts.is_empty());
+    }
+
+    #[test]
+    fn inner_disk_identity_mismatch_rejects_before_cause_selection() {
+        // WO29 Slice B correction: the reducer validates the inner
+        // identity inside an `Observed` record, not just the outer
+        // record membership. Required disk 0 with an outer record for
+        // disk 0 whose inner observation names disk 99 fails closed
+        // before any cause is selected — it can never reach the
+        // cause-specific `Unproven` paths even though the outer numbers
+        // line up.
+        let mismatch = multi_disk_evidence(
+            &[0],
+            vec![DiskQueryRecord {
+                disk_number: 0,
+                outcome: DiskQueryOutcome::Observed(DiskObservation {
+                    disk_number: 99,
+                    removable: false,
+                    bus_type: BUS_TYPE_NVME,
+                }),
+            }],
+        );
+        let detail = classify_evidence_detail(&mismatch);
+        assert_eq!(detail.locality, DriveLocality::Unknown);
         assert_eq!(detail.unproven_reason, None);
+        assert!(!detail.contradiction);
+
+        // Valid control: matching inner identity proceeds to the cause
+        // matrix (grant-first insufficient-evidence for this NVMe
+        // fixture).
+        let valid = multi_disk_evidence(&[0], vec![observed_record(0, false, BUS_TYPE_NVME)]);
+        let detail = classify_evidence_detail(&valid);
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        assert_eq!(detail.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
     }
 
     #[test]
@@ -2463,6 +2721,7 @@ mod tests {
                 observed_facts: Vec::new(),
                 unproven_reason: None,
                 volume_serial: None,
+                contradiction: false,
             }
         );
     }
