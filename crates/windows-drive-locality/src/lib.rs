@@ -391,6 +391,31 @@ impl EvidenceVerdict {
         }
     }
 
+    /// A closed verdict for an unavailable after mapping with otherwise
+    /// completely validated observations AND a completely observed
+    /// disk determination (WO29 Slice B correction, Codex finding 2):
+    /// like `closed_retained`, the verdict stays closed `Unknown`
+    /// (nothing admits) with the validated disk identities retained
+    /// for the runtime binder — but the NAMED `Unproven` cause
+    /// (removable media or unsupported bus) is preserved alongside
+    /// the unavailable-query facts instead of being discarded. The
+    /// cause names the completely observed disk determination; the
+    /// after query is still recorded as unavailable in the facts —
+    /// never claimed succeeded.
+    fn closed_retained_unproven(
+        reason: &'static str,
+        backing_device_identity: Vec<u32>,
+        observed_facts: Vec<String>,
+    ) -> Self {
+        Self {
+            locality: DriveLocality::Unknown,
+            backing_device_identity,
+            observed_facts,
+            unproven_reason: Some(reason),
+            contradiction: false,
+        }
+    }
+
     /// A closed verdict for INVALID producer evidence: outer
     /// disk-record membership failures and inner observed-disk identity
     /// mismatches. The available observations are preserved, but the
@@ -673,8 +698,26 @@ fn observed_fact_body(
         });
         facts.push(disk_fact_line(*disk_number, record));
     }
+    // Field-independent equality (WO29 Slice B correction, Codex
+    // finding 1): the mapping and the drive type are observed
+    // independently. An identical complete mapping with an
+    // undetermined after drive type (DRIVE_UNKNOWN) is
+    // "undetermined (drive type)" — undetermined is not
+    // disagreement. A genuinely observed mapping or known
+    // drive-type disagreement never reaches this rendering: it
+    // returns the rejecting `closed_contradiction` above.
+    let mapping_equal = match (&evidence.before.mapping, &evidence.after.mapping) {
+        (QueryState::Complete(before_units), QueryState::Complete(after_units)) => {
+            before_units == after_units
+        }
+        _ => false,
+    };
+    let drive_type_undetermined =
+        mapping_equal && matches!(evidence.after.drive_type, DriveTypeObservation::Unknown);
     let equality = if evidence.before == evidence.after {
         "match"
+    } else if drive_type_undetermined {
+        "undetermined (drive type)"
     } else if matches!(&evidence.after.mapping, QueryState::Complete(_)) {
         "mismatch"
     } else {
@@ -1006,11 +1049,41 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
         QueryState::Complete(_) => {
             // A known before/after contradiction requires two
             // SUCCESSFULLY OBSERVED preliminary observations that
-            // disagree: only a successfully observed after mapping can
-            // contradict the before observation.
-            if evidence.before != evidence.after
-                || classify_preliminary(&evidence.after) != PreliminaryClass::Candidate
-            {
+            // disagree on an AVAILABLE field: the mapping and the drive
+            // type are observed independently, so compare them
+            // independently — never the whole record at once (WO29
+            // Slice B correction, Codex finding 1). Only a
+            // successfully observed after mapping can contradict the
+            // before observation.
+            //
+            // - Both mappings complete but unequal: a genuine mapping
+            //   contradiction.
+            // - A positively observed different after drive type
+            //   (e.g. Fixed -> Remote): a genuine drive-type
+            //   contradiction.
+            // - DRIVE_NO_ROOT_DIR: the root path is invalid — a
+            //   separately documented meaning, kept as a contradiction
+            //   (existing handling); it is never treated as missing.
+            //
+            // DRIVE_UNKNOWN is undetermined, not an observed different
+            // drive type: missing evidence on that field — never
+            // disagreement. With an otherwise consistent record the
+            // verdict stays trust-coverable and the disk identities
+            // are retained for the binder below.
+            let mapping_contradiction = match (&evidence.before.mapping, &evidence.after.mapping) {
+                (QueryState::Complete(before_units), QueryState::Complete(after_units)) => {
+                    before_units != after_units
+                }
+                _ => false,
+            };
+            let drive_type_contradiction = drive_type_observed_changed(
+                &evidence.before.drive_type,
+                &evidence.after.drive_type,
+            ) || matches!(
+                evidence.after.drive_type,
+                DriveTypeObservation::MissingRoot | DriveTypeObservation::Other
+            );
+            if mapping_contradiction || drive_type_contradiction {
                 return EvidenceVerdict::closed_contradiction(&evidence.before, &evidence.after);
             }
             None
@@ -1232,14 +1305,28 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
             // the binder. No contradiction marker: genuinely unavailable
             // with otherwise consistent evidence is trust-coverable
             // absence, never invalidity.
-            let facts = after_unavailable_closed_facts(
+            let mut facts = after_unavailable_closed_facts(
                 evidence,
                 extents,
                 records,
                 &required_disks,
                 after_state,
             );
-            EvidenceVerdict::closed_retained(required_disks, facts)
+            match cause {
+                // WO29 Slice B correction (Codex finding 2): the disk
+                // determination was COMPLETELY observed, so its named
+                // cause is preserved alongside the unavailable-query
+                // facts — never discarded. The after query is still
+                // recorded as unavailable above, never claimed
+                // succeeded; the verdict stays closed `Unknown`.
+                Some(named) => {
+                    facts.push(format!(
+                        "cause: {named} (complete observed disk determination; the after query itself is unavailable)"
+                    ));
+                    EvidenceVerdict::closed_retained_unproven(named, required_disks, facts)
+                }
+                None => EvidenceVerdict::closed_retained(required_disks, facts),
+            }
         }
     }
 }
@@ -4045,11 +4132,11 @@ mod tests {
     mod orchestration_controls {
         use super::{mapping, observed_record, preliminary};
         use crate::{
-            BUS_TYPE_ATA, BUS_TYPE_NVME, BUS_TYPE_SD, DependencyObservation, DiskObservation,
-            DiskQueryOutcome, DiskQueryRecord, DriveLocality, DriveRoot, DriveTypeObservation,
-            EvidenceVerdict, ExtentObservation, PreliminaryObservation, QueryStages, QueryState,
-            REASON_INSUFFICIENT_EVIDENCE, REASON_REMOVABLE_MEDIA,
-            REASON_REMOVABLE_STATUS_UNREADABLE, orchestrate_classification,
+            BUS_TYPE_ATA, BUS_TYPE_NVME, BUS_TYPE_SCSI, BUS_TYPE_SD, DependencyObservation,
+            DiskObservation, DiskQueryOutcome, DiskQueryRecord, DriveLocality, DriveRoot,
+            DriveTypeObservation, EvidenceVerdict, ExtentObservation, PreliminaryObservation,
+            QueryStages, QueryState, REASON_INSUFFICIENT_EVIDENCE, REASON_REMOVABLE_MEDIA,
+            REASON_REMOVABLE_STATUS_UNREADABLE, REASON_UNSUPPORTED_BUS, orchestrate_classification,
         };
 
         thread_local! {
@@ -4108,6 +4195,63 @@ mod tests {
             })
         }
 
+        /// Second preliminary call returns a COMPLETE after mapping
+        /// IDENTICAL to the before mapping with an undetermined after
+        /// drive type (DRIVE_UNKNOWN): missing evidence on that field —
+        /// never a contradiction (WO29 Slice B correction, Codex
+        /// finding 1).
+        fn before_ok_after_undetermined(_: DriveRoot) -> PreliminaryObservation {
+            PRELIMINARY_CALLS.with(|calls| {
+                let n = calls.get();
+                calls.set(n + 1);
+                if n == 0 {
+                    preliminary()
+                } else {
+                    PreliminaryObservation {
+                        drive_type: DriveTypeObservation::Unknown,
+                        mapping: mapping(r"\Device\HarddiskVolume3"),
+                    }
+                }
+            })
+        }
+
+        /// Second preliminary call returns a complete after mapping
+        /// identical to the before mapping with DRIVE_NO_ROOT_DIR: the
+        /// root path is invalid — a separately documented meaning,
+        /// kept as a contradiction (existing handling).
+        fn before_ok_after_missing_root(_: DriveRoot) -> PreliminaryObservation {
+            PRELIMINARY_CALLS.with(|calls| {
+                let n = calls.get();
+                calls.set(n + 1);
+                if n == 0 {
+                    preliminary()
+                } else {
+                    PreliminaryObservation {
+                        drive_type: DriveTypeObservation::MissingRoot,
+                        mapping: mapping(r"\Device\HarddiskVolume3"),
+                    }
+                }
+            })
+        }
+
+        /// Second preliminary call returns a complete after mapping
+        /// identical to the before mapping with a positively observed
+        /// Remote drive type: a genuine known drive-type contradiction.
+        fn before_ok_after_remote_complete(_: DriveRoot) -> PreliminaryObservation {
+            PRELIMINARY_CALLS.with(|calls| {
+                let n = calls.get();
+                calls.set(n + 1);
+                if n == 0 {
+                    preliminary()
+                } else {
+                    PreliminaryObservation {
+                        drive_type: DriveTypeObservation::Remote,
+                        mapping: mapping(r"\Device\HarddiskVolume3"),
+                    }
+                }
+            })
+        }
+
         fn reset_counters() {
             CLOSE_CALLS.with(|c| c.set(0));
             PRELIMINARY_CALLS.with(|c| c.set(0));
@@ -4146,6 +4290,22 @@ mod tests {
         fn nvme_disk(_: &[ExtentObservation]) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
             (
                 QueryState::Complete(vec![observed_record(0, false, BUS_TYPE_NVME)]),
+                true,
+            )
+        }
+
+        fn removable_sd_disk(_: &[ExtentObservation]) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+            (
+                QueryState::Complete(vec![observed_record(0, true, BUS_TYPE_SD)]),
+                true,
+            )
+        }
+
+        fn unsupported_scsi_disk(
+            _: &[ExtentObservation],
+        ) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+            (
+                QueryState::Complete(vec![observed_record(0, false, BUS_TYPE_SCSI)]),
                 true,
             )
         }
@@ -4565,6 +4725,204 @@ mod tests {
             );
             assert!(has_fact(&verdict, "equality: mismatch"));
             assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_complete_after_undetermined_drive_type_is_trust_coverable() {
+            // WO29 Slice B correction (Codex finding 1) through the REAL
+            // orchestration: before Fixed + after Unknown + identical
+            // complete mapping + matching valid disk evidence is NOT a
+            // contradiction. DRIVE_UNKNOWN means undetermined, not an
+            // observed different drive type. The fields are compared
+            // independently — the mapping agrees — so the verdict is
+            // the ordinary observed-but-unproven path with the disk
+            // identities retained for the binder: genuinely
+            // trust-coverable missingness.
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: before_ok_after_undetermined,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: nvme_disk,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(PRELIMINARY_CALLS.with(|c| c.get()), 2);
+            assert_eq!(verdict.locality, DriveLocality::Unproven);
+            assert_eq!(verdict.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+            assert!(
+                !verdict.contradiction,
+                "an undetermined after drive type must not carry the contradiction marker"
+            );
+            assert_eq!(
+                verdict.backing_device_identity,
+                vec![0],
+                "validated disk identities must be retained for the binder"
+            );
+            assert!(has_fact(&verdict, "undetermined (drive type)"));
+            assert!(
+                !has_fact(&verdict, "equality: mismatch"),
+                "undetermined is not disagreement: {facts:?}",
+                facts = verdict.observed_facts
+            );
+            assert!(has_fact(&verdict, "disk 0: bus_type 17 (NVMe)"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_complete_after_missing_root_still_rejects() {
+            // DRIVE_NO_ROOT_DIR keeps its existing handling through the
+            // real orchestration: the root path is invalid — a
+            // separately documented meaning, never treated as missing.
+            // The verdict carries the rejecting contradiction marker.
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: before_ok_after_missing_root,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: nvme_disk,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(PRELIMINARY_CALLS.with(|c| c.get()), 2);
+            assert_eq!(verdict.locality, DriveLocality::Unknown);
+            assert!(
+                verdict.contradiction,
+                "DRIVE_NO_ROOT_DIR must keep its existing rejecting handling"
+            );
+            assert!(has_fact(&verdict, "known before/after contradiction"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_complete_after_observed_remote_still_rejects() {
+            // A positively observed Fixed -> Remote drive-type change
+            // with a complete identical after mapping is a genuine
+            // known drive-type contradiction and stays rejecting
+            // through the real orchestration.
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: before_ok_after_remote_complete,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: nvme_disk,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(PRELIMINARY_CALLS.with(|c| c.get()), 2);
+            assert_eq!(verdict.locality, DriveLocality::Unknown);
+            assert!(
+                verdict.contradiction,
+                "a positively observed drive-type change must keep the contradiction marker"
+            );
+            assert!(has_fact(&verdict, "known before/after contradiction"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_unavailable_after_preserves_removable_cause() {
+            // WO29 Slice B correction (Codex finding 2) through the REAL
+            // orchestration: complete removable-SD observations with an
+            // unavailable after mapping (`ApiFailure` AND `Partial`)
+            // keep the named `Unproven` cause ALONGSIDE the
+            // unavailable-query facts and the retained binding
+            // identity. The verdict stays closed `Unknown` — the after
+            // query is never claimed succeeded — with no contradiction
+            // marker: trust-coverable.
+            for (partial, after_state) in [(false, "query_failed"), (true, "partial_result")] {
+                AFTER_PARTIAL.with(|p| p.set(partial));
+                reset_counters();
+                let stages = QueryStages {
+                    query_preliminary: before_ok_after_unavailable,
+                    query_dependencies: no_dependencies,
+                    query_extents: single_extent,
+                    query_backing_disks: removable_sd_disk,
+                    close_volume: close_ok,
+                };
+                let verdict = orchestrate_classification(root(), (), &stages);
+                assert_eq!(PRELIMINARY_CALLS.with(|c| c.get()), 2);
+                assert_eq!(verdict.locality, DriveLocality::Unknown);
+                assert!(
+                    !verdict.contradiction,
+                    "preserving the named cause must not add a contradiction marker ({after_state})"
+                );
+                assert_eq!(
+                    verdict.unproven_reason,
+                    Some(REASON_REMOVABLE_MEDIA),
+                    "the named Unproven cause must survive the unavailable after query ({after_state})"
+                );
+                assert_eq!(
+                    verdict.backing_device_identity,
+                    vec![0],
+                    "validated disk identities must be retained for the binder ({after_state})"
+                );
+                assert!(has_fact(
+                    &verdict,
+                    &format!("after: {after_state} (observation unavailable)")
+                ));
+                assert!(
+                    has_fact(
+                        &verdict,
+                        "cause: windows_locality_unproven_removable_media_v0"
+                    ),
+                    "the preserved cause must be named in the facts: {facts:?}",
+                    facts = verdict.observed_facts
+                );
+                assert!(has_fact(&verdict, "disk 0: bus_type 12 (SD)"));
+                assert_eq!(close_calls(), 1);
+            }
+        }
+
+        #[test]
+        fn orchestration_unavailable_after_preserves_unsupported_bus_cause() {
+            // Same as the removable-media control for the
+            // unsupported-bus cause: complete SCSI observations with an
+            // unavailable after mapping (`ApiFailure` AND `Partial`)
+            // keep the named `Unproven` cause alongside the
+            // unavailable-query facts and the retained binding
+            // identity — closed `Unknown`, no contradiction marker.
+            for (partial, after_state) in [(false, "query_failed"), (true, "partial_result")] {
+                AFTER_PARTIAL.with(|p| p.set(partial));
+                reset_counters();
+                let stages = QueryStages {
+                    query_preliminary: before_ok_after_unavailable,
+                    query_dependencies: no_dependencies,
+                    query_extents: single_extent,
+                    query_backing_disks: unsupported_scsi_disk,
+                    close_volume: close_ok,
+                };
+                let verdict = orchestrate_classification(root(), (), &stages);
+                assert_eq!(PRELIMINARY_CALLS.with(|c| c.get()), 2);
+                assert_eq!(verdict.locality, DriveLocality::Unknown);
+                assert!(
+                    !verdict.contradiction,
+                    "preserving the named cause must not add a contradiction marker ({after_state})"
+                );
+                assert_eq!(
+                    verdict.unproven_reason,
+                    Some(REASON_UNSUPPORTED_BUS),
+                    "the named Unproven cause must survive the unavailable after query ({after_state})"
+                );
+                assert_eq!(
+                    verdict.backing_device_identity,
+                    vec![0],
+                    "validated disk identities must be retained for the binder ({after_state})"
+                );
+                assert!(has_fact(
+                    &verdict,
+                    &format!("after: {after_state} (observation unavailable)")
+                ));
+                assert!(
+                    has_fact(
+                        &verdict,
+                        "cause: windows_locality_unproven_unsupported_bus_v0"
+                    ),
+                    "the preserved cause must be named in the facts: {facts:?}",
+                    facts = verdict.observed_facts
+                );
+                assert!(has_fact(&verdict, "disk 0: bus_type 1 (bus_1)"));
+                assert_eq!(close_calls(), 1);
+            }
         }
 
         #[test]

@@ -8156,6 +8156,158 @@ pub(crate) mod tests {
         );
     }
 
+    /// WO29 Slice B correction (Codex finding 1): an undetermined
+    /// after drive type (DRIVE_UNKNOWN) with an identical complete
+    /// after mapping is missing evidence on that field — never a
+    /// contradiction. The ACTUAL external-trust binder admits the
+    /// mirrored live verdict on matching opened evidence
+    /// (trust-coverable) and still rejects on a disk-identity
+    /// mismatch: the retained identities bind.
+    #[cfg(windows)]
+    #[test]
+    fn windows_undetermined_drive_type_stays_trust_coverable_through_binder() {
+        use super::bind_observed_backing_evidence;
+        use crate::native_path::LocalityEvidence;
+        use windows_drive_locality::OpenedVolumeObservation;
+
+        // Mirrors the live undetermined-drive-type verdict:
+        // observed-but-unproven (insufficient-evidence demotion),
+        // validated identities retained ([0]), no contradiction
+        // marker, facts name the drive type as undetermined.
+        // (Backslash-bearing mappings elided with `...`: the binder
+        // reads only the marker, the serial, and the identity vector,
+        // and the text-hygiene scan flags literal double-backslash in
+        // source.)
+        fn undetermined() -> LocalityEvidence {
+            LocalityEvidence::Windows(windows_drive_locality::ClassifiedDrive {
+                locality: windows_drive_locality::DriveLocality::Unproven,
+                backing_device_identity: vec![0],
+                observed_facts: vec![
+                    "before: drive_type Fixed, mapping ...; after: drive_type Unknown, mapping ...; equality: undetermined (drive type)".to_string(),
+                    "dependency_walk: no_dependencies".to_string(),
+                    "disk 0: bus_type 17 (NVMe) removable_media false (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive0)".to_string(),
+                    "classification: Unproven (observed-but-unproven; grant-first per decision 0029 §14; admits nothing)".to_string(),
+                ],
+                unproven_reason: Some(windows_drive_locality::REASON_INSUFFICIENT_EVIDENCE),
+                volume_serial: Some(0xC0DE_1234),
+                contradiction: false,
+            })
+        }
+        fn opened(serial: u64) -> FileObjectIdentity {
+            FileObjectIdentity::WindowsVolumeFile {
+                volume_serial: serial,
+                file_id: [0x42; 16],
+            }
+        }
+        fn observation(serial: u64, disks: Vec<u32>) -> OpenedVolumeObservation {
+            OpenedVolumeObservation {
+                volume_serial: serial,
+                disk_numbers: disks,
+            }
+        }
+        // Positive control: undetermined with otherwise consistent
+        // evidence and matching opened disks stays trust-coverable.
+        let matching = observation(0xC0DE_1234, vec![0]);
+        assert_eq!(
+            bind_observed_backing_evidence(
+                Some(&undetermined()),
+                opened(0xC0DE_1234),
+                Some(&matching)
+            ),
+            Ok(())
+        );
+        // The retained identity still binds: observed disk 0 against
+        // opened disk 9 rejects before payload consumption.
+        let mismatched = observation(0xC0DE_1234, vec![9]);
+        assert_eq!(
+            bind_observed_backing_evidence(
+                Some(&undetermined()),
+                opened(0xC0DE_1234),
+                Some(&mismatched)
+            )
+            .expect_err("retained disk identity must bind against the opened observation")
+            .variant(),
+            "contradictory_backing_evidence"
+        );
+    }
+
+    /// WO29 Slice B correction (Codex finding 2): a completely
+    /// observed removable-media determination with an unavailable
+    /// after mapping keeps its named `Unproven` cause alongside the
+    /// unavailable-query facts and the retained binding identity.
+    /// The ACTUAL external-trust binder admits the mirrored live
+    /// verdict on matching opened evidence (the preserved cause is
+    /// not a contradiction marker) and still rejects on a
+    /// disk-identity mismatch.
+    #[cfg(windows)]
+    #[test]
+    fn windows_unavailable_after_preserved_cause_binds_through_binder() {
+        use super::bind_observed_backing_evidence;
+        use crate::native_path::LocalityEvidence;
+        use windows_drive_locality::OpenedVolumeObservation;
+
+        // Mirrors the live preserved-cause verdict: closed `Unknown`
+        // (the after query is never claimed succeeded), the named
+        // cause preserved, validated identities retained ([0]), no
+        // contradiction marker. (Backslash-bearing mappings elided
+        // with `...`: the binder reads only the marker, the serial,
+        // and the identity vector, and the text-hygiene scan flags
+        // literal double-backslash in source.)
+        fn preserved_cause() -> LocalityEvidence {
+            LocalityEvidence::Windows(windows_drive_locality::ClassifiedDrive {
+                locality: windows_drive_locality::DriveLocality::Unknown,
+                backing_device_identity: vec![0],
+                observed_facts: vec![
+                    "before: drive_type Fixed, mapping ...".to_string(),
+                    "after: query_failed (observation unavailable); equality: unavailable (cannot compare)".to_string(),
+                    "dependency_walk: no_dependencies".to_string(),
+                    "disk 0: bus_type 12 (SD) removable_media true (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive0)".to_string(),
+                    "cause: windows_locality_unproven_removable_media_v0 (complete observed disk determination; the after query itself is unavailable)".to_string(),
+                    "classification: Unknown (after observation unavailable; missing evidence is trust-coverable, never a contradiction)".to_string(),
+                ],
+                unproven_reason: Some(windows_drive_locality::REASON_REMOVABLE_MEDIA),
+                volume_serial: Some(0xC0DE_1234),
+                contradiction: false,
+            })
+        }
+        fn opened(serial: u64) -> FileObjectIdentity {
+            FileObjectIdentity::WindowsVolumeFile {
+                volume_serial: serial,
+                file_id: [0x42; 16],
+            }
+        }
+        fn observation(serial: u64, disks: Vec<u32>) -> OpenedVolumeObservation {
+            OpenedVolumeObservation {
+                volume_serial: serial,
+                disk_numbers: disks,
+            }
+        }
+        // Positive control: the preserved cause stays
+        // trust-coverable with matching opened evidence.
+        let matching = observation(0xC0DE_1234, vec![0]);
+        assert_eq!(
+            bind_observed_backing_evidence(
+                Some(&preserved_cause()),
+                opened(0xC0DE_1234),
+                Some(&matching)
+            ),
+            Ok(())
+        );
+        // The retained identity still binds: observed disk 0 against
+        // opened disk 9 rejects before payload consumption.
+        let mismatched = observation(0xC0DE_1234, vec![9]);
+        assert_eq!(
+            bind_observed_backing_evidence(
+                Some(&preserved_cause()),
+                opened(0xC0DE_1234),
+                Some(&mismatched)
+            )
+            .expect_err("retained disk identity must bind against the opened observation")
+            .variant(),
+            "contradictory_backing_evidence"
+        );
+    }
+
     /// Control (a2): the proof path always carries evidence; `None` fails
     /// closed with the distinguishable `MissingProofEvidence` variant.
     /// Requires Leaf A's `LocalityEvidence`.
