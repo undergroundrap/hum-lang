@@ -818,6 +818,18 @@ alongside Slice A — the accepted dependency order (1 → 4 → 5 → 2 → 3)
 and the slice sequence stand, and this draft remains the sole writer of the
 Work Order text (one-writer rule preserved).
 
+## Slice A merge record (2026-09-29)
+
+- Slice A (Items 1 + 4 + 5 + 6) merged to main as `037f62b2` (PR #59
+  squash-merge; sole parent `ab01a8eb`).
+- Main-push validation run `36503074709` (attempt 1, push event, head
+  `037f62b2`) reached terminal success 2026-09-28: Ubuntu 26m51s,
+  Windows 44m41s; the four expected push-only artifacts (evidence
+  summaries for both platforms plus both hum-dev executables) uploaded
+  fresh and unexpired.
+- WO29 remains ACTIVE. Slice B (Items 2 + 3) is unaccepted pending
+  independent review.
+
 ## Affected-file scope (complete)
 
 New: `crates/linux-drive-locality/` (manifest, `src/lib.rs`, fixture trees
