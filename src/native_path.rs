@@ -134,6 +134,14 @@ impl ValidatedNativePath {
                     // construct it; it carries the same fixed-local meaning.
                     #[cfg(test)]
                     LocalityEvidence::Linux(locality) => locality.is_fixed_local(),
+                    // Test-only: the Windows test build also defines the
+                    // macOS declared-unproven marker so tests can
+                    // construct it. Declared-unproven is never
+                    // fixed-local (WO29 Item 3) — this arm completes the
+                    // Windows *test-configuration* match; production
+                    // cross-compilation alone did not exercise it.
+                    #[cfg(test)]
+                    LocalityEvidence::MacOS => false,
                 })
         }
         #[cfg(all(test, not(unix), not(windows)))]
@@ -713,6 +721,26 @@ mod tests {
             facts
                 .iter()
                 .all(|fact| !fact.contains("proved") || fact.contains("unproven"))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn macos_declared_unproven_is_never_fixed_local_on_windows_test_config() {
+        // WO29 Item 3, Windows test configuration: the `MacOS` evidence
+        // variant is visible to the Windows test build, so `is_fixed_local`
+        // must name it explicitly — declared-unproven stays non-fixed-local
+        // on this configuration too, not just under the unix arms. This
+        // test exists because production-only cross-compilation did not
+        // exercise the Windows test-configuration match (E0004).
+        let validated = super::ValidatedNativePath::macos_unproven_for_test(OsStr::new(
+            &drive_path("macos-probe"),
+        ));
+        assert_eq!(validated.locality(), "locality_unclassified");
+        assert!(!validated.is_fixed_local());
+        assert_eq!(
+            validated.classifier_unproven_reason(),
+            Some(super::MACOS_REASON_DECLARED_UNPROVEN)
         );
     }
 
