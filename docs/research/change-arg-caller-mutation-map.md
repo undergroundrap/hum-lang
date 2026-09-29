@@ -262,10 +262,12 @@ records, never a value diff:
 
 ### 4.5 Write-back algorithm (per change argument)
 
-Let P be the caller place after `resolve_writable_alias_place`
-(P is a root `r` or a single field `r.s`; deeper is impossible by §2),
-and let the callee param's final root value be Vf with recorded
-sub-places W and growth flag G:
+Let P be the caller place (a root `r` or a single field `r.s`;
+deeper is impossible by §2). Writable aliases cannot reach the call
+site — H0809/`PassedToCall` at the caller's preflight (§4.6a); the
+existing `resolve_writable_alias_place` guard (4738) is retained
+fail-closed, not widened. Let the callee param's final root value be
+Vf with recorded sub-places W and growth flag G:
 
 - If `""` in W: `write_place(caller_env, P, Vf)` (subsumes field
   writes); `invalidate_field_views(caller_env, P)` **and, for each
@@ -296,9 +298,10 @@ sub-places W and growth flag G:
 ### 4.6 Overlap rejection (exclusive mutation, precisely)
 
 Forbidden overlap is **rejected**; left-to-right copy-back order is not
-an alternative and is not offered. Checked in phase 0 on resolved
-places (alias-resolved, so `change a1`/`change a2` aliasing the same
-field is caught):
+an alternative and is not offered. Checked in phase 0 on direct caller
+places. Writable aliases cannot reach the call: the caller body's
+preflight rejects any call mentioning an alias with H0809 (see
+§4.6a), so the overlap check never sees alias names.
 
 - two `change` args with overlapping places (same place, or one a
   field-prefix of the other: `change r` vs `change r.s`) -> reject.
@@ -307,9 +310,17 @@ field is caught):
   not reused here because its message/help is written for `let alias =
   change` declarations; conflating the constructs would mislead. Full
   allocation checklist applies (§8).
-- `change` arg overlapping a `borrow` arg's place -> reject (H0810).
-  Two `borrow` args on the same place stay allowed (shared read,
-  existing behavior).
+- `change` arg overlapping a **borrow-declaring** argument's place ->
+  reject (H0810). Borrow-declaring = the explicit `borrow x` keyword
+  **or** an ordinary argument to an implicit-Borrow (default)
+  parameter: the param's permission declares read authority for the
+  call duration either way (`f(change r.s, r.s)` with the second param
+  default-Borrow declares the same read as `f(change r.s, borrow
+  r.s)`). Allowing the ordinary-argument form while rejecting the
+  keyword form would make exclusivity keyword-sensitive; the
+  declarations conflict regardless of the value-copy implementation.
+  Two borrow-declaring args on the same place with no `change` arg
+  stay allowed (shared read, existing behavior).
 - `change` arg overlapping a **live caller writable alias** ->
   reject by reusing **H0808**: the call creates a second live writer,
   which is exactly what H0808's "live overlapping access" rule
@@ -317,6 +328,41 @@ field is caught):
 - `change` arg overlapping a live caller **borrow view** -> allowed;
   the view is invalidated iff the callee actually wrote, via the
   existing H0807 path (§3.7 — no blanket view ban).
+
+### 4.6a H0809 boundary — complete (accepted; not expanded)
+
+H0809 (`UNSUPPORTED_WRITABLE_ALIAS`) is the writable-alias
+preflight's rejection of alias forms outside Session V's
+direct-field, straight-line, non-escaping slice. Its complete
+accepted cause set (kind `Unsupported`, `src/writable_field_alias.rs`
+at pinned `0e215d31`): `ShapeOutsideDirectFieldSlice` (163),
+`RebindsItsOwner` (164), `BindingRebinding` (165),
+`BindingInsideControlFlow` (166), `OwnerRebinding` (167),
+`LifetimeCrossesControlFlow` (168), `UseInsideControlFlow` (169),
+`Rebinding` (170), `Storage` (171), `UnsupportedUse` (172),
+`PermissionWrapper` (173), `AliasToAliasBinding` (174),
+`NestedOrElementUse` (175), `PassedToCall` (176),
+`OutsideTaskBody` (177), `Escape` (117). H0808's overlap causes
+(116, 158, 159, 160) are separate and unchanged.
+
+For the change-argument plan this boundary means:
+
+- **Alias passing:** `f(change a1)` where `a1` is a writable alias is
+  rejected at the *caller's* body preflight —
+  `preflight_writable_aliases` (run.rs:2135–2170) emits H0809 with
+  cause `PassedToCall` (176) before the call site evaluates anything.
+  The change-arg mechanism never receives alias names; no alias
+  resolution is specified at the call site beyond the existing
+  fail-closed `resolve_writable_alias_place` guard (4738), which is
+  retained as-is, not widened.
+- **Alias escape:** `return a1` / `fail a1` (`Escape`, 117),
+  `save_in_store a1` (`Storage`, 171), nesting or rebinding the alias
+  (`NestedOrElementUse` 175, `Rebinding` 170,
+  `AliasToAliasBinding` 174) are rejected at the defining body's
+  preflight. Aliases cannot escape into a callee frame.
+- No change-argument case routes to H0809, and H0809's meaning is
+  preserved exactly — the plan neither reuses it for call-shape
+  errors nor narrows its accepted causes.
 
 ### 4.7 Permission matrix (D5 — complete; replaced 2026-09-29, Codex-findings audit)
 
@@ -356,8 +402,8 @@ existing evaluation behavior, unchanged by the repair.
 | 12 | `consume x` | Consume | mark moved, pass value | EVAL | existing (3143–3147) |
 | 13 | `change x` where `x` (or an overlapping place) was consumed by an earlier argument | Change | trap via moved check | P2 | existing `ensure_can_set` → `use_after_move_invariant` (5341), plain trap |
 | 14 | `change` arg overlapping a live caller borrow view (`let v = borrow r.s`, `let w = borrow xs[0]`) | Change | **allowed**; the view is invalidated iff the callee actually wrote | write-back | existing H0807 path: `stale_view_trap` (4918) emits STALE_FIELD_VIEW diagnostic + trap on later *use* of the view; no blanket view ban (§3.7) |
-| 15 | `borrow` arg overlapping a `change` arg's place | any | **reject** | P0 | proposed H0810 (change/borrow-arg overlap, §4.6) |
-| 16 | two `borrow` args on the same place | any | allowed (shared read) | — | existing behavior (§4.6) |
+| 15 | borrow-declaring arg overlapping a `change` arg's place: explicit `borrow x`, or ordinary `x` to an implicit-Borrow (default) param | Borrow (explicit or default) on the overlapping arg; Change on the change arg | **reject** | P0 | proposed H0810 (§4.6) |
+| 16 | two borrow-declaring args on the same place, no `change` arg involved | Borrow | allowed (shared read) | — | existing behavior (§4.6) |
 
 Zero blast radius for the new P0 rejections: every existing
 fixture/example that calls a `change`-param task already uses the
@@ -365,10 +411,10 @@ keyword (`session_o_complete_item_field_place.hum:27`,
 `session_t_wrong_swap_contract.hum:26`); entry tasks take CLI args,
 not keywords (§4.8).
 
-**H0809 is not in this matrix.** Its approved meaning is a writable
-alias (`let change a1 = …`) whose owner lacks write authority —
-immutable `let` or unknown owner (`preflight_writable_aliases`,
-2186–2217). No change-argument case routes to H0809; its meaning is
+**H0809 is not in this matrix.** Its complete accepted boundary —
+every `Unsupported` cause (163–177, 117), including alias passing
+(`PassedToCall`, 176) and alias escape (`Escape`, 117) — is stated in
+§4.6a. No change-argument case routes to H0809; its meaning is
 preserved exactly.
 
 **Authority/overlap precedence** (recommended, deterministic): within
@@ -447,9 +493,9 @@ precedence spec is required.
   (recommended) vs extend `write_place` with element writes (wider
   than this repair).
 - **D3:** overlap rejection code — new narrow **H0810** for
-  change/change and change/borrow-arg overlap (recommended, checklist
-  in §8) vs stretching H0808 (rejected: message/help would mislead).
-  Live-writable-alias overlap reuses H0808 (settled, §4.6).
+  change/change and change/borrow-declaring-arg overlap (recommended,
+  checklist in §8) vs stretching H0808 (rejected: message/help would
+  mislead). Live-writable-alias overlap reuses H0808 (settled, §4.6).
 - **D4:** non-place change args — reject (required); plain trap
   (recommended, §6 justification) — no open point beyond ruling D4
   itself.
@@ -459,10 +505,17 @@ precedence spec is required.
 
 ## 6. Rejection plan: producers, channels, consumers (repository-compliant; replaced 2026-09-29, Codex-findings audit)
 
-Every rejection is produced at the user-task call site in `src/run.rs`
+Rejections are produced by the user-task call site in `src/run.rs`
 (the §2 argument owner) and observed through one of two **existing**
-channels — no new producers, no new consumers, no catalog allocation
-except the still-proposed H0810:
+channels. The repair's *mechanism* is run.rs-only; its *designated
+surface* is not: diagnostic identity (code, cause key, ordinal,
+family), the human-projection mirror, and the pinned-count/policy
+pins have designated owners that this plan names explicitly (§7) —
+dropping the earlier run.rs-only premise where shared admission,
+designated diagnostics, or precedence genuinely require other owners.
+No exception to AGENTS.md is approved: those owners are identified,
+not touched, by this planning delivery. No new producers, no new
+consumers, and no catalog allocation except the still-proposed H0810:
 
 - **Trap channel** (all "plain trap" rows): the interpreter returns
   `Err(String)` → `run_program` maps it to
@@ -486,7 +539,7 @@ except the still-proposed H0810:
 | Rejection | Producer (run.rs) | Channel | CLI-observable | Files touched |
 |---|---|---|---|---|
 | D5 mismatch (§4.7 cells 2, 5, 8, 9, 11) | call-site branch, phase 0 (~3143) | trap | `runtime trap: …`, exit 2 | `src/run.rs` only |
-| change/change or change/borrow-arg overlap | call-site branch, phase 0 (~3143) | diagnostic+trap, **H0810 proposed** | `H0810 overlapping change arguments` diagnostic + trap text, exit 2 | `src/run.rs` + §8 checklist **iff accepted** |
+| change/change or change/borrow-declaring-arg overlap | call-site branch, phase 0 (~3143) | diagnostic+trap, **H0810 proposed** | `H0810 overlapping change arguments` diagnostic + trap text, exit 2 | `src/run.rs` (producer) + — **iff accepted** — `src/diagnostic_catalog.rs` (§8 checklist), `docs/DIAGNOSTICS.md` (mirror row), `tools/check_all.ps1` (pinned count in `Invoke-HumCompilerFrontChecks`), `tools/test_ci_policy.ps1` (`$CompilerBodies` re-pin for that function) |
 | change arg overlapping a live caller writable alias | call-site branch, phase 0 (~3143) | diagnostic+trap, **H0808** (existing meaning: the call creates the second live writer H0808 forbids) | H0808 diagnostic + trap, exit 2 | `src/run.rs` only |
 | change arg on `let`-bound (immutable) root | phase 2 `ensure_can_set` (4780) | trap (`cannot set immutable place`) | `runtime trap: cannot set immutable place …`, exit 2 | `src/run.rs` only |
 | change arg on borrow-permission root | phase 2 `ensure_can_set` → `borrow_mutation_trap` (4856) | diagnostic+trap, **H0802** (same authority violation as an in-body write through a borrow) | H0802 diagnostic + `runtime trap: H0802 …`, exit 2 | `src/run.rs` only |
@@ -516,7 +569,7 @@ H0810 ("overlapping change arguments", family `ownership_borrowing`,
 owning stage `ownership_check` — runtime emission has precedent:
 H0802's `borrow_mutation_trap` is runtime-emitted) remains the
 **only** proposed allocation, and only because no existing code names
-the change/change and change/borrow-argument overlap construct. It
+the change/change and change/borrow-declaring-argument overlap construct. It
 stays **proposed, not approved or allocated**; D1–D6 stay open.
 
 > **Tail completion — newly authored 2026-09-29 (builder lane). Not recovered text.**
@@ -534,23 +587,32 @@ stays **proposed, not approved or allocated**; D1–D6 stay open.
 >
 > Evidence — original final line, verbatim: `...[truncated 8629 chars]`
 
-## 7. Affected-file inventory (only if the repair is approved)
+## 7. Affected-file inventory — single, reconciled (only if the repair is approved)
+
+This is the plan's one inventory; §15 keeps no second copy. The
+mechanism lives in `src/run.rs`; diagnostic identity, mirrors, and
+pins have designated owners named here. No AGENTS.md exception is
+approved — those owners are identified, not touched, by this
+planning delivery.
 
 | File | Change | Why |
 |---|---|---|
-| `src/run.rs` | Two-phase argument loop at the user-task call site (§4.2, at 3143–3160); thread final parameter outcomes through `execute_task` (2040) / `execute_task_body` (2072); write-back at the call site through the real call owner (§4.5); pre-evaluation overlap rejection (§4.6) | The defect and every owner live here (§2) |
-| `src/diagnostic_catalog.rs` | **Only if H0810 is accepted:** `diagnostic_causes!` entry, `diagnostic_code_allocations!` entry, `historical_public_ordinal` arm, `DIAGNOSTICS` detail entry, hardcoded-count updates | §8 checklist |
+| `src/run.rs` | Two-phase argument loop at the user-task call site (§4.2, at 3143–3160); thread final parameter outcomes through `execute_task` (2040) / `execute_task_body` (2072); write-back at the call site through the real call owner (§4.5); phase-0 rejections (§4.6, §4.7); write-effect records on `RuntimeBinding` (§4.4); **proposed** `#[cfg(test)]` write-back journal for failure-path assertions (§14) | The defect and every mechanism owner live here (§2) |
+| `src/diagnostic_catalog.rs` | **Only if H0810 is accepted:** §8 checklist — `diagnostic_causes!` entry (cause key 194), `diagnostic_code_allocations!` entry (key 100), `historical_public_ordinal` arm for key 100, `DIAGNOSTICS` detail entry, the exact count literals in §8 item 5 — plus the open ruling whether key 194 joins `OWNERSHIP_CAUSES` | Designated diagnostic-identity owner |
+| `src/diagnostics.rs` | **No hand edit proposed.** `"Hum diagnostics (N codes)"` and `"\"count\": N"` derive from `diagnostic_catalog::all()` via `format!`; only the *test* literals in §8 item 5 change, and only if the catalog changes | `hum diagnostics` contract; affected consumer |
 | `docs/DIAGNOSTICS.md` | Mirror row, **only if H0810 is accepted** (test-enforced via `validate_human_projection`; catalog mirror, not prose) | Standing catalog-mirror rule |
-| `tools/check_all.ps1`, `tools/test_ci_policy.ps1` | Pinned diagnostic count + `$CompilerBodies` digest updates, **only if the catalog changes** | Standing pin practice (decision 0028) |
-| `fixtures/` | New `.hum` fixtures + session tests exercised **through the real user-task call path**, covering §3.1–§3.6 and the §6 rejection table | Positive-evidence rule: fixtures must observe the effect, not merely declare the form |
+| `tools/check_all.ps1` | Pinned count 100→101 inside `Invoke-HumCompilerFrontChecks` (**only if the catalog changes**); new `Read-NativeOutput[WithExit]` assertions for the new fixtures | Standing pin practice; acceptance assertions live here |
+| `tools/test_ci_policy.ps1` | `$CompilerBodies` digest re-pin for `Invoke-HumCompilerFrontChecks` (**only if that function's body changes** — i.e. only if the pinned count above changes; a `src/run.rs`-only repair does **not** trip it). The digest pins the body bytes of four shared functions (`Invoke-HumCompilerFrontChecks`, `Invoke-HumCompilerCorpusChecks`, `Invoke-HumUseAfterMoveRuntimeCheck`, `Invoke-HumUseAfterMoveProjectionCheck`); the failure message names the function and prints the new digest | Standing pin practice (decision 0028) |
+| `fixtures/` | New `.hum` fixtures + session tests exercised **through the real user-task call path** — the §12 traces, the §6 rejection table, the §14 exit rows — placed by family (`fixtures/ownership_check/`, `fixtures/run/`) | Positive-evidence rule: fixtures must observe the effect, not merely declare the form |
+| `src/run.rs` `mod tests` (5716) | Internal tests through `run_program_with_adapters` asserting the §14 observation points (post-call reads, stale-view trap-or-success, the proposed journal) | §14 seam distinction |
 
-Out of scope for the repair: every other `src/` file, the CLI surface (no new flags), Work Order edits, and any try/catch machinery (D6 / Session W preserved).
+Out of scope for the repair: every other `src/` file, the CLI surface (no new flags), Work Order edits, and any try/catch machinery (D6 / Session W preserved). The parser already admits `change`-argument syntax — no syntax or admission change is proposed anywhere.
 
 ## 8. H0810 allocation checklist (proposed — not approved, not allocated)
 
 H0810 ("overlapping change arguments", family `ownership_borrowing`, owning stage
 `ownership_check`) is the only proposed allocation, and only because no existing code
-names the change/change and change/borrow-argument overlap construct (§6). Runtime
+names the change/change and change/borrow-declaring-argument overlap construct (§6). Runtime
 emission has precedent: H0802's `borrow_mutation_trap` is runtime-emitted. If — and
 only if — Codex/Ocean accept the allocation, the standing multi-site change is
 (decision 0028 checklist; indexes verified read-only at pinned `0e215d31`):
@@ -565,10 +627,22 @@ only if — Codex/Ocean accept the allocation, the standing multi-site change is
    the arm the ordinal defaults to `u16::MAX` and validation fails `InvalidPublicOrdinal`.
 4. `DIAGNOSTICS` detail entry — blame-style: name the call site, the overlapping
    argument positions and caller places, and the fix (pass disjoint caller places).
-5. Hardcoded counts: `DIAGNOSTIC_CAUSES.len()`, `summary.active_codes`, `all().len()`,
-   `catalog.len()`, `"Hum diagnostics (N codes)"`, `"\"count\": N"` in `diagnostics.rs`.
+5. Count literals — exact at pinned `0e215d31` (each N → N+1 when one
+   code is added): `src/diagnostic_catalog.rs` tests —
+   `assert_eq!(summary.active_codes, 97)` (two sites),
+   `assert_eq!(DIAGNOSTIC_CAUSES.len(), 193)`,
+   `assert_eq!(all().len(), 100)`; `src/diagnostics.rs` tests —
+   `assert_eq!(catalog.len(), 100)`,
+   `assert!(text.starts_with("Hum diagnostics (100 codes)\n"))`,
+   `assert!(json.contains("\"count\": 100"))`. The production code in
+   `src/diagnostics.rs` derives both strings via `format!` — no
+   literal edits there.
 6. `docs/DIAGNOSTICS.md` mirror row.
-7. `tools/check_all.ps1` pinned count + `tools/test_ci_policy.ps1` `$CompilerBodies` digest.
+7. `tools/check_all.ps1` pinned count (the `100` inside
+   `Invoke-HumCompilerFrontChecks`'s canonical-catalog assertion) +
+   `tools/test_ci_policy.ps1` `$CompilerBodies` digest re-pin for
+   that function (the digest pins that function's body bytes; the
+   failure message names the function and prints the new digest).
 
 Until acceptance, none of the above is done; the map's §6 reuse table stands as the
 complete diagnostic story.
@@ -596,10 +670,13 @@ An implementation PR would need, at minimum:
   root/field writes, list-growth invalidation, no-op calls, write-then-restore, nested
   forwarding, and side effects during argument evaluation.
 - **Two test seams** (§14): actual-command tests (`hum run fixtures/…`, stdout + exit
-  code) prove the observable contract; internal caller-env tests
-  (`run_program_with_adapters`) prove the mechanism (invalidation state, write-effect
-  records). Both execute the real interpreter; neither invents evidence.
-- Adversarial fixtures: change/change and change/borrow-arg overlap (H0810, if accepted);
+  code) prove the observable contract; internal tests
+  (`run_program_with_adapters`) prove the mechanism through the §14
+  observation points (post-call reads, stale-view trap-or-success,
+  and — for the failure paths — the proposed `#[cfg(test)]`
+  write-back journal). Both execute the real interpreter; neither
+  invents evidence. `RunReport` does not expose the caller `Env`.
+- Adversarial fixtures: change/change and change/borrow-declaring-arg overlap (H0810, if accepted);
   overlap with a live caller writable alias (H0808); element-place, non-place, and
   keyword/permission-mismatch rejections (plain traps per §6); `try` with `change` args
   stays unsupported.
@@ -644,6 +721,28 @@ An implementation PR would need, at minimum:
 > inventory including `src/diagnostics.rs` and affected harnesses/tests, separated
 > into accepted facts, recommendations, and open rulings. Planning-only; D1–D6 and
 > H0810 stay open/proposed. No implementation, builds, tests, or CI were run.
+
+> **Satisfiability-audit reconciliation — newly authored 2026-09-29 (builder lane). Not recovered text.**
+> Replaces contradictory sections with one consistent proposed plan (no new layer):
+> (1) the run.rs-only premise is dropped where designated diagnostics, mirrors, and
+> pins genuinely require other owners — `src/diagnostic_catalog.rs`,
+> `docs/DIAGNOSTICS.md`, `tools/check_all.ps1`, `tools/test_ci_policy.ps1` are named
+> in the single §7 inventory (no AGENTS.md exception approved); (2) §12.1 traces
+> concrete caller/callee env states through the mechanism at every frame boundary —
+> append-only and field-write/root-replacement with another forwarding return —
+> showing value and effect as two applications of the same write records;
+> (3) implicit-Borrow overlap is covered (§4.6, §4.7 cell 15) and the complete
+> accepted H0809 boundary — all `Unsupported` causes incl. `PassedToCall` (176) and
+> `Escape` (117) — is stated in §4.6a, with the corrected explicit cells retained;
+> (4) the real test observation point is the caller frame's own subsequent behavior
+> through the actual call owner (`RunReport` exposes no caller `Env`); per-frame
+> write-back on the failure paths — incl. propagated contract failure — is covered
+> via explicitly proposed `#[cfg(test)]` write-back journal plumbing;
+> (5) the §8 count literals are corrected to the exact assertions at the pinned
+> commit, `$CompilerBodies` digest ownership is stated exactly (four pinned
+> `check_all.ps1` function bodies; re-pin only if a body changes), and the
+> contradictory §7/§15 inventories are replaced by the single §7 inventory.
+> D1–D6 and H0810 stay open/proposed. Planning-only.
 
 ## 12. Value/effect propagation independence (the six cases)
 
@@ -723,6 +822,96 @@ root value.
    original caller's views of the written field places through the
    values alone.
 
+### 12.1 Frame-boundary traces — concrete states through the mechanism
+
+Planned-mechanism walkthroughs (not execution evidence): the exact
+caller/callee env states at each frame boundary, showing value and
+effect transfer as two separate applications of the same write
+records. Notation: env entries show binding → value; views show
+`invalidated_by`.
+
+**Trace A — append-only call** (field writes only, no root
+replacement):
+
+```hum
+task bump(change r) { set r.count = r.count + 1 }
+task main() {
+  let r = { count: 0 }
+  let v = borrow r.count
+  bump(change r)
+}
+```
+
+- t0 (main env): `r → {count: 0}` (mutable let); `v →
+  view{source_place: "r.count", invalidated_by: None}`.
+- Phase 0/2: shape ok (root `r`); no overlap; `ensure_can_set`
+  passes (mutable).
+- Inward boundary (copy-in): callee env `r → param(change,
+  {count: 0})` — value only. No views cross inward; caller env
+  untouched.
+- Callee body: `set r.count = r.count + 1` → `write_place(callee,
+  "r.count", 1)`; W = [`count`]; callee-local invalidation finds no
+  views. Callee env: `r → {count: 1}`.
+- Outward boundary (write-back, P = `r`): W = [`count`] →
+  `write_place(main, "r.count", 1)` → main `r → {count: 1}`
+  (**value transfer**); `invalidate_field_views(main, "r.count")`
+  → `v.invalidated_by = Some(FieldWrite)` (**effect transfer**);
+  `r.count` appended to main's frame log for further forwarding.
+- t1 (main env): `r → {count: 1}`; `v` invalidated. A later read of
+  `v` → `stale_view_trap` (H0807) → runtime trap.
+
+**Trace B — field-write/root-replacement, then another forwarding
+return** (the audit's exact case):
+
+```hum
+task inner(change q) {
+  set q.count = q.count + 1
+  set q = { count: 99 }
+}
+task outer(change p) { inner(change p) }
+task main() {
+  let r = { count: 0 }
+  let v = borrow r.count
+  outer(change r)
+}
+```
+
+- t0 (main env): `r → {count: 0}`; `v → view{r.count, valid}`.
+- main→outer inward: outer env `p → {count: 0}`.
+- outer body calls `inner(change p)`: phase 0 ok; inward: inner env
+  `q → {count: 0}`.
+- inner body: `set q.count = q.count + 1` → W_inner = [`count`],
+  `q → {count: 1}`; then `set q = {count: 99}` → W_inner =
+  [`count`, `""`], `q → {count: 99}`.
+- inner→outer outward (first frame boundary), P = `p`, Vf =
+  `{count: 99}`, W = [`count`, `""`]: `""` ∈ W →
+  `write_place(outer, "p", {count: 99})` → outer `p → {count: 99}`
+  (value); `invalidate_field_views(outer, "p")` — no-op on bare root;
+  `invalidate_field_views(outer, "p.count")` — no views in outer's
+  env, but the **recorded field write is preserved** by appending
+  `p.count` (and `p`) to outer's frame log. The effect history
+  crosses the boundary even though no view observed it here.
+- outer returns with no further writes.
+- outer→main outward (second frame boundary), P = `r`, outer's log
+  replayed as caller places [`r.count`, `r`]: `write_place(main,
+  "r", {count: 99})` → main `r → {count: 99}` (value);
+  `invalidate_field_views(main, "r")` — no-op;
+  `invalidate_field_views(main, "r.count")` → `v.invalidated_by =
+  Some(FieldWrite)` (effect).
+- t1 (main env): `r → {count: 99}`; `v` invalidated; reading `v`
+  traps (H0807).
+
+Why final-value equality cannot carry this: at the inner→outer
+boundary the final value of `q` is `{count: 99}` — a
+comparison-based scheme sees "p changed" but cannot know `q.count`
+was *written as a field* (vs the record being built fresh), so the
+field-view invalidation would be lost; in the write-restore variant
+(inner writes `q.count = 1` then back to `0` before the root
+replacement) the final value equals the initial and a diff would
+transfer nothing at all — while the write records still correctly
+invalidate `v`. Records carry the history; values carry only the
+outcome.
+
 ## 13. Shared precedence, producers, and consumers (finding 3, continued)
 
 Producers (all in `src/run.rs` unless noted): the phase-0 call-shape
@@ -733,6 +922,9 @@ the immutable-place trap; `active_iteration_for` (4661) with
 (2135) for the existing H0808/H0809 emissions. No new producer
 module is created; the repair adds branches to the existing call
 site, not a new diagnostic subsystem.
+
+Designated (non-`run.rs`) owners for the H0810 surface are named once
+in §7; the producer list below covers the runtime mechanism only.
 
 Consumers: (a) the CLI — stderr `runtime trap: …`, exit 2 for traps
 (main.rs:1528–1531, 1639–1646); diagnostics via `RunReport.diagnostics`
@@ -796,21 +988,59 @@ catchable — it propagates as `Flow::ContractViolation`, never
 converted to a value. Acceptance fixtures must not use `try` to
 observe change-argument outcomes.
 
-**Test-seam distinction** (required by the audit).
-*Actual-command tests* run the built binary — `hum run fixtures/…
---entry …` asserting stdout and exit code (the
-`tools/check_all.ps1` `Read-NativeOutput[WithExit]` pattern, e.g.
-4258/4325). These prove the observable CLI contract: the exit codes
-above, the stderr trap text, the diagnostics surfaced in reports.
-*Internal caller-env tests* run inside `cargo test` via
-`run_program_with_adapters` (597) / `run_program_with_output`
-(582), constructing the caller `Env` in-process and asserting on
-`RunOutcome` plus `report.diagnostics`. These are necessary for
-white-box assertions the CLI cannot show: per-frame view
-invalidation state (`invalidated_by` markers), write-effect records,
-and intermediate caller-env values. Both seams are required: CLI
-tests prove the contract, internal tests prove the mechanism.
-Neither invents evidence — both execute the real interpreter.
+**Test-seam distinction and the real observation point** (required
+by the audit). `RunReport` exposes `outcome`, `diagnostics`, and
+`authority_events` — it does **not** expose the caller `Env`, so no
+internal test can assert `invalidated_by` markers or write-effect
+records directly. The real private observation point is the caller
+frame's own subsequent behavior, executed through the actual call
+owner (the call-site write-back in `src/run.rs`):
+
+- *Value transfer* is observed by the caller's own later read of the
+  place: a fixture reads `r.count` after the call and the test
+  asserts the value from `RunOutcome::Success` output.
+- *Effect transfer* is observed by a pre-call borrow view plus a
+  post-call use: `let v = borrow r.count` before the call, then read
+  `v` after. If the write-back invalidated `v`, `read_value` fires
+  `stale_view_trap` (H0807) → `RunOutcome::Trap`; if not, the read
+  succeeds. The trap-or-success **is** the effect observation —
+  through the actual call owner, with zero new plumbing.
+- *Write-restore vs no-op* (the case value comparison cannot
+  decide): the same fixture shape must trap for write-restore (W
+  non-empty → invalidate) and must not trap for no-op (W empty →
+  skip). This is the test that proves effects come from records, not
+  diffs.
+- *Field-write-then-root-replacement* (§4.5, §12 trace B): `v` must
+  trap — the recorded field write invalidates it even though the
+  final value arrived via root replacement.
+
+*Actual-command tests* (`hum run fixtures/… --entry …`, asserting
+stdout + exit code via the `tools/check_all.ps1`
+`Read-NativeOutput[WithExit]` pattern) prove the CLI-observable
+contract above. *Internal tests* (`cargo test` via
+`run_program_with_adapters`, 597) run the same fixture programs
+through the real interpreter and assert `RunOutcome` +
+`report.diagnostics`. Both seams execute the real call owner;
+neither invents evidence.
+
+**Propagated contract failure — explicit.** Each frame's write-back
+is applied at its own call site before `ContractViolation`
+propagates past it (early-return chain 3168 →
+2559/2574/2653/2732/2752 → 2131); the violation is never caught.
+The CLI-observable contract is exit 1 with the ContractViolation
+mapping, plus the `ENSURES_CONTRACT_VIOLATION` diagnostic in
+`RunReport.diagnostics` for the ensures case. The per-frame
+write-back on the failure paths (typed `fail` after writes under D1,
+`ensures:`-violation under D1-sub, propagated contract failure) is
+**not** CLI-observable — the program unwinds — so white-box
+assertion of those paths needs **proposed minimal test-only
+plumbing**: a `#[cfg(test)]` write-back journal on the interpreter.
+Each call-site write-back appends (call-site span, caller place,
+replayed writes, invalidated-view count) before the outcome
+propagates; tests drain it after `run_program_with_adapters`
+returns. This is identified as proposed new plumbing, not existing
+capability; it changes no production behavior and lives in
+`src/run.rs` (`mod tests` + one `cfg(test)` field).
 
 ## 15. Reconciled inventory (accepted facts / recommendations / open rulings)
 
@@ -832,7 +1062,7 @@ D1 (completed mutations survive ordinary typed failure), D1-sub
 args at the call site), D4 (reject non-place change args as traps),
 D5 (the complete §4.7 matrix), D6 (Session W preserved); D3
 (overlap rejection, with H0810 proposed **only** for change/change
-and change/borrow-argument overlap — live-writable-alias overlap
+and change/borrow-declaring-argument overlap — live-writable-alias overlap
 reuses H0808 as a settled reuse, not an expansion); the two-phase
 loop, write-effect tracking, and the §4.5 write-back algorithm as
 corrected in §12.
@@ -845,20 +1075,9 @@ joins `OWNERSHIP_CAUSES`); the phase-0 internal check order
 (D5 → shape → overlap) is recommended in §4.7 but remains a ruling
 if Codex wants different determinism.
 
-**Complete file inventory** (only if the repair is approved):
-
-| File | Change | Why |
-|---|---|---|
-| `src/run.rs` | two-phase argument loop; final-parameter outcome threading through `execute_task`/`execute_task_body`; call-site write-back; phase-0 rejections; write-effect records on `RuntimeBinding` | §§4.2–4.5; the only source file the repair touches |
-| `src/diagnostic_catalog.rs` | **iff H0810 is accepted:** §8 checklist (`diagnostic_causes!`, `diagnostic_code_allocations!`, `historical_public_ordinal` arm, `DIAGNOSTICS` entry, counts) + the `OWNERSHIP_CAUSES` membership decision for key 194 | §8, §13 |
-| `src/diagnostics.rs` | **iff the catalog changes:** no hand edit — `"Hum diagnostics (N codes)"` and `"\"count\": N"` derive from `diagnostic_catalog::all()` — but its output changes and is asserted by tests | `hum diagnostics` contract |
-| `docs/DIAGNOSTICS.md` | mirror row, **iff H0810 is accepted** | test-enforced catalog mirror |
-| `tools/check_all.ps1` | pinned diagnostic count (**iff the catalog changes**); new `Read-NativeOutput[WithExit]` assertions for the new fixtures | standing pin practice; acceptance assertions live here |
-| `tools/test_ci_policy.ps1` | `$CompilerBodies` digest (**iff `src/run.rs` changes** — the repair does) | digest covers compiler bodies |
-| `tools/run_fast_evidence.ps1` | new fixture invocations if the Fast tier covers them (bounded by the tier's scope decision, not this map) | evidence capture |
-| `fixtures/` | new `.hum` fixtures through the real user-task call path — the §12 six cases, the §6 rejection rows, the §14 exit rows — placed by family (`fixtures/ownership_check/`, `fixtures/run/`) | positive-evidence rule: fixtures must observe the effect |
-| `src/run.rs` `mod tests` (5716) | internal caller-env tests for mechanism assertions (invalidation state, write-effect records) | §14 seam distinction |
-
-Out of scope (unchanged): every other `src/` file, the CLI surface
-(no new flags), Work Order edits, and any try/catch machinery (D6 /
+**File inventory:** single and reconciled in §7 — no second copy is
+kept here (the earlier duplicate, which contradicted §7 on
+`$CompilerBodies` digest ownership, is removed). Out of scope
+(unchanged): every other `src/` file, the CLI surface (no new
+flags), Work Order edits, and any try/catch machinery (D6 /
 Session W preserved).
