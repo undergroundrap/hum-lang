@@ -660,11 +660,17 @@ Milestone 0 generates task `test_obligations` from meaningful lines in:
 - `watch for:`
 - `tests:`
 
-`hum graph` links obligations to top-level tests when a meaningful `covers:`
+`hum graph` links obligations to tests — including tests nested inside an
+`app` — when a meaningful `covers:`
 line exactly matches the generated coverage phrase after whitespace
 normalization or shares its canonical token key. The canonical key lowercases and
 splits on punctuation while preserving identifier tokens such as `add_item`.
 It does not absorb filler words, aliases, synonyms, or broad paraphrases.
+
+A collected `covers:` declaration is not a matched obligation: matching
+requires the phrase or key to actually meet. A matched obligation is not
+executed evidence: linkage records that the test names the same coverage
+target, nothing about whether the test ran or passed.
 
 `hum test-skeletons` prints Hum `test` blocks for unlinked obligations. It does
 not execute code or write files.
@@ -786,7 +792,8 @@ with `trust_boundary` blame. Current obligations include source spans,
 generated `covers` phrases, canonical `coverage_key` values,
 `suggested_evidence`, `verification_status`, and `linked_evidence`.
 
-`hum graph` links evidence obligations to top-level tests when a meaningful
+`hum graph` links evidence obligations to tests — including tests nested
+inside an `app` — when a meaningful
 `covers:` line exactly matches the generated coverage phrase after whitespace
 normalization or shares its conservative coverage key. `verification_status` is
 `linked` when at least one evidence artifact matches and `unverified` when none
