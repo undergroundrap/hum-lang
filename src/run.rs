@@ -8156,6 +8156,70 @@ pub(crate) mod tests {
         );
     }
 
+    /// WO29 Slice B correction (remaining P1): an observed Fixed ->
+    /// DRIVE_NO_ROOT_DIR transition rejects through the ACTUAL
+    /// external-trust binder independently of the after mapping state —
+    /// here with an UNAVAILABLE after mapping (`api_failure`). The
+    /// classifier's `Unknown` carries the contradiction marker, and the
+    /// binder refuses it before payload consumption even with a
+    /// matching serial: matching trust must not waive a known
+    /// contradiction. The bundle mirrors the live verdict produced by
+    /// `windows_drive_locality`'s
+    /// `orchestration_unavailable_after_with_invalid_root_rejects` —
+    /// the invalid-root observation is preserved alongside the
+    /// unavailable-mapping fact (the binder reads only the marker, the
+    /// serial, and the identity vector).
+    #[cfg(windows)]
+    #[test]
+    fn windows_unavailable_after_invalid_root_rejects_through_binder() {
+        use super::bind_observed_backing_evidence;
+        use crate::native_path::LocalityEvidence;
+        use windows_drive_locality::OpenedVolumeObservation;
+
+        // Mirrors the live invalid-root verdict: closed `Unknown`, the
+        // rejecting marker set, the invalid-root observation preserved
+        // next to the unavailable-mapping fact. (Backslash-bearing
+        // mappings elided with `...`: the text-hygiene scan flags
+        // literal double-backslash in source.)
+        let contradicted = LocalityEvidence::Windows(windows_drive_locality::ClassifiedDrive {
+            locality: windows_drive_locality::DriveLocality::Unknown,
+            backing_device_identity: Vec::new(),
+            observed_facts: vec![
+                "before: drive_type Fixed, mapping ...; after: drive_type MissingRoot, mapping api_failure; equality: mismatch".to_string(),
+                "classification: Unknown (known before/after contradiction; matching trust must not cover contradictory evidence)".to_string(),
+            ],
+            unproven_reason: None,
+            volume_serial: Some(0xC0DE_1234),
+            contradiction: true,
+        });
+        let opened = FileObjectIdentity::WindowsVolumeFile {
+            volume_serial: 0xC0DE_1234,
+            file_id: [0x42; 16],
+        };
+        // Rejects even though the serial matches: matching trust must
+        // not waive a known contradiction.
+        let volume = OpenedVolumeObservation {
+            volume_serial: 0xC0DE_1234,
+            disk_numbers: vec![],
+        };
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&contradicted), opened, Some(&volume))
+                .expect_err(
+                    "an invalid-root contradiction must fail closed before payload consumption"
+                )
+                .variant(),
+            "contradictory_backing_evidence"
+        );
+        // Rejects with no opened-volume observation either: the marker
+        // is checked first, independently of the opened evidence.
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&contradicted), opened, None)
+                .expect_err("contradiction rejects without an opened observation")
+                .variant(),
+            "contradictory_backing_evidence"
+        );
+    }
+
     /// WO29 Slice B correction (Codex finding 1): an undetermined
     /// after drive type (DRIVE_UNKNOWN) with an identical complete
     /// after mapping is missing evidence on that field — never a

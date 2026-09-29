@@ -521,10 +521,13 @@ fn preliminary_summary(observation: &PreliminaryObservation) -> String {
 /// the before observation, independently of the mapping query. On this
 /// path the before observation is already validated as a candidate
 /// (Fixed with an ordinary target), so a positively observed non-local
-/// after drive type (Remote, Removable, Optical, RamDisk) is a genuine
-/// contradiction even when the after mapping is unavailable. An
-/// unobserved after drive type (Unknown, MissingRoot, Other) is
-/// missing evidence — never disagreement.
+/// after drive type (Remote, Removable, Optical, RamDisk) — or an
+/// observed invalid root (DRIVE_NO_ROOT_DIR) — is a genuine
+/// contradiction even when the after mapping is unavailable.
+/// DRIVE_NO_ROOT_DIR means the root path is invalid: an observed
+/// invalid-root transition, not undetermined, not missing. An
+/// undetermined after drive type (Unknown) is missing evidence on that
+/// field — never disagreement.
 #[cfg(any(windows, test))]
 fn drive_type_observed_changed(
     before: &DriveTypeObservation,
@@ -537,6 +540,7 @@ fn drive_type_observed_changed(
                 | DriveTypeObservation::Removable
                 | DriveTypeObservation::Optical
                 | DriveTypeObservation::RamDisk
+                | DriveTypeObservation::MissingRoot
         )
 }
 
@@ -1062,8 +1066,12 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
             //   (e.g. Fixed -> Remote): a genuine drive-type
             //   contradiction.
             // - DRIVE_NO_ROOT_DIR: the root path is invalid — a
-            //   separately documented meaning, kept as a contradiction
-            //   (existing handling); it is never treated as missing.
+            //   separately documented meaning, observed as
+            //   invalid-root disagreement by
+            //   `drive_type_observed_changed` in every mapping state;
+            //   it is never treated as missing.
+            // - Other: keeps its existing rejecting handling on the
+            //   complete-mapping path.
             //
             // DRIVE_UNKNOWN is undetermined, not an observed different
             // drive type: missing evidence on that field — never
@@ -1076,13 +1084,11 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
                 }
                 _ => false,
             };
-            let drive_type_contradiction = drive_type_observed_changed(
-                &evidence.before.drive_type,
-                &evidence.after.drive_type,
-            ) || matches!(
-                evidence.after.drive_type,
-                DriveTypeObservation::MissingRoot | DriveTypeObservation::Other
-            );
+            let drive_type_contradiction =
+                drive_type_observed_changed(
+                    &evidence.before.drive_type,
+                    &evidence.after.drive_type,
+                ) || matches!(evidence.after.drive_type, DriveTypeObservation::Other);
             if mapping_contradiction || drive_type_contradiction {
                 return EvidenceVerdict::closed_contradiction(&evidence.before, &evidence.after);
             }
@@ -1091,10 +1097,14 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
         QueryState::ApiFailure | QueryState::Partial => {
             // The drive type is observed independently of the mapping
             // query: a positively observed drive-type change (e.g.
-            // Fixed -> Remote) is a genuine contradiction even when the
-            // after mapping itself is unavailable. An unobserved drive
-            // type (Unknown/MissingRoot/Other) is missing evidence —
-            // never disagreement.
+            // Fixed -> Remote) — or an observed invalid root
+            // (Fixed -> DRIVE_NO_ROOT_DIR) — is a genuine
+            // contradiction even when the after mapping itself is
+            // unavailable. The invalid-root observation is preserved
+            // alongside the unavailable-mapping facts; the after query
+            // is still never claimed succeeded. An unobserved drive
+            // type (Unknown/Other) is missing evidence — never
+            // disagreement.
             if drive_type_observed_changed(&evidence.before.drive_type, &evidence.after.drive_type)
             {
                 return EvidenceVerdict::closed_contradiction(&evidence.before, &evidence.after);
@@ -4195,6 +4205,29 @@ mod tests {
             })
         }
 
+        /// Second preliminary call returns an unavailable after mapping
+        /// with an observed Fixed -> DRIVE_NO_ROOT_DIR transition: the
+        /// root path is invalid — an observed invalid-root
+        /// disagreement, rejected independently of the mapping state.
+        fn before_fixed_after_missing_root_unavailable(_: DriveRoot) -> PreliminaryObservation {
+            PRELIMINARY_CALLS.with(|calls| {
+                let n = calls.get();
+                calls.set(n + 1);
+                if n == 0 {
+                    preliminary()
+                } else {
+                    PreliminaryObservation {
+                        drive_type: DriveTypeObservation::MissingRoot,
+                        mapping: if AFTER_PARTIAL.with(|p| p.get()) {
+                            QueryState::Partial
+                        } else {
+                            QueryState::ApiFailure
+                        },
+                    }
+                }
+            })
+        }
+
         /// Second preliminary call returns a COMPLETE after mapping
         /// IDENTICAL to the before mapping with an undetermined after
         /// drive type (DRIVE_UNKNOWN): missing evidence on that field —
@@ -4686,6 +4719,55 @@ mod tests {
                     "observed drive-type change must carry the rejecting marker even when the after mapping is unavailable"
                 );
                 assert!(has_fact(&verdict, "known before/after contradiction"));
+                assert_eq!(close_calls(), 1);
+            }
+        }
+
+        #[test]
+        fn orchestration_unavailable_after_with_invalid_root_rejects() {
+            // WO29 Slice B correction (remaining P1) through the REAL
+            // orchestration: an observed Fixed -> DRIVE_NO_ROOT_DIR
+            // transition rejects independently of the after mapping
+            // state (`ApiFailure` AND `Partial`). DRIVE_NO_ROOT_DIR
+            // means the root path is invalid — an observed
+            // invalid-root disagreement, not undetermined, not missing.
+            // The invalid-root observation is preserved alongside the
+            // unavailable-mapping facts; the after query is never
+            // claimed succeeded. Matching trust must not waive it: the
+            // verdict carries the rejecting contradiction marker.
+            for (partial, after_state) in [(false, "api_failure"), (true, "partial")] {
+                AFTER_PARTIAL.with(|p| p.set(partial));
+                reset_counters();
+                let stages = QueryStages {
+                    query_preliminary: before_fixed_after_missing_root_unavailable,
+                    query_dependencies: no_dependencies,
+                    query_extents: single_extent,
+                    query_backing_disks: nvme_disk,
+                    close_volume: close_ok,
+                };
+                let verdict = orchestrate_classification(root(), (), &stages);
+                assert_eq!(PRELIMINARY_CALLS.with(|c| c.get()), 2);
+                assert_eq!(verdict.locality, DriveLocality::Unknown);
+                assert!(
+                    verdict.contradiction,
+                    "observed Fixed -> DRIVE_NO_ROOT_DIR must carry the rejecting marker even when the after mapping is unavailable ({after_state})"
+                );
+                assert!(has_fact(&verdict, "known before/after contradiction"));
+                assert!(
+                    has_fact(&verdict, "drive_type MissingRoot"),
+                    "the invalid-root observation must be preserved: {facts:?}",
+                    facts = verdict.observed_facts
+                );
+                assert!(
+                    has_fact(&verdict, after_state),
+                    "the unavailable-mapping fact must be preserved ({after_state}): {facts:?}",
+                    facts = verdict.observed_facts
+                );
+                assert!(
+                    !has_fact(&verdict, "equality: match"),
+                    "the invalid-root disagreement must never render as a match ({after_state})"
+                );
+                assert!(has_fact(&verdict, "equality: mismatch"));
                 assert_eq!(close_calls(), 1);
             }
         }
