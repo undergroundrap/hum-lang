@@ -25,16 +25,30 @@ impl NativePathLocality {
     }
 }
 
+/// Named reason for the macOS declared-unproven verdict (WO29 Item 3,
+/// Slice B): macOS has no platform locality classifier in this WO
+/// version, so the classifier entry point declares the path unproven by
+/// policy — no Linux `/proc/self/mountinfo` probing on macOS, no
+/// automatic proof. Matching `--trust-locality` admission and P2–P4
+/// enforcement are unchanged. Exact string is the builder's choice
+/// (decision 0029 §14, reviewed).
+#[cfg(any(target_os = "macos", test))]
+pub const MACOS_REASON_DECLARED_UNPROVEN: &str = "macos_locality_unproven_declared_v0";
+
 /// Locality evidence captured once at validation time, so later gates
 /// observe one stable classification instead of re-probing the host. The
 /// unix seam stores the Linux P1 classifier output; the Windows seam stores
-/// Leaf D's `ClassifiedDrive` record. Other platforms carry no evidence.
+/// Leaf D's `ClassifiedDrive` record; the macOS seam stores the
+/// declared-unproven marker (no platform probing). Other platforms carry
+/// no evidence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalityEvidence {
     #[cfg(any(unix, test))]
     Linux(LinuxLocality),
     #[cfg(windows)]
     Windows(windows_drive_locality::ClassifiedDrive),
+    #[cfg(any(target_os = "macos", test))]
+    MacOS,
 }
 
 #[derive(Clone)]
@@ -72,6 +86,12 @@ impl ValidatedNativePath {
         {
             match self.evidence.as_ref() {
                 Some(LocalityEvidence::Linux(locality)) => locality.as_str(),
+                // macOS declared-unproven (WO29 Item 3): the macOS seam
+                // always stores the marker at validation time; the
+                // verdict maps to `Unclassified`, admitting only via the
+                // operator attestation on the external-trust path.
+                #[cfg(any(target_os = "macos", test))]
+                Some(LocalityEvidence::MacOS) => self.locality.as_str(),
                 // Unreachable: the unix seam always stores evidence at
                 // validation time. Kept so the match stays total.
                 None => self.locality.as_str(),
@@ -90,6 +110,10 @@ impl ValidatedNativePath {
                 .as_ref()
                 .is_some_and(|evidence| match evidence {
                     LocalityEvidence::Linux(locality) => locality.is_fixed_local(),
+                    // macOS declared-unproven (WO29 Item 3): nothing is
+                    // proved on macOS in this WO version.
+                    #[cfg(any(target_os = "macos", test))]
+                    LocalityEvidence::MacOS => false,
                 })
         }
         // Windows: defined-but-unreachable on the live path. No classifier
@@ -165,6 +189,11 @@ impl ValidatedNativePath {
             })) => None,
             #[cfg(windows)]
             Some(LocalityEvidence::Windows(classified)) => classified.unproven_reason,
+            // macOS declared-unproven (WO29 Item 3): the named reason
+            // travels verbatim in the evidence bundle, exactly like the
+            // Linux and Windows classifier reasons.
+            #[cfg(any(target_os = "macos", test))]
+            Some(LocalityEvidence::MacOS) => Some(MACOS_REASON_DECLARED_UNPROVEN),
             _ => None,
         }
     }
@@ -192,6 +221,21 @@ impl ValidatedNativePath {
                     volume_serial: None,
                 },
             )),
+        }
+    }
+
+    /// Test-only macOS declared-unproven fixture (WO29 Item 3): mirrors
+    /// exactly what the real macOS entry point stores, so Linux-host
+    /// tests exercise the production consumer arms (evidence lines,
+    /// trust bundle, binds) against the live shape. Native macOS
+    /// execution is unavailable here; this is a host fixture, not a
+    /// macOS run.
+    #[cfg(test)]
+    pub(crate) fn macos_unproven_for_test(raw: &OsStr) -> Self {
+        Self {
+            raw: raw.to_os_string(),
+            locality: NativePathLocality::Unclassified,
+            evidence: Some(LocalityEvidence::MacOS),
         }
     }
 }
@@ -339,13 +383,49 @@ fn classify_validated_drive(raw: &OsStr) -> (NativePathLocality, Option<Locality
     (locality, Some(LocalityEvidence::Windows(classified)))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn classify_validated_drive(raw: &OsStr) -> (NativePathLocality, Option<LocalityEvidence>) {
     let locality = linux_drive_locality::classify_host_path(raw);
     (
         NativePathLocality::Unclassified,
         Some(LocalityEvidence::Linux(locality)),
     )
+}
+
+/// macOS declared-unproven policy (WO29 Item 3, Slice B): the real
+/// classifier entry point on macOS. macOS has no platform locality
+/// classifier in this WO version — the Linux `/proc/self/mountinfo`
+/// prober must not run here — so the verdict is declared `Unproven` by
+/// policy with the named reason. No automatic proof; matching
+/// `--trust-locality` admission and P2–P4 enforcement are unchanged.
+/// Cfg'd for `test` so the Linux-host test suite exercises the exact
+/// entry point deterministically (native macOS execution is unavailable
+/// in CI here).
+#[cfg(any(target_os = "macos", test))]
+fn classify_validated_drive_macos() -> (NativePathLocality, Option<LocalityEvidence>) {
+    (
+        NativePathLocality::Unclassified,
+        Some(LocalityEvidence::MacOS),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn classify_validated_drive(_raw: &OsStr) -> (NativePathLocality, Option<LocalityEvidence>) {
+    classify_validated_drive_macos()
+}
+
+/// Observed-fact lines for the macOS declared-unproven path (WO29 Item
+/// 3): there is no platform observation to record — the facts name the
+/// policy and the reason, honestly recording that nothing was probed.
+/// Observations only; they never admit.
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn macos_observed_facts() -> Vec<String> {
+    vec![
+        "macos: no platform locality classifier in this WO version".to_string(),
+        format!(
+            "macos: declared unproven ({MACOS_REASON_DECLARED_UNPROVEN}); no host probing performed"
+        ),
+    ]
 }
 
 #[cfg(not(any(windows, unix)))]
@@ -597,6 +677,43 @@ mod tests {
                 "{locality:?}"
             );
         }
+    }
+
+    #[test]
+    fn macos_entry_point_declares_unproven_with_named_reason() {
+        // WO29 Item 3 (Slice B): the real macOS classifier entry point,
+        // exercised deterministically on the Linux host — native macOS
+        // execution is unavailable here, so this is a host fixture
+        // against the live entry point, not a macOS run.
+        let (locality, evidence) = super::classify_validated_drive_macos();
+        assert_eq!(locality.as_str(), "locality_unclassified");
+        assert!(matches!(evidence, Some(super::LocalityEvidence::MacOS)));
+
+        let validated =
+            super::ValidatedNativePath::macos_unproven_for_test(OsStr::new("/tmp/macos-probe"));
+        assert_eq!(validated.locality(), "locality_unclassified");
+        assert!(!validated.is_fixed_local());
+        assert_eq!(
+            validated.classifier_unproven_reason(),
+            Some(super::MACOS_REASON_DECLARED_UNPROVEN)
+        );
+        // The reason names the policy; it claims no proof.
+        assert_eq!(
+            super::MACOS_REASON_DECLARED_UNPROVEN,
+            "macos_locality_unproven_declared_v0"
+        );
+        let facts = super::macos_observed_facts();
+        assert!(!facts.is_empty());
+        assert!(
+            facts
+                .iter()
+                .any(|fact| fact.contains(super::MACOS_REASON_DECLARED_UNPROVEN))
+        );
+        assert!(
+            facts
+                .iter()
+                .all(|fact| !fact.contains("proved") || fact.contains("unproven"))
+        );
     }
 
     #[cfg(windows)]

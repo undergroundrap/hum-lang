@@ -56,10 +56,12 @@ pub struct ClassifiedDrive {
     pub locality: DriveLocality,
     /// Sorted, deduplicated physical disk numbers backing this drive, taken
     /// from the same completely-observed disk list that feeds the locality
-    /// classification (the `required_disks` source). Non-empty only on the
-    /// grant-first `Unproven` path that observed the complete extent/disk
-    /// topology; empty on every closed path (Remote, Substituted,
-    /// Removable, Unknown, Unsupported).
+    /// classification (the `required_disks` source). Non-empty on every
+    /// `Unproven` path that observed the complete extent topology — the
+    /// grant-first path, the cause-specific matrix (removable media,
+    /// unsupported bus), and the unreadable-removable-status path; empty
+    /// on every closed path (Remote, Substituted, Removable, Unknown,
+    /// Unsupported).
     ///
     /// These numbers are *backing-device* identity only, never *file*
     /// identity and never *admission*: they name the physical disks behind
@@ -67,14 +69,20 @@ pub struct ClassifiedDrive {
     /// file's identity comes from `opened_file_identity`, never from these
     /// numbers.
     pub backing_device_identity: Vec<u32>,
-    /// Observed-fact lines recorded on the grant-first `Unproven` path:
-    /// bus-type evidence, `RemovableMedia` flags, disk extents, and the
-    /// dependency-walk observation. Empty on every closed path. Facts are
+    /// Observed-fact lines recorded on every `Unproven` path: the
+    /// dependency-walk observation, each disk extent, each required
+    /// disk's bus type (numeric value plus name) and removable-media
+    /// flag with the query that produced them, the before/after
+    /// observation and equality verdict, the configured observed-bus
+    /// list, the one-line P1–P4 mapping, and the classification with its
+    /// provenance. Empty on every closed path. Unavailable facts are
+    /// recorded as unavailable — never silently dropped. Facts are
     /// observations only; they never admit.
     pub observed_facts: Vec<String>,
-    /// Named reason for the `Unproven` verdict
-    /// (`windows_locality_unproven_insufficient_evidence_v0` for the
-    /// demoted ATA/SATA/NVMe path). `None` unless
+    /// Named reason for the `Unproven` verdict: the insufficient-evidence
+    /// reason for the demoted grant-first path, or the cause-specific
+    /// reason for the observed-but-unproven matrix (removable media,
+    /// unsupported bus, unreadable removable status). `None` unless
     /// `locality == DriveLocality::Unproven`.
     pub unproven_reason: Option<&'static str>,
     /// Full 64-bit volume serial from `FILE_ID_INFO` on the classified
@@ -199,12 +207,41 @@ fn classify_preliminary(observation: &PreliminaryObservation) -> PreliminaryClas
 }
 
 /// Named reason for the demoted grant-first `Unproven` verdict: the
-/// ATA/SATA/NVMe observations are plausible-local, but guest-visible
+/// observed-bus observations are plausible-local, but guest-visible
 /// bus-type evidence cannot exclude invisible (hypervisor-interposed)
 /// backing, so the evidence is insufficient for admission. Exact string is
 /// the builder's choice (decision 0029 §14, reviewed).
 #[cfg(any(windows, test))]
 pub const REASON_INSUFFICIENT_EVIDENCE: &str = "windows_locality_unproven_insufficient_evidence_v0";
+
+/// Named reason for the observed-but-unproven removable-media verdict
+/// (WO29 Item 2): the backing-disk observations were completely recorded,
+/// but a required disk reports `RemovableMedia` set. Removable backing —
+/// SD/MMC cards, USB readers, welded media reported removable — cannot be
+/// admitted, but the observation is named, not a reasonless `Unknown`.
+/// Exact string is the builder's choice (decision 0029 §14, reviewed).
+#[cfg(any(windows, test))]
+pub const REASON_REMOVABLE_MEDIA: &str = "windows_locality_unproven_removable_media_v0";
+
+/// Named reason for the observed-but-unproven unsupported-bus verdict
+/// (WO29 Item 2): a required disk's bus type is not on the observed
+/// local-bus list, so no local-bus fact can be recorded for that disk.
+/// The numeric bus value is still carried in the observed facts as an
+/// observation — never dropped. Exact string is the builder's choice
+/// (decision 0029 §14, reviewed).
+#[cfg(any(windows, test))]
+pub const REASON_UNSUPPORTED_BUS: &str = "windows_locality_unproven_unsupported_bus_v0";
+
+/// Named reason for the observed-but-unproven unreadable-removable-status
+/// verdict (WO29 Item 2): the extent topology was completely observed,
+/// but the removable-media determination (the
+/// `STORAGE_DEVICE_DESCRIPTOR` query) failed, so removable status is
+/// unavailable. The unavailable facts are recorded as unavailable in the
+/// observed facts — never a reasonless `Unknown`. Exact string is the
+/// builder's choice (decision 0029 §14, reviewed).
+#[cfg(any(windows, test))]
+pub const REASON_REMOVABLE_STATUS_UNREADABLE: &str =
+    "windows_locality_unproven_removable_status_unreadable_v0";
 
 /// Test-only projection of the classification verdict: the bundled tests
 /// exercise the evidence-to-verdict mapping without opening real devices.
@@ -240,7 +277,7 @@ impl EvidenceVerdict {
         debug_assert_ne!(
             locality,
             DriveLocality::Unproven,
-            "the only Unproven path is the demoted grant-first admission"
+            "every Unproven path is observed and named — see observed_unproven"
         );
         Self {
             locality,
@@ -249,19 +286,81 @@ impl EvidenceVerdict {
             unproven_reason: None,
         }
     }
+
+    /// An observed-but-unproven verdict: the extent topology was
+    /// completely observed, so the verdict keeps the observed disk
+    /// numbers (device observation, not admission), the complete
+    /// observed-fact record, and the named `Unproven` reason — the
+    /// grant-first insufficient-evidence reason or one of the
+    /// cause-specific reasons (WO29 Item 2).
+    fn observed_unproven(
+        reason: &'static str,
+        backing_device_identity: Vec<u32>,
+        observed_facts: Vec<String>,
+    ) -> Self {
+        Self {
+            locality: DriveLocality::Unproven,
+            backing_device_identity,
+            observed_facts,
+            unproven_reason: Some(reason),
+        }
+    }
 }
 
-/// Observed-fact lines for the demoted grant-first path: the
-/// dependency-walk observation, each disk extent, and each required disk's
-/// bus type and removable-media flag. Recorded in a deterministic order.
-/// These are observations only — they never admit.
+/// The observed local-bus list (WO29 Item 2): which bus types yield
+/// local-bus observed facts. Observation only — no bus type on this list
+/// independently earns `proved` (decision 0029 §14). The list is emitted
+/// into the evidence bundle so the next widening is visibly a decision.
+#[cfg(any(windows, test))]
+const OBSERVED_BUS_TYPES: &[(u32, &str)] = &[
+    (BUS_TYPE_ATA, "ATA"),
+    (BUS_TYPE_SATA, "SATA"),
+    (BUS_TYPE_SD, "SD"),
+    (BUS_TYPE_MMC, "MMC"),
+    (BUS_TYPE_NVME, "NVMe"),
+];
+
+/// Whether a bus type is on the observed local-bus list.
+#[cfg(any(windows, test))]
+fn is_observed_bus(bus_type: u32) -> bool {
+    OBSERVED_BUS_TYPES
+        .iter()
+        .any(|(observed, _)| *observed == bus_type)
+}
+
+/// One-line summary of a preliminary observation for the evidence bundle:
+/// the drive type and the decoded device mapping. Used for the
+/// before/after observation pair so the equality verdict is auditable.
+#[cfg(any(windows, test))]
+fn preliminary_summary(observation: &PreliminaryObservation) -> String {
+    let mapping = match &observation.mapping {
+        QueryState::Complete(units) => String::from_utf16_lossy(units),
+        QueryState::ApiFailure => "api_failure".to_string(),
+        QueryState::Partial => "partial".to_string(),
+    };
+    format!("drive_type {:?}, mapping {mapping}", observation.drive_type)
+}
+
+/// Observed-fact lines for every observed-but-unproven path (the demoted
+/// grant-first path and the cause-specific matrix): the dependency-walk
+/// observation, each disk extent, each required disk's bus type (numeric
+/// value plus name) and removable-media flag with the query that produced
+/// them, the before/after observation and equality verdict, the
+/// configured observed-bus list, the one-line P1–P4 mapping, and the
+/// classification with its provenance. Recorded in a deterministic order.
+/// Facts are observations only — they never admit. `disks` is `None` when
+/// the disk-descriptor query failed: the unavailable facts are recorded
+/// as unavailable, never silently dropped.
 #[cfg(any(windows, test))]
 fn observed_facts(
+    before: &PreliminaryObservation,
+    after: &PreliminaryObservation,
     extents: &[ExtentObservation],
-    disks: &[DiskObservation],
+    disks: Option<&[DiskObservation]>,
     required_disks: &[u32],
+    reason: &'static str,
 ) -> Vec<String> {
-    let mut facts = Vec::with_capacity(1 + extents.len() + required_disks.len());
+    let mut facts = Vec::with_capacity(4 + extents.len() + required_disks.len());
     facts.push("dependency_walk: no_dependencies".to_string());
     for extent in extents {
         facts.push(format!(
@@ -270,26 +369,62 @@ fn observed_facts(
         ));
     }
     for disk_number in required_disks {
-        if let Some(disk) = disks.iter().find(|disk| disk.disk_number == *disk_number) {
-            facts.push(format!(
-                "disk {}: bus_type {} removable_media {}",
+        let disk =
+            disks.and_then(|disks| disks.iter().find(|disk| disk.disk_number == *disk_number));
+        match disk {
+            Some(disk) => facts.push(format!(
+                "disk {}: bus_type {} ({}) removable_media {} (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{})",
                 disk.disk_number,
+                disk.bus_type,
                 bus_type_label(disk.bus_type),
-                disk.removable
-            ));
+                disk.removable,
+                disk.disk_number
+            )),
+            None => facts.push(format!(
+                "disk {}: bus_type unavailable, removable_media unavailable (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia unreadable via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{})",
+                disk_number, disk_number
+            )),
         }
     }
+    let equality = if before == after { "match" } else { "mismatch" };
+    facts.push(format!(
+        "before: {}; after: {}; equality: {}",
+        preliminary_summary(before),
+        preliminary_summary(after),
+        equality
+    ));
+    facts.push(format!(
+        "observed_bus_list: {}",
+        OBSERVED_BUS_TYPES
+            .iter()
+            .map(|(value, name)| format!("{name}({value})"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    // P4 per decision 0029 §15: file-object ordinariness is enforced at
+    // read time on the opened handle (`open_checked_windows_file`,
+    // `run.rs` Step 4), never by this classifier — the classifier maps
+    // P1 only. P2/P3/P4 outcomes are reported separately at read time.
+    facts.push(format!(
+        "P1-P4: P1 unproven ({reason}); P2-P4 enforced at read time, not by this classifier"
+    ));
+    facts.push(
+        "classification: Unproven (observed-but-unproven; grant-first per decision 0029 §14; admits nothing)"
+            .to_string(),
+    );
     facts
 }
 
-/// Short label for an observed bus type, for the observed-fact record.
-/// Only ATA/SATA/NVMe can appear on the demoted path; anything else is
-/// reported by number.
+/// Short label for a bus type, for the observed-fact record. The
+/// observed-bus list (ATA/SATA/SD/MMC/NVMe) reports by name; anything
+/// else is reported by number.
 #[cfg(any(windows, test))]
 fn bus_type_label(bus_type: u32) -> String {
     match bus_type {
         BUS_TYPE_ATA => "ATA".to_string(),
         BUS_TYPE_SATA => "SATA".to_string(),
+        BUS_TYPE_SD => "SD".to_string(),
+        BUS_TYPE_MMC => "MMC".to_string(),
         BUS_TYPE_NVME => "NVMe".to_string(),
         other => format!("bus_{other}"),
     }
@@ -315,9 +450,6 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     let QueryState::Complete(extents) = &evidence.extents else {
         return EvidenceVerdict::closed(DriveLocality::Unknown);
     };
-    let QueryState::Complete(disks) = &evidence.disks else {
-        return EvidenceVerdict::closed(DriveLocality::Unknown);
-    };
     if extents.is_empty()
         || extents
             .iter()
@@ -332,17 +464,46 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
         .collect::<Vec<_>>();
     required_disks.sort_unstable();
     required_disks.dedup();
+
+    // The removable-status determination is unavailable, but the extent
+    // topology was completely observed (WO29 Item 2): the cause is named
+    // `Unproven`, with the unavailable facts recorded as unavailable —
+    // never a reasonless `Unknown`.
+    let QueryState::Complete(disks) = &evidence.disks else {
+        let facts = observed_facts(
+            &evidence.before,
+            &evidence.after,
+            extents,
+            None,
+            &required_disks,
+            REASON_REMOVABLE_STATUS_UNREADABLE,
+        );
+        return EvidenceVerdict::observed_unproven(
+            REASON_REMOVABLE_STATUS_UNREADABLE,
+            required_disks,
+            facts,
+        );
+    };
     if disks.len() != required_disks.len() {
         return EvidenceVerdict::closed(DriveLocality::Unknown);
     }
 
+    // Cause-specific observed-but-unproven matrix (WO29 Item 2): the disk
+    // observations were recorded, so the verdict names the cause instead
+    // of a reasonless `Unknown`. Facts are observations only — nothing
+    // here admits.
+    let mut cause: Option<&'static str> = None;
     for disk_number in &required_disks {
         let Some(disk) = disks.iter().find(|disk| disk.disk_number == *disk_number) else {
             return EvidenceVerdict::closed(DriveLocality::Unknown);
         };
-        if disk.removable || !matches!(disk.bus_type, BUS_TYPE_ATA | BUS_TYPE_SATA | BUS_TYPE_NVME)
-        {
-            return EvidenceVerdict::closed(DriveLocality::Unknown);
+        if disk.removable {
+            cause = Some(REASON_REMOVABLE_MEDIA);
+            break;
+        }
+        if !is_observed_bus(disk.bus_type) {
+            cause = Some(REASON_UNSUPPORTED_BUS);
+            break;
         }
     }
 
@@ -350,14 +511,15 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     // GRANT-FIRST DEMOTION (decision 0029 §14, WO29 Slice A).
     //
     // Predecessor behavior: when every backing disk was observed as
-    // non-removable with bus type ATA/SATA/NVMe over a completely-observed
+    // non-removable with a bus type on the observed list (ATA/SATA/NVMe,
+    // widened by Slice B to SD/MMC) over a completely-observed
     // extent/disk topology with no dependencies and observed closes, the
     // classifier emitted `(DriveLocality::FixedLocal, required_disks)` — a
     // positive admission that the drive was trusted-local.
     //
     // Why demoted: guest-visible bus-type observations do not establish
     // invisible backing. A hypervisor or other invisible intermediary can
-    // interpose network/file backing beneath guest-visible ATA/SATA/NVMe
+    // interpose network/file backing beneath guest-visible observed-bus
     // frontends, and the guest cannot observe the difference. For this
     // WO29 version no classifier emits a positive admission: the
     // observation logic above is unchanged, only the verdict is demoted
@@ -367,13 +529,16 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     // stays defined (decision 0015's `proved` vocabulary) but is
     // unreachable from the live classifier — mirroring Linux's `Proven`.
     // ------------------------------------------------------------------
-    let facts = observed_facts(extents, disks, &required_disks);
-    EvidenceVerdict {
-        locality: DriveLocality::Unproven,
-        backing_device_identity: required_disks,
-        observed_facts: facts,
-        unproven_reason: Some(REASON_INSUFFICIENT_EVIDENCE),
-    }
+    let reason = cause.unwrap_or(REASON_INSUFFICIENT_EVIDENCE);
+    let facts = observed_facts(
+        &evidence.before,
+        &evidence.after,
+        extents,
+        Some(disks),
+        &required_disks,
+        reason,
+    );
+    EvidenceVerdict::observed_unproven(reason, required_disks, facts)
 }
 
 #[cfg(not(windows))]
@@ -783,6 +948,12 @@ const BUS_TYPE_ISCSI: u32 = 9;
 const BUS_TYPE_SAS: u32 = 10;
 #[cfg(any(windows, test))]
 const BUS_TYPE_SATA: u32 = 11;
+// WO29 Slice B (Item 2): SD (12) and MMC (13) join the observed bus
+// list. Observation only — no bus type independently earns `proved`.
+#[cfg(any(windows, test))]
+const BUS_TYPE_SD: u32 = 12;
+#[cfg(any(windows, test))]
+const BUS_TYPE_MMC: u32 = 13;
 #[cfg(test)]
 const BUS_TYPE_VIRTUAL: u32 = 14;
 #[cfg(test)]
@@ -1326,11 +1497,12 @@ unsafe extern "system" {
 #[cfg(test)]
 mod tests {
     use super::{
-        BUS_TYPE_ATA, BUS_TYPE_FIBRE, BUS_TYPE_FILE_BACKED_VIRTUAL, BUS_TYPE_ISCSI, BUS_TYPE_NVME,
-        BUS_TYPE_NVMEOF, BUS_TYPE_RAID, BUS_TYPE_SAS, BUS_TYPE_SATA, BUS_TYPE_SCSI,
-        BUS_TYPE_SPACES, BUS_TYPE_VIRTUAL, DependencyObservation, DiskObservation, DriveLocality,
-        DriveRoot, DriveTypeObservation, ExtentObservation, InspectionEvidence,
-        PreliminaryObservation, QueryState, REASON_INSUFFICIENT_EVIDENCE, classify_evidence,
+        BUS_TYPE_ATA, BUS_TYPE_FIBRE, BUS_TYPE_FILE_BACKED_VIRTUAL, BUS_TYPE_ISCSI, BUS_TYPE_MMC,
+        BUS_TYPE_NVME, BUS_TYPE_NVMEOF, BUS_TYPE_RAID, BUS_TYPE_SAS, BUS_TYPE_SATA, BUS_TYPE_SCSI,
+        BUS_TYPE_SD, BUS_TYPE_SPACES, BUS_TYPE_VIRTUAL, DependencyObservation, DiskObservation,
+        DriveLocality, DriveRoot, DriveTypeObservation, ExtentObservation, InspectionEvidence,
+        PreliminaryObservation, QueryState, REASON_INSUFFICIENT_EVIDENCE, REASON_REMOVABLE_MEDIA,
+        REASON_REMOVABLE_STATUS_UNREADABLE, REASON_UNSUPPORTED_BUS, classify_evidence,
         classify_evidence_detail,
     };
     // `ClassifiedDrive` is only constructed by the non-Windows test below;
@@ -1388,11 +1560,15 @@ mod tests {
     }
 
     #[test]
-    fn direct_ata_sata_and_nvme_chains_are_unproven_with_observed_facts() {
-        for (bus, label) in [
-            (BUS_TYPE_ATA, "ATA"),
-            (BUS_TYPE_SATA, "SATA"),
-            (BUS_TYPE_NVME, "NVMe"),
+    fn observed_bus_chains_are_unproven_with_observed_facts() {
+        // WO29 Slice B widens the observed bus list to SD/MMC: observation
+        // only — the verdict stays grant-first `Unproven`.
+        for (bus, value, label) in [
+            (BUS_TYPE_ATA, "3", "ATA"),
+            (BUS_TYPE_SATA, "11", "SATA"),
+            (BUS_TYPE_SD, "12", "SD"),
+            (BUS_TYPE_MMC, "13", "MMC"),
+            (BUS_TYPE_NVME, "17", "NVMe"),
         ] {
             let detail = classify_evidence_detail(&evidence(bus));
             assert_eq!(detail.locality, DriveLocality::Unproven, "{label}");
@@ -1404,16 +1580,21 @@ mod tests {
             // The demoted path keeps the observed disk numbers as
             // backing-device identity (observation, not admission).
             assert_eq!(detail.backing_device_identity, vec![0], "{label}");
+            // The disk fact carries the numeric bus value plus the name.
             assert!(
-                detail
-                    .observed_facts
-                    .iter()
-                    .any(|fact| fact.contains(label) && fact.contains("disk 0")),
+                detail.observed_facts.iter().any(|fact| fact
+                    == &format!("disk 0: bus_type {value} ({label}) removable_media false (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive0)")),
                 "{label}: {facts:?}",
                 facts = detail.observed_facts
             );
         }
-        for bus in [BUS_TYPE_ATA, BUS_TYPE_SATA, BUS_TYPE_NVME] {
+        for bus in [
+            BUS_TYPE_ATA,
+            BUS_TYPE_SATA,
+            BUS_TYPE_SD,
+            BUS_TYPE_MMC,
+            BUS_TYPE_NVME,
+        ] {
             assert_eq!(classify_evidence(&evidence(bus)), DriveLocality::Unproven);
         }
     }
@@ -1444,7 +1625,11 @@ mod tests {
     }
 
     #[test]
-    fn every_non_direct_bus_and_future_value_fails_closed() {
+    fn unsupported_buses_are_cause_specific_unproven() {
+        // WO29 Slice B: an unsupported bus on a completely-observed
+        // topology is named `Unproven` with the unsupported-bus reason —
+        // never a reasonless `Unknown`. The numeric bus value is still
+        // recorded in the observed facts as an observation.
         for (label, bus) in [
             ("SCSI", BUS_TYPE_SCSI),
             ("Fibre", BUS_TYPE_FIBRE),
@@ -1457,22 +1642,51 @@ mod tests {
             ("NVMe-oF", BUS_TYPE_NVMEOF),
             ("future", 0xfeed),
         ] {
+            let detail = classify_evidence_detail(&evidence(bus));
+            assert_eq!(detail.locality, DriveLocality::Unproven, "{label}");
             assert_eq!(
-                classify_evidence(&evidence(bus)),
-                DriveLocality::Unknown,
+                detail.unproven_reason,
+                Some(REASON_UNSUPPORTED_BUS),
                 "{label}"
+            );
+            assert_eq!(detail.backing_device_identity, vec![0], "{label}");
+            assert!(
+                !detail.observed_facts.is_empty(),
+                "{label}: facts must be recorded, not dropped"
+            );
+            assert!(
+                detail
+                    .observed_facts
+                    .iter()
+                    .any(|fact| fact.contains(&format!("bus_type {bus} ("))),
+                "{label}: {facts:?}",
+                facts = detail.observed_facts
             );
         }
     }
 
     #[test]
-    fn removable_backing_disk_fails_closed() {
+    fn removable_backing_disk_is_cause_specific_unproven() {
+        // WO29 Slice B: removable backing on a completely-observed
+        // topology is named `Unproven` with the removable-media reason —
+        // never a reasonless `Unknown`.
         let mut evidence = evidence(BUS_TYPE_SATA);
         let QueryState::Complete(disks) = &mut evidence.disks else {
             unreachable!();
         };
         disks[0].removable = true;
-        assert_eq!(classify_evidence(&evidence), DriveLocality::Unknown);
+        let detail = classify_evidence_detail(&evidence);
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        assert_eq!(detail.unproven_reason, Some(REASON_REMOVABLE_MEDIA));
+        assert_eq!(detail.backing_device_identity, vec![0]);
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("removable_media true")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
     }
 
     #[test]
@@ -1551,7 +1765,7 @@ mod tests {
     }
 
     #[test]
-    fn every_query_failure_and_partial_buffer_fails_closed() {
+    fn query_failures_and_partials_stay_closed_except_unreadable_disks() {
         for partial in [false, true] {
             let mut dependency = evidence(BUS_TYPE_NVME);
             dependency.dependency = if partial {
@@ -1569,13 +1783,21 @@ mod tests {
             };
             assert_eq!(classify_evidence(&extents), DriveLocality::Unknown);
 
+            // WO29 Item 2: an unreadable removable-status determination on
+            // a completely-observed extent topology is named `Unproven`
+            // with the unreadable reason — never a reasonless `Unknown`.
             let mut disks = evidence(BUS_TYPE_NVME);
             disks.disks = if partial {
                 QueryState::Partial
             } else {
                 QueryState::ApiFailure
             };
-            assert_eq!(classify_evidence(&disks), DriveLocality::Unknown);
+            let detail = classify_evidence_detail(&disks);
+            assert_eq!(detail.locality, DriveLocality::Unproven);
+            assert_eq!(
+                detail.unproven_reason,
+                Some(REASON_REMOVABLE_STATUS_UNREADABLE)
+            );
 
             let mut before = evidence(BUS_TYPE_NVME);
             before.before.mapping = if partial {
@@ -1593,6 +1815,46 @@ mod tests {
             };
             assert_eq!(classify_evidence(&after), DriveLocality::Unknown);
         }
+    }
+
+    #[test]
+    fn unreadable_removable_status_records_unavailable_facts() {
+        // WO29 Item 2: the extent topology is completely observed but the
+        // removable-status query failed, so the disk facts are recorded as
+        // unavailable — never silently dropped.
+        let mut evidence = evidence(BUS_TYPE_NVME);
+        evidence.disks = QueryState::ApiFailure;
+        let detail = classify_evidence_detail(&evidence);
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        assert_eq!(
+            detail.unproven_reason,
+            Some(REASON_REMOVABLE_STATUS_UNREADABLE)
+        );
+        // The extent observation is kept; only the disk determination is
+        // unavailable.
+        assert_eq!(detail.backing_device_identity, vec![0]);
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact == "dependency_walk: no_dependencies"),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("extent: disk 0")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+        assert!(
+            detail.observed_facts.iter().any(|fact| fact
+                == "disk 0: bus_type unavailable, removable_media unavailable (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia unreadable via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive0)"),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
     }
 
     #[test]
@@ -1929,6 +2191,19 @@ mod tests {
         assert!(!demoted.observed_facts.is_empty());
         assert_eq!(demoted.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
 
+        // Cause-specific paths are observed paths too: identity, facts,
+        // and reason are carried.
+        let mut removable = evidence(BUS_TYPE_SATA);
+        let QueryState::Complete(disks) = &mut removable.disks else {
+            unreachable!();
+        };
+        disks[0].removable = true;
+        let removable = classify_evidence_detail(&removable);
+        assert_eq!(removable.locality, DriveLocality::Unproven);
+        assert_eq!(removable.backing_device_identity, vec![0]);
+        assert!(!removable.observed_facts.is_empty());
+        assert_eq!(removable.unproven_reason, Some(REASON_REMOVABLE_MEDIA));
+
         let mut unknown = evidence(BUS_TYPE_NVME);
         unknown.dependency = QueryState::ApiFailure;
         let unknown = classify_evidence_detail(&unknown);
@@ -1950,11 +2225,51 @@ mod tests {
     }
 
     #[test]
-    fn unproven_reason_is_set_only_on_the_demoted_path() {
-        let demoted = classify_evidence_detail(&evidence(BUS_TYPE_ATA));
-        assert_eq!(demoted.locality, DriveLocality::Unproven);
-        assert_eq!(demoted.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+    fn unproven_reason_is_set_on_observed_paths_never_on_closed() {
+        // Every observed-but-unproven path carries its named reason.
+        for (label, evidence, reason) in [
+            (
+                "demoted",
+                evidence(BUS_TYPE_ATA),
+                REASON_INSUFFICIENT_EVIDENCE,
+            ),
+            (
+                "sd-observed",
+                evidence(BUS_TYPE_SD),
+                REASON_INSUFFICIENT_EVIDENCE,
+            ),
+            (
+                "mmc-observed",
+                evidence(BUS_TYPE_MMC),
+                REASON_INSUFFICIENT_EVIDENCE,
+            ),
+        ] {
+            let detail = classify_evidence_detail(&evidence);
+            assert_eq!(detail.locality, DriveLocality::Unproven, "{label}");
+            assert_eq!(detail.unproven_reason, Some(reason), "{label}");
+            assert!(!detail.observed_facts.is_empty(), "{label}");
+        }
 
+        let mut removable = evidence(BUS_TYPE_SATA);
+        let QueryState::Complete(disks) = &mut removable.disks else {
+            unreachable!();
+        };
+        disks[0].removable = true;
+        let removable = classify_evidence_detail(&removable);
+        assert_eq!(removable.unproven_reason, Some(REASON_REMOVABLE_MEDIA));
+
+        let unsupported = classify_evidence_detail(&evidence(BUS_TYPE_SCSI));
+        assert_eq!(unsupported.unproven_reason, Some(REASON_UNSUPPORTED_BUS));
+
+        let mut unreadable = evidence(BUS_TYPE_NVME);
+        unreadable.disks = QueryState::ApiFailure;
+        let unreadable = classify_evidence_detail(&unreadable);
+        assert_eq!(
+            unreadable.unproven_reason,
+            Some(REASON_REMOVABLE_STATUS_UNREADABLE)
+        );
+
+        // Closed paths carry no reason and no facts.
         let mut substituted = evidence(BUS_TYPE_NVME);
         substituted.before.mapping = mapping(r"\??\C:\workspace");
         let mut removable_drive = evidence(BUS_TYPE_NVME);
@@ -1971,11 +2286,91 @@ mod tests {
     }
 
     #[test]
+    fn sd_mmc_removable_yields_removable_media_reason() {
+        // WO29 Item 2: an SD/MMC disk with RemovableMedia set is observed
+        // but not admitted — the removable-media cause is named.
+        for (label, bus) in [("SD", BUS_TYPE_SD), ("MMC", BUS_TYPE_MMC)] {
+            let mut evidence = evidence(bus);
+            let QueryState::Complete(disks) = &mut evidence.disks else {
+                unreachable!();
+            };
+            disks[0].removable = true;
+            let detail = classify_evidence_detail(&evidence);
+            assert_eq!(detail.locality, DriveLocality::Unproven, "{label}");
+            assert_eq!(
+                detail.unproven_reason,
+                Some(REASON_REMOVABLE_MEDIA),
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn evidence_bundle_carries_the_complete_observed_fact_record() {
+        // WO29 Slice B: the observed-fact record carries the complete
+        // mandated surface — numeric/name bus facts, removable value and
+        // query provenance, before/after observations and equality, the
+        // configured observed-bus list, the P1–P4 mapping, and the
+        // classification with provenance.
+        let detail = classify_evidence_detail(&evidence(BUS_TYPE_SD));
+        assert_eq!(detail.locality, DriveLocality::Unproven);
+        let facts = &detail.observed_facts;
+        let has = |needle: &str| facts.iter().any(|fact| fact.contains(needle));
+        // dependency-walk observation and the extent observation
+        assert!(has("dependency_walk: no_dependencies"), "{facts:?}");
+        assert!(
+            has("extent: disk 0 starting_offset 1048576 extent_length 4194304"),
+            "{facts:?}"
+        );
+        // numeric/name bus fact with removable value and query provenance
+        assert!(
+            has("disk 0: bus_type 12 (SD) removable_media false"),
+            "{facts:?}"
+        );
+        assert!(
+            has(
+                "query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive0"
+            ),
+            "{facts:?}"
+        );
+        // before/after observations and equality
+        assert!(has("before: drive_type Fixed"), "{facts:?}");
+        assert!(has("after: drive_type Fixed"), "{facts:?}");
+        assert!(has("equality: match"), "{facts:?}");
+        // configured observed-bus list
+        assert!(
+            has("observed_bus_list: ATA(3), SATA(11), SD(12), MMC(13), NVMe(17)"),
+            "{facts:?}"
+        );
+        // one-line P1–P4 mapping with the named reason
+        assert!(
+            has("P1-P4: P1 unproven (windows_locality_unproven_insufficient_evidence_v0)"),
+            "{facts:?}"
+        );
+        // classification with provenance
+        assert!(
+            has("classification: Unproven (observed-but-unproven"),
+            "{facts:?}"
+        );
+        assert!(has("grant-first per decision 0029 §14"), "{facts:?}");
+        // The reason is named and no fact claims proof.
+        assert_eq!(detail.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+        assert!(
+            facts
+                .iter()
+                .all(|fact| !fact.contains("proved") || fact.contains("unproven")),
+            "{facts:?}"
+        );
+    }
+
+    #[test]
     fn no_classifier_path_emits_fixed_local() {
         let mut fixtures = Vec::new();
         for bus in [
             BUS_TYPE_ATA,
             BUS_TYPE_SATA,
+            BUS_TYPE_SD,
+            BUS_TYPE_MMC,
             BUS_TYPE_NVME,
             BUS_TYPE_SCSI,
             BUS_TYPE_FIBRE,

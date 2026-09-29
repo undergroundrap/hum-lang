@@ -1413,6 +1413,13 @@ fn bind_proof_evidence(
                 }
             }
         },
+        #[cfg(any(target_os = "macos", test))]
+        LocalityEvidence::MacOS => {
+            // Declared unproven (WO29 Item 3): nothing was proved, so
+            // there is nothing to contradict — the same shape as Linux
+            // `Unproven` without a contradiction marker.
+            Ok(())
+        }
         #[cfg(windows)]
         LocalityEvidence::Windows(classified) => {
             let Some(volume_serial) = classified.volume_serial else {
@@ -1517,6 +1524,14 @@ fn bind_observed_backing_evidence(
                 Err(FileReadAdapterError::ContradictoryBackingEvidence)
             }
         }
+        #[cfg(any(target_os = "macos", test))]
+        LocalityEvidence::MacOS => {
+            // Declared unproven (WO29 Item 3): the classifier observed no
+            // usable backing-device identity — genuinely missing
+            // observation, covered by external trust, exactly like Linux
+            // `Unproven` with no observed device.
+            Ok(())
+        }
         #[cfg(windows)]
         LocalityEvidence::Windows(classified) => {
             // The opened object must be a Windows identity; anything else
@@ -1591,6 +1606,10 @@ fn classifier_observed_facts(revalidated: &ValidatedNativePath) -> Vec<String> {
         },
         #[cfg(windows)]
         Some(LocalityEvidence::Windows(classified)) => classified.observed_facts.clone(),
+        // macOS declared-unproven (WO29 Item 3): the policy facts name
+        // what was (not) observed — never silently empty.
+        #[cfg(any(target_os = "macos", test))]
+        Some(LocalityEvidence::MacOS) => crate::native_path::macos_observed_facts(),
         #[cfg(not(any(unix, windows, test)))]
         _ => Vec::new(),
         #[allow(unreachable_patterns)]
@@ -1645,6 +1664,18 @@ fn classifier_evidence_lines(revalidated: &ValidatedNativePath) -> Vec<String> {
                     .as_deref()
                     .unwrap_or("none")
             ));
+            lines
+        }
+        // macOS declared-unproven (WO29 Item 3): the named reason
+        // verbatim, then the policy facts verbatim — the same shape as
+        // the Linux and Windows arms.
+        #[cfg(any(target_os = "macos", test))]
+        Some(LocalityEvidence::MacOS) => {
+            let mut lines = vec![format!(
+                "unproven: {}",
+                crate::native_path::MACOS_REASON_DECLARED_UNPROVEN
+            )];
+            lines.extend(crate::native_path::macos_observed_facts());
             lines
         }
         None => vec!["evidence unavailable".to_string()],
@@ -7444,7 +7475,9 @@ pub(crate) mod tests {
     ///   bytes.
     /// - Missing: classifier observes no device (nonexistent path) →
     ///   external trust covers the missing observation, admission.
-    #[cfg(unix)]
+    // Linux-only: asserts the Linux mountinfo device observation, which
+    // does not exist on macOS (declared-unproven there).
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn observed_backing_evidence_binds_on_external_trust_path() {
         use std::os::unix::fs::MetadataExt;
@@ -7470,6 +7503,11 @@ pub(crate) mod tests {
         .locality_evidence()
         .and_then(|evidence| match evidence {
             crate::native_path::LocalityEvidence::Linux(locality) => locality.observed_device(),
+            // Unreachable on this platform (the test is Linux-only and
+            // the classifier produces Linux evidence); required because
+            // the MacOS variant is visible to test builds.
+            #[cfg(any(target_os = "macos", test))]
+            crate::native_path::LocalityEvidence::MacOS => None,
         });
         assert_eq!(
             observed,
@@ -7551,6 +7589,53 @@ pub(crate) mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// macOS declared-unproven consumer controls (WO29 Item 3, Slice B):
+    /// the production consumer arms read the named macOS reason — they do
+    /// not reconstruct it — and both binds treat the declared verdict as
+    /// missing observation (trust-coverable), never as proof and never as
+    /// a contradiction.
+    ///
+    /// Host fixture: `macos_unproven_for_test` mirrors exactly what the
+    /// real macOS entry point stores; native macOS execution is
+    /// unavailable here, so this is a host fixture, not a macOS run.
+    #[cfg(unix)]
+    #[test]
+    fn macos_declared_unproven_consumers_read_the_named_reason() {
+        use super::{
+            bind_observed_backing_evidence, bind_proof_evidence, classifier_evidence_lines,
+            classifier_observed_facts,
+        };
+        use crate::native_path::{
+            MACOS_REASON_DECLARED_UNPROVEN, ValidatedNativePath, macos_observed_facts,
+        };
+
+        let validated =
+            ValidatedNativePath::macos_unproven_for_test(OsStr::new("/tmp/macos-probe"));
+
+        // P1 evidence lines: the named reason verbatim, then the policy
+        // facts verbatim — the consumer reads the constant and the
+        // producer's facts; it rebuilds neither.
+        let lines = classifier_evidence_lines(&validated);
+        assert_eq!(
+            lines[0],
+            format!("unproven: {MACOS_REASON_DECLARED_UNPROVEN}")
+        );
+        assert_eq!(&lines[1..], &macos_observed_facts());
+
+        // Trust-bundle facts: the policy facts verbatim.
+        assert_eq!(
+            classifier_observed_facts(&validated),
+            macos_observed_facts()
+        );
+
+        // Binds: declared unproven observes nothing usable — covered by
+        // external trust, never a contradiction, never proof.
+        let opened = FileObjectIdentity::UnixDeviceInode { dev: 8, ino: 4242 };
+        let evidence = validated.locality_evidence();
+        assert!(bind_proof_evidence(evidence, opened).is_ok());
+        assert!(bind_observed_backing_evidence(evidence, opened).is_ok());
     }
 
     /// P1-2 contradiction controls: an observed mountinfo/stat
