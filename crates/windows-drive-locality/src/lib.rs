@@ -315,13 +315,16 @@ struct EvidenceVerdict {
     backing_device_identity: Vec<u32>,
     observed_facts: Vec<String>,
     unproven_reason: Option<&'static str>,
-    /// Known before/after contradiction: the classifier observed the
-    /// drive's preliminary observation change (or stop being a
-    /// candidate) mid-inspection. Contradictory evidence is not
-    /// missing evidence — the runtime external-trust binder must reject
-    /// it before payload consumption, never cover it with matching
-    /// trust. Internal to the verdict-to-binder path; not admission
-    /// policy, not public schema.
+    /// Invalid or contradictory evidence the runtime external-trust
+    /// binder must reject before payload consumption, never cover with
+    /// matching trust. Covers genuine before/after contradictions (two
+    /// successfully observed unequal preliminary observations) and
+    /// invalid producer evidence (outer disk-record membership failures,
+    /// inner observed-disk identity mismatches). Genuinely missing
+    /// observations — failed or unavailable queries — carry no marker:
+    /// external trust may cover absence, never invalidity. Internal to
+    /// the verdict-to-binder path; not admission policy, not public
+    /// schema.
     contradiction: bool,
 }
 
@@ -341,6 +344,46 @@ impl EvidenceVerdict {
             observed_facts: Vec::new(),
             unproven_reason: None,
             contradiction: false,
+        }
+    }
+
+    /// A closed (non-admitting) verdict that PRESERVES the available
+    /// observations for the consumer bundle. Preliminary, dependency,
+    /// and extent early-failure paths keep their observed facts instead
+    /// of returning empty: the facts distinguish failed, unavailable,
+    /// and not-attempted queries rather than discarding them. No
+    /// `Unproven` reason (the verdict is closed, not unproven) and no
+    /// contradiction marker — genuinely missing observations are
+    /// trust-coverable, unlike invalid evidence.
+    fn closed_preserved(locality: DriveLocality, observed_facts: Vec<String>) -> Self {
+        debug_assert_ne!(
+            locality,
+            DriveLocality::Unproven,
+            "every Unproven path is observed and named — see observed_unproven"
+        );
+        Self {
+            locality,
+            backing_device_identity: Vec::new(),
+            observed_facts,
+            unproven_reason: None,
+            contradiction: false,
+        }
+    }
+
+    /// A closed verdict for INVALID producer evidence: outer
+    /// disk-record membership failures and inner observed-disk identity
+    /// mismatches. The available observations are preserved, but the
+    /// verdict carries the contradiction marker — classifier `Unknown`
+    /// alone does not deny the read on the external-trust path, so
+    /// invalid evidence must reach the runtime binder as rejecting,
+    /// never as trust-coverable absence.
+    fn closed_invalid(observed_facts: Vec<String>) -> Self {
+        Self {
+            locality: DriveLocality::Unknown,
+            backing_device_identity: Vec::new(),
+            observed_facts,
+            unproven_reason: None,
+            contradiction: true,
         }
     }
 
@@ -428,6 +471,124 @@ fn preliminary_summary(observation: &PreliminaryObservation) -> String {
     format!("drive_type {:?}, mapping {mapping}", observation.drive_type)
 }
 
+/// Dependency-observation fact line shared by the unproven record and
+/// the closed dependency paths. Failed, unavailable, and completed
+/// dependency observations are named distinctly — never collapsed into
+/// a bare absence.
+#[cfg(any(windows, test))]
+fn dependency_fact_line(dependency: &QueryState<DependencyObservation>) -> String {
+    match dependency {
+        QueryState::Complete(DependencyObservation::None) => {
+            "dependency_walk: no_dependencies".to_string()
+        }
+        QueryState::Complete(observed) => {
+            format!(
+                "dependency_walk: dependency_present ({})",
+                dependency_kind_label(observed)
+            )
+        }
+        QueryState::ApiFailure => {
+            "dependency_walk: query_failed (observation unavailable)".to_string()
+        }
+        QueryState::Partial => {
+            "dependency_walk: partial_result (observation unavailable)".to_string()
+        }
+    }
+}
+
+/// Short label for a present dependency observation, for the preserved
+/// fact line. The Windows producer only reports presence; the test-only
+/// variants name the scripted dependency kind.
+#[cfg(any(windows, test))]
+fn dependency_kind_label(observed: &DependencyObservation) -> &'static str {
+    match observed {
+        DependencyObservation::None => "none",
+        #[cfg(windows)]
+        DependencyObservation::Present => "present",
+        #[cfg(test)]
+        DependencyObservation::Vhd => "vhd",
+        #[cfg(test)]
+        DependencyObservation::Vhdx => "vhdx",
+        #[cfg(test)]
+        DependencyObservation::Iso => "iso",
+        #[cfg(test)]
+        DependencyObservation::UncHostedVhd => "unc_hosted_vhd",
+    }
+}
+
+/// One observed-fact line for a volume extent.
+#[cfg(any(windows, test))]
+fn extent_fact_line(extent: &ExtentObservation) -> String {
+    format!(
+        "extent: disk {} starting_offset {} extent_length {}",
+        extent.disk_number, extent.starting_offset, extent.extent_length
+    )
+}
+
+/// One observed-fact line for a required disk's descriptor-query
+/// record. Failed, undecodable, not-attempted, and open-failed outcomes
+/// stay distinct observations (WO29 Item 2): the bundle must not claim
+/// every descriptor query failed when earlier queries succeeded, a
+/// device never opened, or later queries never ran. A missing record
+/// means the descriptor-query result was unavailable — recorded as
+/// unavailable, never silently dropped.
+#[cfg(any(windows, test))]
+fn disk_fact_line(disk_number: u32, record: Option<&DiskQueryRecord>) -> String {
+    match record.map(|record| record.outcome) {
+        Some(DiskQueryOutcome::Observed(disk)) => format!(
+            "disk {}: bus_type {} ({}) removable_media {} (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{})",
+            disk.disk_number,
+            disk.bus_type,
+            bus_type_label(disk.bus_type),
+            disk.removable,
+            disk.disk_number
+        ),
+        Some(DiskQueryOutcome::OpenFailed) => format!(
+            "disk {disk_number}: device open failed (no handle to PhysicalDrive{disk_number}); descriptor query never ran; bus_type unavailable, removable_media unavailable"
+        ),
+        Some(DiskQueryOutcome::Failed) => format!(
+            "disk {disk_number}: descriptor query failed (STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{disk_number}); bus_type unavailable, removable_media unavailable"
+        ),
+        Some(DiskQueryOutcome::Undecodable) => format!(
+            "disk {disk_number}: descriptor query undecodable (returned data failed validation via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{disk_number}); bus_type unavailable, removable_media unavailable"
+        ),
+        Some(DiskQueryOutcome::NotAttempted) => format!(
+            "disk {disk_number}: descriptor query not attempted (an earlier disk query aborted the walk); bus_type unavailable, removable_media unavailable"
+        ),
+        None => format!(
+            "disk {}: bus_type unavailable, removable_media unavailable (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia unreadable via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{})",
+            disk_number, disk_number
+        ),
+    }
+}
+
+/// One observed-fact line for the volume-close outcome. A failed
+/// CloseHandle is cleanup failure, not evidence failure: the
+/// observations above were already read, so they are preserved and the
+/// cleanup failure is recorded as its own named fact rather than
+/// wiping the observations.
+#[cfg(any(windows, test))]
+fn cleanup_fact_line(closes: &QueryState<()>) -> String {
+    if *closes == QueryState::Complete(()) {
+        "cleanup: handles_closed".to_string()
+    } else {
+        "cleanup: close_failed (CloseHandle reported failure after observations completed; observations preserved)"
+            .to_string()
+    }
+}
+
+/// Maps a volume-close boolean to the cleanup `QueryState`: a failed
+/// close is `ApiFailure` (cleanup failure, observations preserved) —
+/// never a silent drop of the observations already read.
+#[cfg(any(windows, test))]
+fn close_query_state(closed: bool) -> QueryState<()> {
+    if closed {
+        QueryState::Complete(())
+    } else {
+        QueryState::ApiFailure
+    }
+}
+
 /// Observed-fact lines for every observed-but-unproven path (the demoted
 /// grant-first path and the cause-specific matrix): the dependency-walk
 /// observation, each disk extent, each required disk's bus type (numeric
@@ -440,23 +601,25 @@ fn preliminary_summary(observation: &PreliminaryObservation) -> String {
 /// Facts are observations only — they never admit. `disks` is `None` when
 /// the disk-descriptor query failed: the unavailable facts are recorded
 /// as unavailable, never silently dropped.
+/// Shared observation-body lines for the complete-observation
+/// paths: the dependency-walk observation, each disk extent, each
+/// required disk's record line, the before/after observation and
+/// equality verdict, the cleanup outcome, and the configured
+/// observed-bus list. Recorded in a deterministic order. Facts are
+/// observations only — they never admit. Callers append their verdict's
+/// own classification line (the unproven paths also append the P1–P4
+/// mapping line).
 #[cfg(any(windows, test))]
-fn observed_facts(
-    before: &PreliminaryObservation,
-    after: &PreliminaryObservation,
+fn observed_fact_body(
+    evidence: &InspectionEvidence,
     extents: &[ExtentObservation],
     disks: Option<&[DiskQueryRecord]>,
     required_disks: &[u32],
-    reason: &'static str,
-    cleanup_failed: bool,
 ) -> Vec<String> {
     let mut facts = Vec::with_capacity(4 + extents.len() + required_disks.len());
-    facts.push("dependency_walk: no_dependencies".to_string());
+    facts.push(dependency_fact_line(&evidence.dependency));
     for extent in extents {
-        facts.push(format!(
-            "extent: disk {} starting_offset {} extent_length {}",
-            extent.disk_number, extent.starting_offset, extent.extent_length
-        ));
+        facts.push(extent_fact_line(extent));
     }
     for disk_number in required_disks {
         let record = disks.and_then(|records| {
@@ -464,55 +627,20 @@ fn observed_facts(
                 .iter()
                 .find(|record| record.disk_number == *disk_number)
         });
-        match record.map(|record| record.outcome) {
-            Some(DiskQueryOutcome::Observed(disk)) => facts.push(format!(
-                "disk {}: bus_type {} ({}) removable_media {} (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{})",
-                disk.disk_number,
-                disk.bus_type,
-                bus_type_label(disk.bus_type),
-                disk.removable,
-                disk.disk_number
-            )),
-            // Failed vs undecodable vs not-attempted vs open-failed are
-            // distinct observations (WO29 Item 2): the bundle must not
-            // claim every descriptor query failed when earlier queries
-            // succeeded, a device never opened, or later queries never
-            // ran.
-            Some(DiskQueryOutcome::OpenFailed) => facts.push(format!(
-                "disk {disk_number}: device open failed (no handle to PhysicalDrive{disk_number}); descriptor query never ran; bus_type unavailable, removable_media unavailable"
-            )),
-            Some(DiskQueryOutcome::Failed) => facts.push(format!(
-                "disk {disk_number}: descriptor query failed (STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{disk_number}); bus_type unavailable, removable_media unavailable"
-            )),
-            Some(DiskQueryOutcome::Undecodable) => facts.push(format!(
-                "disk {disk_number}: descriptor query undecodable (returned data failed validation via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{disk_number}); bus_type unavailable, removable_media unavailable"
-            )),
-            Some(DiskQueryOutcome::NotAttempted) => facts.push(format!(
-                "disk {disk_number}: descriptor query not attempted (an earlier disk query aborted the walk); bus_type unavailable, removable_media unavailable"
-            )),
-            None => facts.push(format!(
-                "disk {}: bus_type unavailable, removable_media unavailable (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia unreadable via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive{})",
-                disk_number, disk_number
-            )),
-        }
+        facts.push(disk_fact_line(*disk_number, record));
     }
-    let equality = if before == after { "match" } else { "mismatch" };
+    let equality = if evidence.before == evidence.after {
+        "match"
+    } else {
+        "mismatch"
+    };
     facts.push(format!(
         "before: {}; after: {}; equality: {}",
-        preliminary_summary(before),
-        preliminary_summary(after),
+        preliminary_summary(&evidence.before),
+        preliminary_summary(&evidence.after),
         equality
     ));
-    // A failed CloseHandle is cleanup failure, not evidence failure: the
-    // observations above were already read, so they are preserved and
-    // the cleanup failure is recorded as its own named fact rather than
-    // wiping the observations.
-    facts.push(if cleanup_failed {
-        "cleanup: close_failed (CloseHandle reported failure after observations completed; observations preserved)"
-            .to_string()
-    } else {
-        "cleanup: handles_closed".to_string()
-    });
+    facts.push(cleanup_fact_line(&evidence.closes));
     facts.push(format!(
         "observed_bus_list: {}",
         OBSERVED_BUS_TYPES
@@ -521,6 +649,18 @@ fn observed_facts(
             .collect::<Vec<_>>()
             .join(", ")
     ));
+    facts
+}
+
+#[cfg(any(windows, test))]
+fn observed_facts(
+    evidence: &InspectionEvidence,
+    extents: &[ExtentObservation],
+    disks: Option<&[DiskQueryRecord]>,
+    required_disks: &[u32],
+    reason: &'static str,
+) -> Vec<String> {
+    let mut facts = observed_fact_body(evidence, extents, disks, required_disks);
     // P4 per decision 0029 §15: file-object ordinariness is enforced at
     // read time on the opened handle (`open_checked_windows_file`,
     // `run.rs` Step 4), never by this classifier — the classifier maps
@@ -550,40 +690,311 @@ fn bus_type_label(bus_type: u32) -> String {
     }
 }
 
+/// Preserved facts for a closed preliminary classification: the before
+/// observation is available; dependency, extent, disk, and after
+/// queries never ran. Not-attempted work is named as not-attempted —
+/// never implied failed, never implied observed. The volume-close
+/// outcome is an available observation on the orchestration path (the
+/// volume was opened before the preliminary query) and is preserved,
+/// including close failure.
+#[cfg(any(windows, test))]
+fn preliminary_closed_facts(
+    before: &PreliminaryObservation,
+    result: DriveLocality,
+    closes: &QueryState<()>,
+) -> Vec<String> {
+    vec![
+        format!("before: {}", preliminary_summary(before)),
+        "after: not_observed (preliminary classification closed before recheck)".to_string(),
+        "dependency_walk: not_attempted (preliminary classification closed before dependency query)"
+            .to_string(),
+        "extents: not_attempted (preliminary classification closed before extent query)".to_string(),
+        cleanup_fact_line(closes),
+        format!(
+            "classification: {result:?} (preliminary observation closed; no disk inspection ran)"
+        ),
+    ]
+}
+
+/// The named reason a dependency observation closed the verdict: the
+/// available cause, preserved rather than discarded.
+#[cfg(any(windows, test))]
+fn dependency_closure_reason(dependency: &QueryState<DependencyObservation>) -> &'static str {
+    match dependency {
+        // Unreachable: this branch requires a non-None dependency.
+        QueryState::Complete(DependencyObservation::None) => "no_dependencies (unreachable)",
+        QueryState::Complete(_) => "backing dependency observed",
+        QueryState::ApiFailure => "dependency query failed (observation unavailable)",
+        QueryState::Partial => {
+            "dependency query returned a partial result (observation unavailable)"
+        }
+    }
+}
+
+/// Preserved facts for a closed dependency verdict: the before
+/// observation and the dependency observation that closed the verdict
+/// are available; extent, disk, and after queries never ran. The
+/// volume-close outcome is an available observation on the
+/// orchestration path and is preserved, including close failure.
+#[cfg(any(windows, test))]
+fn dependency_closed_facts(
+    before: &PreliminaryObservation,
+    dependency: &QueryState<DependencyObservation>,
+    closes: &QueryState<()>,
+) -> Vec<String> {
+    vec![
+        format!("before: {}", preliminary_summary(before)),
+        "after: not_observed (dependency check closed before recheck)".to_string(),
+        dependency_fact_line(dependency),
+        "extents: not_attempted (dependency check closed before extent query)".to_string(),
+        cleanup_fact_line(closes),
+        format!(
+            "classification: Unknown (dependency check closed: {})",
+            dependency_closure_reason(dependency)
+        ),
+    ]
+}
+
+/// Preserved facts for a failed or invalid extent observation (WO29
+/// Slice B correction): every fact genuinely present in the evidence
+/// bundle is preserved. The orchestration runs the after recheck and
+/// the volume close even when the extent query fails, so a `Complete`
+/// after is rendered as the available observation it is — never
+/// "not_observed" — and the cleanup outcome is preserved, including
+/// close failure. An `ApiFailure`/`Partial` after is unavailable, not
+/// a contradiction. Disk queries never run after a failed extent
+/// query, so disks are named not-attempted on that sub-path; on the
+/// invalid-topology sub-path the disk query did run, so the bundle's
+/// disk records are rendered as the observations they are. Called only
+/// when the extent observation failed (`ApiFailure`/`Partial`) or the
+/// topology is invalid — never for a valid topology.
+#[cfg(any(windows, test))]
+fn extent_closed_facts(evidence: &InspectionEvidence) -> Vec<String> {
+    let mut facts = vec![format!("before: {}", preliminary_summary(&evidence.before))];
+    match &evidence.after.mapping {
+        QueryState::Complete(_) => {
+            let equality = if evidence.before == evidence.after {
+                "match"
+            } else {
+                "mismatch"
+            };
+            facts.push(format!(
+                "after: {}; equality: {}",
+                preliminary_summary(&evidence.after),
+                equality
+            ));
+        }
+        QueryState::ApiFailure => {
+            facts.push(
+                "after: query_failed (observation unavailable); equality: unavailable (cannot compare)"
+                    .to_string(),
+            );
+        }
+        QueryState::Partial => {
+            facts.push(
+                "after: partial_result (observation unavailable); equality: unavailable (cannot compare)"
+                    .to_string(),
+            );
+        }
+    }
+    facts.push(dependency_fact_line(&evidence.dependency));
+    let extents_failed = !matches!(&evidence.extents, QueryState::Complete(_));
+    match &evidence.extents {
+        // The rows ARE available observations and are preserved with the
+        // invalidity named, not discarded.
+        QueryState::Complete(rows) => {
+            facts.push(format!(
+                "extents: invalid_topology ({} row(s); empty set or non-positive length)",
+                rows.len()
+            ));
+            for extent in rows {
+                facts.push(extent_fact_line(extent));
+            }
+        }
+        QueryState::ApiFailure => {
+            facts.push("extents: query_failed (observation unavailable)".to_string());
+        }
+        QueryState::Partial => {
+            facts.push("extents: partial_result (observation unavailable)".to_string());
+        }
+    }
+    if extents_failed {
+        // The disk query never ran: the extent query failed first.
+        // Named not-attempted — never implied failed, never implied
+        // observed.
+        facts.push("disks: not_attempted (extent query failed before disk query)".to_string());
+    } else {
+        // Invalid topology, but the disk query did run: its records are
+        // available observations and are preserved.
+        match &evidence.disks {
+            QueryState::Complete(records) => {
+                for record in records {
+                    facts.push(disk_fact_line(record.disk_number, Some(record)));
+                }
+            }
+            QueryState::ApiFailure => {
+                facts.push("disks: query_failed (observation unavailable)".to_string());
+            }
+            QueryState::Partial => {
+                facts.push("disks: partial_result (observation unavailable)".to_string());
+            }
+        }
+    }
+    facts.push(cleanup_fact_line(&evidence.closes));
+    facts.push(
+        "classification: Unknown (extent observation unavailable or invalid; no disk inspection completed)"
+            .to_string(),
+    );
+    facts
+}
+
+/// Preserved facts for an unavailable after observation (WO29 Slice B
+/// correction): the before observation and whatever the dependency,
+/// extent, disk, and cleanup stages produced are available and are
+/// rendered as observed; failed or partial stages are named as
+/// unavailable, never as contradictions. The after observation is
+/// recorded as unavailable with no equality verdict — it cannot be
+/// compared.
+#[cfg(any(windows, test))]
+fn after_unavailable_facts(evidence: &InspectionEvidence, after_state: &str) -> Vec<String> {
+    let mut facts = vec![
+        format!("before: {}", preliminary_summary(&evidence.before)),
+        format!(
+            "after: {after_state} (observation unavailable); equality: unavailable (cannot compare)"
+        ),
+        dependency_fact_line(&evidence.dependency),
+    ];
+    match &evidence.extents {
+        QueryState::Complete(extents) => {
+            for extent in extents {
+                facts.push(extent_fact_line(extent));
+            }
+        }
+        QueryState::ApiFailure => {
+            facts.push("extents: query_failed (observation unavailable)".to_string());
+        }
+        QueryState::Partial => {
+            facts.push("extents: partial_result (observation unavailable)".to_string());
+        }
+    }
+    match &evidence.disks {
+        QueryState::Complete(records) => {
+            // Rendered in walk order. Required-set membership is not
+            // established on this path (the topology check runs later),
+            // so records are listed as observed — never as a complete
+            // matrix.
+            for record in records {
+                facts.push(disk_fact_line(record.disk_number, Some(record)));
+            }
+        }
+        QueryState::ApiFailure => {
+            facts.push("disks: query_failed (observation unavailable)".to_string());
+        }
+        QueryState::Partial => {
+            facts.push("disks: partial_result (observation unavailable)".to_string());
+        }
+    }
+    facts.push(cleanup_fact_line(&evidence.closes));
+    facts.push(
+        "classification: Unknown (after observation unavailable; missing evidence is trust-coverable, never a contradiction)"
+            .to_string(),
+    );
+    facts
+}
+
+/// Preserved facts for INVALID disk evidence (WO29 Slice B correction):
+/// the complete observation record — before/after, extents, disk
+/// records, cleanup — is preserved, and the classification names the
+/// invalidity. Classifier `Unknown` alone does not deny the read on the
+/// external-trust path, so the verdict this accompanies carries the
+/// contradiction marker: invalid evidence must reach the runtime binder
+/// as rejecting.
+#[cfg(any(windows, test))]
+fn invalid_evidence_facts(
+    evidence: &InspectionEvidence,
+    extents: &[ExtentObservation],
+    records: &[DiskQueryRecord],
+    required_disks: &[u32],
+    detail: &str,
+) -> Vec<String> {
+    let mut facts = observed_fact_body(evidence, extents, Some(records), required_disks);
+    facts.push(format!(
+        "classification: Unknown (invalid disk evidence: {detail}; contradictory evidence is never trust-coverable — the external-trust binder rejects it)"
+    ));
+    facts
+}
+
 #[cfg(any(windows, test))]
 fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     let PreliminaryClass::Candidate = classify_preliminary(&evidence.before) else {
         let PreliminaryClass::Closed(result) = classify_preliminary(&evidence.before) else {
             unreachable!();
         };
-        return EvidenceVerdict::closed(result);
+        // A closed preliminary classification keeps its available
+        // observations: the before observation is preserved; the
+        // dependency, extent, disk, and after queries never ran. The
+        // bundle's cleanup state is rendered as recorded.
+        return EvidenceVerdict::closed_preserved(
+            result,
+            preliminary_closed_facts(&evidence.before, result, &evidence.closes),
+        );
     };
 
-    // A known before/after contradiction is contradictory evidence,
-    // never missing evidence: the verdict stays closed (nothing
-    // admits), but the contradiction marker and the before/after facts
-    // are preserved so the runtime external-trust binder can refuse
-    // them before payload consumption. Matching trust must never
-    // reinterpret a known contradiction as acceptable absence.
-    if evidence.before != evidence.after
-        || classify_preliminary(&evidence.after) != PreliminaryClass::Candidate
-    {
-        return EvidenceVerdict::closed_contradiction(&evidence.before, &evidence.after);
+    // A known before/after contradiction requires two SUCCESSFULLY
+    // OBSERVED preliminary observations that disagree. An unavailable
+    // after observation (`ApiFailure`/`Partial`) is missing evidence,
+    // not a contradiction: only a successfully observed after mapping
+    // can contradict the before observation. Genuinely missing
+    // observations are trust-coverable; contradictory evidence is not.
+    // The available observations are preserved either way.
+    match &evidence.after.mapping {
+        QueryState::Complete(_) => {
+            if evidence.before != evidence.after
+                || classify_preliminary(&evidence.after) != PreliminaryClass::Candidate
+            {
+                return EvidenceVerdict::closed_contradiction(&evidence.before, &evidence.after);
+            }
+        }
+        QueryState::ApiFailure => {
+            return EvidenceVerdict::closed_preserved(
+                DriveLocality::Unknown,
+                after_unavailable_facts(evidence, "query_failed"),
+            );
+        }
+        QueryState::Partial => {
+            return EvidenceVerdict::closed_preserved(
+                DriveLocality::Unknown,
+                after_unavailable_facts(evidence, "partial_result"),
+            );
+        }
     }
 
+    // A failed or present dependency keeps its available observations:
+    // the before observation and the dependency observation that closed
+    // the verdict are preserved; the extent, disk, and after queries
+    // never ran. The bundle's cleanup state is rendered as recorded.
     if evidence.dependency != QueryState::Complete(DependencyObservation::None) {
-        return EvidenceVerdict::closed(DriveLocality::Unknown);
+        return EvidenceVerdict::closed_preserved(
+            DriveLocality::Unknown,
+            dependency_closed_facts(&evidence.before, &evidence.dependency, &evidence.closes),
+        );
     }
 
     let QueryState::Complete(extents) = &evidence.extents else {
-        return EvidenceVerdict::closed(DriveLocality::Unknown);
+        return EvidenceVerdict::closed_preserved(
+            DriveLocality::Unknown,
+            extent_closed_facts(evidence),
+        );
     };
     if extents.is_empty()
         || extents
             .iter()
             .any(|extent| extent.starting_offset < 0 || extent.extent_length <= 0)
     {
-        return EvidenceVerdict::closed(DriveLocality::Unknown);
+        return EvidenceVerdict::closed_preserved(
+            DriveLocality::Unknown,
+            extent_closed_facts(evidence),
+        );
     }
 
     let mut required_disks = extents
@@ -599,13 +1010,11 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     // never a reasonless `Unknown`.
     let QueryState::Complete(records) = &evidence.disks else {
         let facts = observed_facts(
-            &evidence.before,
-            &evidence.after,
+            evidence,
             extents,
             None,
             &required_disks,
             REASON_REMOVABLE_STATUS_UNREADABLE,
-            evidence.closes != QueryState::Complete(()),
         );
         return EvidenceVerdict::observed_unproven(
             REASON_REMOVABLE_STATUS_UNREADABLE,
@@ -624,7 +1033,18 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     let mut record_numbers: Vec<u32> = records.iter().map(|record| record.disk_number).collect();
     record_numbers.sort_unstable();
     if record_numbers != required_disks {
-        return EvidenceVerdict::closed(DriveLocality::Unknown);
+        // Invalid producer evidence: the record set does not cover
+        // exactly the required disk set. The observations are preserved,
+        // but the verdict carries the contradiction marker — classifier
+        // `Unknown` alone does not deny the read on the external-trust
+        // path, so this must reach the runtime binder as rejecting.
+        return EvidenceVerdict::closed_invalid(invalid_evidence_facts(
+            evidence,
+            extents,
+            records,
+            &required_disks,
+            "outer disk-record membership does not match the extent topology",
+        ));
     }
 
     // Inner identity validation: an `Observed` record's inner
@@ -639,7 +1059,17 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
         matches!(record.outcome, DiskQueryOutcome::Observed(disk) if disk.disk_number != record.disk_number)
     });
     if inner_mismatch {
-        return EvidenceVerdict::closed(DriveLocality::Unknown);
+        // Invalid producer evidence: an `Observed` record's inner
+        // observation names a different disk than the record's outer
+        // disk number. Preserved and rejecting, like the membership
+        // failure above.
+        return EvidenceVerdict::closed_invalid(invalid_evidence_facts(
+            evidence,
+            extents,
+            records,
+            &required_disks,
+            "inner observed-disk identity does not match the outer record disk number",
+        ));
     }
 
     // Per-disk outcome partition (WO29 Item 2): the determination is
@@ -654,13 +1084,11 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
         .all(|record| matches!(record.outcome, DiskQueryOutcome::Observed(_)));
     if !complete {
         let facts = observed_facts(
-            &evidence.before,
-            &evidence.after,
+            evidence,
             extents,
             Some(records),
             &required_disks,
             REASON_REMOVABLE_STATUS_UNREADABLE,
-            evidence.closes != QueryState::Complete(()),
         );
         return EvidenceVerdict::observed_unproven(
             REASON_REMOVABLE_STATUS_UNREADABLE,
@@ -722,15 +1150,7 @@ fn classify_evidence_detail(evidence: &InspectionEvidence) -> EvidenceVerdict {
     // unreachable from the live classifier — mirroring Linux's `Proven`.
     // ------------------------------------------------------------------
     let reason = cause.unwrap_or(REASON_INSUFFICIENT_EVIDENCE);
-    let facts = observed_facts(
-        &evidence.before,
-        &evidence.after,
-        extents,
-        Some(records),
-        &required_disks,
-        reason,
-        evidence.closes != QueryState::Complete(()),
-    );
+    let facts = observed_facts(evidence, extents, Some(records), &required_disks, reason);
     EvidenceVerdict::observed_unproven(reason, required_disks, facts)
 }
 
@@ -1061,40 +1481,91 @@ fn containing_volume_device_path(guid_path: &[u16]) -> Option<Vec<u16>> {
     Some(device)
 }
 
-#[cfg(windows)]
-fn classify_full(root: DriveRoot, volume: OwnedHandle) -> EvidenceVerdict {
-    let before = query_preliminary(root);
-    if let PreliminaryClass::Closed(result) = classify_preliminary(&before) {
-        let _already_unknown = volume.close();
-        return EvidenceVerdict::closed(result);
-    }
+/// Production-used injection seam for the classification
+/// orchestration (WO29 Slice B correction): the query stages behind
+/// `orchestrate_classification`. Production wires the real FFI-backed
+/// queries in `classify_full`; tests script each stage to exercise the
+/// actual orchestration — preliminary/dependency early returns, query
+/// order, per-disk outcomes, cleanup handling — instead of hand-building
+/// final reducer records. Injected controls are labelled separately
+/// from native observations: only production wires the real queries.
+/// The per-disk descriptor-query stage: extent rows in; the disk-record
+/// bundle plus the disk-handle close outcome out.
+#[cfg(any(windows, test))]
+type DiskQueryStage = fn(&[ExtentObservation]) -> (QueryState<Vec<DiskQueryRecord>>, bool);
 
-    let dependency = query_dependencies(&volume);
-    if dependency != QueryState::Complete(DependencyObservation::None) {
-        let _already_unknown = volume.close();
-        return EvidenceVerdict::closed(DriveLocality::Unknown);
+#[cfg(any(windows, test))]
+struct QueryStages<H> {
+    query_preliminary: fn(DriveRoot) -> PreliminaryObservation,
+    query_dependencies: fn(&H) -> QueryState<DependencyObservation>,
+    query_extents: fn(&H) -> QueryState<Vec<ExtentObservation>>,
+    query_backing_disks: DiskQueryStage,
+    close_volume: fn(H) -> bool,
+}
+
+/// The real classification orchestration, shared by production and the
+/// injected test controls: preliminary observation, dependency and
+/// extent queries with their early returns, per-disk descriptor queries,
+/// volume close, the after recheck, then the reducer. Every early return
+/// closes the volume and preserves the available observations — no
+/// branch discards facts.
+#[cfg(any(windows, test))]
+fn orchestrate_classification<H>(
+    root: DriveRoot,
+    volume: H,
+    stages: &QueryStages<H>,
+) -> EvidenceVerdict {
+    let before = (stages.query_preliminary)(root);
+    if let PreliminaryClass::Closed(result) = classify_preliminary(&before) {
+        // The volume was opened before the preliminary query, so the
+        // early return still closes it — and the close outcome is an
+        // available observation, preserved (including close failure),
+        // never discarded.
+        let volume_closed = (stages.close_volume)(volume);
+        return EvidenceVerdict::closed_preserved(
+            result,
+            preliminary_closed_facts(&before, result, &close_query_state(volume_closed)),
+        );
     }
-    let extents = query_extents(&volume);
+    let dependency = (stages.query_dependencies)(&volume);
+    if dependency != QueryState::Complete(DependencyObservation::None) {
+        let volume_closed = (stages.close_volume)(volume);
+        return EvidenceVerdict::closed_preserved(
+            DriveLocality::Unknown,
+            dependency_closed_facts(&before, &dependency, &close_query_state(volume_closed)),
+        );
+    }
+    let extents = (stages.query_extents)(&volume);
     let (disks, disk_closes) = match &extents {
-        QueryState::Complete(extents) => query_backing_disks(extents),
+        QueryState::Complete(rows) => (stages.query_backing_disks)(rows),
         QueryState::ApiFailure => (QueryState::ApiFailure, true),
         QueryState::Partial => (QueryState::Partial, true),
     };
-    let volume_closed = volume.close();
-    let after = query_preliminary(root);
-
+    let volume_closed = (stages.close_volume)(volume);
+    let after = (stages.query_preliminary)(root);
     classify_evidence_detail(&InspectionEvidence {
         before,
         dependency,
         extents,
         disks,
-        closes: if volume_closed && disk_closes {
-            QueryState::Complete(())
-        } else {
-            QueryState::ApiFailure
-        },
+        closes: close_query_state(volume_closed && disk_closes),
         after,
     })
+}
+
+#[cfg(windows)]
+fn classify_full(root: DriveRoot, volume: OwnedHandle) -> EvidenceVerdict {
+    orchestrate_classification(
+        root,
+        volume,
+        &QueryStages {
+            query_preliminary,
+            query_dependencies,
+            query_extents,
+            query_backing_disks,
+            close_volume: OwnedHandle::close,
+        },
+    )
 }
 
 #[cfg(any(windows, test))]
@@ -2028,6 +2499,13 @@ mod tests {
         // set is never a complete observed matrix — neither case below
         // may reach the cause-specific `Unproven` paths, even though the
         // first record alone would name a cause.
+        //
+        // WO29 Slice B correction: invalid evidence is preserved AND
+        // rejecting. The observations are kept in the facts, and the
+        // verdict carries the contradiction marker — classifier
+        // `Unknown` alone does not deny the read on the external-trust
+        // path, so the binder must refuse this rather than cover it
+        // with matching trust.
         // Required [0,1], records [0(removable SD), 2(SD)]: disk 1 has no
         // record and disk 2 is extraneous. Must not pass as complete.
         let missing = multi_disk_evidence(
@@ -2041,7 +2519,15 @@ mod tests {
         assert_eq!(detail.locality, DriveLocality::Unknown);
         assert_eq!(detail.unproven_reason, None);
         assert!(detail.backing_device_identity.is_empty());
-        assert!(detail.observed_facts.is_empty());
+        assert!(detail.contradiction);
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("invalid disk evidence")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
 
         // Required [0,1], records [0(unsupported bus), 0(SD)]: duplicate
         // disk-0 records and no disk-1 record. The unsupported-bus cause
@@ -2056,6 +2542,8 @@ mod tests {
         let detail = classify_evidence_detail(&contradictory);
         assert_eq!(detail.locality, DriveLocality::Unknown);
         assert_eq!(detail.unproven_reason, None);
+        assert!(detail.contradiction);
+        assert!(!detail.observed_facts.is_empty());
 
         // Single missing disk among three required: still closed.
         let one_missing = multi_disk_evidence(
@@ -2436,13 +2924,93 @@ mod tests {
         assert!(detail.contradiction);
 
         // Missing evidence is not contradiction: a dependency failure is
-        // still `Unknown`, with no marker and no preserved facts.
+        // still `Unknown` with no marker — but the available
+        // observations are preserved (WO29 Slice B correction), not
+        // discarded.
         let mut missing = evidence(BUS_TYPE_NVME);
         missing.dependency = QueryState::ApiFailure;
         let detail = classify_evidence_detail(&missing);
         assert_eq!(detail.locality, DriveLocality::Unknown);
         assert!(!detail.contradiction);
-        assert!(detail.observed_facts.is_empty());
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("dependency_walk: query_failed")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("before: drive_type Fixed")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+    }
+
+    #[test]
+    fn unavailable_after_is_missing_evidence_not_contradiction() {
+        // WO29 Slice B correction (finding 3): an unavailable after
+        // observation is missing evidence, never a contradiction.
+        // before.mapping = Complete(HarddiskVolume3),
+        // after.mapping = ApiFailure: the verdict stays closed
+        // (`Unknown`) with the available observations preserved, and —
+        // crucially — carries NO contradiction marker, so matching trust
+        // may cover the absence.
+        for (after_state, after_mapping) in [
+            ("query_failed", QueryState::<Vec<u16>>::ApiFailure),
+            ("partial_result", QueryState::<Vec<u16>>::Partial),
+        ] {
+            let mut unavailable = evidence(BUS_TYPE_NVME);
+            unavailable.after.mapping = after_mapping;
+            let detail = classify_evidence_detail(&unavailable);
+            assert_eq!(detail.locality, DriveLocality::Unknown);
+            assert!(
+                !detail.contradiction,
+                "unavailable after must not carry the contradiction marker"
+            );
+            assert_eq!(detail.unproven_reason, None);
+            assert!(
+                detail.observed_facts.iter().any(|fact| fact
+                    == &format!(
+                        "after: {after_state} (observation unavailable); equality: unavailable (cannot compare)"
+                    )),
+                "{facts:?}",
+                facts = detail.observed_facts
+            );
+            // The available observations are preserved, not discarded.
+            assert!(
+                detail
+                    .observed_facts
+                    .iter()
+                    .any(|fact| fact.contains("before: drive_type Fixed")),
+                "{facts:?}",
+                facts = detail.observed_facts
+            );
+            assert!(
+                detail
+                    .observed_facts
+                    .iter()
+                    .any(|fact| fact.contains("disk 0: bus_type 17 (NVMe)")),
+                "{facts:?}",
+                facts = detail.observed_facts
+            );
+        }
+
+        // Positive control: a SUCCESSFULLY OBSERVED after observation
+        // that disagrees is still a genuine contradiction and still
+        // rejects. (Different mapping, still a candidate: before !=
+        // after with both observations complete.)
+        let mut changed = evidence(BUS_TYPE_NVME);
+        changed.after.mapping = mapping(r"\Device\HarddiskVolume7");
+        let detail = classify_evidence_detail(&changed);
+        assert_eq!(detail.locality, DriveLocality::Unknown);
+        assert!(
+            detail.contradiction,
+            "observed disagreement must keep the contradiction marker"
+        );
     }
 
     #[test]
@@ -2454,6 +3022,12 @@ mod tests {
         // before any cause is selected — it can never reach the
         // cause-specific `Unproven` paths even though the outer numbers
         // line up.
+        //
+        // Second correction: invalid evidence is preserved AND
+        // rejecting. Classifier `Unknown` alone does not deny the read
+        // on the external-trust path, so the verdict carries the
+        // contradiction marker — the runtime binder must refuse it,
+        // never cover it with matching trust.
         let mismatch = multi_disk_evidence(
             &[0],
             vec![DiskQueryRecord {
@@ -2468,7 +3042,28 @@ mod tests {
         let detail = classify_evidence_detail(&mismatch);
         assert_eq!(detail.locality, DriveLocality::Unknown);
         assert_eq!(detail.unproven_reason, None);
-        assert!(!detail.contradiction);
+        assert!(
+            detail.contradiction,
+            "invalid inner identity must carry the rejecting marker"
+        );
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("inner observed-disk identity")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
+        // The contradictory record itself is preserved in the facts
+        // (rendered with its observed inner identity, disk 99).
+        assert!(
+            detail
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("disk 99: bus_type 17 (NVMe)")),
+            "{facts:?}",
+            facts = detail.observed_facts
+        );
 
         // Valid control: matching inner identity proceeds to the cause
         // matrix (grant-first insufficient-evidence for this NVMe
@@ -2773,7 +3368,7 @@ mod tests {
     }
 
     #[test]
-    fn demoted_path_carries_observed_identity_closed_paths_carry_none() {
+    fn demoted_path_carries_observed_identity_closed_paths_carry_facts() {
         let demoted = classify_evidence_detail(&evidence(BUS_TYPE_NVME));
         assert_eq!(demoted.locality, DriveLocality::Unproven);
         assert_eq!(demoted.backing_device_identity, vec![0]);
@@ -2790,13 +3385,23 @@ mod tests {
         assert!(!removable.observed_facts.is_empty());
         assert_eq!(removable.unproven_reason, Some(REASON_REMOVABLE_MEDIA));
 
+        // Closed paths carry no identity and no reason — but the
+        // available observations are preserved as facts (WO29 Slice B
+        // correction), never discarded.
         let mut unknown = evidence(BUS_TYPE_NVME);
         unknown.dependency = QueryState::ApiFailure;
         let unknown = classify_evidence_detail(&unknown);
         assert_eq!(unknown.locality, DriveLocality::Unknown);
         assert!(unknown.backing_device_identity.is_empty());
-        assert!(unknown.observed_facts.is_empty());
         assert_eq!(unknown.unproven_reason, None);
+        assert!(
+            unknown
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("dependency_walk: query_failed")),
+            "{facts:?}",
+            facts = unknown.observed_facts
+        );
 
         let mut remote = evidence(BUS_TYPE_NVME);
         remote.before = PreliminaryObservation {
@@ -2806,8 +3411,15 @@ mod tests {
         let remote = classify_evidence_detail(&remote);
         assert_eq!(remote.locality, DriveLocality::Remote);
         assert!(remote.backing_device_identity.is_empty());
-        assert!(remote.observed_facts.is_empty());
         assert_eq!(remote.unproven_reason, None);
+        assert!(
+            remote
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains(r"\Device\Mup")),
+            "{facts:?}",
+            facts = remote.observed_facts
+        );
     }
 
     #[test]
@@ -2852,7 +3464,9 @@ mod tests {
             Some(REASON_REMOVABLE_STATUS_UNREADABLE)
         );
 
-        // Closed paths carry no reason and no facts.
+        // Closed paths carry no reason and no identity — but the
+        // available observations are preserved as facts (WO29 Slice B
+        // correction), never discarded.
         let mut substituted = evidence(BUS_TYPE_NVME);
         substituted.before.mapping = mapping(r"\??\C:\workspace");
         let mut removable_drive = evidence(BUS_TYPE_NVME);
@@ -2863,9 +3477,46 @@ mod tests {
             let detail = classify_evidence_detail(fixture);
             assert_ne!(detail.locality, DriveLocality::Unproven);
             assert_eq!(detail.unproven_reason, None, "{:?}", detail.locality);
-            assert!(detail.observed_facts.is_empty());
+            assert!(!detail.observed_facts.is_empty(), "{:?}", detail.locality);
             assert!(detail.backing_device_identity.is_empty());
         }
+        // The preserved facts name what was available and what never
+        // ran: the substituted before-mapping, the not-attempted
+        // dependency walk, the failed extent query.
+        let substituted = classify_evidence_detail(&{
+            let mut evidence = evidence(BUS_TYPE_NVME);
+            evidence.before.mapping = mapping(r"\??\C:\workspace");
+            evidence
+        });
+        assert!(
+            substituted
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains(r"\??\C:")),
+            "{facts:?}",
+            facts = substituted.observed_facts
+        );
+        assert!(
+            substituted
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("dependency_walk: not_attempted")),
+            "{facts:?}",
+            facts = substituted.observed_facts
+        );
+        let unknown = classify_evidence_detail(&{
+            let mut evidence = evidence(BUS_TYPE_NVME);
+            evidence.extents = QueryState::ApiFailure;
+            evidence
+        });
+        assert!(
+            unknown
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains("extents: query_failed")),
+            "{facts:?}",
+            facts = unknown.observed_facts
+        );
     }
 
     #[test]
@@ -3154,5 +3805,598 @@ mod tests {
         );
         drop(file);
         std::fs::remove_file(&path).ok();
+    }
+    /// Injected-control harness for the production orchestration
+    /// (`orchestrate_classification`): each control below scripts the
+    /// five query stages to exercise the ACTUAL orchestration —
+    /// preliminary/dependency early returns, query order, per-disk
+    /// outcomes, cleanup handling — instead of hand-building final
+    /// reducer records. Injected controls are labelled separately from
+    /// native observations: the stage fakes below are scripted, while
+    /// production wires the real FFI-backed queries in `classify_full`.
+    /// The fake volume handle is `()`; the close-call counters prove
+    /// cleanup ran on every path.
+    mod orchestration_controls {
+        use super::{mapping, observed_record, preliminary};
+        use crate::{
+            BUS_TYPE_ATA, BUS_TYPE_NVME, BUS_TYPE_SD, DependencyObservation, DiskObservation,
+            DiskQueryOutcome, DiskQueryRecord, DriveLocality, DriveRoot, DriveTypeObservation,
+            EvidenceVerdict, ExtentObservation, PreliminaryObservation, QueryStages, QueryState,
+            REASON_INSUFFICIENT_EVIDENCE, REASON_REMOVABLE_MEDIA,
+            REASON_REMOVABLE_STATUS_UNREADABLE, orchestrate_classification,
+        };
+
+        thread_local! {
+            static CLOSE_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+            static PRELIMINARY_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        }
+
+        fn reset_counters() {
+            CLOSE_CALLS.with(|c| c.set(0));
+            PRELIMINARY_CALLS.with(|c| c.set(0));
+        }
+
+        fn close_calls() -> u32 {
+            CLOSE_CALLS.with(|c| c.get())
+        }
+
+        fn close_ok(_: ()) -> bool {
+            CLOSE_CALLS.with(|c| c.set(c.get() + 1));
+            true
+        }
+
+        fn close_failed(_: ()) -> bool {
+            CLOSE_CALLS.with(|c| c.set(c.get() + 1));
+            false
+        }
+
+        fn preliminary_fixed(_: DriveRoot) -> PreliminaryObservation {
+            preliminary()
+        }
+
+        fn no_dependencies(_: &()) -> QueryState<DependencyObservation> {
+            QueryState::Complete(DependencyObservation::None)
+        }
+
+        fn single_extent(_: &()) -> QueryState<Vec<ExtentObservation>> {
+            QueryState::Complete(vec![ExtentObservation {
+                disk_number: 0,
+                starting_offset: 1_048_576,
+                extent_length: 4_194_304,
+            }])
+        }
+
+        fn nvme_disk(_: &[ExtentObservation]) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+            (
+                QueryState::Complete(vec![observed_record(0, false, BUS_TYPE_NVME)]),
+                true,
+            )
+        }
+
+        fn never_run_dependencies(_: &()) -> QueryState<DependencyObservation> {
+            panic!("dependency query must not run on this path")
+        }
+
+        fn never_run_extents(_: &()) -> QueryState<Vec<ExtentObservation>> {
+            panic!("extent query must not run on this path")
+        }
+
+        fn never_run_disks(_: &[ExtentObservation]) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+            panic!("disk query must not run on this path")
+        }
+
+        fn root() -> DriveRoot {
+            DriveRoot::from_ascii_letter(b'C').expect("drive root")
+        }
+
+        fn has_fact(verdict: &EvidenceVerdict, needle: &str) -> bool {
+            verdict
+                .observed_facts
+                .iter()
+                .any(|fact| fact.contains(needle))
+        }
+
+        #[test]
+        fn orchestration_preliminary_removable_closes_early_with_preserved_facts() {
+            // Preliminary removable: the orchestration must close the
+            // volume and return WITHOUT running dependency, extent, or
+            // disk queries — the panicking stages prove the early
+            // return. The before observation is preserved; the queries
+            // that never ran are named not-attempted.
+            fn preliminary_removable(_: DriveRoot) -> PreliminaryObservation {
+                PreliminaryObservation {
+                    drive_type: DriveTypeObservation::Removable,
+                    mapping: mapping(r"\Device\HarddiskVolume3"),
+                }
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_removable,
+                query_dependencies: never_run_dependencies,
+                query_extents: never_run_extents,
+                query_backing_disks: never_run_disks,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Removable);
+            assert!(!verdict.contradiction);
+            assert_eq!(verdict.unproven_reason, None);
+            assert!(has_fact(&verdict, "before: drive_type Removable"));
+            assert!(has_fact(&verdict, "dependency_walk: not_attempted"));
+            assert!(has_fact(&verdict, "extents: not_attempted"));
+            assert!(has_fact(&verdict, "cleanup: handles_closed"));
+            assert_eq!(close_calls(), 1, "the volume is closed on the early return");
+        }
+
+        #[test]
+        fn orchestration_dependency_failure_preserves_facts_and_closes() {
+            // Dependency query failure: the orchestration must close the
+            // volume and return WITHOUT running extent or disk queries.
+            // The before observation and the failed dependency
+            // observation are preserved; the verdict carries no
+            // contradiction marker (missing evidence is
+            // trust-coverable).
+            fn dependency_failed(_: &()) -> QueryState<DependencyObservation> {
+                QueryState::ApiFailure
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: dependency_failed,
+                query_extents: never_run_extents,
+                query_backing_disks: never_run_disks,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unknown);
+            assert!(!verdict.contradiction);
+            assert_eq!(verdict.unproven_reason, None);
+            assert!(has_fact(&verdict, "before: drive_type Fixed"));
+            assert!(has_fact(&verdict, "dependency_walk: query_failed"));
+            assert!(has_fact(&verdict, "extents: not_attempted"));
+            assert_eq!(close_calls(), 1, "the volume is closed on the early return");
+        }
+
+        #[test]
+        fn orchestration_dependency_present_names_the_cause() {
+            // A present backing dependency closes the verdict with the
+            // cause named in the preserved facts — not discarded.
+            fn dependency_vhd(_: &()) -> QueryState<DependencyObservation> {
+                QueryState::Complete(DependencyObservation::Vhd)
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: dependency_vhd,
+                query_extents: never_run_extents,
+                query_backing_disks: never_run_disks,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unknown);
+            assert!(!verdict.contradiction);
+            assert!(has_fact(
+                &verdict,
+                "dependency_walk: dependency_present (vhd)"
+            ));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_extent_failure_preserves_topology_state() {
+            // Extent query failure: the orchestration must NOT run disk
+            // queries (the panicking stage proves it), must close the
+            // volume, and must preserve the before observation, the
+            // completed dependency walk, and the failed extent state.
+            // The after recheck DOES run on this path, so its
+            // observation is preserved — never "not_observed" — and the
+            // cleanup outcome is recorded.
+            fn extents_failed(_: &()) -> QueryState<Vec<ExtentObservation>> {
+                QueryState::ApiFailure
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: no_dependencies,
+                query_extents: extents_failed,
+                query_backing_disks: never_run_disks,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unknown);
+            assert!(!verdict.contradiction);
+            assert!(has_fact(&verdict, "before: drive_type Fixed"));
+            assert!(has_fact(&verdict, "dependency_walk: no_dependencies"));
+            assert!(has_fact(&verdict, "extents: query_failed"));
+            assert!(has_fact(&verdict, "disks: not_attempted"));
+            assert!(
+                has_fact(&verdict, "after: drive_type Fixed"),
+                "the after recheck ran: its observation must be preserved, {facts:?}",
+                facts = verdict.observed_facts
+            );
+            assert!(
+                !has_fact(&verdict, "after: not_observed"),
+                "must not claim the after query did not run, {facts:?}",
+                facts = verdict.observed_facts
+            );
+            assert!(has_fact(&verdict, "cleanup: handles_closed"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_open_failure_records_open_failed_not_query_failed() {
+            // Per-disk open failure through the real orchestration: the
+            // disk fact must say the device open failed — never claim
+            // the descriptor query failed.
+            fn open_failed_disk(
+                _: &[ExtentObservation],
+            ) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+                (
+                    QueryState::Complete(vec![DiskQueryRecord {
+                        disk_number: 0,
+                        outcome: DiskQueryOutcome::OpenFailed,
+                    }]),
+                    true,
+                )
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: open_failed_disk,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unproven);
+            assert_eq!(
+                verdict.unproven_reason,
+                Some(REASON_REMOVABLE_STATUS_UNREADABLE)
+            );
+            assert!(has_fact(&verdict, "disk 0: device open failed"));
+            assert!(
+                !has_fact(&verdict, "descriptor query failed"),
+                "must not claim the descriptor query failed: {facts:?}",
+                facts = verdict.observed_facts
+            );
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_cleanup_failure_retains_observations_with_named_fact() {
+            // Volume close failure through the real orchestration: the
+            // successful observations are retained and the cleanup
+            // failure is a named fact — never a wiped record.
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: nvme_disk,
+                close_volume: close_failed,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unproven);
+            assert_eq!(verdict.unproven_reason, Some(REASON_INSUFFICIENT_EVIDENCE));
+            assert!(!verdict.contradiction);
+            // The successful observations survive the cleanup failure:
+            // the disk fact, the before/after facts, the equality.
+            assert!(has_fact(&verdict, "disk 0: bus_type 17 (NVMe)"));
+            assert!(has_fact(&verdict, "before: drive_type Fixed"));
+            assert!(has_fact(&verdict, "equality: match"));
+            // And the cleanup failure is named, not silent.
+            assert!(has_fact(
+                &verdict,
+                "cleanup: close_failed (CloseHandle reported failure after observations completed; observations preserved)"
+            ));
+            assert_eq!(close_calls(), 1, "close ran exactly once");
+        }
+
+        #[test]
+        fn orchestration_unavailable_after_is_missing_evidence_not_contradiction() {
+            // before.mapping = Complete(HarddiskVolume3),
+            // after.mapping = ApiFailure through the REAL orchestration:
+            // the verdict stays closed with the available observations
+            // preserved and NO contradiction marker — an unavailable
+            // after-query is missing evidence, not a contradiction.
+            fn before_ok_after_unavailable(_: DriveRoot) -> PreliminaryObservation {
+                PRELIMINARY_CALLS.with(|calls| {
+                    let n = calls.get();
+                    calls.set(n + 1);
+                    if n == 0 {
+                        preliminary()
+                    } else {
+                        PreliminaryObservation {
+                            drive_type: DriveTypeObservation::Fixed,
+                            mapping: QueryState::ApiFailure,
+                        }
+                    }
+                })
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: before_ok_after_unavailable,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: nvme_disk,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(PRELIMINARY_CALLS.with(|c| c.get()), 2);
+            assert_eq!(verdict.locality, DriveLocality::Unknown);
+            assert!(
+                !verdict.contradiction,
+                "unavailable after-query must not carry the contradiction marker"
+            );
+            assert!(has_fact(&verdict, "before: drive_type Fixed"));
+            assert!(has_fact(
+                &verdict,
+                "after: query_failed (observation unavailable); equality: unavailable"
+            ));
+            assert!(has_fact(&verdict, "disk 0: bus_type 17 (NVMe)"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_observed_disagreement_is_contradiction() {
+            // Positive control: two successfully observed unequal
+            // mappings through the real orchestration stay a genuine
+            // contradiction and stay rejecting.
+            fn before_then_changed(_: DriveRoot) -> PreliminaryObservation {
+                PRELIMINARY_CALLS.with(|calls| {
+                    let n = calls.get();
+                    calls.set(n + 1);
+                    if n == 0 {
+                        preliminary()
+                    } else {
+                        PreliminaryObservation {
+                            drive_type: DriveTypeObservation::Fixed,
+                            mapping: mapping(r"\Device\HarddiskVolume7"),
+                        }
+                    }
+                })
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: before_then_changed,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: nvme_disk,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unknown);
+            assert!(
+                verdict.contradiction,
+                "observed disagreement must keep the contradiction marker"
+            );
+            assert!(has_fact(&verdict, "equality: mismatch"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_inner_identity_mismatch_rejects() {
+            // Outer disk 0 containing Observed(inner disk 99) through the
+            // REAL orchestration: the verdict is preserved AND rejecting
+            // — classifier `Unknown` with the contradiction marker, never
+            // trust-coverable absence.
+            fn inner_mismatch_disk(
+                _: &[ExtentObservation],
+            ) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+                (
+                    QueryState::Complete(vec![DiskQueryRecord {
+                        disk_number: 0,
+                        outcome: DiskQueryOutcome::Observed(DiskObservation {
+                            disk_number: 99,
+                            removable: false,
+                            bus_type: BUS_TYPE_NVME,
+                        }),
+                    }]),
+                    true,
+                )
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: inner_mismatch_disk,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unknown);
+            assert!(
+                verdict.contradiction,
+                "invalid inner identity must carry the rejecting marker"
+            );
+            assert!(has_fact(&verdict, "inner observed-disk identity"));
+            assert!(has_fact(&verdict, "disk 99: bus_type 17 (NVMe)"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_valid_multi_disk_controls_name_causes() {
+            // Valid multi-disk controls through the real orchestration:
+            // complete record sets over the required disks reach the
+            // cause-specific `Unproven` paths.
+            fn two_extents(_: &()) -> QueryState<Vec<ExtentObservation>> {
+                QueryState::Complete(vec![
+                    ExtentObservation {
+                        disk_number: 0,
+                        starting_offset: 0,
+                        extent_length: 4096,
+                    },
+                    ExtentObservation {
+                        disk_number: 1,
+                        starting_offset: 4096,
+                        extent_length: 4096,
+                    },
+                ])
+            }
+            fn removable_sd_pair(
+                _: &[ExtentObservation],
+            ) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+                (
+                    QueryState::Complete(vec![
+                        observed_record(0, true, BUS_TYPE_SD),
+                        observed_record(1, false, BUS_TYPE_ATA),
+                    ]),
+                    true,
+                )
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: no_dependencies,
+                query_extents: two_extents,
+                query_backing_disks: removable_sd_pair,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unproven);
+            assert_eq!(verdict.unproven_reason, Some(REASON_REMOVABLE_MEDIA));
+            assert_eq!(verdict.backing_device_identity, vec![0, 1]);
+            assert!(!verdict.contradiction);
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_descriptor_query_failure_names_unavailable_determination() {
+            // Descriptor-query failure through the real orchestration:
+            // the device opened but the descriptor query failed. The
+            // determination is unavailable (`Unproven` with the
+            // unreadable reason) — never a contradiction — and the fact
+            // names the failed query, never a query that never ran.
+            fn failed_descriptor(
+                _: &[ExtentObservation],
+            ) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+                (
+                    QueryState::Complete(vec![DiskQueryRecord {
+                        disk_number: 0,
+                        outcome: DiskQueryOutcome::Failed,
+                    }]),
+                    true,
+                )
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: failed_descriptor,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unproven);
+            assert_eq!(
+                verdict.unproven_reason,
+                Some(REASON_REMOVABLE_STATUS_UNREADABLE)
+            );
+            assert!(!verdict.contradiction);
+            assert!(has_fact(&verdict, "disk 0: descriptor query failed"));
+            assert!(has_fact(&verdict, "cleanup: handles_closed"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_undecodable_response_names_unavailable_determination() {
+            // Undecodable descriptor response through the real
+            // orchestration: the query ran but the data failed
+            // validation. Unavailable determination, not a failed
+            // query and not a contradiction.
+            fn undecodable_descriptor(
+                _: &[ExtentObservation],
+            ) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+                (
+                    QueryState::Complete(vec![DiskQueryRecord {
+                        disk_number: 0,
+                        outcome: DiskQueryOutcome::Undecodable,
+                    }]),
+                    true,
+                )
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: undecodable_descriptor,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unproven);
+            assert_eq!(
+                verdict.unproven_reason,
+                Some(REASON_REMOVABLE_STATUS_UNREADABLE)
+            );
+            assert!(!verdict.contradiction);
+            assert!(has_fact(&verdict, "disk 0: descriptor query undecodable"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_not_attempted_disk_outcome_is_named_not_failed() {
+            // Explicit not-attempted disk outcome through the real
+            // orchestration (the producer's walk aborted before this
+            // disk): the fact names it not-attempted — the evidence
+            // must never claim a descriptor query failed that never
+            // ran.
+            fn not_attempted_descriptor(
+                _: &[ExtentObservation],
+            ) -> (QueryState<Vec<DiskQueryRecord>>, bool) {
+                (
+                    QueryState::Complete(vec![DiskQueryRecord {
+                        disk_number: 0,
+                        outcome: DiskQueryOutcome::NotAttempted,
+                    }]),
+                    true,
+                )
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_fixed,
+                query_dependencies: no_dependencies,
+                query_extents: single_extent,
+                query_backing_disks: not_attempted_descriptor,
+                close_volume: close_ok,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Unproven);
+            assert_eq!(
+                verdict.unproven_reason,
+                Some(REASON_REMOVABLE_STATUS_UNREADABLE)
+            );
+            assert!(!verdict.contradiction);
+            assert!(has_fact(&verdict, "disk 0: descriptor query not attempted"));
+            assert!(!has_fact(&verdict, "descriptor query failed"));
+            assert_eq!(close_calls(), 1);
+        }
+
+        #[test]
+        fn orchestration_early_return_cleanup_failure_retains_before_observation() {
+            // Cleanup failure on a preliminary early return: the before
+            // observation is retained and the close failure is named.
+            // The volume is still closed exactly once.
+            fn preliminary_removable(_: DriveRoot) -> PreliminaryObservation {
+                PreliminaryObservation {
+                    drive_type: DriveTypeObservation::Removable,
+                    mapping: mapping(r"\Device\HarddiskVolume3"),
+                }
+            }
+            reset_counters();
+            let stages = QueryStages {
+                query_preliminary: preliminary_removable,
+                query_dependencies: never_run_dependencies,
+                query_extents: never_run_extents,
+                query_backing_disks: never_run_disks,
+                close_volume: close_failed,
+            };
+            let verdict = orchestrate_classification(root(), (), &stages);
+            assert_eq!(verdict.locality, DriveLocality::Removable);
+            assert!(!verdict.contradiction);
+            assert!(has_fact(&verdict, "before: drive_type Removable"));
+            assert!(has_fact(&verdict, "cleanup: close_failed"));
+            assert_eq!(close_calls(), 1);
+        }
     }
 }

@@ -7965,6 +7965,57 @@ pub(crate) mod tests {
         );
     }
 
+    /// WO29 Slice B correction (finding 2): invalid producer evidence —
+    /// outer disk 0 containing `Observed(inner disk 99)` — rejects
+    /// through the ACTUAL external-trust binder. The classifier's
+    /// `Unknown` alone does not deny the read, so the reducer's verdict
+    /// preserves the observations AND carries the contradiction marker;
+    /// the binder refuses it before payload consumption even though the
+    /// serial matches. The bundle mirrors the live invalid-evidence
+    /// verdict — the reducer side is covered by
+    /// `windows_drive_locality`'s
+    /// `inner_disk_identity_mismatch_rejects_before_cause_selection`
+    /// and `orchestration_inner_identity_mismatch_rejects`.
+    #[cfg(windows)]
+    #[test]
+    fn windows_invalid_inner_identity_rejects_through_binder_before_payload() {
+        use super::bind_observed_backing_evidence;
+        use crate::native_path::LocalityEvidence;
+
+        // Mirrors the live invalid-evidence verdict: closed `Unknown`,
+        // no identity, the invalid record preserved in the facts, the
+        // rejecting marker set. (Backslash-bearing mappings elided with
+        // `...`: the binder reads only the marker, and the text-hygiene
+        // scan flags literal double-backslash in source.)
+        let invalid = LocalityEvidence::Windows(windows_drive_locality::ClassifiedDrive {
+            locality: windows_drive_locality::DriveLocality::Unknown,
+            backing_device_identity: Vec::new(),
+            observed_facts: vec![
+                "dependency_walk: no_dependencies".to_string(),
+                "extent: disk 0 starting_offset 1048576 extent_length 4194304".to_string(),
+                "disk 99: bus_type 17 (NVMe) removable_media false (query: STORAGE_DEVICE_DESCRIPTOR.RemovableMedia via IOCTL_STORAGE_QUERY_PROPERTY on PhysicalDrive99)".to_string(),
+                "before: drive_type Fixed, mapping ...; after: drive_type Fixed, mapping ...; equality: match".to_string(),
+                "classification: Unknown (invalid disk evidence: inner observed-disk identity does not match the outer record disk number; contradictory evidence is never trust-coverable)".to_string(),
+            ],
+            unproven_reason: None,
+            volume_serial: Some(0xC0DE_1234),
+            contradiction: true,
+        });
+        let opened = FileObjectIdentity::WindowsVolumeFile {
+            volume_serial: 0xC0DE_1234,
+            file_id: [0x42; 16],
+        };
+        // Rejects even though the serial matches: the marker is checked
+        // first, independently of serial agreement — and with no
+        // opened-volume observation either.
+        assert_eq!(
+            bind_observed_backing_evidence(Some(&invalid), opened, None)
+                .expect_err("invalid inner identity must fail closed before payload consumption")
+                .variant(),
+            "contradictory_backing_evidence"
+        );
+    }
+
     /// Control (a2): the proof path always carries evidence; `None` fails
     /// closed with the distinguishable `MissingProofEvidence` variant.
     /// Requires Leaf A's `LocalityEvidence`.
