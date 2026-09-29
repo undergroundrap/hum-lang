@@ -70,12 +70,12 @@ classified as program / tooling / documentation / open-language-question.
   H0703.
 - **Superseding note (2026-09-29):** the "never ran predicate analysis"
   observation in the Note above is stale. Decision 0030 (Option B, accepted
-  2026-09-27) brought predicate analysis into `hum check`: it now reports
+  2026-09-26) brought predicate analysis into `hum check`: it now reports
   the complete static pipeline (resolve → type-check → full-type-check,
   predicate analysis included), each stage gated on no earlier errors.
   What `hum check` performs is *static* predicate validation — it rejects
-  malformed predicates (H0701/H0704, H0638 contract escapes) but proves
-  nothing about contract truth. Runtime contract checking still belongs to
+  malformed predicates (H0704) and invalid contract escapes (H0638) but
+  proves nothing about contract truth. Runtime contract checking still belongs to
   `hum run` (violations exit as runtime failures with blame); proof of
   contract truth is provided nowhere.
 
@@ -331,7 +331,7 @@ no new syntax, no general string library.
   noted the fact while resolving the escape gap; this entry records the
   consequence.
 - **Superseding note (2026-09-29):** resolved by decision 0030 (Option B,
-  accepted 2026-09-27). `hum check` now runs predicate analysis in its
+  accepted 2026-09-26). `hum check` now runs predicate analysis in its
   full_type_check stage whenever preceding stages are error-free, so contract
   errors (H0704 family, H0638 contract escapes) surface in the ordinary agent
   loop. The 0027 question recorded below is answered: predicate analysis in
