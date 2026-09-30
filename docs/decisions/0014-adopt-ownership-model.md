@@ -184,6 +184,41 @@ temporary and claim-locked.
 The BDFL veto is open. This ruling reverses with one recorded sentence at
 any time before implementation hardens around it.
 
+### Consolidated ruling — caller-mutation repair map (2026-09-30)
+
+Codex's consolidated ruling on the caller-mutation (`change` argument)
+repair map — draft PR #63, head `a8b9246` — is recorded here as
+**accepted under delegated authority (BDFL veto open)**.
+
+Question: whether the bounded planning correction of the repair map is
+accepted as the planning baseline for the successor Work Order. The
+correction separates source-place declared type (`Param.ty` for whole
+parameters; `TypeDef` `Field.ty` for direct fields) from root authority
+(`RuntimeBinding.permission` in {Borrow, Change}) for the narrow
+ownership-escape rejection, corrects the return-site baseline
+(`mark_moved` marks only `Local`/`Consume` bindings — a Borrow/Change
+root is not marked moved), and reconciles the affected-file inventory.
+
+Ruling: accepted. The map at `a8b9246` is frozen as the planning
+baseline; no further prose expansion or correction.
+
+Reasoning: six bounded corrections under independent review converged
+the map. The defect and mechanism owners are named on both sides
+(static and runtime); the rejection keys on declared type crossed with
+source permission, not on the `binding.linear` cleanup-obligation flag;
+the evidence distinctions (actual-command vs internal, both through the
+real call owner) are explicit. The map makes no general linear-safety
+claim — this decision's honesty lock stands.
+
+What it forecloses: further planning-loop corrections to the map
+itself. What it does not settle: the open semantic choices D2–D6 and
+the diagnostic allocations, which return to Ocean/Codex for one
+consolidated decision before implementation. No implementation is
+authorized by this ruling.
+
+The BDFL veto is open. This ruling reverses with one recorded sentence
+at any time before implementation hardens around it.
+
 ## Session V Evidence Narrowing
 
 Session V narrows exactly one decision lock. Hum now implements local writable
