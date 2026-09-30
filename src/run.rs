@@ -2860,11 +2860,11 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             return self.eval_comparison(text, (left, op, right), env, span, task_name);
         }
 
-        if let Some((left, op, right)) = split_top_level_operator(text, &["+", "-"]) {
+        if let Some((left, op, right)) = split_top_level_operator_group(text, &["+", "-"]) {
             return self.eval_integer_binary(text, (left, op, right), env, span, task_name);
         }
 
-        if let Some((left, op, right)) = split_top_level_operator(text, &["*", "/"]) {
+        if let Some((left, op, right)) = split_top_level_operator_group(text, &["*", "/"]) {
             return self.eval_integer_binary(text, (left, op, right), env, span, task_name);
         }
 
@@ -5630,6 +5630,35 @@ fn split_top_level_operator<'a>(
         }
     }
     None
+}
+
+/// Split at the rightmost top-level occurrence across the whole operator
+/// group, so same-precedence arithmetic associates left to right
+/// (`8 * 2 / 4` splits at `/`, not at the rightmost `*`).
+/// `split_top_level_operator` keeps first-kind-wins order for the
+/// comparison call site; only the arithmetic call sites use this
+/// group-wide selection, so comparison and boolean behavior are unchanged.
+fn split_top_level_operator_group<'a>(
+    text: &'a str,
+    operators: &[&'a str],
+) -> Option<(&'a str, &'a str, &'a str)> {
+    let mut best: Option<(usize, &'a str, usize)> = None;
+    for operator in operators {
+        let pattern = format!(" {operator} ");
+        if let Some(index) = find_top_level_pattern(text, &pattern, Search::Rightmost) {
+            let is_rightmost = best.is_none_or(|(best_index, _, _)| index > best_index);
+            if is_rightmost {
+                best = Some((index, *operator, pattern.len()));
+            }
+        }
+    }
+    best.map(|(index, operator, pattern_len)| {
+        (
+            text[..index].trim(),
+            operator,
+            text[index + pattern_len..].trim(),
+        )
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -9660,6 +9689,207 @@ task unchecked_divide(a: Int, b: Int) -> Int {
             "diagnostics: {:#?}",
             report.diagnostics
         );
+    }
+
+    #[test]
+    fn arithmetic_same_precedence_associates_left_to_right() {
+        let source = r#"module tests.arith_assoc
+
+task chain_a() -> Int {
+  why:
+    prove mixed multiply/divide associates left to right
+
+  ensures:
+    result == 4
+
+  does:
+    return 8 * 2 / 4
+}
+
+task chain_b() -> Int {
+  does:
+    return 7 * 3 / 2
+}
+
+task chain_c() -> Int {
+  does:
+    return 7 * 3 * 2 / 5
+}
+
+task chain_d() -> Int {
+  does:
+    return 7 * 3 / 2 * 5
+}
+"#;
+        let program = fixture_program("arith_assoc.hum", source);
+        for (entry, expected) in [
+            ("chain_a", "4"),
+            ("chain_b", "10"),
+            ("chain_c", "8"),
+            ("chain_d", "50"),
+        ] {
+            let report = run_program(&program, Some(entry), &[]);
+            assert_eq!(
+                report.outcome,
+                RunOutcome::Success(expected.to_string()),
+                "entry {entry}"
+            );
+            assert!(
+                report.diagnostics.is_empty(),
+                "diagnostics: {:#?}",
+                report.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_add_subtract_traps_on_intermediate_checked_addition() {
+        let source = r#"module tests.arith_trap
+
+task trap_mid(value: Int) -> Int {
+  does:
+    return value + 1 - 1
+}
+"#;
+        let program = fixture_program("arith_trap.hum", source);
+        let report = run_program(&program, Some("trap_mid"), &[i64::MAX.to_string()]);
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Trap("integer overflow while evaluating `value + 1`".to_string())
+        );
+        assert!(
+            report.diagnostics.is_empty(),
+            "diagnostics: {:#?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn arithmetic_controls_preserved() {
+        let source = r#"module tests.arith_controls
+
+task paren_left() -> Int {
+  does:
+    return (8 * 2) / 4
+}
+
+task paren_right() -> Int {
+  does:
+    return 8 * (2 / 4)
+}
+
+task sub_chain() -> Int {
+  does:
+    return 10 - 3 - 2
+}
+
+task div_chain() -> Int {
+  does:
+    return 100 / 10 / 2
+}
+
+task precedence_mul() -> Int {
+  does:
+    return 10 - 2 * 3
+}
+
+task precedence_add() -> Int {
+  does:
+    return 10 + 2 * 3
+}
+
+task neg_operand() -> Int {
+  does:
+    return 0 - 7 * 3 / 2
+}
+
+task trunc_div() -> Int {
+  does:
+    return 7 / 2
+}
+"#;
+        let program = fixture_program("arith_controls.hum", source);
+        for (entry, expected) in [
+            ("paren_left", "4"),
+            ("paren_right", "0"),
+            ("sub_chain", "5"),
+            ("div_chain", "5"),
+            ("precedence_mul", "4"),
+            ("precedence_add", "16"),
+            ("neg_operand", "-10"),
+            ("trunc_div", "3"),
+        ] {
+            let report = run_program(&program, Some(entry), &[]);
+            assert_eq!(
+                report.outcome,
+                RunOutcome::Success(expected.to_string()),
+                "entry {entry}"
+            );
+            assert!(
+                report.diagnostics.is_empty(),
+                "diagnostics: {:#?}",
+                report.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn app_call_argument_arithmetic_associates_left_to_right() {
+        let source = r#"module tests.arith_call_arg
+
+type AppError {
+  code: Text
+}
+
+app arith_call_arg_probe {
+  why:
+    prove mixed multiply/divide call arguments associate left to right
+
+  uses:
+    stdout.write
+
+  starts with:
+    run_tool
+
+  task scaled(value: Int) -> Int {
+    why:
+      scale the admitted call argument for observation
+
+    uses:
+      stdout.write
+
+    allocates:
+      nothing
+
+    does:
+      return value
+  }
+
+  task run_tool -> Result Unit, AppError {
+    why:
+      print the evaluated call argument through the admitted app entry
+
+    uses:
+      stdout.write
+
+    fails when:
+      bounded output fails while running the app
+
+    allocates:
+      callee-defined allocation behavior
+
+    does:
+      let text: Text = int_to_text(scaled(2 * 3 / 2 * 3))
+      let written = try stdout_write(text) or fail AppError.output
+      return written
+  }
+}
+"#;
+        let program = fixture_program("arith_call_arg.hum", source);
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(&program, None, &[], &allowed_stdout(), &mut output);
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        assert_eq!(output.writes, vec![b"9".to_vec()]);
     }
 
     #[test]
