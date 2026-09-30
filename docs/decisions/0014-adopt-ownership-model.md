@@ -191,16 +191,19 @@ repair map — draft PR #63, head `a8b9246` — is recorded here as
 **accepted under delegated authority (BDFL veto open)**.
 
 Question: whether the bounded planning correction of the repair map is
-accepted as the planning baseline for the successor Work Order. The
-correction separates source-place declared type (`Param.ty` for whole
-parameters; `TypeDef` `Field.ty` for direct fields) from root authority
-(`RuntimeBinding.permission` in {Borrow, Change}) for the narrow
-ownership-escape rejection, corrects the return-site baseline
+accepted as the planning baseline for the successor Work Order, and
+what semantic choices and diagnostic identities that baseline settles.
+The correction separates source-place declared type (`Param.ty` for
+whole parameters; `TypeDef` `Field.ty` for direct fields) from root
+authority (`RuntimeBinding.permission` in {Borrow, Change}) for the
+narrow ownership-escape rejection, corrects the return-site baseline
 (`mark_moved` marks only `Local`/`Consume` bindings — a Borrow/Change
 root is not marked moved), and reconciles the affected-file inventory.
 
 Ruling: accepted. The map at `a8b9246` is frozen as the planning
-baseline; no further prose expansion or correction.
+baseline; no further prose expansion or correction. The semantic
+choices and diagnostic identities below were already decided under the
+same delegated authority — they are recorded here, not left pending.
 
 Reasoning: six bounded corrections under independent review converged
 the map. The defect and mechanism owners are named on both sides
@@ -210,11 +213,47 @@ the evidence distinctions (actual-command vs internal, both through the
 real call owner) are explicit. The map makes no general linear-safety
 claim — this decision's honesty lock stands.
 
+Decided semantic choices (D1–D6 closed):
+
+- Change arguments admit whole roots and direct fields only. Indexed,
+  deeper, and non-place shapes are rejected (D2/D4).
+- The reviewed permission matrix governs: a Change parameter requires
+  an explicit `change` argument (D5). Session W's permission-bearing
+  `try` restriction stays — `try` with change arguments remains
+  unsupported (D6).
+- Admission precedence is shape → permission → authority → overlap.
+  Each stage sweeps the whole call before the next stage begins: a
+  later argument's authority failure beats an earlier argument's
+  overlap.
+- Mutation/read-argument overlap is rejected; disjoint fields are
+  allowed. Conservative CallAccess invalidation is preserved, including
+  for no-op calls.
+- The narrow non-owning resource escapes are rejected, keyed on
+  source-place declared type crossed with root authority.
+  `is_linear_resource_type` is unchanged; declared-type threading to
+  the runtime consumers is the Builder's reviewed implementation
+  choice. No general copyability or linear-safety claim is made — the
+  honesty lock stands.
+
+Approved diagnostic identities (catalog implementation unauthorized):
+
+- H0810 overlapping change arguments
+- H0811 unsupported change-argument place
+- H0812 change-argument permission mismatch
+- H0813 change argument on immutable place
+- H0814 ownership transfer from non-owning parameter
+- H0815 recognized linear-resource escape from non-owning authority
+
+Moved-place admission reuses H0801, emitted as a proper diagnostic at
+the new admission site — not the existing generic invariant string.
+H0802, H0806, H0807, H0808, and H0809 keep their identities. New causes
+join the ownership precedence group. Catalog implementation
+(`diagnostic_causes!`, allocations, ordinals, `DIAGNOSTICS` details,
+count literals, mirror rows, pin updates) remains unauthorized.
+
 What it forecloses: further planning-loop corrections to the map
-itself. What it does not settle: the open semantic choices D2–D6 and
-the diagnostic allocations, which return to Ocean/Codex for one
-consolidated decision before implementation. No implementation is
-authorized by this ruling.
+itself. What it does not authorize: implementation, catalog
+implementation, or Work Order activation.
 
 The BDFL veto is open. This ruling reverses with one recorded sentence
 at any time before implementation hardens around it.
