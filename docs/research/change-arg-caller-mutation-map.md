@@ -399,7 +399,8 @@ argument place. Invalidate caller views overlapping P:
   preserved (ruled). Element views cannot name `r.s[0]` (§3.2), so
   no element selection is needed here.
 - Implementation: one new overlap sweep at the transfer site. It
-  stamps the new cause `RuntimeViewInvalidationKind::CallAccess`
+  stamps the new invalidation-reason variant
+  `RuntimeViewInvalidationKind::CallAccess`
   (with the change-argument call span) on each overlapping caller
   view whose `invalidated_by` is still none — the selection above,
   covering both field and element views. The existing helpers
@@ -411,27 +412,45 @@ argument place. Invalidate caller views overlapping P:
 
 The invalidation reason is call-access — "the place was passed as
 `change` to an admitted call" — recorded truthfully in the new
-`CallAccess` variant. It does **not** expand the existing H0807
-write/growth causes (`FieldWrite`, `ListAppend` — variants,
-helpers, and `stale_view_trap` arms unchanged), and no new public
-H-code is allocated for it. A later use of a CallAccess-invalidated
-view fires `stale_view_trap` (H0807, 4914) through the existing
-path, with two new match arms: `(Field, CallAccess)` — message
-`field view {view_name} was used after {source_place} was passed
-as a change argument`, help naming the borrow site and the
-change-argument call site with the fix (re-borrow after the call
-or copy the value before the call); `(Element, CallAccess)` — the
-element-view analogue naming the list root. Both arms attach
-related sites via the existing `with_related_span` builder
+`RuntimeViewInvalidationKind::CallAccess` **variant**. The variant
+is a runtime invalidation reason, not a registered diagnostic
+cause and not a code allocation: **70 is H0807's code-allocation
+key** (the `diagnostic_code_allocations!` row: 70, STALE_FIELD_VIEW,
+"H0807", "stale view", family `ownership_borrowing`, stage
+`ownership_check`) — not a cause key. H0807's registered causes
+for the existing emissions are cause keys **115**
+(`field_view_invalidated_by_exact_field_write_v0`) and **157**
+(`element_view_invalidated_by_list_growth_v0`) — actual field
+writes and list growth — and they keep those exact meanings: the
+`FieldWrite`/`ListAppend` variants, helpers, and the existing
+`stale_view_trap` arms are unchanged. No new cause key, no new
+allocation key, and no new public H-code is allocated for
+CallAccess. A later use of a CallAccess-invalidated view fires
+`stale_view_trap` (H0807, 4914) through the existing path, with two
+new match arms: `(Field, CallAccess)` — message `field view
+{view_name} was used after {source_place} was passed as a change
+argument`, help naming the borrow site and the change-argument
+call site with the fix (re-borrow after the call or copy the value
+before the call); `(Element, CallAccess)` — the element-view
+analogue naming the list root. The projection needs no new
+plumbing: `stale_view_trap` already receives `invalidation:
+&RuntimeViewInvalidation` and matches `(view.kind,
+invalidation.kind)` — the new arms read the invalidating call site
+from the existing `invalidation.span` and the borrow site from
+`view.bound_at`, rendered through the existing H0807
+(STALE_FIELD_VIEW) diagnostic identity. Both arms attach related
+sites via the existing `with_related_span` builder
 (`src/diagnostic.rs`:244): the borrow site (`view.bound_at`) and
 the invalidating call site (`invalidation.span`). Catalog
-consumers: the `src/diagnostic_catalog.rs` H0807 row (cause key
-70, `STALE_FIELD_VIEW`, family `ownership_borrowing`, stage
-`ownership_check`) is unchanged; `docs/DIAGNOSTICS.md`'s H0807
-mirror row is updated by the builder at implementation to cover
-call-access invalidation (test-enforced via
-`validate_human_projection`); `hum diagnostics` output derives
-from the catalog and is unchanged.
+consumers: the H0807 **code row** (allocation key 70, title,
+family, stage) is unchanged, and `hum diagnostics` output derives
+from the catalog and is unchanged in shape; the H0807
+**explanation/repair prose** — the `DIAGNOSTICS` detail entry and
+the `docs/DIAGNOSTICS.md` mirror row (test-enforced via
+`validate_human_projection`) — is updated by the builder at
+implementation to document call-access invalidation as a third
+invalidation reason. Cause-count and public-code-count implications
+are separated in §8 item 5: CallAccess moves neither.
 
 **Forwarding** (every frame boundary): each boundary copies the
 callee's final value into its own caller place and invalidates the
@@ -576,7 +595,7 @@ existing evaluation behavior, unchanged by the repair.
 | 11 | `consume x` | Change | **reject** (D5) | S + R0 | proposed designated diagnostic — the place is moved before any transfer could run |
 | 12 | `consume x` | Consume | mark moved, pass value | P1 | existing (3143–3147); the §4.9 guard rejects first when `x` is a Change/Borrow parameter |
 | 13 | `change x` where `x` (or an overlapping place) was consumed by an earlier argument | Change | reject, phase-2 designated diagnostic (never a generic invariant trap — §4.2, §6) | S + R2 | proposed `H0xxx` change argument on consumed/moved place (authority-before-overlap) |
-| 14 | `change` arg overlapping a live caller borrow view (`let v = borrow r.s`, `let w = borrow xs[0]`) | Change | **allowed**; the view is invalidated by the conservative call-access rule (§4.5) — even when the callee never wrote | R2 transfer | existing H0807 path: `stale_view_trap` (4914) emits STALE_FIELD_VIEW diagnostic + trap on later *use* of the invalidated view; the invalidation reason is the new `CallAccess` cause, truthfully recorded, not an observed write; no blanket view ban (§3.7) |
+| 14 | `change` arg overlapping a live caller borrow view (`let v = borrow r.s`, `let w = borrow xs[0]`) | Change | **allowed**; the view is invalidated by the conservative call-access rule (§4.5) — even when the callee never wrote | R2 transfer | existing H0807 path: `stale_view_trap` (4914) emits STALE_FIELD_VIEW diagnostic + trap on later *use* of the invalidated view; the invalidation reason is the new `CallAccess` variant, truthfully recorded, not an observed write; no blanket view ban (§3.7) |
 | 15 | borrow-declaring arg overlapping a `change` arg's place: explicit `borrow x`, or ordinary `x` to an implicit-Borrow (default) param | Borrow (explicit or default) on the overlapping arg; Change on the change arg | **reject** | S + R2 | proposed H0810 (§4.6) |
 | 16 | two borrow-declaring args on the same place, no `change` arg involved | Borrow | allowed (shared read) | — | existing behavior (§4.6) |
 
@@ -754,16 +773,46 @@ and admission is **shared** between the checking pipeline and the
 runtime call site, by decidability. The producer→consumer map is
 authoritative in §13; this section states the split:
 
-- **Static admission** — new branches inside the existing
-  `ownership_check` stage (`src/ownership_check.rs`, the stage that
-  owns the H08x family): a per-call admission function invoked from
-  the `check_statement_ownership` walk for call statements carrying
-  `change` arguments. It decides everything provable from the call
-  expression plus the callee's declared signature — D4 argument
-  shape, D5 keyword/permission match, provable authority violations
-  (e.g. `change` on a `let`-bound root, syntactic consume+change on
-  one root), and overlap on syntactic caller places — in a single
-  pass, first failure wins.
+- **Static admission** — one narrow shared admission producer with
+  two static consumers. The producer is a pure function over the
+  call expression, the callee's declared parameter permissions, the
+  caller's declared parameter permissions, and caller binding
+  mutability — all present in the parsed AST
+  (`CanonicalExpressionKind::Call` with
+  `Permission(ParamPermission)` argument wrappers, ast.rs:351;
+  `permission: ParamPermission` on declared parameters, ast.rs:83;
+  `Binding { mutable, .. }`, ast.rs). It decides everything
+  provable without runtime state — D4 argument shape, D5
+  keyword/permission match, provable authority violations (e.g.
+  `change` on a `let`-bound root, syntactic consume+change on one
+  root), the non-ownership→Consume controls (§4.9), and overlap on
+  syntactic caller places — in a single pass, first failure wins
+  (authority-before-overlap is structural: the producer stops at
+  the first failing stage). The producer lives in a new narrow
+  module `src/change_arg_admission.rs` and emits no diagnostics
+  itself; it also owns the shared message/help builders, so both
+  static consumers — and the runtime `*_trap` helpers where the
+  text must be identical — cannot drift. (The earlier "no new
+  producer module" premise is corrected here: the new module is a
+  pure analyzer, not a diagnostic subsystem — emission stays in
+  the two existing owners.) Consumer A is `ownership_check`
+  (`src/ownership_check.rs`, the stage that owns the H08x family):
+  per-call admission branches invoked from the ownership walk,
+  emitting the proposed designated diagnostics into the existing
+  occurrence set via `diagnostic_occurrence_set`
+  (ownership_check.rs:822). Consumer B is the ordinary `hum check`
+  pipeline: a narrow adapter inside `full_type_check`'s
+  per-statement walk (alongside `call_shape_issue`, 1997, and
+  `call_argument_type_issue`, 2253), emitting through
+  `CheckStageOutcome.diagnostics` — the same channel as the
+  H0640/H0641 call probes. **The walk visits every user-task call
+  expression** — call statements, binding initializers, return
+  expressions, and nested argument positions — **regardless of
+  which argument keywords the call carries**: D5 mismatches and
+  the §4.9 non-ownership→Consume controls fire on calls with no
+  `change` keyword at all (rows 2, 3b, 6b — e.g. `inner(p)`,
+  `inner(borrow p)`, `inner(consume p)` where `p` is a caller
+  Change/Borrow parameter into a Consume parameter).
 - **Runtime admission** — the user-task call site in `src/run.rs`
   (the §2 argument owner): phase 0 runs the pre-authority stages
   fail-fast (arity/unknown-task, D4 shape, D5 keyword/permission);
@@ -832,11 +881,67 @@ allocated**):
 `hum check` does **not** run `ownership_check`: its pipeline
 (main.rs:440–560) is parse → source_check → app_entry →
 path_boundary → callable → capability_root → resolve → type_check
-→ full_type_check, and the D3 `stages` field in `hum check
---format json` lists only stages that actually ran. The new static
-admission is therefore invisible to `hum check` — stated here so
-the stages reporting stays truthful. No `hum check` surface change
-is proposed.
+→ full_type_check (each gated on no earlier errors; the resolve,
+type_check, and full_type_check check-stage diagnostics run only
+for the `check` command — main.rs:496–530). The new static
+admission reaches `hum check` through Consumer B, the narrow
+adapter inside `full_type_check`'s per-statement walk — not through
+`ownership_check`. Adapter mechanics (all source-backed at the
+pinned commit): the adapter walks `CanonicalExpression` trees
+exactly like the H0640/H0641 probes — `call_shape_issue` (1997)
+and `call_argument_type_issue` (2253) recurse through
+`canonical_child_expressions` across `Return`, `Binding`, and
+`Other` statements, so calls inside bindings, returns, and nested
+expressions are all visited; `strip_permission_expression` (2560)
+already strips `borrow`/`change`/`consume` argument keywords.
+Gating: the adapter runs the producer only for arity-clean calls
+whose callee resolves builtin-first through `task_signatures` —
+unknown callees are skipped (the resolver owns H0601) and arity
+mismatches stay with the H0640 probe, mirroring both existing
+walks. Caller parameter permissions and binding mutability come
+from the parsed task declarations and `Binding { mutable, .. }`,
+not from full_type_check's type-only `TaskSignature`. Entrypoint
+and callable-application calls stay exempt (§4.8): they resolve
+outside the user-task table the adapter consults. Diagnostic
+handling: emissions travel the stage's ordinary channel,
+`CheckStageOutcome.diagnostics` (full_type_check.rs:248–250
+carries diagnostics only), exactly like H0640/H0641 — no new
+plumbing, and no cross-consumer duplicates, because the two static
+consumers are command-disjoint: `hum check` never runs
+`ownership_check`, while the native preflight and explicit `hum
+ownership-check` never run the check pipeline's `full_type_check`.
+D3 reporting stays truthful: `check_stages` is pushed only for
+stages that actually ran (main.rs:448–450, 529), and the adapter is
+a sub-pass of the `full_type_check` stage — no new stage name is
+added, so the `stages` list is unchanged. CLI controls: no new
+flags. The adapter rides the existing `hum check` invocation and
+decides only the statically-decidable subset; anything needing
+runtime liveness (borrow-permission roots, moved/consumed marks,
+live aliases, active iteration) stays runtime-only.
+
+**Execution-path mapping** (the existing ownership gate is
+native-only): `hum check` → static admission via the
+full_type_check adapter only (nothing executes, so no runtime
+admission applies). Ordinary interpreted `hum run` → no static
+change-arg admission (it runs neither `ownership_check` nor the
+check-only stages) plus the interpreter's phase-0/phase-2 runtime
+admission in `src/run.rs`. `hum run --native` → static admission
+via the `ownership_check` consumer inside the existing native
+preflight gate (`native_admission_requested`, main.rs:1357–1380;
+exit 1 with the stage text on failure); the interpreter's
+phase-0/phase-2 checks do not execute on the compiled path —
+preserving the admission semantics in the native backend is an
+implementation-time verification item, not a claim made here.
+Explicit `hum ownership-check` → the `ownership_check` consumer
+only.
+
+In the rejection table below, "Static side" means the shared
+producer as consumed by **both** static consumers (the
+`ownership_check` branches and the `hum check` adapter — same
+admissions, same order, same designated diagnostics); "Files
+touched" additionally implies `src/change_arg_admission.rs`
+(producer) and `src/full_type_check.rs` (adapter) wherever a
+static-side cell appears.
 
 | Rejection | Static side | Runtime side | Designated diagnostic | Files touched (by intent) |
 |---|---|---|---|---|
@@ -912,13 +1017,15 @@ planning delivery.
 | `src/run.rs` | Two-phase argument loop at the user-task call site (§4.2, at 3143–3160); thread final parameter values through `execute_task` (2040) / `execute_task_body` (2072); the §4.5 final-value transfer + `CallAccess` overlap sweep at the call site through the real call owner (every exit, per the D1/D1-sub ruling); runtime admission — phase 0 runs the pre-authority stages (arity/unknown-task, D4 shape, D5 keyword/permission), phase 2 runs authority (`ensure_can_set` family) → overlap (H0810 backstop after the authority sweep, then live-alias H0808) → snapshots; new consume-branch guard (~3144) and ordinary/`borrow`-path guard (3148) for the §4.9 non-ownership controls; new H0807 `(Field, CallAccess)` / `(Element, CallAccess)` trap arms (existing `stale_view_trap` path, `FieldWrite`/`ListAppend` arms unchanged); no per-mutation instrumentation | The defect and the runtime mechanism owner live here (§2) |
 | `src/main.rs` | **No production change proposed.** Named as the consumer adapter the plan must stay consistent with: `hum ownership-check` report path (993–1025, `ownership_check_text`/`ownership_check_json` via `callable_text_report`/`callable_json_report`); `hum run --native` preflight admission gate on `ownership_check_has_errors` (1355–1380); trap printing + exit 2 (1528–1531, 1639–1646); the `hum check` stage pipeline (440–560) — no new stage is added, so the D3 `stages` listing stays truthful. Affected CLI tests (by intent, at implementation): `hum check` stages assertions, ownership-check text/JSON assertions for the new diagnostics, `validate_aq_diagnostic_occurrences` tests | Consumer adapter; stages truthfulness (§6) |
 | `src/diagnostic.rs` | **No production change proposed.** The new H0807 `CallAccess` trap arms construct their related spans (borrow site, call-access site) through the existing `with_related_span` builder (244) | Consumed by the new H0807 arms; no change needed |
-| `src/diagnostic_catalog.rs` | **Only if a proposed diagnostic is accepted:** §8-style checklist per accepted code — `diagnostic_causes!` entry (next free cause key), `diagnostic_code_allocations!` entry (next free allocation key), `historical_public_ordinal` arm, `DIAGNOSTICS` detail entry, the exact count literals in §8 item 5 — plus the open ruling whether H0810's cause key 194 joins `OWNERSHIP_CAUSES` | Designated diagnostic-identity owner |
-| `src/ownership_check.rs` | **Only if the repair is approved:** static admission of D4/D5/D2 shapes, syntactic overlap, the authority branches (immutable-place change arg, syntactic consume+change on one root), and the non-ownership→Consume-parameter branch (§4.9) — new branches in the `ownership_check` stage emitting the proposed designated diagnostics; authority-before-overlap deferral where the stage proves an authority violation | Proposed static admission owner (by intent); the stage that owns the H08x family |
+| `src/diagnostic_catalog.rs` | **Only if a proposed diagnostic is accepted:** §8-style checklist per accepted code — `diagnostic_causes!` entry (next free cause key), `diagnostic_code_allocations!` entry (next free allocation key), `historical_public_ordinal` arm, `DIAGNOSTICS` detail entry, the exact count literals in §8 item 5 — plus the open ruling whether H0810's cause key 194 joins `OWNERSHIP_CAUSES`. **Regardless of acceptances:** the H0807 `DIAGNOSTICS` detail entry's explanation/repair prose covers call-access invalidation (§4.5) — prose only; the code row (allocation key 70) is unchanged and no cause key is added | Designated diagnostic-identity owner |
+| `src/ownership_check.rs` | **Only if the repair is approved:** static admission of D4/D5/D2 shapes, syntactic overlap, the authority branches (immutable-place change arg, syntactic consume+change on one root), and the non-ownership→Consume-parameter branch (§4.9) — new per-call admission branches in the `ownership_check` stage **calling the shared producer** (`src/change_arg_admission.rs`), invoked for every user-task call expression (not only change-keyword calls), emitting the proposed designated diagnostics into the existing occurrence set; authority-before-overlap deferral is structural in the producer | Proposed static admission owner (by intent); the stage that owns the H08x family |
+| `src/change_arg_admission.rs` | **New, narrow — only if the repair is approved:** the pure shared static admission producer (call expression + callee/caller declared permissions + caller binding mutability → ordered admissions, first failure wins) plus the shared message/help builders for the proposed designated diagnostics. Emits no diagnostics itself; consumed by the `ownership_check` branches and the `full_type_check` adapter. (Corrects the earlier "no new producer module" premise: the module is a pure analyzer, not a diagnostic subsystem.) | Single static admission producer; shared text so codes, spans, and precedence cannot drift |
+| `src/full_type_check.rs` | **Only if the repair is approved:** the narrow `hum check` adapter — invoke the shared producer from the per-statement call walk (alongside `call_shape_issue`/`call_argument_type_issue`: `Return`/`Binding`/`Other` statements, nested calls via `canonical_child_expressions`, builtin-first callee resolution, unknown callees skipped), emitting through `CheckStageOutcome.diagnostics`. No new stage; no `main.rs` change; the D3 `stages` listing is unchanged | Ordinary-check consumer of the shared producer (§6) |
 | `src/diagnostics.rs` | **No hand edit proposed.** `"Hum diagnostics (N codes)"` and `"\"count\": N"` derive from `diagnostic_catalog::all()` via `format!`; only the *test* literals in §8 item 5 change, and only if the catalog changes | `hum diagnostics` contract; affected consumer |
-| `docs/DIAGNOSTICS.md` | Mirror rows, **only if a proposed diagnostic is accepted** (test-enforced via `validate_human_projection`; catalog mirror, not prose) — including an updated H0807 row covering call-access invalidation | Standing catalog-mirror rule |
+| `docs/DIAGNOSTICS.md` | Mirror rows for accepted codes (test-enforced via `validate_human_projection`; catalog mirror, not prose). **Regardless of acceptances:** the H0807 mirror row is updated to cover call-access invalidation (§4.5 — prose only, no new code) | Standing catalog-mirror rule |
 | `tools/check_all.ps1` | Pinned count inside `Invoke-HumCompilerFrontChecks` (**only if a proposed code is accepted** — N→N+k per k accepted codes, not a fixed 100→101); new `Read-NativeOutput[WithExit]` assertions for the new fixtures; the `transaction_once` `ok` assertion (4196–4197) must keep passing unchanged after the example's implementation-time migration | Standing pin practice; acceptance assertions live here |
 | `tools/test_ci_policy.ps1` | `$CompilerBodies` digest re-pin for `Invoke-HumCompilerFrontChecks` (**only if that function's body changes** — i.e. only if the pinned count above changes; a `src/run.rs`-only repair does **not** trip it). The digest pins the body bytes of four shared functions (`Invoke-HumCompilerFrontChecks`, `Invoke-HumCompilerCorpusChecks`, `Invoke-HumUseAfterMoveRuntimeCheck`, `Invoke-HumUseAfterMoveProjectionCheck`); the failure message names the function and prints the new digest | Standing pin practice (decision 0028) |
-| `fixtures/` | New `.hum` fixtures + session tests exercised **through the real user-task call path** — the §12 traces, the §6 rejection table, the §14 exit rows — placed by family (`fixtures/ownership_check/`, `fixtures/run/`). Counterexample fixtures: `f(change r, g(change r.x))` nested-call preservation; `change r.x` + `consume r` / `consume r.z` rejection (no resurrection); `consume` of a Change/Borrow param (direct + nested forwarding) rejection; immutable-place `change` rejection | Positive-evidence rule: fixtures must observe the effect, not merely declare the form |
+| `fixtures/` | New `.hum` fixtures + session tests exercised **through the real user-task call path** — the §12 traces, the §6 rejection table, the §14 exit rows — placed by family (`fixtures/ownership_check/`, `fixtures/run/`). Counterexample fixtures: `f(change r, g(change r.x))` nested-call preservation; `change r.x` + `consume r` / `consume r.z` rejection (no resurrection); `consume` of a Change/Borrow param (direct + nested forwarding) rejection; immutable-place `change` rejection. No-change-keyword controls: `inner(p)`, `inner(borrow p)`, `inner(consume p)` with `p` a caller Change/Borrow parameter into a Consume parameter (the rejected call carries no `change` keyword — §4.9 rows 3b/6b); keyword-less D5 controls (ordinary argument to a Change parameter — row 2) | Positive-evidence rule: fixtures must observe the effect, not merely declare the form |
 | `examples/probes/transaction_once.hum` | **Not edited during planning.** Carried in the inventory as the writable-authority compatibility witness: `let txn` (immutable, line 66) passed as `change txn` (lines 68, 73) is the shape the item-1 authority rule newly rejects — even though `record_debit`/`record_credit` never write. The implementation-time migration is `let txn` → `change txn: Transaction = begin_transaction()`; the `hum run … --entry transfer --args 10` → `ok` assertion (`tools/check_all.ps1`:4196–4197) must keep passing unchanged. **No zero-compatibility-impact claim is made** — the example as written today exercises the newly-rejected shape, and the migration is verified at implementation time, not assumed here | Compatibility witness for the authority rule |
 | `src/run.rs` `mod tests` (5716) | Internal tests through `run_program_with_adapters` asserting the §14 observation points (post-call reads, stale-view trap-or-success) through the real evaluator — no journal | §14 seam distinction |
 
@@ -948,16 +1055,23 @@ checklist. Indexes verified read-only at pinned `0e215d31`:
    the arm the ordinal defaults to `u16::MAX` and validation fails `InvalidPublicOrdinal`.
 4. `DIAGNOSTICS` detail entry — blame-style: name the call site, the overlapping
    argument positions and caller places, and the fix (pass disjoint caller places).
-5. Count literals — exact at pinned `0e215d31` (when k new codes are accepted, each
-   literal N → N+k): `src/diagnostic_catalog.rs` tests —
+5. Count literals — exact at pinned `0e215d31`, and cause counts
+   move independently of public-code counts (when k new codes with
+   c new causes are accepted, each literal N → N+k or N+c
+   respectively): **registered-cause count** —
+   `assert_eq!(DIAGNOSTIC_CAUSES.len(), 193)` in
+   `src/diagnostic_catalog.rs` tests (gains one per new *cause
+   key*); **public-code counts** —
    `assert_eq!(summary.active_codes, 97)` (two sites),
-   `assert_eq!(DIAGNOSTIC_CAUSES.len(), 193)`,
-   `assert_eq!(all().len(), 100)`; `src/diagnostics.rs` tests —
-   `assert_eq!(catalog.len(), 100)`,
+   `assert_eq!(all().len(), 100)` in `src/diagnostic_catalog.rs`
+   tests, `assert_eq!(catalog.len(), 100)`,
    `assert!(text.starts_with("Hum diagnostics (100 codes)\n"))`,
-   `assert!(json.contains("\"count\": 100"))`. The production code in
-   `src/diagnostics.rs` derives both strings via `format!` — no
-   literal edits there.
+   `assert!(json.contains("\"count\": 100"))` in
+   `src/diagnostics.rs` tests (each gains one per new *public
+   code*). The production code in `src/diagnostics.rs` derives both
+   strings via `format!` — no literal edits there. The CallAccess
+   variant (§4.5) registers no cause and allocates no code, so it
+   moves none of these literals.
 6. `docs/DIAGNOSTICS.md` mirror row.
 7. `tools/check_all.ps1` pinned count (the `100` inside
    `Invoke-HumCompilerFrontChecks`'s canonical-catalog assertion) +
@@ -1265,14 +1379,32 @@ call-access rule still invalidates `v`.
 
 ## 13. Shared precedence, producers, and consumers (finding 3, continued)
 
-Producers — shared static/runtime (§6): **static:** new per-call
-admission branches in `src/ownership_check.rs`, invoked from the
-`check_statement_ownership` walk for call statements carrying
-`change` arguments: D4/D5/D2 shapes, syntactic overlap
-(authority-before-overlap deferral), the authority branches
+Producers — one shared static producer, two static consumers, one
+runtime owner (§6): **static producer:** the pure admission
+function in the new narrow `src/change_arg_admission.rs` — D4/D5/D2
+shapes, syntactic overlap, the provable-authority branches
 (immutable-place change arg, syntactic consume+change on one root),
-and the non-ownership→Consume-parameter branch (§4.9), emitting the
-proposed designated diagnostics; **runtime:** the phase-0
+and the non-ownership→Consume-parameter branch (§4.9) — deciding
+the statically-decidable stages in admission order with
+authority-before-overlap structural (first failure wins); it emits
+no diagnostics itself and owns the shared message/help builders.
+**Static consumers:** (A) new per-call admission branches in
+`src/ownership_check.rs`, invoked from the ownership walk for
+**every user-task call expression** — call statements, binding
+initializers, return expressions, nested argument positions —
+regardless of argument keywords, emitting the proposed designated
+diagnostics into the existing occurrence set
+(`diagnostic_occurrence_set`, ownership_check.rs:822); (B) the
+narrow adapter inside `full_type_check`'s per-statement walk (the
+`hum check` path: the `call_shape_issue`/`call_argument_type_issue`
+walk pattern — `Return`/`Binding`/`Other` statements, nested calls
+via `canonical_child_expressions`, builtin-first callee
+resolution, unknown callees skipped), emitting through
+`CheckStageOutcome.diagnostics`. The two static consumers are
+command-disjoint (`hum check` never runs `ownership_check`; the
+native preflight and explicit `hum ownership-check` never run the
+check pipeline's `full_type_check`), so no cross-consumer
+duplicate prevention is needed. **Runtime:** the phase-0
 pre-authority checks (~3143 — arity/unknown-task, D4 shape, D5
 keyword/permission), the phase-2 authority sweep emitting the
 proposed designated diagnostics for immutable-place and
@@ -1286,9 +1418,11 @@ for borrow-permission roots (H0802 reuse), and
 `active_iteration_for` (4661) with `iteration_mutation_trap` (4884);
 `preflight_writable_aliases` (2135) for the existing H0808/H0809
 emissions; the new `CallAccess` overlap sweep at the transfer site
-(§4.5). No new producer module is created; the repair adds
-admission branches to the two existing owners, not a new
-diagnostic subsystem.
+(§4.5). The runtime side does not consume the static producer (it
+needs runtime state); where message/help text must be identical it
+uses the producer's shared builders. The new module is a pure
+analyzer, not a diagnostic subsystem — emission stays in the two
+existing owners.
 
 Designated (non-`run.rs`) owners for the diagnostic surface are
 named once in §7; the producer list below covers both sides.
@@ -1484,7 +1618,9 @@ statically with proposed designated diagnostics), D6 (Session W
 preserved); D3 (overlap rejection, with H0810 proposed **only** for
 change/change and change/borrow-declaring-argument overlap —
 live-writable-alias overlap reuses H0808 as a settled reuse, not an
-expansion); the shared static/runtime admission split with
+expansion); the shared static admission producer with two static
+consumers (the `ownership_check` branches and the `hum check`
+adapter) plus the runtime admission in `run.rs`, with
 authority-before-overlap (§6); the two-phase loop and the §4.5
 transfer algorithm; the §4.9 non-ownership controls (shared static/runtime rejection
 of a non-ownership resource — `consume p`, ordinary `p`, or `borrow
