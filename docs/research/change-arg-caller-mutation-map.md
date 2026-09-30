@@ -1,6 +1,6 @@
 # Bounded repair map: caller-visible mutation through user-task `change` arguments
 
-Date: 2026-09-29 (correction pass). Role: Builder (planning only).
+Date: 2026-09-29 (delegated-ruling reconciliation). Role: Builder (planning only).
 Pinned audit source: `0e215d31e072f14db7f6e68e2e8782ecd86cb77d`
 (verified present on disk; `git cat-file -t` = commit; zero `src/` delta
 vs baseline `0cd5e4630b9259c600a7b16de0e63bd628351032`). All line numbers
@@ -25,6 +25,19 @@ reconstruct the mutation/effect history (no-op calls, write-then-restore,
 invalidation timing, nested forwarding, arg-eval side effects). §4 below
 replaces it with an explicit mutation/effect mechanism through the real
 call owner.
+
+Delegated-ruling reconciliation (2026-09-29, Codex): the live proposal
+now specifies final-value transfer to each exact change argument place
+with conservative call-access invalidation of overlapping caller views
+(§4.5 authoritative). The W/G write-effect design of the previous
+revision is superseded but preserved in git history — no history
+rewrite. D1/D1-sub are ruled: transfer and invalidation precede
+propagation of Returned, Failed, and ContractViolation at every frame.
+Fatal Err traps bypass the boundary with no rollback guarantee. The
+proposed test journal is withdrawn; tests observe actual caller state
+through the real evaluator. No source implementation, builds, tests,
+test campaign, or Work Order activation is authorized by this
+reconciliation.
 
 ## 1. The defect (what is wrong today)
 
@@ -165,11 +178,11 @@ the concrete reason the withdrawn copy-in/copy-out equivalence fails.
 owns its env; each frame records its own caller place (`r` in its
 caller's env). Copy-in reads the post-inner-eval value at each level;
 write-back flows the final value back frame by frame, preserving the
-original caller place and authority. Invalidation is applied per frame
-iff that frame's callee actually wrote (§4.4). No frame can observe
-another frame's env; the chain composes through the §4.5 transfer at
-each boundary — the translated write records carry the history, the
-values carry only the outcome.
+original caller place and authority. Invalidation is applied per frame by the §4.5 call-access rule —
+whether or not that frame's callee wrote. No frame can observe
+another frame's env; each boundary independently copies the callee's
+final value into its own caller place and invalidates overlapping
+caller views — no effect records cross frames.
 
 ### 3.6 Side effects during argument evaluation
 
@@ -239,105 +252,95 @@ Final-value *differences* are never inferred into effects.
   `read_consume_value`, which is consume-specific). A place consumed by
   an earlier argument traps here via the moved check.
 
-### 4.3 Threading final parameter outcomes
+### 4.3 Threading final parameter values
 
 `execute_task` (2040) gains a second result: the callee's final
-parameter outcomes in param order — value plus recorded write effects
-(§4.4). The four call sites: entry path (1837), expression-application
-(3047), direct application (3077) destructure and ignore it; only the
-user-task call site (3161) consumes it for write-back. Inside
-`execute_task_body`, outcomes are captured from the callee env at each
-exit point: `Return`/fallthrough (env in scope), `Fail` (env in
+parameter values in param order (no effect records). The four call
+sites: entry path (1837), expression-application (3047), direct
+application (3077) destructure and ignore it; only the user-task call
+site (3161) consumes it for the §4.5 transfer. Inside
+`execute_task_body`, final values are captured from the callee env at
+each exit point: `Return`/fallthrough (env in scope), `Fail` (env in
 scope at 2126), `needs:`-`ContractViolation` (body never ran — no
-write-back; outcomes empty), `ensures:`-`ContractViolation` inside
-`finish_success` (write-back per the carried D1-sub recommendation:
-completed mutations survive postcondition failure).
+transfer; outcomes empty), `ensures:`-`ContractViolation` inside
+`finish_success` (transfer per the delegated ruling: completed
+mutations survive postcondition failure).
 
-### 4.4 Write-effect tracking (why comparison is insufficient)
+### 4.4 No per-mutation history (delegated ruling 2026-09-29)
 
-`RuntimeBinding` gains additive write-effect records, populated by the
-existing mutation points: `write_place` records the written sub-place
-(`""` for the root, the field name for a direct field write);
-`eval_list_append` records list growth. The write-back consults these
-records, never a value diff:
+The W/G write-effect records are removed from the live proposal (the
+design is superseded but preserved in git history). `RuntimeBinding`
+gains nothing; `write_place` and `eval_list_append` are not
+instrumented. The transfer consults only the callee param's final
+value Vf, and invalidation follows the conservative call-access rule
+(§4.5) — never a value diff, never a write log. Rationale: the value
+outcomes are identical with or without history; the history existed
+only to preserve view precision in the no-op and disjoint-sibling
+cases, which the ruling trades for implementation and review
+simplicity.
 
-- no records -> skip entirely (no write, no invalidation): §3.3.
-- records present -> real `write_place` + real invalidation even when
-  final == initial: §3.4.
-
-### 4.5 Transfer algorithm — authoritative (per change argument; Codex re-review correction 2026-09-29)
+### 4.5 Transfer algorithm — authoritative (per change argument; delegated ruling 2026-09-29)
 
 This section is the plan's **single** transfer specification. §12's
 cases and §12.1's traces are walkthroughs applying it; no other
-section defines transfer. Let P be the caller place (a root `r` or a
-single field `r.s`; deeper is impossible by §2). Writable aliases
-cannot reach the call site — H0809/`PassedToCall` at the caller's
-preflight (§4.6a); the existing `resolve_writable_alias_place` guard
-(4738) is retained fail-closed, not widened. Let the callee param's
-final root value be Vf with recorded sub-places W (param-root-relative:
-`""` = the root, otherwise field names) and growth flag G (§4.4).
-Value transfer and effect transfer are two applications of the same
-records — never a final-vs-initial value comparison.
+section defines transfer. It supersedes the W/G design of the
+previous revision (preserved in git history). Let P be the caller
+place (a root `r` or a single field `r.s`; deeper is impossible by
+§2). Writable aliases cannot reach the call site —
+H0809/`PassedToCall` at the caller's preflight (§4.6a); the existing
+`resolve_writable_alias_place` guard (4738) is retained fail-closed,
+not widened. Let the callee param's final root value be Vf.
 
 **Value transfer** (what the caller's binding holds after the call):
+copy the callee param's final value to the exact argument place —
+`write_place(caller_env, P, Vf)` when P is a root; the bounded
+depth-2 descent when P is `r.s`. No per-mutation history is
+consulted; no value comparison is performed. The **append-only value
+transfer** is explicit: `list_append` grows the callee's list in
+place (4587) — the caller's snapshot predates that growth — so
+without this write the append would be silently lost. Fields not
+written by the callee are unchanged from copy-in, so the copy cannot
+clobber caller-side concurrent state beyond the argument place.
 
-- If `""` in W or G is set: `write_place(caller_env, P, Vf)`. The
-  `""` case subsumes field writes. The G case is the **append-only
-  value transfer**: `list_append` grows the callee's list in place
-  (4587) — the caller's snapshot predates that growth — so without
-  this write the append would be silently lost. When both hold, one
-  write suffices.
-- Else if W is non-empty: for each field `f` in W, write Vf's field
-  `f` to the effective place P.f — via `write_place` when P is a
-  root, via one bounded depth-2 descent (new, write-back-only, ~20
-  lines mirroring `write_place`'s record descent) when P is `r.s`.
-- Else (W empty, G unset): the transfer is skipped entirely — the
-  no-op call (§3.3).
+**Effect transfer — conservative call-access invalidation.** An
+admitted `change` call is treated as potentially modifying its
+argument place. Invalidate caller views overlapping P:
 
-**Effect transfer** (which caller views are invalidated):
+- P is a whole root `r`: invalidate all descendant views — field
+  views of `r.f` for any `f` and element views of `r` — **even when
+  the callee never wrote** (no-op calls included; ruled).
+- P is a field place `r.s`: invalidate views of exactly `r.s`;
+  disjoint siblings (`r.t`) are preserved (ruled).
+- Implementation: reuse `invalidate_field_views` /
+  `invalidate_element_views_for_growth` where they apply, plus one
+  new overlap sweep for the root-descendant case (the existing field
+  helper is a no-op on bare roots, 5445–5449).
 
-- `invalidate_field_views(caller_env, P)` **and, for each field `f`
-  in W, `invalidate_field_views(caller_env, P.f)`**. [Corrected
-  2026-09-29, Codex-findings audit:] `eval_set` invalidates exactly
-  the written place — including every field write that preceded a
-  root replacement — while a bare-root write alone invalidates
-  nothing (`invalidate_field_views` is a no-op on bare roots,
-  5445–5449). Mirroring per recorded sub-place keeps the effect
-  history complete: field-write-then-root-replacement invalidates
-  caller views of the written fields; pure root replacement
-  invalidates no field views. The `P.f` calls are harmless no-ops
-  when P is a field place (no view can name `r.s.f`). See §12
-  case 2.
-- If G is set, or `""` in W with Vf a list: when P is a bare root,
-  `invalidate_element_views_for_growth(caller_env, P)` — the list
-  identity changed, whether by growth or by root replacement, so
-  element views of the old list are marked; when P is a field place,
-  value write only (no element views can name `r.s[0]` — §3.2).
+The invalidation reason is call-access — "the place was passed as
+`change` to an admitted call" — recorded truthfully. It does **not**
+expand the existing H0807 write-based causes, and no catalog code is
+allocated for it. A later use of an invalidated view still fires
+`stale_view_trap` (H0807) through the existing path.
 
-**Forwarding translate/merge** (every frame boundary): after
-applying the value and effect transfers to the caller env, if P
-resolves to a `change` parameter of the current (caller) frame, the
-same param-root-relative records (W, G) are merged into that
-parameter's effect record (union; `""` dominates). The records are
-already root-relative, so they translate by construction: inner
-`q`'s `["count"]` merged into outer `p`'s record replays at the next
-boundary as the outer caller place's field. Each outward boundary
-therefore applies both the local transfer and the accumulated
-history — value and effect propagate together, frame by frame, with
-no frame observing another frame's env. §12 case 6 and trace B are
-this rule applied twice.
+**Forwarding** (every frame boundary): each boundary copies the
+callee's final value into its own caller place and invalidates the
+caller env's overlapping views independently — no effect records
+cross frames. `outer(change r)` → `middle(change r)` →
+`inner(change r)`: inner's boundary writes inner's final into
+middle's `p` and invalidates middle's overlapping views; middle's
+boundary writes middle's final into outer's place, and so on. Values
+compose by construction; no frame observes another frame's env.
 
-**Exit universality**: the transfer runs on **every** task exit —
-`Returned`, `Failed`, `ContractViolation` — using the parameter
-outcomes captured at the exit point (final values plus W/G as of the
-exit, §4.3). It runs before the outcome propagates past the call
-site: on `ContractViolation` the violation still propagates uncaught
-(never converted to a value), but each frame's transfer precedes it
-(§14). Whether `Failed`/`ContractViolation` exits transfer at all is
-the pending D1/D1-sub ruling — the mechanism is exit-uniform, so the
-ruling is a single gate on the transfer step, not per-exit
-machinery. A callee that traps via `Err(String)` never reaches the
-transfer (`?` at 3165 exits first) — unchanged.
+**Per-frame ordering (ruled):** after body execution, transfer and
+invalidation precede propagation of `Returned`, `Failed`, and
+`ContractViolation` at every frame — D1/D1-sub decided (see §5, §14).
+The violation/failure still propagates uncaught afterward. Pre-body
+rejection (D4/D5/overlap/authority): neither transfer nor
+invalidation runs — the call never happened; prior
+argument-evaluation effects stand (§3.6). A callee that traps via
+`Err(String)` bypasses the boundary entirely (`?` at 3165 exits
+before outcomes are consumed); no rollback of prior effects is
+guaranteed.
 
 Any shape mismatch traps fail-closed via `write_place`'s existing
 errors. No recovery is invented.
@@ -504,11 +507,13 @@ admission order is proposed.
   the boundary (0014; LANGUAGE_REFERENCE:391 already correct).
 - No implicit rollback machinery exists: linear resources are the
   exactly-once protocol (0014 §5); the interpreter keeps no journal
-  (0010's explicit state model). Whether completed mutations survive
-  ordinary typed failure (D1) and postcondition failure (D1-sub) is a
-  **pending ruling** — the §4.5 mechanism is exit-uniform, so the
-  ruling is a single gate on the transfer step, not per-exit
-  machinery. Nothing in this section decides it.
+  (0010's explicit state model). **Ruled (Codex, delegated
+  2026-09-29):** completed mutations survive ordinary typed failure
+  (D1) and postcondition failure (D1-sub) — transfer and invalidation
+  precede propagation of `Returned`, `Failed`, and `ContractViolation`
+  at every frame. `needs:`-violation (body never ran) still transfers
+  nothing; fatal `Err(String)` traps bypass the boundary with no
+  rollback guarantee.
 - Typed failure is causal (0016); the linear-close check runs at the
   fail/return statement sites (§2), and `Flow::Fail` maps directly to
   `TaskResult::Failed`.
@@ -539,12 +544,6 @@ admission order is proposed.
 
 ### Genuine policy choices (need Ocean/Codex ruling)
 
-- **D1:** completed mutations survive ordinary typed failure; no
-  implicit rollback. Carried as recommendation pending approval
-  (follows from no-journal + 0014 §5).
-- **D1-sub:** write-back on `ensures:`-failure (`ContractViolation`
-  after the body ran). Carried as recommendation pending approval
-  (uniformity: the body ran, its mutations are facts).
 - **D2:** element-place change args — reject at call site
   (recommended) vs extend `write_place` with element writes (wider
   than this repair).
@@ -681,7 +680,7 @@ planning delivery.
 
 | File | Change | Why |
 |---|---|---|
-| `src/run.rs` | Two-phase argument loop at the user-task call site (§4.2, at 3143–3160); thread final parameter outcomes through `execute_task` (2040) / `execute_task_body` (2072); the §4.5 transfer at the call site through the real call owner (every exit); runtime admission — authority via `ensure_can_set` family, live-alias overlap (H0808), overlap backstop (§6); write-effect records on `RuntimeBinding` (§4.4); **proposed** `#[cfg(test)]` outcome-observing transfer seam for the unwinding paths (§14) | The defect and the runtime mechanism owner live here (§2) |
+| `src/run.rs` | Two-phase argument loop at the user-task call site (§4.2, at 3143–3160); thread final parameter values through `execute_task` (2040) / `execute_task_body` (2072); the §4.5 final-value transfer + call-access invalidation at the call site through the real call owner (every exit, per the D1/D1-sub ruling); runtime admission — authority via `ensure_can_set` family, live-alias overlap (H0808), overlap backstop (§6); the new overlap sweep for root-descendant invalidation (§4.5); no per-mutation instrumentation | The defect and the runtime mechanism owner live here (§2) |
 | `src/diagnostic_catalog.rs` | **Only if H0810 is accepted:** §8 checklist — `diagnostic_causes!` entry (cause key 194), `diagnostic_code_allocations!` entry (key 100), `historical_public_ordinal` arm for key 100, `DIAGNOSTICS` detail entry, the exact count literals in §8 item 5 — plus the open ruling whether key 194 joins `OWNERSHIP_CAUSES` | Designated diagnostic-identity owner |
 | `src/ownership_check.rs` | **Only if the repair is approved:** static admission of D4/D5/D2 shapes and syntactic overlap (§6) — new branches in the `ownership_check` stage emitting the proposed designated diagnostics; authority-before-overlap deferral where the stage proves an authority violation | Proposed static admission owner (by intent); the stage that owns the H08x family |
 | `src/diagnostics.rs` | **No hand edit proposed.** `"Hum diagnostics (N codes)"` and `"\"count\": N"` derive from `diagnostic_catalog::all()` via `format!`; only the *test* literals in §8 item 5 change, and only if the catalog changes | `hum diagnostics` contract; affected consumer |
@@ -689,7 +688,7 @@ planning delivery.
 | `tools/check_all.ps1` | Pinned count 100→101 inside `Invoke-HumCompilerFrontChecks` (**only if the catalog changes**); new `Read-NativeOutput[WithExit]` assertions for the new fixtures | Standing pin practice; acceptance assertions live here |
 | `tools/test_ci_policy.ps1` | `$CompilerBodies` digest re-pin for `Invoke-HumCompilerFrontChecks` (**only if that function's body changes** — i.e. only if the pinned count above changes; a `src/run.rs`-only repair does **not** trip it). The digest pins the body bytes of four shared functions (`Invoke-HumCompilerFrontChecks`, `Invoke-HumCompilerCorpusChecks`, `Invoke-HumUseAfterMoveRuntimeCheck`, `Invoke-HumUseAfterMoveProjectionCheck`); the failure message names the function and prints the new digest | Standing pin practice (decision 0028) |
 | `fixtures/` | New `.hum` fixtures + session tests exercised **through the real user-task call path** — the §12 traces, the §6 rejection table, the §14 exit rows — placed by family (`fixtures/ownership_check/`, `fixtures/run/`) | Positive-evidence rule: fixtures must observe the effect, not merely declare the form |
-| `src/run.rs` `mod tests` (5716) | Internal tests through `run_program_with_adapters` asserting the §14 observation points (post-call reads, stale-view trap-or-success, the proposed journal) | §14 seam distinction |
+| `src/run.rs` `mod tests` (5716) | Internal tests through `run_program_with_adapters` asserting the §14 observation points (post-call reads, stale-view trap-or-success) through the real evaluator — no journal | §14 seam distinction |
 
 Out of scope for the repair: every other `src/` file, the CLI surface (no new flags), Work Order edits, and any try/catch machinery (D6 / Session W preserved). The parser already admits `change`-argument syntax — no syntax or admission change is proposed anywhere.
 
@@ -757,10 +756,10 @@ An implementation PR would need, at minimum:
 - **Two test seams** (§14): actual-command tests (`hum run fixtures/…`, stdout + exit
   code) prove the observable contract; internal tests
   (`run_program_with_adapters`) prove the mechanism through the §14
-  observation points (post-call reads, stale-view trap-or-success,
-  and — for the failure paths — the proposed `#[cfg(test)]`
-  write-back journal). Both execute the real interpreter; neither
-  invents evidence. `RunReport` does not expose the caller `Env`.
+  observation points (post-call reads, stale-view trap-or-success)
+  through the real evaluator — no journal. Both execute the real
+  interpreter; neither invents evidence. `RunReport` does not expose
+  the caller `Env`.
 - Adversarial fixtures: change/change and change/borrow-declaring-arg overlap (H0810, if accepted);
   overlap with a live caller writable alias (H0808); element-place, non-place, and
   keyword/permission-mismatch rejections (proposed designated diagnostics per §6); `try` with `change` args
@@ -834,15 +833,18 @@ An implementation PR would need, at minimum:
 For each case, the **value outcome** (what the caller's binding holds
 after the call) and the **effect outcome** (which caller views are
 invalidated — hence which later uses fire H0807 via `stale_view_trap`,
-4918) are stated independently. Both derive from the callee's recorded
-write-effect history W (sub-places: `""` for the root, field names)
-and growth flag G (§4.4) — never from comparing final vs initial
-values. Invalidation vocabulary (source): `invalidate_field_views`
-marks Field views whose `source_place` exactly equals the written
+4918) are stated independently. The value outcome is the callee
+param's final value copied to the exact argument place (§4.5); the
+effect outcome follows the conservative call-access rule — an
+admitted change call invalidates overlapping caller views whether or
+not the callee wrote — never a value diff, never a write log.
+Invalidation vocabulary (source): `invalidate_field_views` marks
+Field views whose `source_place` exactly equals the written
 single-field place (5445–5460; no-op on bare roots);
 `invalidate_element_views_for_growth` marks Element views whose
-place-root equals the grown list root (5463–5475). Views are snapshot
-bindings created by `let v = borrow <place>` (2728).
+place-root equals the grown list root (5463–5475); the new overlap
+sweep (§4.5) covers root-descendant views. Views are snapshot bindings
+created by `let v = borrow <place>` (2728).
 
 Notation: P = caller place after `resolve_writable_alias_place`
 (a root `r` or a single field `r.s`); Vf = the callee param's final
@@ -851,66 +853,61 @@ root value.
 1. **Append-only** (`change xs`; callee only runs
    `list_append(change xs, v)`): value — caller `xs` is the grown
    list **because the transfer writes it**: the append mutates the
-   callee's root binding `List` in place (4587) and sets G; the
-   caller's snapshot predates that growth, so §4.5's G branch runs
-   `write_place(caller_env, P, Vf)` — the append-only value transfer.
-   Without that write the append would be silently lost. Effect —
-   when P is a bare root,
-   `invalidate_element_views_for_growth(caller_env, P)`: caller
-   Element views of `xs` (snapshots from `borrow xs[0]`) are marked
-   ListAppend-invalidated; a later use fires H0807. Field views are
-   untouched — no field place was written. When P is a field place
-   `r.s` holding the list: value write only, no element invalidation
-   (no Element view can name `r.s[0]` — §3.2).
+   callee's root binding `List` in place (4587) — the caller's
+   snapshot predates that growth — so the final-value transfer runs
+   `write_place(caller_env, P, Vf)` with Vf = the grown list. Without
+   that write the append would be silently lost. Effect — when P is
+   a bare root, the overlap sweep + `invalidate_element_views_for_growth(caller_env, P)`:
+   caller Element views of `xs` (snapshots from `borrow xs[0]`) are
+   marked ListAppend-invalidated; a later use fires H0807. When P is a
+   field place `r.s` holding the list: value write only, no element
+   invalidation (no Element view can name `r.s[0]` — §3.2).
 
 2. **Field-write followed by root replacement** (callee runs
-   `set p.x = 1` then `set p = <record>`; W = {`x`, `""`}, Vf = the
-   final record): value — caller P holds Vf via
-   `write_place(caller_env, P, Vf)`; the root replacement subsumes
-   the field write. Effect — `invalidate_field_views(caller_env, P)`
-   **and** `invalidate_field_views(caller_env, P.x)` (the corrected
-   §4.5): the field write really ran inside the callee — `eval_set`
-   invalidates exactly the written place (2773) — so caller Field
-   views of `P.x` are marked FieldWrite-invalidated even though the
-   final value arrived via root replacement. The value outcome does
-   not determine the effect outcome; that independence is what this
-   audit requires.
+   `set p.x = 1` then `set p = <record>`; Vf = the final record):
+   value — caller P holds Vf via `write_place(caller_env, P, Vf)`;
+   the root replacement subsumes the field write. Effect — P is a
+   whole root, so the overlap sweep invalidates all descendant
+   views, including caller Field views of `P.x`: the field write
+   really ran inside the callee, and the conservative rule covers it
+   without needing a per-field record. The value outcome does not
+   determine the effect outcome.
 
-3. **No-op** (callee never writes; W empty, G unset): value —
-   caller binding untouched. Effect — none: the write-back is
-   skipped entirely (§3.3), so caller field/element views remain
-   valid. (A value comparison would agree here, but the mechanism
-   must not depend on it — §3.4.)
+3. **No-op** (callee never writes): value — `write_place` copies
+   the equal final value (real but harmless). Effect — overlapping
+   views are still invalidated (delegated ruling). This is the
+   deliberate precision trade of the conservative rule: a no-op
+   change call costs the caller its overlapping views.
 
 4. **Write-restore** (callee writes then restores the original
-   value; W non-empty, Vf == initial): value — `write_place` runs
-   with Vf (equal to the original; the write is real, not skipped).
-   Effect — full invalidation per W, exactly as if the value had
-   changed: `eval_set`'s invalidation is unconditional (2773) and the
-   write-back mirrors it. Final==initial never suppresses effects.
+   value; Vf == initial): value — `write_place` runs with Vf. Effect
+   — full invalidation per the conservative rule, exactly as if the
+   value had changed. Final==initial never suppresses effects.
+   Write-restore and no-op are now intentionally indistinguishable.
 
-5. **Disjoint fields** (callee writes `p.x` and `p.y`;
-   W = {`x`, `y`}): value — field-granular write-back: Vf's field
-   `x` → effective place P.x, Vf's field `y` → P.y (via
-   `write_place` when P is a root; via the bounded depth-2 descent
-   when P is `r.s` — §4.5). Fields not in W are never touched, so no
-   caller-side concurrent state is clobbered. Effect —
-   `invalidate_field_views` on P, P.x, and P.y: views of written
-   fields are marked; views of other fields (e.g. a snapshot from
-   `borrow r.z`) stay valid.
+5. **Disjoint fields, whole-root arg** (`change r`; callee writes
+   `r.x` and `r.y`): value — the full final value is copied to `r`;
+   fields the callee did not write are unchanged from copy-in, so no
+   caller-side concurrent state is clobbered. Effect — the whole-root
+   rule invalidates all descendant views: views of the written
+   fields die, **and views of unwritten siblings (e.g. a snapshot
+   from `borrow r.z`) die too** (ruled precision loss).
 
-6. **Nested field forwarding** (`outer(change r)` →
+5b. **Field-place arg** (`change r.s`): value — Vf copied to
+   `r.s`. Effect — only views of exactly `r.s` are invalidated;
+   disjoint siblings (`r.t`) are preserved (ruled).
+
+6. **Nested forwarding** (`outer(change r)` →
    `middle(change r)` → `inner(change r)`; inner writes `q.x`):
-   value — copy-in reads post-evaluation state at each frame and
-   write-back flows frame by frame, each frame writing to its own
-   recorded caller place (§3.5). Effect — invalidation is applied
-   per frame iff that frame's callee actually wrote (its own W/G):
-   the middle frame's write-back into the outer frame's env marks
-   outer views exactly as a direct write would. No frame observes
-   another frame's env; a write deep in the chain invalidates the
-   original caller's views of the written field places because each
-   boundary translated and merged the write records (§4.5
-   forwarding rule) — values alone could not carry that history.
+   value — each boundary copies its callee's final value into its
+   own caller place (§3.5, §4.5); values compose frame by frame with
+   no frame observing another frame's env. Effect — invalidation is
+   applied per frame by the call-access rule: the middle frame's
+   boundary marks outer views overlapping `p`; the outer frame's
+   boundary marks main views overlapping `r`. A write deep in the
+   chain invalidates the original caller's overlapping views
+   because every boundary invalidates — no history records are
+   needed.
 
 ### 12.1 Frame-boundary traces — concrete states through the mechanism
 
@@ -941,23 +938,26 @@ task main() {
 - Inward boundary (copy-in): callee env `xs → param(change, [1])`
   — value only. No views cross inward; caller env untouched.
 - Callee body: `list_append(change xs, 2)` → in-place `push` on the
-  callee's list (4587); W = [] (no sub-place written), G set;
-  callee-local `invalidate_element_views_for_growth` finds no views.
-  Callee env: `xs → [1, 2]` = Vf.
-- Outward boundary (§4.5, P = `xs`): G set → `write_place(main,
-  "xs", [1, 2])` → main `xs → [1, 2]` (**value transfer** — the
-  append-only write; without it the caller's `[1]` snapshot would
-  survive and the append would be silently lost);
+  callee's list (4587); no write records exist under the delegated
+  ruling; callee-local `invalidate_element_views_for_growth` finds
+  no views. Callee env: `xs → [1, 2]` = Vf.
+- Outward boundary (§4.5, P = `xs`): final-value transfer →
+  `write_place(main, "xs", [1, 2])` → main `xs → [1, 2]`
+  (**value transfer** — the append-only write; without it the
+  caller's `[1]` snapshot would survive and the append would be
+  silently lost); overlap sweep +
   `invalidate_element_views_for_growth(main, "xs")` → `e.invalidated_by
-  = Some(ListAppend)` (**effect transfer**). W is empty so no field
-  invalidations run.
+  = Some(ListAppend)` (**effect transfer** — call-access
+  invalidation, reasoned truthfully as call-access, not as an
+  observed write).
 - t1 (main env): `xs → [1, 2]`; `e` invalidated. A later read of `e`
   → `stale_view_trap` (H0807) → runtime trap.
 
-Why this trace matters: it is the case §4.5's G branch exists for.
-A transfer specified only for `""`/field writes would transfer
-nothing here — the caller's list would keep `[1]` while the callee
-grew `[1, 2]`. The value transfer is explicit, not inferred.
+Why this trace matters: it is the case the explicit final-value
+transfer exists for. A transfer specified only for root/field writes
+would transfer nothing here — the caller's list would keep `[1]`
+while the callee grew `[1, 2]`. The value transfer is explicit, not
+inferred.
 
 **Trace B — field-write/root-replacement, then another forwarding
 return** (the audit's exact case):
@@ -979,37 +979,33 @@ task main() {
 - main→outer inward: outer env `p → {count: 0}`.
 - outer body calls `inner(change p)`: phase 0 ok; inward: inner env
   `q → {count: 0}`.
-- inner body: `set q.count = q.count + 1` → W_inner = [`count`],
-  `q → {count: 1}`; then `set q = {count: 99}` → W_inner =
-  [`count`, `""`], `q → {count: 99}`.
+- inner body: `set q.count = q.count + 1` → `q → {count: 1}`;
+  then `set q = {count: 99}` → `q → {count: 99}` = Vf. No write
+  records exist under the delegated ruling.
 - inner→outer outward (first frame boundary), P = `p`, Vf =
-  `{count: 99}`, W = [`count`, `""`]: `""` ∈ W →
-  `write_place(outer, "p", {count: 99})` → outer `p → {count: 99}`
-  (value); `invalidate_field_views(outer, "p")` — no-op on bare root;
-  `invalidate_field_views(outer, "p.count")` — no views in outer's
-  env, but the **recorded field write is preserved** by appending
-  `p.count` (and `p`) to outer's frame log. The effect history
-  crosses the boundary even though no view observed it here.
-- outer returns with no further writes.
-- outer→main outward (second frame boundary), P = `r`, outer's log
-  replayed as caller places [`r.count`, `r`]: `write_place(main,
-  "r", {count: 99})` → main `r → {count: 99}` (value);
-  `invalidate_field_views(main, "r")` — no-op;
-  `invalidate_field_views(main, "r.count")` → `v.invalidated_by =
-  Some(FieldWrite)` (effect).
+  `{count: 99}`: `write_place(outer, "p", {count: 99})` → outer
+  `p → {count: 99}` (value); the whole-root call-access rule
+  invalidates outer's descendant views of `p` (none exist in
+  outer's env). No records cross the boundary.
+- outer returns with no further writes; outer's `p` is the final
+  value `{count: 99}`.
+- outer→main outward (second frame boundary), P = `r`:
+  `write_place(main, "r", {count: 99})` → main `r → {count: 99}`
+  (value); the whole-root call-access rule invalidates all
+  descendant views of `r` → `v.invalidated_by = Some(CallAccess)`
+  (effect — the field write is covered by the descendant rule, not
+  by a per-field record).
 - t1 (main env): `r → {count: 99}`; `v` invalidated; reading `v`
   traps (H0807).
 
-Why final-value equality cannot carry this: at the inner→outer
-boundary the final value of `q` is `{count: 99}` — a
-comparison-based scheme sees "p changed" but cannot know `q.count`
-was *written as a field* (vs the record being built fresh), so the
-field-view invalidation would be lost; in the write-restore variant
-(inner writes `q.count = 1` then back to `0` before the root
-replacement) the final value equals the initial and a diff would
-transfer nothing at all — while the write records still correctly
-invalidate `v`. Records carry the history; values carry only the
-outcome.
+Why the explicit final-value transfer matters here: at the
+inner→outer boundary the final value of `q` is `{count: 99}` — a
+comparison-based scheme might see "p changed" but cannot establish
+the field-view effect; in the write-restore variant (inner writes
+`q.count = 1` then back to `0` before the root replacement) the
+final value equals the initial and a diff would transfer nothing at
+all — while the explicit transfer still writes Vf and the
+call-access rule still invalidates `v`.
 
 ## 13. Shared precedence, producers, and consumers (finding 3, continued)
 
@@ -1070,15 +1066,15 @@ ContractViolation}` (1775). The entry seam maps
 
 | Acceptance case | Callee exit | Caller-observable result | Real owner |
 |---|---|---|---|
-| success with writes | `Returned(v)` via `finish_success` (2294) | write-back applied per §4.5; the call evaluates to v | call-site write-back (~3161) + `Evaluated::Value` (3166) |
-| success, no writes | `Returned(v)` | no write-back (W empty, §4.4); the call evaluates to v | §4.4 skip |
-| typed `fail` after writes | `Failed(fv)` (2126; the linear-close check ran at the fail statement site, 2664–2665) | **D1 (open):** write-back applied per recommendation, then `Evaluated::Failure(fv)` propagates outward | D1 ruling pending; mechanism = outcomes captured at 2126 (§4.3) |
-| `needs:` violation | `ContractViolation`, body never ran (2114–2116) | no write-back — nothing to preserve; `Evaluated::ContractViolation` propagates | 2114–2116 |
-| `ensures:` violation after the body ran | `ContractViolation` from `finish_success` (2302) + ENSURES_CONTRACT_VIOLATION diagnostic (2406) | **D1-sub (open):** write-back applied per recommendation, then `Evaluated::ContractViolation` propagates carrying the diagnostic | D1-sub ruling pending; diagnostic owner 2395–2412 |
-| **propagated contract failure** (the callee's own callee violated) | inner `ContractViolation` → outer `Evaluated::ContractViolation` (3168) → outer `Flow::ContractViolation` (2559/2574/2653/2732/2752) → outer `TaskResult::ContractViolation` (2131) | each frame's own write-back was already applied at its call site before the violation propagated past it; the violation itself carries no value | per-frame call sites; propagation is by early return — it is never caught |
-| trap inside the callee (`Err(String)`) | `result?` propagates (3165) | **no write-back**: the `?` exits before outcomes are consumed; the trap unwinds to the entry seam → `Trap`, exit 2 | 3165, 898 |
-| arity / unknown task at the call | `Err` before `execute_task` | the call never happens; exit 2 | 3131–3141 |
-| argument-evaluation failure / contract violation | early return (3153–3157) | the outer call never happens; effects already produced (earlier consumes, completed nested-call write-backs) stand — §3.6 | 3153–3157 |
+| success with writes | `Returned(v)` via `finish_success` (2294) | final-value transfer + call-access invalidation applied per §4.5; the call evaluates to v | call-site transfer (~3161) + `Evaluated::Value` (3166) |
+| success, no writes | `Returned(v)` | value copy of the equal value + conservative call-access invalidation per §4.5 (no-op call rule); the call evaluates to v | §4.5 (unconditional) |
+| typed `fail` after writes | `Failed(fv)` (2126; the linear-close check ran at the fail statement site, 2664–2665) | transfer + invalidation applied (D1 **ruled**, delegated 2026-09-29), then `Evaluated::Failure(fv)` propagates outward | §4.3 capture at 2126; per-frame call sites |
+| `needs:` violation | `ContractViolation`, body never ran (2114–2116) | no transfer, no invalidation — the body never ran; nothing to preserve; `Evaluated::ContractViolation` propagates | 2114–2116 |
+| `ensures:` violation after the body ran | `ContractViolation` from `finish_success` (2302) + ENSURES_CONTRACT_VIOLATION diagnostic (2406) | transfer + invalidation applied (D1-sub **ruled**, delegated 2026-09-29), then `Evaluated::ContractViolation` propagates carrying the diagnostic | diagnostic owner 2395–2412; per-frame call sites |
+| **propagated contract failure** (the callee's own callee violated) | inner `ContractViolation` → outer `Evaluated::ContractViolation` (3168) → outer `Flow::ContractViolation` (2559/2574/2653/2732/2752) → outer `TaskResult::ContractViolation` (2131) | each frame's own transfer + invalidation was already applied at its call site before the violation propagated past it; the violation itself carries no value | per-frame call sites; propagation is by early return — it is never caught |
+| trap inside the callee (`Err(String)`) | `result?` propagates (3165) | **no transfer, no invalidation**: the `?` exits before outcomes are consumed; the trap unwinds to the entry seam → `Trap`, exit 2. No rollback of prior effects is guaranteed | 3165, 898 |
+| arity / unknown task at the call | `Err` before `execute_task` | the call never happens; no transfer, no invalidation; exit 2 | 3131–3141 |
+| argument-evaluation failure / contract violation | early return (3153–3157) | the outer call never happens — pre-body rejection performs neither transfer nor invalidation; effects already produced (earlier consumes, completed nested-call transfers) stand — §3.6 | 3153–3157 |
 
 Session W preserved: `try` accepts only
 `let value = try named_call(...)` (or `… or fail …`) with ordinary
@@ -1091,12 +1087,13 @@ converted to a value. Acceptance fixtures must not use `try` to
 observe change-argument outcomes.
 
 **Test-seam distinction and the real observation point** (required
-by the audit). `RunReport` exposes `outcome`, `diagnostics`, and
+by the audit; journal withdrawn by the delegated ruling
+2026-09-29). `RunReport` exposes `outcome`, `diagnostics`, and
 `authority_events` — it does **not** expose the caller `Env`, so no
-internal test can assert `invalidated_by` markers or write-effect
-records directly. The real private observation point is the caller
-frame's own subsequent behavior, executed through the actual call
-owner (the call-site write-back in `src/run.rs`):
+CLI-level test can assert `invalidated_by` markers directly. The
+real observation point is the caller frame's own subsequent
+behavior, executed through the actual call owner (the call-site
+transfer in `src/run.rs`):
 
 - *Value transfer* is observed by the caller's own later read of the
   place: a fixture reads `r.count` after the call and the test
@@ -1107,14 +1104,19 @@ owner (the call-site write-back in `src/run.rs`):
   `stale_view_trap` (H0807) → `RunOutcome::Trap`; if not, the read
   succeeds. The trap-or-success **is** the effect observation —
   through the actual call owner, with zero new plumbing.
-- *Write-restore vs no-op* (the case value comparison cannot
-  decide): the same fixture shape must trap for write-restore (W
-  non-empty → invalidate) and must not trap for no-op (W empty →
-  skip). This is the test that proves effects come from records, not
-  diffs.
+- *Write-restore vs no-op*: under the conservative rule both
+  invalidate overlapping views — the test asserts the trap fires in
+  both cases, and post-call reads confirm the final value (no-op:
+  the unchanged value copied back; write-restore: the restored
+  value copied back). Effects are intentionally not distinguished
+  by mutation history.
 - *Field-write-then-root-replacement* (§4.5, §12 trace B): `v` must
-  trap — the recorded field write invalidates it even though the
-  final value arrived via root replacement.
+  trap — the whole-root call-access rule invalidates all descendant
+  views, so the field write is covered even though the final value
+  arrived via root replacement.
+- *Field-place disjoint siblings* (§4.5, §12 case 5b): `change r.s`
+  must leave a view of `r.t` valid — the test asserts the read
+  succeeds.
 
 *Actual-command tests* (`hum run fixtures/… --entry …`, asserting
 stdout + exit code via the `tools/check_all.ps1`
@@ -1125,57 +1127,52 @@ through the real interpreter and assert `RunOutcome` +
 `report.diagnostics`. Both seams execute the real call owner;
 neither invents evidence.
 
-**Propagated contract failure — explicit, with a private test
-seam that observes actual outcomes.** [Corrected 2026-09-29, Codex
-re-review.] Parameter outcomes are captured at **every** task exit
-— `Returned`, `Failed`, `ContractViolation` — and the §4.5 transfer
-runs before the outcome propagates past the call site
-(exit-universality): on `ContractViolation` the violation still
-propagates uncaught (never converted to a value; early-return chain
-3168 → 2559/2574/2653/2732/2752 → 2131), but each frame's transfer
-precedes it. Whether `Failed`/`ContractViolation` exits transfer at
-all is the pending D1/D1-sub gate — the capture itself is
-unconditional.
+**Propagated contract failure — explicit, tested through the real
+evaluator.** [Revised 2026-09-29, delegated ruling.] Final parameter
+values are captured at **every** task exit — `Returned`, `Failed`,
+`ContractViolation` — and the §4.5 transfer runs before the outcome
+propagates past the call site: on `ContractViolation` the violation
+still propagates uncaught (never converted to a value; early-return
+chain 3168 → 2559/2574/2653/2732/2752 → 2131), but each frame's
+transfer precedes it. D1/D1-sub are ruled — the transfer applies on
+`Failed` and `ContractViolation` exits.
 
-The per-frame transfer on the unwinding paths (typed `fail` after
-writes under D1, `ensures:`-violation under D1-sub, propagated
-contract failure) is **not** CLI-observable — the program unwinds —
-so white-box assertion needs **proposed minimal test-only
-plumbing**, specified here as an outcome-observing seam rather than
-a replay log:
+The proposed `#[cfg(test)]` test journal is withdrawn. Tests observe
+actual caller state through the real evaluator — no new plumbing, no
+journal:
 
-- **Location:** inside the real call-site transfer function in
-  `src/run.rs` (the §4.5 implementation), `#[cfg(test)]`-gated —
-  the same code path production uses, not a parallel
-  reimplementation.
-- **What it records:** *after* the real `write_place` /
-  invalidation calls execute, it reads back from the caller env and
-  appends (call-site span, caller place path, **post-transfer value
-  snapshot** of the caller place, **invalidated view markers**
-  actually set) to a test-drainable journal.
-- **Why this observes actual values and effects:** the snapshot is
-  taken by reading the caller env *after* the transfer ran. A
-  transfer that silently dropped the append-only write would leave
-  the stale value in the snapshot, and the test's value assertion
-  (`xs == [1, 2]`) would fail; a transfer that skipped invalidation
-  would leave the view marker unset, and the effect assertion
-  (`invalidated_by == ListAppend`) would fail. The test asserts the
-  post-transfer state — not "replay ran".
-- **Propagated-contract-failure case:** a fixture where the inner
-  callee writes and then violates `ensures:` must produce two
-  journal captures — inner→outer and outer→main — each with its
-  post-transfer value and effect state, recorded before the
-  violation unwinds past that frame. The test asserts both
-  captures' values and markers.
+- *Internal tests* (`cargo test` via `run_program_with_adapters`,
+  597) run the fixture programs through the real interpreter and
+  assert the §14 observation points: post-call reads for values,
+  trap-or-success for effects — through the actual call owner.
+- *Unwinding paths* (typed `fail` after writes, `ensures:`-violation,
+  propagated contract failure): fixtures are shaped so the
+  post-transfer caller state is observable before the program
+  unwinds — e.g. the inner callee writes, the transfer at its
+  boundary is exercised through the real call-site function, and
+  the test asserts the actual post-transfer caller values and
+  invalidated view markers via the production code path. A fixture
+  where the inner callee writes and then violates `ensures:` must
+  leave both frames' transfers (inner→outer, outer→main) applied
+  before the violation propagates past them — asserted through the
+  real evaluator, not a replay log.
 
-This is identified as proposed new plumbing, not existing
-capability; it changes no production behavior and lives in
-`src/run.rs` (`mod tests` + one `cfg(test)` field/hook).
+Only shapes admitted by the production pipeline are claimed as
+public execution.
 
 ## 15. Reconciled inventory (accepted facts / recommendations / open rulings)
 
 **Accepted facts** (pinned source; need no ruling): the defect, all
-owners, and the single-level place vocabulary (§§1–2);
+owners, and the single-level place vocabulary (§§1–2); the delegated
+transfer ruling (2026-09-29): final-value transfer to each exact
+change argument place, conservative call-access invalidation of
+overlapping caller views (whole-root arg invalidates descendants even
+on no-op calls; field-place arg preserves disjoint siblings),
+transfer + invalidation preceding propagation of Returned, Failed,
+and ContractViolation at every frame; pre-body rejection performs
+neither; fatal Err traps bypass with no rollback guarantee; the
+invalidation reason is truthful call-access wording — no expansion of
+the existing H0807 causes, no catalog code allocated (§§4.4–4.5, §14);
 `eval_set` / `eval_list_append` / `write_place` / invalidation
 semantics (§§3.1–3.2, §12); the exit-code and `RunOutcome` mapping
 (§14 head); H0802/H0806/H0807/H0808/H0809 keep their approved
@@ -1187,22 +1184,19 @@ create no views (3148) while `let`-bound `borrow <place>` creates
 them (2728).
 
 **Recommendations** (argued by the map; need Ocean/Codex approval):
-D1 (completed mutations survive ordinary typed failure), D1-sub
-(write-back on `ensures:`-violation), D2 (reject element-place change
-args via static admission), D4 (reject non-place change args with a
-proposed designated diagnostic via static admission), D5 (the
-complete §4.7 matrix, admitted statically with proposed designated
-diagnostics), D6 (Session W preserved); D3 (overlap rejection, with
-H0810 proposed **only** for change/change and
-change/borrow-declaring-argument overlap — live-writable-alias
-overlap reuses H0808 as a settled reuse, not an expansion); the
-shared static/runtime admission split with authority-before-overlap
-(§6); the two-phase loop, write-effect tracking, and the §4.5
+D2 (reject element-place change args via static admission), D4
+(reject non-place change args with a proposed designated diagnostic
+via static admission), D5 (the complete §4.7 matrix, admitted
+statically with proposed designated diagnostics), D6 (Session W
+preserved); D3 (overlap rejection, with H0810 proposed **only** for
+change/change and change/borrow-declaring-argument overlap —
+live-writable-alias overlap reuses H0808 as a settled reuse, not an
+expansion); the shared static/runtime admission split with
+authority-before-overlap (§6); the two-phase loop and the §4.5
 transfer algorithm.
 
 **Open rulings** (the map makes no recommendation; Ocean/Codex must
-choose): whether D1/D1-sub are accepted at all (no-journal + 0014
-§5 argue for them; the map does not decide); whether H0810 and the
+choose): whether H0810 and the
 D4/D5/D2 designated diagnostics are allocated (if yes: the §8-style
 checklist per code, plus deciding whether H0810's cause key 194
 joins `OWNERSHIP_CAUSES`); the §6 admission order
