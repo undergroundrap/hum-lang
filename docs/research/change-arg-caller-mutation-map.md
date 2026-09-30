@@ -1,6 +1,8 @@
 # Bounded repair map: caller-visible mutation through user-task `change` arguments
 
-Date: 2026-09-29 (delegated-ruling reconciliation). Role: Builder (planning only).
+Date: 2026-09-29 (delegated-ruling reconciliation). Correction pass: 2026-09-30
+(Codex's five findings reconciled — findings 1–5 per the authorization; §§4.5–4.9,
+§6, §7, §8, §11, §13 rewritten or expanded). Role: Builder (planning only).
 Pinned audit source: `0e215d31e072f14db7f6e68e2e8782ecd86cb77d`
 (verified present on disk; `git cat-file -t` = commit; zero `src/` delta
 vs baseline `0cd5e4630b9259c600a7b16de0e63bd628351032`). All line numbers
@@ -39,6 +41,11 @@ through the real evaluator. No source implementation, builds, tests,
 test campaign, or Work Order activation is authorized by this
 reconciliation.
 
+> **Partially superseded 2026-09-30:** point (3) now covers all three keyword
+> forms — `consume p`, ordinary `p`, and `borrow p` into a `Consume` parameter
+> (§4.9) — not only the `consume p` keyword form. The dated notice below is
+> preserved verbatim as evidence.
+>
 > **Counterexample fold-in — 2026-09-29 (Codex direction; builder
 > lane). Not recovered text.** Claude's counterexamples are folded
 > into the existing correction — no restart, no alternative-design
@@ -167,8 +174,11 @@ when the written value equals the old value; (b) `write_place` traps
 fail-closed on shape mismatch ("`{root}` is not a record", "record
 `{root}` has no field `{field}`", "unsupported set place `{place}`")
 and clears `moved_at`/`moved_by` on success. The write-back reuses
-`write_place` and `invalidate_field_views` — no new write or
-invalidation machinery except the bounded depth-2 case in §4.5.
+`write_place` — no new write machinery. Invalidation uses the new §4.5
+call-access overlap sweep (new `CallAccess` cause); the existing
+`invalidate_field_views` / `invalidate_element_views_for_growth`
+keep their exact write/growth behavior at real write sites and are
+not called at the transfer site.
 
 ### 3.2 List-growth invalidation
 
@@ -178,10 +188,13 @@ the item; appends directly to the root binding; calls
 `invalidate_element_views_for_growth`. Element views can only name
 bare-root lists (`xs[0]`; `r.s[0]` is not a valid element place), so a
 grown list field (`r.s`) has no element views to invalidate — the value
-write alone suffices there. The write-back reuses
-`invalidate_element_views_for_growth` only when the caller place is a
-bare root; calling it with `place_root` of a field place would
-over-invalidate sibling lists' views and is forbidden.
+write alone suffices there. At the transfer site the write-back does
+not call `invalidate_element_views_for_growth`: element views of a
+whole-root change argument are invalidated by the §4.5 call-access
+sweep with the `CallAccess` cause (truthful — the caller observes the
+call, not the growth). Calling the growth helper with `place_root`
+of a field place would over-invalidate sibling lists' views and is
+forbidden.
 
 ### 3.3 No-op calls
 
@@ -270,15 +283,19 @@ never inferred into effects.
 
 ### 4.2 Two-phase argument loop (eval_primary call branch)
 
-- **Phase 0 — admission, before any arg evaluation.** Primary
-  admission is static, in the `ownership_check` stage (§6): D5
-  keyword/permission matrix (§4.7); change-place shape validation
-  (root or single field only; element places -> D2 rejection;
-  deeper or non-place expressions -> D4 rejection); overlap
-  detection on syntactic caller places (§4.6). The call branch at
-  3137–3142 retains only fail-fast arity/unknown-task checks and
-  the overlap backstop (same diagnostic). Deterministic
-  first-failure in arg order, per the §6 admission order.
+- **Phase 0 — pre-evaluation checks only.** The call branch at
+  3137–3142 retains fail-fast arity/unknown-task checks plus the
+  pre-authority admission stages: D4 shape validation (root or
+  single field only; element places -> D2 rejection; deeper or
+  non-place expressions -> D4 rejection) and the D5
+  keyword/permission matrix (§4.7). No authority check and no
+  overlap check runs at phase 0: the previous revision's phase-0
+  overlap backstop is withdrawn — a phase-0 overlap rejection
+  cannot precede the authority decision the §6 order says wins.
+  The static side (`ownership_check` stage) runs all four stages —
+  shape → keyword/permission → authority → overlap — in one pass
+  (§6). Deterministic first-failure in arg order, per the §6
+  admission order.
 - **Phase 1 — evaluate left-to-right** (current loop, minus change
   args): consume path unchanged (`read_consume_value` + `mark_moved`
   immediately); ordinary/`borrow` args via `eval_expr` unchanged;
@@ -295,7 +312,16 @@ never inferred into effects.
   of these failures carries its §6 designated diagnostic, never a
   generic invariant trap; plus the existing iteration trap
   (`active_iteration_for` -> `iteration_mutation_trap`, H0806) for
-  change args on actively iterated roots; then copy-in snapshot
+  change args on actively iterated roots; then the phase-2 overlap
+  sweep, per change arg in arg order: the syntactic overlap
+  backstop (H0810 — the same diagnostic the static side emits)
+  followed by the live writable-alias check (H0808).
+  Authority-before-overlap is structural here: a change arg that
+  fails authority never reaches the overlap sweep. A phase-2
+  overlap rejection preserves phase-1 effects — consumes and
+  completed nested-call transfers stand, no rollback — and it runs
+  before any snapshot or transfer, so it never resurrects a moved
+  root; then copy-in snapshot
   read (root or single-field read mirroring `eval_primary`'s read
   path — *not* `read_consume_value`, which is consume-specific).
   Snapshots read post-argument-evaluation state, so a completed
@@ -349,8 +375,10 @@ not widened. Let the callee param's final root value be Vf.
 
 **Value transfer** (what the caller's binding holds after the call):
 copy the callee param's final value to the exact argument place —
-`write_place(caller_env, P, Vf)` when P is a root; the bounded
-depth-2 descent when P is `r.s`. No per-mutation history is
+`write_place(caller_env, P, Vf)` for both root and single-field P.
+`write_place` (4803) already resolves the exact single-field place
+via `field_place::split_field_place` — no descent machinery is
+proposed. No per-mutation history is
 consulted; no value comparison is performed. The **append-only value
 transfer** is explicit: `list_append` grows the callee's list in
 place (4587) — the caller's snapshot predates that growth — so
@@ -363,20 +391,47 @@ admitted `change` call is treated as potentially modifying its
 argument place. Invalidate caller views overlapping P:
 
 - P is a whole root `r`: invalidate all descendant views — field
-  views of `r.f` for any `f` and element views of `r` — **even when
+  views with `place_root(source_place) == r` for any field, and
+  element views with `place_root(source_place) == r` — **even when
   the callee never wrote** (no-op calls included; ruled).
-- P is a field place `r.s`: invalidate views of exactly `r.s`;
-  disjoint siblings (`r.t`) are preserved (ruled).
-- Implementation: reuse `invalidate_field_views` /
-  `invalidate_element_views_for_growth` where they apply, plus one
-  new overlap sweep for the root-descendant case (the existing field
-  helper is a no-op on bare roots, 5445–5449).
+- P is a field place `r.s`: invalidate field views with
+  `source_place == "r.s"` exactly; disjoint siblings (`r.t`) are
+  preserved (ruled). Element views cannot name `r.s[0]` (§3.2), so
+  no element selection is needed here.
+- Implementation: one new overlap sweep at the transfer site. It
+  stamps the new cause `RuntimeViewInvalidationKind::CallAccess`
+  (with the change-argument call span) on each overlapping caller
+  view whose `invalidated_by` is still none — the selection above,
+  covering both field and element views. The existing helpers
+  (`invalidate_field_views`, 5445;
+  `invalidate_element_views_for_growth`, 5463) are **not** called
+  at the transfer site: their `FieldWrite` / `ListAppend` causes
+  keep their exact write/growth meanings at real write sites,
+  unchanged.
 
 The invalidation reason is call-access — "the place was passed as
-`change` to an admitted call" — recorded truthfully. It does **not**
-expand the existing H0807 write-based causes, and no catalog code is
-allocated for it. A later use of an invalidated view still fires
-`stale_view_trap` (H0807) through the existing path.
+`change` to an admitted call" — recorded truthfully in the new
+`CallAccess` variant. It does **not** expand the existing H0807
+write/growth causes (`FieldWrite`, `ListAppend` — variants,
+helpers, and `stale_view_trap` arms unchanged), and no new public
+H-code is allocated for it. A later use of a CallAccess-invalidated
+view fires `stale_view_trap` (H0807, 4914) through the existing
+path, with two new match arms: `(Field, CallAccess)` — message
+`field view {view_name} was used after {source_place} was passed
+as a change argument`, help naming the borrow site and the
+change-argument call site with the fix (re-borrow after the call
+or copy the value before the call); `(Element, CallAccess)` — the
+element-view analogue naming the list root. Both arms attach
+related sites via the existing `with_related_span` builder
+(`src/diagnostic.rs`:244): the borrow site (`view.bound_at`) and
+the invalidating call site (`invalidation.span`). Catalog
+consumers: the `src/diagnostic_catalog.rs` H0807 row (cause key
+70, `STALE_FIELD_VIEW`, family `ownership_borrowing`, stage
+`ownership_check`) is unchanged; `docs/DIAGNOSTICS.md`'s H0807
+mirror row is updated by the builder at implementation to cover
+call-access invalidation (test-enforced via
+`validate_human_projection`); `hum diagnostics` output derives
+from the catalog and is unchanged.
 
 **Forwarding** (every frame boundary): each boundary copies the
 callee's final value into its own caller place and invalidates the
@@ -406,8 +461,9 @@ errors. No recovery is invented.
 Forbidden overlap is **rejected**; left-to-right copy-back order is not
 an alternative and is not offered. Admitted **statically** by the
 `ownership_check` stage on the call's syntactic caller places
-(§6); the runtime call site retains the check in phase 0 as a
-fail-closed backstop emitting the same diagnostic. Writable aliases
+(§6); the runtime call site runs the backstop in **phase 2**, after the
+phase-2 authority sweep, as a fail-closed backstop emitting the
+same diagnostic (authority-before-overlap — §6). Writable aliases
 cannot reach the call: the caller body's preflight rejects any call
 mentioning an alias with H0809 (see §4.6a), so the overlap check
 never sees alias names. Authority-before-overlap (§6): a change arg
@@ -492,36 +548,46 @@ param permission. A call-site `borrow` argument does **not** create a
 view — the keyword is stripped and the place is evaluated as a value
 (3148).
 
-Timing tags: **P0** = phase-0 static check, before any argument
-evaluation, per argument in arg order (D5 → place-shape → overlap
-against earlier args); **P2** = phase-2 post-evaluation writability
-check (`ensure_can_set`, 4780) in change-arg order; **EVAL** =
+Timing tags: **S** = static side (`ownership_check` stage) — shape →
+keyword/permission → authority → overlap in one pass per call, first
+failure wins (authority proven ⇒ overlap deferred); **R0** = runtime
+phase 0, pre-evaluation (arity/unknown-task fail-fast + D4 shape + D5
+keyword/permission — the pre-authority stages); **R2** = runtime phase
+2, post-evaluation (authority sweep → overlap sweep → snapshots, per
+change arg in arg order); **P1** = runtime phase 1,
+argument-evaluation position (the consume-branch guard and the
+ordinary/`borrow`-path guard run in arg-eval order); **EVAL** =
 existing evaluation behavior, unchanged by the repair.
 
 | # | Argument | Param permission | Disposition | Timing | Mechanism / owner |
 |---|---|---|---|---|---|
 | 1 | ordinary `x` | Borrow (explicit or default) | pass value | EVAL | existing loop (3148) |
-| 2 | ordinary `x` | Change | **reject** (D5) | P0 | proposed designated diagnostic, static admission (§6) |
-| 3 | ordinary `x` | Consume | pass value, no move mark | EVAL | existing behavior preserved — move marking happens only on the `consume` keyword path (4826); out of this repair's scope |
+| 2 | ordinary `x` | Change | **reject** (D5) | S + R0 | proposed designated diagnostic |
+| 3a | ordinary `x`, caller binding an immutable/mutable local | Consume | pass value, no move mark | EVAL | existing behavior preserved — the param consumes a fresh copy; no caller place is moved; the caller owns the local, so no ownership is minted from another party |
+| 3b | ordinary `p`, caller binding a Change/Borrow parameter | Consume | **reject** | S + P1 | proposed designated diagnostic — one diagnostic for all three keyword forms (§4.9): the caller cannot transfer ownership it does not hold; static branch + ordinary-path guard (3148) |
 | 4 | `borrow x` | Borrow | pass value (no view created) | EVAL | existing loop (3148) |
-| 5 | `borrow x` | Change | **reject** (D5) | P0 | proposed designated diagnostic — a read grant cannot satisfy a write grant; static admission (§6) |
-| 6 | `borrow x` | Consume | pass value, no move mark | EVAL | existing behavior preserved — the param consumes the value copy; no caller place is moved |
-| 7 | `change x` | Change | the repair: §4.2 two-phase admission, copy-in, §4.5 transfer | P0 (shape/overlap) → P2 (authority) | §4.2, §4.5, §12 |
-| 8 | `change x` | Borrow | **reject** (D5) | P0 | proposed designated diagnostic — write grant the callee cannot exercise; static admission (§6) |
-| 9 | `change x` | Consume | **reject** (D5) | P0 | proposed designated diagnostic — transfer impossible; the value is moved; static admission (§6) |
-| 10 | `consume x` | Borrow | mark moved, pass value | EVAL | existing (3143–3147) |
-| 11 | `consume x` | Change | **reject** (D5) | P0 | proposed designated diagnostic — the place is moved before any transfer could run; static admission (§6) |
-| 12 | `consume x` | Consume | mark moved, pass value | EVAL | existing (3143–3147) |
-| 13 | `change x` where `x` (or an overlapping place) was consumed by an earlier argument | Change | reject, phase 2 designated diagnostic (never a generic invariant trap — §4.2, §6) | P2 | proposed `H0xxx` change argument on consumed/moved place |
-| 14 | `change` arg overlapping a live caller borrow view (`let v = borrow r.s`, `let w = borrow xs[0]`) | Change | **allowed**; the view is invalidated by the conservative call-access rule (§4.5) — even when the callee never wrote | §4.5 transfer | existing H0807 path: `stale_view_trap` (4918) emits STALE_FIELD_VIEW diagnostic + trap on later *use* of the invalidated view; the invalidation reason is call-access, truthfully recorded, not an observed write; no blanket view ban (§3.7) |
-| 15 | borrow-declaring arg overlapping a `change` arg's place: explicit `borrow x`, or ordinary `x` to an implicit-Borrow (default) param | Borrow (explicit or default) on the overlapping arg; Change on the change arg | **reject** | P0 | proposed H0810 (§4.6) |
+| 5 | `borrow x` | Change | **reject** (D5) | S + R0 | proposed designated diagnostic — a read grant cannot satisfy a write grant |
+| 6a | `borrow x`, caller binding a local | Consume | pass value, no move mark | EVAL | existing behavior preserved — as row 3a |
+| 6b | `borrow p`, caller binding a Change/Borrow parameter | Consume | **reject** | S + P1 | same designated diagnostic as 3b; static branch + `borrow`-path guard (3148) |
+| 7 | `change x` | Change | the repair: §4.2 two-phase admission, copy-in, §4.5 transfer | S (all four stages) + R0 (shape/keyword) → R2 (authority → overlap → snapshots) | §4.2, §4.5, §12 |
+| 8 | `change x` | Borrow | **reject** (D5) | S + R0 | proposed designated diagnostic — write grant the callee cannot exercise |
+| 9 | `change x` | Consume | **reject** (D5) | S + R0 | proposed designated diagnostic — transfer impossible; the value is moved |
+| 10 | `consume x` | Borrow | mark moved, pass value | P1 | existing (3143–3147); the §4.9 guard rejects first when `x` is a Change/Borrow parameter |
+| 11 | `consume x` | Change | **reject** (D5) | S + R0 | proposed designated diagnostic — the place is moved before any transfer could run |
+| 12 | `consume x` | Consume | mark moved, pass value | P1 | existing (3143–3147); the §4.9 guard rejects first when `x` is a Change/Borrow parameter |
+| 13 | `change x` where `x` (or an overlapping place) was consumed by an earlier argument | Change | reject, phase-2 designated diagnostic (never a generic invariant trap — §4.2, §6) | S + R2 | proposed `H0xxx` change argument on consumed/moved place (authority-before-overlap) |
+| 14 | `change` arg overlapping a live caller borrow view (`let v = borrow r.s`, `let w = borrow xs[0]`) | Change | **allowed**; the view is invalidated by the conservative call-access rule (§4.5) — even when the callee never wrote | R2 transfer | existing H0807 path: `stale_view_trap` (4914) emits STALE_FIELD_VIEW diagnostic + trap on later *use* of the invalidated view; the invalidation reason is the new `CallAccess` cause, truthfully recorded, not an observed write; no blanket view ban (§3.7) |
+| 15 | borrow-declaring arg overlapping a `change` arg's place: explicit `borrow x`, or ordinary `x` to an implicit-Borrow (default) param | Borrow (explicit or default) on the overlapping arg; Change on the change arg | **reject** | S + R2 | proposed H0810 (§4.6) |
 | 16 | two borrow-declaring args on the same place, no `change` arg involved | Borrow | allowed (shared read) | — | existing behavior (§4.6) |
 
-Zero blast radius for the new P0 rejections: every existing
+Zero blast radius for the new S/R0 rejections: every existing
 fixture/example that calls a `change`-param task already uses the
-keyword (`session_o_complete_item_field_place.hum:27`,
-`session_t_wrong_swap_contract.hum:26`); entry tasks take CLI args,
-not keywords (§4.8).
+keyword (`fixtures/run/session_o_complete_item_field_place.hum:27`,
+`fixtures/run/session_t_wrong_swap_contract.hum:26`); entry tasks take
+CLI args, not keywords (§4.8). The finding-2 guards (rows 3b/6b) touch
+no existing fixture or example — checked at the pinned head, no task
+forwards a Change/Borrow parameter into a `Consume` parameter in any
+keyword form (§4.9).
 
 **H0809 is not in this matrix.** Its complete accepted boundary —
 every `Unsupported` cause (163–177, 117), including alias passing
@@ -559,29 +625,51 @@ admission order is proposed.
 ### 4.9 Consume controls: mutation authority is not ownership-transfer authority
 
 A `change` (or `borrow`) parameter grants mutation (or read)
-authority — never the right to move the caller's place. Consuming
-a Change or Borrow parameter must reject through shared
-static/runtime enforcement with truthful designated diagnostics:
+authority — never the right to move the caller's place, and never
+the right to mint ownership for a callee's `Consume` parameter.
+Offering a Change/Borrow parameter for ownership transfer must
+reject through shared static/runtime enforcement with one truthful
+designated diagnostic, regardless of the call keyword:
 
-- **Static:** `ownership_check` gains a branch rejecting `consume`
-  of a Change/Borrow parameter with a proposed designated
-  diagnostic (code TBD at allocation; §8-style checklist). Existing
-  coverage trace: `is_movable_root` (ownership_check.rs:2924)
-  accepts immutable/mutable locals and `Consume` params only —
+- **Forms covered (one diagnostic):** `consume p` (keyword form),
+  ordinary `p`, and `borrow p` — where `p` is the caller's
+  Change/Borrow parameter and the callee declares the corresponding
+  parameter `Consume`. The hazard is identical in all three: the
+  caller holds only non-ownership authority, so the callee's
+  `Consume` parameter would claim ownership the caller never had.
+  No general copyability model is proposed — the rule is
+  permission-based, not type-based: an immutable/mutable **local**
+  passed as ordinary/`borrow` to a `Consume` parameter keeps
+  existing behavior (matrix rows 3a/6a — the caller owns the local
+  and the param consumes a fresh copy; no caller place is moved).
+  A Consume-parameter source passed as an ordinary argument to a
+  `Consume` parameter likewise keeps existing behavior — out of
+  this repair's scope, stated explicitly (§5).
+- **Static:** `ownership_check` gains a branch rejecting all three
+  forms with the proposed designated diagnostic (code TBD at
+  allocation; §8-style checklist). Existing coverage trace:
+  `is_movable_root` (ownership_check.rs:2924) accepts
+  immutable/mutable locals and `Consume` params only —
   Change/Borrow params are not movable roots today, so the new
   branch closes a silent gap rather than changing an accepted
   shape.
 - **Runtime:** the call-arg consume branch (~3144) rejects when
-  the root's binding permission is `Change`/`Borrow` with the same
+  the root's binding permission is `Change`/`Borrow` with the
   designated diagnostic, before `read_consume_value`/`mark_moved`.
   This covers direct `consume p` args and nested forwarding
   (`outer(change p) { inner(consume p) }`) identically — the nested
-  call's arg loop is the same code path. Hazard closed:
-  `mark_moved` (4826) matches `Local | Consume` only, so consuming
-  a Change param today is a silent no-op (value cloned, nothing
-  marked) — the plan replaces the silence with rejection.
+  call's arg loop is the same code path. The ordinary/`borrow`
+  argument path (3148) gains the same guard: when the target
+  parameter permission is `Consume` and the argument is a caller
+  place whose root binding permission is `Change`/`Borrow`, reject
+  with the same diagnostic before evaluation — covering
+  `outer(change p) { inner(p) }` and `outer(borrow p) {
+  inner(borrow p) }` forwarding. Hazard closed: `mark_moved`
+  (4826) matches `Local | Consume` only, so consuming a Change
+  param today is a silent no-op (value cloned, nothing marked) —
+  the plan replaces the silence with rejection.
 - **No silent moves, no copy-back of consumed resources:** a
-  rejected consume never moves the caller's place; the §4.5
+  rejected transfer never moves the caller's place; the §4.5
   transfer applies to `change` args only and never runs for a
   consumed resource.
 - **Consume stays root-granular:** `consume_argument_root` (5404)
@@ -589,6 +677,13 @@ static/runtime enforcement with truthful designated diagnostics:
   field-move expansion is proposed; `change r.x` combined with
   `consume r.z` is therefore the same rejection as `change r.x` +
   `consume r` (§4.2 phase 2).
+- **Compatibility:** checked at the pinned head (2026-09-30) — no
+  fixture or example forwards a Change/Borrow parameter into a
+  `Consume` parameter in any of the three keyword forms;
+  `transaction_once.hum`'s `rollback(consume txn)` /
+  `commit(consume txn)` take `txn` from a `let` local, not a
+  parameter — unaffected. No zero-compatibility-impact claim beyond
+  this checked inventory.
 
 ## 5. Settled rules / unsupported shapes / genuine policy choices
 
@@ -652,75 +747,109 @@ static/runtime enforcement with truthful designated diagnostics:
 
 ## 6. Rejection plan: shared static/runtime admission (Codex re-review correction 2026-09-29; replaces the runtime-only premise)
 
-[Corrected 2026-09-29, Codex re-review:] the earlier "runtime-only,
+[Corrected 2026-09-30, Codex re-review:] the earlier "runtime-only,
 generic-trap" premise is withdrawn — it is not accepted. Every new
 rejection gets a **designated diagnostic** (never a generic trap),
 and admission is **shared** between the checking pipeline and the
-runtime call site, by decidability:
+runtime call site, by decidability. The producer→consumer map is
+authoritative in §13; this section states the split:
 
-- **Static admission** — the `ownership_check` stage
-  (`src/ownership_check.rs`, the stage that owns the H08x family):
-  everything decidable from the call expression plus the callee's
-  declared signature — D4 argument shape, D5 keyword/permission
-  match, and overlap on syntactic caller places.
+- **Static admission** — new branches inside the existing
+  `ownership_check` stage (`src/ownership_check.rs`, the stage that
+  owns the H08x family): a per-call admission function invoked from
+  the `check_statement_ownership` walk for call statements carrying
+  `change` arguments. It decides everything provable from the call
+  expression plus the callee's declared signature — D4 argument
+  shape, D5 keyword/permission match, provable authority violations
+  (e.g. `change` on a `let`-bound root, syntactic consume+change on
+  one root), and overlap on syntactic caller places — in a single
+  pass, first failure wins.
 - **Runtime admission** — the user-task call site in `src/run.rs`
-  (the §2 argument owner): everything that depends on runtime env
-  state — authority (mutable/moved/iteration/borrow-permission via
-  the existing `ensure_can_set` family), live-alias/view overlap
-  (H0808 — liveness is runtime state), the overlap backstop, and
-  the §4.5 transfer itself.
+  (the §2 argument owner): phase 0 runs the pre-authority stages
+  fail-fast (arity/unknown-task, D4 shape, D5 keyword/permission);
+  phase 2 runs authority (mutable/moved/iteration/
+  borrow-permission via the existing `ensure_can_set` family) →
+  overlap (the H0810 backstop, then the live-alias H0808 check —
+  liveness is runtime state) → snapshots; then the §4.5 transfer
+  itself.
 
 **Admission order** (deterministic; one diagnostic per call — the
 first failure wins): shape (D4) → keyword/permission (D5) →
-authority → overlap. In particular **authority-before-overlap**
-holds identically on both sides: the static side emits the
-authority diagnostic (not overlap) when it can prove the authority
-violation (e.g. `change` on a `let`-bound root); the runtime side
-runs `ensure_can_set` before the overlap backstop. Combined causes
-produce exactly one diagnostic — the earliest in this order — on
-both sides.
+authority → overlap. **Static deferral:** when the
+`ownership_check` stage proves an authority violation for a call,
+it emits the authority diagnostic and defers — does not emit — the
+overlap diagnostic for that call. **Runtime timing:** phase 0 runs
+only the pre-authority stages (all decidable before evaluation);
+phase 2 runs authority → overlap → snapshots per change arg in arg
+order. The previous revision's phase-0 overlap backstop is
+withdrawn: a phase-0 overlap rejection cannot precede the authority
+decision the order says wins. A phase-2 overlap rejection preserves
+phase-1 effects (consumes and completed nested-call transfers
+stand — no rollback) and runs before any snapshot or transfer, so
+it never resurrects a moved root.
 
-Rejections are observed through one of two **existing** channels.
-The repair's *mechanism* is run.rs-centered; its *designated
-surface* is not: diagnostic identity (code, cause key, ordinal,
-family), the human-projection mirror, and the pinned-count/policy
-pins have designated owners named explicitly in §7. No AGENTS.md
-exception is approved: those owners are identified, not touched, by
-this planning delivery. No new consumers, and no catalog allocation
-except proposals (H0810 and the D4/D5/D2 shapes below stay
-**proposed, not approved or allocated**):
+Rejections are observed through the existing surfaces — no new CLI
+surface is proposed. The repair's *mechanism* is run.rs-centered;
+its *designated surface* is not: diagnostic identity (code, cause
+key, ordinal, family), the human-projection mirror, and the
+pinned-count/policy pins have designated owners named explicitly in
+§7. No AGENTS.md exception is approved: those owners are
+identified, not touched, by this planning delivery. No catalog
+allocation except proposals (H0810 and the D4/D5/D2/authority/
+consume shapes below stay **proposed, not approved or
+allocated**):
 
-- **Trap channel** (existing traps — unknown place, arity, fatal
-  paths): the interpreter returns `Err(String)` → `run_program`
-  maps it to `RunOutcome::Trap(message)` (run.rs:898) → main.rs
-  prints `runtime trap: {message}` on **stderr** and exits **2**
-  (`run_outcome_exit_code`, main.rs:1639–1646; the test seam mirrors
-  it at run.rs:742/767). Consumers: CLI users (stderr + exit 2);
-  `tools/check_all.ps1` via `Read-NativeOutputWithExit` asserting exit
-  code and output on `hum run fixtures/… --entry …`; `src/run.rs`
-  internal tests via `run_program_with_adapters` (597) asserting
-  `RunOutcome::Trap`.
-- **Diagnostic+trap channel** (H0802/H0806/H0808 rows): the `*_trap`
-  helper pushes a `Diagnostic::error` onto the interpreter's
-  diagnostics — collected into `RunReport.diagnostics` (run.rs:899–
-  904), surfaced by reporters, asserted by internal tests — **and**
-  returns `Err("H0xxx <title>")`, which takes the trap channel above.
-  Precedent: `borrow_mutation_trap` (4856),
+- **ownership-check report** (static side): `hum ownership-check`
+  (main.rs:993–1025) prints the stage report via
+  `ownership_check::ownership_check_text/json` wrapped in
+  `callable_text_report`/`callable_json_report` (human and
+  `--format json`), exit 1 on errors. `hum run --native` gates on
+  `ownership_check::ownership_check_has_errors` in the preflight
+  admission block (main.rs:1355–1380), exit 1 with the
+  ownership-check text. New static diagnostics flow into the
+  existing occurrence set via `diagnostic_occurrence_set`
+  (ownership_check.rs:822) — no new plumbing.
+- **trap channel** (runtime): the interpreter returns `Err(String)`
+  → `run_program` maps it to `RunOutcome::Trap(message)`
+  (run.rs:898) → main.rs prints `runtime trap: {message}` on
+  **stderr** and exits **2** (`run_outcome_exit_code`,
+  main.rs:1639–1646; the test seam mirrors it at run.rs:742/767).
+  Consumers: CLI users (stderr + exit 2);
+  `tools/check_all.ps1` via `Read-NativeOutputWithExit` asserting
+  exit code and output on `hum run fixtures/… --entry …`;
+  `src/run.rs` internal tests via `run_program_with_adapters`
+  (597) asserting `RunOutcome::Trap`.
+- **diagnostic+trap channel** (runtime; H0802/H0806/H0808 rows and
+  the proposed designated diagnostics): the `*_trap` helper pushes
+  a `Diagnostic::error` onto the interpreter's diagnostics —
+  collected into `RunReport.diagnostics` (run.rs:899–904),
+  surfaced by reporters, asserted by internal tests — **and**
+  returns `Err("H0xxx <title>")`, which takes the trap channel
+  above. Precedent: `borrow_mutation_trap` (4856),
   `iteration_mutation_trap` (4884), the H0808/H0809 emission in
   `preflight_writable_aliases` (2154–2170).
 
-| Rejection | Admission owner | Channel | CLI-observable | Files touched (by intent) |
+`hum check` does **not** run `ownership_check`: its pipeline
+(main.rs:440–560) is parse → source_check → app_entry →
+path_boundary → callable → capability_root → resolve → type_check
+→ full_type_check, and the D3 `stages` field in `hum check
+--format json` lists only stages that actually ran. The new static
+admission is therefore invisible to `hum check` — stated here so
+the stages reporting stays truthful. No `hum check` surface change
+is proposed.
+
+| Rejection | Static side | Runtime side | Designated diagnostic | Files touched (by intent) |
 |---|---|---|---|---|
-| non-place change arg (`change 5`, `change (a+b)`, `change g(x)`) — D4 | **Static:** `ownership_check` stage (`src/ownership_check.rs`); syntactic shape | diagnostic+trap, **proposed** (`H0xxx` non-place change argument; code TBD at allocation) | diagnostic + trap text, exit 2 | `src/ownership_check.rs` + — **iff accepted** — `src/diagnostic_catalog.rs` (§8-style checklist), `docs/DIAGNOSTICS.md`, `tools/check_all.ps1`, `tools/test_ci_policy.ps1` |
-| D5 keyword/permission mismatch (§4.7 cells 2, 5, 8, 9, 11) | **Static:** `ownership_check` stage; call keyword × declared param permission | diagnostic+trap, **proposed** (`H0xxx` change-argument permission mismatch; code TBD at allocation) | diagnostic + trap text, exit 2 | `src/ownership_check.rs` + catalog checklist iff accepted (as above) |
-| change/change or change/borrow-declaring-arg overlap | **Static primary:** `ownership_check` stage on syntactic caller places; **runtime backstop:** call-site branch, phase 0 (~3143), emitting the same diagnostic | diagnostic+trap, **H0810 proposed** | `H0810 overlapping change arguments` diagnostic + trap text, exit 2 | `src/ownership_check.rs` + `src/run.rs` (backstop) + — **iff accepted** — `src/diagnostic_catalog.rs` (§8 checklist), `docs/DIAGNOSTICS.md` (mirror row), `tools/check_all.ps1` (pinned count in `Invoke-HumCompilerFrontChecks`), `tools/test_ci_policy.ps1` (`$CompilerBodies` re-pin for that function) |
-| change arg overlapping a live caller writable alias | **Runtime:** call-site branch, phase 0 (~3143); liveness is runtime state | diagnostic+trap, **H0808** (existing meaning: the call creates the second live writer H0808 forbids) | H0808 diagnostic + trap, exit 2 | `src/run.rs` only |
-| change arg on `let`-bound (immutable) root | **Static:** `ownership_check` stage; the static side emits the authority diagnostic (not overlap) when it proves the violation (authority-before-overlap); **runtime:** phase 2 writability check (4780) with the same diagnostic | diagnostic+trap, **proposed** (`H0xxx` change argument on immutable place; code TBD at allocation) | diagnostic + trap text, exit 2 | `src/ownership_check.rs` + `src/run.rs` + — **iff accepted** — `src/diagnostic_catalog.rs` (§8-style checklist), `docs/DIAGNOSTICS.md` (mirror row), `tools/check_all.ps1` (fixture assertions) |
-| change arg on borrow-permission root | **Runtime:** phase 2 `ensure_can_set` → `borrow_mutation_trap` (4856) | diagnostic+trap, **H0802** (same authority violation as an in-body write through a borrow) | H0802 diagnostic + `runtime trap: H0802 …`, exit 2 | `src/run.rs` only |
-| change arg whose root is moved — before the call or consumed during argument evaluation (`change r.x` + `consume r`, or `consume r.z` which is root-granular) | **Static:** `ownership_check` stage; syntactic consume+change on the same root in one call → the designated diagnostic (authority-before-overlap); **runtime:** phase 2 moved check with the same diagnostic — the transfer never resurrects a moved root | diagnostic+trap, **proposed** (`H0xxx` change argument on consumed/moved place; code TBD at allocation) | diagnostic + trap text, exit 2 | `src/ownership_check.rs` + `src/run.rs` + — **iff accepted** — `src/diagnostic_catalog.rs` (§8-style checklist), `docs/DIAGNOSTICS.md` (mirror row), `tools/check_all.ps1` (fixture assertions) |
-| consume of a Change/Borrow parameter (direct arg or nested forwarding `inner(consume p)` where `p` is outer's change param) | **Static:** `ownership_check` new branch (Change/Borrow params are not movable roots — `is_movable_root` 2924); **runtime:** call-arg consume branch (~3144) rejects Change/Borrow-permission bindings before `read_consume_value`/`mark_moved` — closes the current silent no-op (`mark_moved` 4826 matches `Local \| Consume` only) | diagnostic+trap, **proposed** (`H0xxx` consuming a non-ownership parameter; code TBD at allocation) | diagnostic + trap text, exit 2 | `src/ownership_check.rs` + `src/run.rs` + — **iff accepted** — `src/diagnostic_catalog.rs` (§8-style checklist), `docs/DIAGNOSTICS.md` (mirror row), `tools/check_all.ps1` (fixture assertions) |
-| change arg on actively iterated root | **Runtime:** phase 2 `active_iteration_for` (4661) → `iteration_mutation_trap` (4884) | diagnostic+trap, **H0806** (same structural-mutation-during-iteration conflict) | H0806 diagnostic + trap, exit 2 | `src/run.rs` only |
-| element-place change arg (`change xs[0]`) — D2 | **Static:** `ownership_check` stage (D2 recommended; syntactic shape) | diagnostic+trap, **proposed** (`H0xxx` element-place change argument; code TBD at allocation) | diagnostic + trap text, exit 2 | `src/ownership_check.rs` + catalog checklist iff accepted (as above) |
+| non-place change arg (`change 5`, `change (a+b)`, `change g(x)`) — D4 | `ownership_check` syntactic shape → ownership-check report, exit 1 | phase-0 shape check (~3143) → diagnostic+trap, exit 2 | proposed `H0xxx` non-place change argument (code TBD at allocation) | `src/ownership_check.rs` + `src/run.rs` + catalog checklist iff accepted (`src/diagnostic_catalog.rs` §8-style, `docs/DIAGNOSTICS.md` mirror row, `tools/check_all.ps1` fixture assertions) |
+| D5 keyword/permission mismatch (§4.7 cells 2, 5, 8, 9, 11) | `ownership_check` (call keyword × declared param permission) → report, exit 1 | phase-0 D5 check → diagnostic+trap, exit 2 | proposed `H0xxx` change-argument permission mismatch (code TBD at allocation) | as above |
+| element-place change arg (`change xs[0]`) — D2 | `ownership_check` syntactic shape → report, exit 1 | phase-0 shape check (fail-closed for `hum run`) → diagnostic+trap, exit 2 | proposed `H0xxx` element-place change argument (code TBD at allocation) | as above |
+| change/change or change/borrow-declaring-arg overlap | **Static primary:** `ownership_check` on syntactic caller places → report, exit 1 | **Backstop:** phase-2 overlap sweep (~3143+), after the authority sweep, same diagnostic → diagnostic+trap, exit 2 | **H0810 proposed** | `src/ownership_check.rs` + `src/run.rs` (backstop) + catalog checklist iff accepted (`src/diagnostic_catalog.rs` §8 checklist, `docs/DIAGNOSTICS.md` mirror row, `tools/check_all.ps1` pinned count in `Invoke-HumCompilerFrontChecks`, `tools/test_ci_policy.ps1` `$CompilerBodies` re-pin for that function) |
+| change arg overlapping a live caller writable alias | — (liveness is runtime state) | phase-2 live-alias check → diagnostic+trap, exit 2 | **H0808** (existing meaning: the call creates the second live writer H0808 forbids) | `src/run.rs` only |
+| change arg on immutable place | `ownership_check` emits the authority diagnostic when it proves the violation (authority-before-overlap deferral) → report, exit 1 | phase-2 `ensure_can_set` authority sweep → diagnostic+trap, exit 2 | proposed `H0xxx` change argument on immutable place (code TBD at allocation) | `src/ownership_check.rs` + `src/run.rs` + catalog checklist iff accepted (as above) |
+| change arg on borrow-permission root | — | phase-2 `ensure_can_set` → `borrow_mutation_trap` (4856) → diagnostic+trap, exit 2 | **H0802** (same authority violation as an in-body write through a borrow) | `src/run.rs` only |
+| change arg whose root is moved — before the call or consumed during argument evaluation (`change r.x` + `consume r`, or `consume r.z` which is root-granular) | `ownership_check`: syntactic consume+change on the same root → designated diagnostic (authority-before-overlap) → report, exit 1 | phase-2 moved check → diagnostic+trap, exit 2 — the transfer never resurrects a moved root | proposed `H0xxx` change argument on consumed/moved place (code TBD at allocation) | `src/ownership_check.rs` + `src/run.rs` + catalog checklist iff accepted (as above) |
+| non-ownership resource into a Consume parameter — `consume p`, ordinary `p`, or `borrow p` where `p` is a Change/Borrow parameter (§4.9) | `ownership_check` branch (Change/Borrow params are not movable roots — `is_movable_root` 2924) → report, exit 1 | consume-branch guard (~3144) for the keyword form; ordinary/`borrow`-path guard (3148) for the other two → diagnostic+trap, exit 2 | proposed `H0xxx` — **one** designated diagnostic for all three keyword forms (code TBD at allocation) | `src/ownership_check.rs` + `src/run.rs` + catalog checklist iff accepted (as above) |
+| change arg on actively iterated root | — | phase-2 `active_iteration_for` (4661) → `iteration_mutation_trap` (4884) → diagnostic+trap, exit 2 | **H0806** (same structural-mutation-during-iteration conflict) | `src/run.rs` only |
 
 Why designated diagnostics, not generic traps, for the new
 rejections: the repository's fail-closed probe requires every
@@ -730,9 +859,10 @@ stretching H0802/H0806/H0808/H0809 wording to cover call-shape
 mismatches would silently expand their approved meanings, which is
 forbidden. The D4/D5/D2 shapes, the immutable-place authority
 failure, the moved/consumed-root change-arg failure, and the
-consume-of-Change/Borrow-parameter failure therefore get proposed
-designated diagnostics (codes TBD at allocation; H0810's §8
-checklist is the allocation template, one checklist per code). The
+non-ownership-resource-into-Consume-parameter failure (all three
+keyword forms — §4.9) therefore get proposed designated diagnostics
+(codes TBD at allocation; the §8 checklist is the allocation
+template, one checklist per code). The
 borrow-permission-root change arg keeps H0802 explicitly: passing a
 borrow-permission root as `change` requests write authority through
 a borrow — the same authority violation `borrow_mutation_trap`
@@ -749,8 +879,8 @@ new precedence spec is proposed beyond the admission order.
 H0810 ("overlapping change arguments", family `ownership_borrowing`,
 owning stage `ownership_check` — runtime emission has precedent:
 H0802's `borrow_mutation_trap` is runtime-emitted) remains
-**proposed, not approved or allocated**, as are the three new
-designated diagnostics above; no existing code names any of these
+**proposed, not approved or allocated**, as do the designated
+diagnostics above; no existing code names any of these
 constructs. They all stay **proposed, not approved or allocated**;
 D1/D1-sub are ruled; D2–D6 stay open.
 
@@ -779,27 +909,34 @@ planning delivery.
 
 | File | Change | Why |
 |---|---|---|
-| `src/run.rs` | Two-phase argument loop at the user-task call site (§4.2, at 3143–3160); thread final parameter values through `execute_task` (2040) / `execute_task_body` (2072); the §4.5 final-value transfer + call-access invalidation at the call site through the real call owner (every exit, per the D1/D1-sub ruling); runtime admission — authority via `ensure_can_set` family, live-alias overlap (H0808), overlap backstop (§6); the new overlap sweep for root-descendant invalidation (§4.5); no per-mutation instrumentation | The defect and the runtime mechanism owner live here (§2) |
+| `src/run.rs` | Two-phase argument loop at the user-task call site (§4.2, at 3143–3160); thread final parameter values through `execute_task` (2040) / `execute_task_body` (2072); the §4.5 final-value transfer + `CallAccess` overlap sweep at the call site through the real call owner (every exit, per the D1/D1-sub ruling); runtime admission — phase 0 runs the pre-authority stages (arity/unknown-task, D4 shape, D5 keyword/permission), phase 2 runs authority (`ensure_can_set` family) → overlap (H0810 backstop after the authority sweep, then live-alias H0808) → snapshots; new consume-branch guard (~3144) and ordinary/`borrow`-path guard (3148) for the §4.9 non-ownership controls; new H0807 `(Field, CallAccess)` / `(Element, CallAccess)` trap arms (existing `stale_view_trap` path, `FieldWrite`/`ListAppend` arms unchanged); no per-mutation instrumentation | The defect and the runtime mechanism owner live here (§2) |
+| `src/main.rs` | **No production change proposed.** Named as the consumer adapter the plan must stay consistent with: `hum ownership-check` report path (993–1025, `ownership_check_text`/`ownership_check_json` via `callable_text_report`/`callable_json_report`); `hum run --native` preflight admission gate on `ownership_check_has_errors` (1355–1380); trap printing + exit 2 (1528–1531, 1639–1646); the `hum check` stage pipeline (440–560) — no new stage is added, so the D3 `stages` listing stays truthful. Affected CLI tests (by intent, at implementation): `hum check` stages assertions, ownership-check text/JSON assertions for the new diagnostics, `validate_aq_diagnostic_occurrences` tests | Consumer adapter; stages truthfulness (§6) |
+| `src/diagnostic.rs` | **No production change proposed.** The new H0807 `CallAccess` trap arms construct their related spans (borrow site, call-access site) through the existing `with_related_span` builder (244) | Consumed by the new H0807 arms; no change needed |
 | `src/diagnostic_catalog.rs` | **Only if a proposed diagnostic is accepted:** §8-style checklist per accepted code — `diagnostic_causes!` entry (next free cause key), `diagnostic_code_allocations!` entry (next free allocation key), `historical_public_ordinal` arm, `DIAGNOSTICS` detail entry, the exact count literals in §8 item 5 — plus the open ruling whether H0810's cause key 194 joins `OWNERSHIP_CAUSES` | Designated diagnostic-identity owner |
-| `src/ownership_check.rs` | **Only if the repair is approved:** static admission of D4/D5/D2 shapes, syntactic overlap, the authority branches (immutable-place change arg, syntactic consume+change on one root), and the consume-of-Change/Borrow-parameter branch (§6) — new branches in the `ownership_check` stage emitting the proposed designated diagnostics; authority-before-overlap deferral where the stage proves an authority violation | Proposed static admission owner (by intent); the stage that owns the H08x family |
+| `src/ownership_check.rs` | **Only if the repair is approved:** static admission of D4/D5/D2 shapes, syntactic overlap, the authority branches (immutable-place change arg, syntactic consume+change on one root), and the non-ownership→Consume-parameter branch (§4.9) — new branches in the `ownership_check` stage emitting the proposed designated diagnostics; authority-before-overlap deferral where the stage proves an authority violation | Proposed static admission owner (by intent); the stage that owns the H08x family |
 | `src/diagnostics.rs` | **No hand edit proposed.** `"Hum diagnostics (N codes)"` and `"\"count\": N"` derive from `diagnostic_catalog::all()` via `format!`; only the *test* literals in §8 item 5 change, and only if the catalog changes | `hum diagnostics` contract; affected consumer |
-| `docs/DIAGNOSTICS.md` | Mirror row, **only if H0810 is accepted** (test-enforced via `validate_human_projection`; catalog mirror, not prose) | Standing catalog-mirror rule |
-| `tools/check_all.ps1` | Pinned count 100→101 inside `Invoke-HumCompilerFrontChecks` (**only if the catalog changes**); new `Read-NativeOutput[WithExit]` assertions for the new fixtures; the `transaction_once` `ok` assertion (4196–4197) must keep passing unchanged after the example's implementation-time migration | Standing pin practice; acceptance assertions live here |
+| `docs/DIAGNOSTICS.md` | Mirror rows, **only if a proposed diagnostic is accepted** (test-enforced via `validate_human_projection`; catalog mirror, not prose) — including an updated H0807 row covering call-access invalidation | Standing catalog-mirror rule |
+| `tools/check_all.ps1` | Pinned count inside `Invoke-HumCompilerFrontChecks` (**only if a proposed code is accepted** — N→N+k per k accepted codes, not a fixed 100→101); new `Read-NativeOutput[WithExit]` assertions for the new fixtures; the `transaction_once` `ok` assertion (4196–4197) must keep passing unchanged after the example's implementation-time migration | Standing pin practice; acceptance assertions live here |
 | `tools/test_ci_policy.ps1` | `$CompilerBodies` digest re-pin for `Invoke-HumCompilerFrontChecks` (**only if that function's body changes** — i.e. only if the pinned count above changes; a `src/run.rs`-only repair does **not** trip it). The digest pins the body bytes of four shared functions (`Invoke-HumCompilerFrontChecks`, `Invoke-HumCompilerCorpusChecks`, `Invoke-HumUseAfterMoveRuntimeCheck`, `Invoke-HumUseAfterMoveProjectionCheck`); the failure message names the function and prints the new digest | Standing pin practice (decision 0028) |
 | `fixtures/` | New `.hum` fixtures + session tests exercised **through the real user-task call path** — the §12 traces, the §6 rejection table, the §14 exit rows — placed by family (`fixtures/ownership_check/`, `fixtures/run/`). Counterexample fixtures: `f(change r, g(change r.x))` nested-call preservation; `change r.x` + `consume r` / `consume r.z` rejection (no resurrection); `consume` of a Change/Borrow param (direct + nested forwarding) rejection; immutable-place `change` rejection | Positive-evidence rule: fixtures must observe the effect, not merely declare the form |
-| `examples/probes/transaction_once.hum` | **Not edited during planning.** Carried in the inventory as the writable-authority compatibility witness: `let txn` (immutable, line 66) passed as `change txn` (lines 68, 73) is the shape the item-1 authority rule newly rejects — even though `record_debit`/`record_credit` never write. The implementation-time migration is `let txn` → `let mut txn`; the `hum run … --entry transfer --args 10` → `ok` assertion (`tools/check_all.ps1`:4196–4197) must keep passing unchanged. **No zero-compatibility-impact claim is made** — the example as written today exercises the newly-rejected shape, and the migration is verified at implementation time, not assumed here | Compatibility witness for the authority rule |
+| `examples/probes/transaction_once.hum` | **Not edited during planning.** Carried in the inventory as the writable-authority compatibility witness: `let txn` (immutable, line 66) passed as `change txn` (lines 68, 73) is the shape the item-1 authority rule newly rejects — even though `record_debit`/`record_credit` never write. The implementation-time migration is `let txn` → `change txn: Transaction = begin_transaction()`; the `hum run … --entry transfer --args 10` → `ok` assertion (`tools/check_all.ps1`:4196–4197) must keep passing unchanged. **No zero-compatibility-impact claim is made** — the example as written today exercises the newly-rejected shape, and the migration is verified at implementation time, not assumed here | Compatibility witness for the authority rule |
 | `src/run.rs` `mod tests` (5716) | Internal tests through `run_program_with_adapters` asserting the §14 observation points (post-call reads, stale-view trap-or-success) through the real evaluator — no journal | §14 seam distinction |
 
 Out of scope for the repair: every other `src/` file, the CLI surface (no new flags), Work Order edits, and any try/catch machinery (D6 / Session W preserved). The parser already admits `change`-argument syntax — no syntax or admission change is proposed anywhere.
 
-## 8. H0810 allocation checklist (proposed — not approved, not allocated)
+## 8. Allocation checklist (proposed — not approved, not allocated)
 
-H0810 ("overlapping change arguments", family `ownership_borrowing`, owning stage
-`ownership_check`) is the only proposed allocation, and only because no existing code
-names the change/change and change/borrow-declaring-argument overlap construct (§6). Runtime
-emission has precedent: H0802's `borrow_mutation_trap` is runtime-emitted. If — and
-only if — Codex/Ocean accept the allocation, the standing multi-site change is
-(decision 0028 checklist; indexes verified read-only at pinned `0e215d31`):
+The checklist below is the per-code allocation template (decision 0028).
+H0810 ("overlapping change arguments", family `ownership_borrowing`,
+owning stage `ownership_check`) is the proposed allocation for the
+change/change and change/borrow-declaring-argument overlap construct
+(§6) — runtime emission has precedent: H0802's
+`borrow_mutation_trap` is runtime-emitted. The other §6 designated
+diagnostics (D4/D5/D2 shapes, immutable-place authority failure,
+moved/consumed-root change-arg failure, non-ownership-resource-into-
+Consume-parameter failure) are **equally proposed, not approved or
+allocated**; each accepted code gets its own pass through this
+checklist. Indexes verified read-only at pinned `0e215d31`:
 
 1. `diagnostic_causes!` entry — next free cause key **194** (max 193 at the pinned commit).
 2. `diagnostic_code_allocations!` entry — next free key index **100** (max 99 = H0643 at
@@ -811,8 +948,8 @@ only if — Codex/Ocean accept the allocation, the standing multi-site change is
    the arm the ordinal defaults to `u16::MAX` and validation fails `InvalidPublicOrdinal`.
 4. `DIAGNOSTICS` detail entry — blame-style: name the call site, the overlapping
    argument positions and caller places, and the fix (pass disjoint caller places).
-5. Count literals — exact at pinned `0e215d31` (each N → N+1 when one
-   code is added): `src/diagnostic_catalog.rs` tests —
+5. Count literals — exact at pinned `0e215d31` (when k new codes are accepted, each
+   literal N → N+k): `src/diagnostic_catalog.rs` tests —
    `assert_eq!(summary.active_codes, 97)` (two sites),
    `assert_eq!(DIAGNOSTIC_CAUSES.len(), 193)`,
    `assert_eq!(all().len(), 100)`; `src/diagnostics.rs` tests —
@@ -828,7 +965,7 @@ only if — Codex/Ocean accept the allocation, the standing multi-site change is
    that function (the digest pins that function's body bytes; the
    failure message names the function and prints the new digest).
 
-Until acceptance, none of the above is done; the map's §6 reuse table stands as the
+Until acceptance, none of the above is done; the map's §6 rejection table stands as the
 complete diagnostic story.
 
 ## 9. Acceptance controls (standing repository requirements)
@@ -878,7 +1015,9 @@ An implementation PR would need, at minimum:
 
 - This document is **planning-only**. This delivery authorizes finishing the planning
   document; it does not authorize implementing its recommendations.
-- D1, D1-sub, D2, D3, D4, D5, D6 remain **open** pending Ocean/Codex approval. H0810
+- D1 and D1-sub are **ruled** (see §5, §14): transfer and invalidation precede
+  `Returned`, `Failed`, and `ContractViolation`; pre-body rejection does neither.
+  D2, D3, D4, D5, D6 remain **open** pending Ocean/Codex approval. H0810
   remains **proposed, not approved or allocated**.
 - Any implementation needs a Work Order before branch work begins.
 - Builder lane for this delivery: one documentation file, no source/tooling changes, no
@@ -887,6 +1026,10 @@ An implementation PR would need, at minimum:
 - §§7–11 above (from the tail-completion notice onward) are newly authored completion,
   not recovered historical text.
 
+> **Superseded 2026-09-30 on one point:** D1/D1-sub are now ruled (see §5, §14);
+> D2–D6 remain open, H0810 stays proposed. The dated notice below is preserved
+> verbatim as evidence.
+>
 > **Codex-findings correction pass — newly authored 2026-09-29 (builder lane). Not recovered text.**
 > Addresses Codex's five findings on this map through a source-backed satisfiability
 > audit at pinned `0e215d31` (`src/` identical at branch head `7bbc885c`; all line
@@ -906,6 +1049,10 @@ An implementation PR would need, at minimum:
 > into accepted facts, recommendations, and open rulings. Planning-only; D1–D6 and
 > H0810 stay open/proposed. No implementation, builds, tests, or CI were run.
 
+> **Superseded 2026-09-30 on one point:** D1/D1-sub are now ruled (see §5, §14);
+> D2–D6 remain open, H0810 stays proposed. The dated notice below is preserved
+> verbatim as evidence.
+>
 > **Satisfiability-audit reconciliation — newly authored 2026-09-29 (builder lane). Not recovered text.**
 > Replaces contradictory sections with one consistent proposed plan (no new layer):
 > (1) the run.rs-only premise is dropped where designated diagnostics, mirrors, and
@@ -933,7 +1080,7 @@ An implementation PR would need, at minimum:
 For each case, the **value outcome** (what the caller's binding holds
 after the call) and the **effect outcome** (which caller views are
 invalidated — hence which later uses fire H0807 via `stale_view_trap`,
-4918) are stated independently. The value outcome is the callee
+4914) are stated independently. The value outcome is the callee
 param's final value copied to the exact argument place (§4.5); the
 effect outcome follows the conservative call-access rule — an
 admitted change call invalidates overlapping caller views whether or
@@ -957,9 +1104,13 @@ root value.
    snapshot predates that growth — so the final-value transfer runs
    `write_place(caller_env, P, Vf)` with Vf = the grown list. Without
    that write the append would be silently lost. Effect — when P is
-   a bare root, the overlap sweep + `invalidate_element_views_for_growth(caller_env, P)`:
-   caller Element views of `xs` (snapshots from `borrow xs[0]`) are
-   marked ListAppend-invalidated; a later use fires H0807. When P is a
+   a bare root, the `CallAccess` overlap sweep marks all caller
+   Element views with place-root `xs` (snapshots from `borrow
+   xs[0]`) with `invalidated_by = Some(CallAccess)` — a later use
+   fires H0807 via the new `(Element, CallAccess)` trap arm.
+   `invalidate_element_views_for_growth` is not called at the
+   transfer site; its `ListAppend` cause keeps its exact growth
+   meaning at real growth sites. When P is a
    field place `r.s` holding the list: value write only, no element
    invalidation (no Element view can name `r.s[0]` — §3.2).
 
@@ -1026,13 +1177,13 @@ task append_one(change xs) {
   list_append(change xs, 2)
 }
 task main() {
-  let mut xs = [1]
+  change xs: List UInt = [1]
   let e = borrow xs[0]
   append_one(change xs)
 }
 ```
 
-- t0 (main env): `xs → [1]` (mutable let); `e →
+- t0 (main env): `xs → [1]` (a `change` binding); `e →
   view{source_place: "xs[0]", kind: Element, invalidated_by: None}`.
 - Admission: shape ok (root `xs`); keyword/permission ok; authority
   ok (mutable); no overlap (§6 order).
@@ -1046,11 +1197,12 @@ task main() {
   `write_place(main, "xs", [1, 2])` → main `xs → [1, 2]`
   (**value transfer** — the append-only write; without it the
   caller's `[1]` snapshot would survive and the append would be
-  silently lost); overlap sweep +
-  `invalidate_element_views_for_growth(main, "xs")` → `e.invalidated_by
-  = Some(ListAppend)` (**effect transfer** — call-access
+  silently lost); the §4.5 `CallAccess` overlap sweep invalidates
+  all element views with place-root `xs` → `e.invalidated_by =
+  Some(CallAccess)` (**effect transfer** — call-access
   invalidation, reasoned truthfully as call-access, not as an
-  observed write).
+  observed write; `invalidate_element_views_for_growth` is not
+  called at the transfer site).
 - t1 (main env): `xs → [1, 2]`; `e` invalidated. A later read of `e`
   → `stale_view_trap` (H0807) → runtime trap.
 
@@ -1064,13 +1216,16 @@ inferred.
 return** (the audit's exact case):
 
 ```hum
+type Counts {
+  count: UInt
+}
 task inner(change q) {
   set q.count = q.count + 1
   set q = { count: 99 }
 }
 task outer(change p) { inner(change p) }
 task main() {
-  let mut r = { count: 0 }
+  change r: Counts = { count: 0 }
   let v = borrow r.count
   outer(change r)
 }
@@ -1110,22 +1265,30 @@ call-access rule still invalidates `v`.
 
 ## 13. Shared precedence, producers, and consumers (finding 3, continued)
 
-Producers — shared static/runtime (§6): **static:**
-`src/ownership_check.rs` (new admission branches for D4/D5/D2
-shapes, syntactic overlap, the authority branches, and the
-consume-of-Change/Borrow-parameter branch, emitting the proposed
-designated diagnostics); **runtime:** the phase-0 call-shape checks
-(~3143, new — overlap backstop only), the phase-2 authority checks
-emitting the proposed designated diagnostics for immutable-place
-and moved/consumed-root change args (diagnostic+trap, same channel
-as H0802/H0806), the consume-branch guard (~3144) emitting the
-proposed consuming-a-parameter diagnostic, `ensure_can_set` (4780)
-with `borrow_mutation_trap` (4856) for borrow-permission roots
-(H0802 reuse), and `active_iteration_for` (4661) with
-`iteration_mutation_trap` (4884); `preflight_writable_aliases`
-(2135) for the existing H0808/H0809 emissions. No new producer
-module is created; the repair adds admission branches to the two
-existing owners, not a new diagnostic subsystem.
+Producers — shared static/runtime (§6): **static:** new per-call
+admission branches in `src/ownership_check.rs`, invoked from the
+`check_statement_ownership` walk for call statements carrying
+`change` arguments: D4/D5/D2 shapes, syntactic overlap
+(authority-before-overlap deferral), the authority branches
+(immutable-place change arg, syntactic consume+change on one root),
+and the non-ownership→Consume-parameter branch (§4.9), emitting the
+proposed designated diagnostics; **runtime:** the phase-0
+pre-authority checks (~3143 — arity/unknown-task, D4 shape, D5
+keyword/permission), the phase-2 authority sweep emitting the
+proposed designated diagnostics for immutable-place and
+moved/consumed-root change args (diagnostic+trap, same channel as
+H0802/H0806), the phase-2 overlap sweep (H0810 backstop after the
+authority sweep, then the live-alias H0808 check), the
+consume-branch guard (~3144) and the ordinary/`borrow`-path guard
+(3148) emitting the one proposed non-ownership→Consume diagnostic
+(§4.9), `ensure_can_set` (4780) with `borrow_mutation_trap` (4856)
+for borrow-permission roots (H0802 reuse), and
+`active_iteration_for` (4661) with `iteration_mutation_trap` (4884);
+`preflight_writable_aliases` (2135) for the existing H0808/H0809
+emissions; the new `CallAccess` overlap sweep at the transfer site
+(§4.5). No new producer module is created; the repair adds
+admission branches to the two existing owners, not a new
+diagnostic subsystem.
 
 Designated (non-`run.rs`) owners for the diagnostic surface are
 named once in §7; the producer list below covers both sides.
@@ -1323,10 +1486,12 @@ change/change and change/borrow-declaring-argument overlap —
 live-writable-alias overlap reuses H0808 as a settled reuse, not an
 expansion); the shared static/runtime admission split with
 authority-before-overlap (§6); the two-phase loop and the §4.5
-transfer algorithm; the §4.9 consume controls (shared
-static/runtime rejection of consuming a Change/Borrow parameter
-with a truthful proposed designated diagnostic — mutation authority
-is not ownership-transfer authority); the phase-2 controls (§4.2)
+transfer algorithm; the §4.9 non-ownership controls (shared static/runtime rejection
+of a non-ownership resource — `consume p`, ordinary `p`, or `borrow
+p` where `p` is a Change/Borrow parameter — into a Consume
+parameter, with one truthful proposed designated diagnostic —
+mutation authority is not ownership-transfer authority); the
+phase-2 controls (§4.2)
 with designated diagnostics for the immutable-place, moved-root,
 and consume-combination failures — never generic invariant traps;
 the `transaction_once.hum` witness carried unedited in §7 with no
@@ -1334,9 +1499,10 @@ zero-compatibility-impact claim.
 
 **Open rulings** (the map makes no recommendation; Ocean/Codex must
 choose): whether H0810, the D4/D5/D2 designated diagnostics, and
-the three new counterexample diagnostics (immutable-place change
-argument, change argument on a moved/consumed root, consuming a
-Change/Borrow parameter) are allocated (if yes: the §8-style
+the new counterexample diagnostics (immutable-place change
+argument, change argument on a moved/consumed root,
+non-ownership-resource-into-Consume-parameter — one diagnostic
+covering all three keyword forms) are allocated (if yes: the §8-style
 checklist per code, plus deciding whether H0810's cause key 194
 joins `OWNERSHIP_CAUSES`); the §6 admission order
 (shape → keyword/permission → authority → overlap) is recommended
