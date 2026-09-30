@@ -562,29 +562,60 @@ fn seal_analysis(_program: &Program, analysis: &mut CapabilityAnalysis) {
         pairs.len(),
         "every capability diagnostic must leave with one analyzer-owned route"
     );
-    let mut claimed = vec![false; analysis.routes.len()];
+    let mut route_claimed = vec![false; analysis.routes.len()];
+    let mut diagnostic_owned = vec![false; analysis.diagnostics.len()];
     for (diagnostic_index, route_index) in &pairs {
         assert!(
             *diagnostic_index < analysis.diagnostics.len(),
             "paired capability diagnostic index must exist"
         );
+        let diagnostic = &analysis.diagnostics[*diagnostic_index];
         let route = analysis
             .routes
             .get(*route_index)
             .expect("paired capability route index must exist");
         assert!(
-            route.diagnostic_code.is_some(),
-            "paired capability route must carry its diagnostic code"
+            !diagnostic_owned[*diagnostic_index],
+            "one capability diagnostic must not claim two owning routes"
         );
+        diagnostic_owned[*diagnostic_index] = true;
         assert!(
-            !claimed[*route_index],
+            route.diagnostic_code == Some(diagnostic.code.as_str()),
+            "paired capability route must carry its diagnostic's exact code"
+        );
+        assert_eq!(
+            diagnostic.span.as_ref(),
+            Some(&route.primary_span),
+            "paired capability route must carry its diagnostic's exact primary span"
+        );
+        if matches!(
+            route.check,
+            "source_capability_output_operation"
+                | "source_capability_replay_operation"
+                | "source_capability_file_operation"
+        ) {
+            assert_eq!(
+                route
+                    .resolver_call
+                    .as_ref()
+                    .map(|resolver_call| &resolver_call.exact_call_span),
+                diagnostic.span.as_ref(),
+                "operation route must carry its diagnostic's exact resolver-call span"
+            );
+        }
+        assert!(
+            !route_claimed[*route_index],
             "one capability route must not own two diagnostics"
         );
-        claimed[*route_index] = true;
+        route_claimed[*route_index] = true;
     }
+    assert!(
+        diagnostic_owned.iter().all(|owned| *owned),
+        "every capability diagnostic must own exactly one route"
+    );
     for (route_index, route) in analysis.routes.iter().enumerate() {
         assert!(
-            route.diagnostic_code.is_none() || claimed[route_index],
+            route.diagnostic_code.is_none() || route_claimed[route_index],
             "every code-carrying capability route must be paired with its diagnostic"
         );
     }
@@ -3604,5 +3635,221 @@ mod tests {
                 .exact_call_span,
             span_b
         );
+    }
+
+    // ---- N2 seal corruption controls ----
+    //
+    // Each control below runs the real capability producer, corrupts the
+    // production-time pairing record at the producer/sealer boundary, and
+    // drives the real `seal_analysis`. The seal must reject the corruption;
+    // the matching valid shapes above must keep sealing.
+
+    /// Runs the real capability producer without sealing, so corruption
+    /// controls exercise the true producer/sealer boundary.
+    fn unsealed_analysis(program: &crate::ast::Program) -> CapabilityAnalysis {
+        let entry = crate::app_entry::analyze(program)
+            .entry
+            .expect("corruption fixture must declare an app entry");
+        super::analyze_app(program, entry.app, entry.task)
+    }
+
+    /// The caller-closure diagnostic pairs with its exact call span and code,
+    /// exercising the seal's code/span checks on a non-operation path.
+    #[test]
+    fn n2_caller_closure_diagnostic_pairs_by_call_span() {
+        let analysis = analyze(&program(
+            r#"app n2_caller_closure {
+  starts with:
+    run_tool
+  task helper -> Int {
+    uses:
+      clock.replay
+    does:
+      return 7
+  }
+  task run_tool -> Unit {
+    does:
+      let observed = helper()
+      return
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        let diagnostic = &analysis.diagnostics[0];
+        assert_eq!(
+            diagnostic.code,
+            crate::diagnostic::DiagnosticCode::MISSING_CALLER_CAPABILITY
+        );
+        let route = paired_route(&analysis, 0);
+        assert_eq!(route.check, "source_capability_caller_closure");
+        assert_eq!(
+            route.diagnostic_code,
+            Some(crate::diagnostic::DiagnosticCode::MISSING_CALLER_CAPABILITY.as_str())
+        );
+        let span = diagnostic
+            .span
+            .clone()
+            .expect("caller diagnostic must carry its call span");
+        assert_eq!(route.primary_span, span);
+        let occurrence = occurrence_for(&analysis, diagnostic);
+        assert_eq!(
+            occurrence.cause_key(),
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(92)
+        );
+    }
+
+    /// Two diagnostics must not share one owner: duplicating a diagnostic
+    /// index keeps the pair count intact but leaves a diagnostic unowned.
+    #[test]
+    #[should_panic(expected = "one capability diagnostic must not claim two owning routes")]
+    fn n2_seal_rejects_duplicate_diagnostic_owner() {
+        let program = program(
+            r#"app n2_dup_owner {
+  starts with:
+    run_tool
+  task helper_a -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("a")
+      return written
+  }
+  task helper_b -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("b")
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let a = try helper_a()
+      let b = try helper_b()
+      return b
+  }
+}
+"#,
+        );
+        let mut analysis = unsealed_analysis(&program);
+        assert_eq!(analysis.diagnostics.len(), 2);
+        let mut owned: Vec<usize> = analysis
+            .diagnostic_route_pairs
+            .iter()
+            .map(|(diagnostic, _)| *diagnostic)
+            .collect();
+        owned.sort_unstable();
+        owned.dedup();
+        assert_eq!(owned, vec![0, 1], "fixture must pair two diagnostics");
+        let stolen = owned[0];
+        let victim = owned[1];
+        for pair in analysis.diagnostic_route_pairs.iter_mut() {
+            if pair.0 == victim {
+                pair.0 = stolen;
+            }
+        }
+        super::seal_analysis(&program, &mut analysis);
+    }
+
+    /// Two same-code diagnostics at different spans must keep their own
+    /// routes: swapping the route indices keeps every structural check green
+    /// but breaks the primary-span match.
+    #[test]
+    #[should_panic(
+        expected = "paired capability route must carry its diagnostic's exact primary span"
+    )]
+    fn n2_seal_rejects_same_code_route_swap() {
+        let program = program(
+            r#"app n2_swap {
+  starts with:
+    run_tool
+  task helper_a -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("a")
+      return written
+  }
+  task helper_b -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("b")
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let a = try helper_a()
+      let b = try helper_b()
+      return b
+  }
+}
+"#,
+        );
+        let mut analysis = unsealed_analysis(&program);
+        assert_eq!(analysis.diagnostics.len(), 2);
+        let route_of = |diagnostic: usize| {
+            analysis
+                .diagnostic_route_pairs
+                .iter()
+                .find(|(paired, _)| *paired == diagnostic)
+                .map(|(_, route)| *route)
+                .expect("diagnostic must be paired")
+        };
+        let route_a = route_of(0);
+        let route_b = route_of(1);
+        assert_ne!(route_a, route_b, "fixture must pair two distinct routes");
+        for pair in analysis.diagnostic_route_pairs.iter_mut() {
+            if pair.0 == 0 {
+                pair.1 = route_b;
+            } else if pair.0 == 1 {
+                pair.1 = route_a;
+            }
+        }
+        super::seal_analysis(&program, &mut analysis);
+    }
+
+    /// A route must not claim a code its diagnostic does not carry.
+    #[test]
+    #[should_panic(expected = "paired capability route must carry its diagnostic's exact code")]
+    fn n2_seal_rejects_incorrect_route_code_claim() {
+        let program = program(
+            r#"app n2_wrong_code {
+  starts with:
+    run_tool
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("blocked")
+      return written
+  }
+}
+"#,
+        );
+        let mut analysis = unsealed_analysis(&program);
+        assert_eq!(analysis.diagnostics.len(), 1);
+        let route_index = analysis.diagnostic_route_pairs[0].1;
+        analysis.routes[route_index].diagnostic_code =
+            Some(crate::diagnostic::DiagnosticCode::REPLAY_CAPABILITY_UNDECLARED.as_str());
+        super::seal_analysis(&program, &mut analysis);
     }
 }
