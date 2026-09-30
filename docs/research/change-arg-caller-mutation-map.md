@@ -796,57 +796,73 @@ token equal to `Transaction` (case-insensitive) **or ending in
 alone. There is no `Value::Transaction` variant; the annotation
 name is the whole of the type's runtime presence.
 
-**Escape** = a Borrow/Change parameter's value — where the
-parameter's declared type is a recognized linear resource type —
-leaving the authority's control through an intermediate the §4.9
-call guards do not see. Non-linear resources (e.g. `Counter`) are
-unaffected: copies and returns of non-linear values are
-legitimate value semantics, and the §4.5 transfer still applies
-the authority-holder's final value to the caller's place.
+**Escape** = a value leaving a Borrow/Change authority's control
+through an intermediate the §4.9 call guards do not see. The
+rejection keys on two independent facts — the **source-place
+type** and the **root authority** — never on one alone.
+Non-linear resources (e.g. `Counter`) are unaffected: copies and
+returns of non-linear values are legitimate value semantics, and
+the §4.5 transfer still applies the authority-holder's final
+value to the caller's place.
 
-**Proposed rejection** — ownership escapes from Borrow/Change
-authority over a recognized linear resource type are *rejected*,
-through:
-- **annotated bindings** (`let y: Transaction = p`,
-  `change y: Transaction = p`);
-- **unannotated bindings** (`let y = p`);
-- **resource-valued field/view copies** (`let v = borrow p.x`,
-  `let w = p.field`);
-- **returns** (`return p`, `return p.x`).
-No implicit moves are substituted and no additional owned
-snapshot is created: the paths are rejected, not rerouted. (This
-replaces the first correction's move-only-read and
-view-inherits-linearity proposals.)
+**Source-place type** — the declared type of the *place being
+copied or returned*, not the root:
+- whole parameter (`let y = p`, `return p`): the parameter's
+  declared type, `Param.ty`;
+- direct field (`let w = p.field`, `return p.field`): that
+  field's declared type, resolved from the `TypeDef` named by
+  the root's declared type (`Field.ty`, ast.rs:568–572).
+No new inference: only declared types are consulted.
 
-**Source-type/permission facts and their consumers** — binding
-and return owners are named on both sides, not just call guards:
-- *Facts:* (a) declared type in the recognized linear set
-  (`Param.ty` + `is_linear_resource_type`); (b) source
-  permission in {Borrow, Change} (`RuntimeBinding.permission`,
-  from `ParamPermission` via `RuntimeBinding::parameter`,
-  372–384).
-- *Static consumers:* the shared producer
-  (`src/change_arg_admission.rs`) gains binding/return admission
-  branches keyed on (a)×(b); consumed by the `ownership_check`
-  stage — which already walks bindings (alias analysis) and
-  returns (`returned_roots`, `OwnershipReturnDependency`) — and
-  by the `full_type_check` adapter at `check_stage_outcome`
-  (252), which walks `Return`/`Binding`/`Other` statements.
-- *Runtime consumers:* `eval_binding` (2700) for the
-  binding/view/field-copy paths — this requires the
-  declared-type fact to reach the parameter binding, which
-  `RuntimeBinding::parameter` currently drops (only value,
-  permission, `definition_id` are threaded, 2104–2111); the
-  `return` statement arm (2633–2656) for returns.
+**Root authority** — the permission comes from the source root:
+`RuntimeBinding.permission` in {Borrow, Change} (from
+`ParamPermission` via `RuntimeBinding::parameter`, 372–384).
+
+**Proposed rejection** — the paths are *rejected*, through
+annotated/unannotated bindings, resource-valued field/view
+copies, and returns. No implicit moves are substituted and no
+additional owned snapshot is created: the paths are rejected,
+not rerouted. (This replaces the first correction's
+move-only-read and view-inherits-linearity proposals.)
+- `change t: Transaction` → `let y = t` / `return t`: place
+  type `Transaction` (recognized) × root Change → **rejected**.
+- `change t: Transaction` → `let i = t.id` / `return t.id`:
+  place type `UInt` (the field's declared type from `TypeDef
+  Transaction`) — not recognized → **permitted**.
+- `change o: Order` (non-linear record with `txn: Transaction`)
+  → `let x = o.txn` / `return o.txn`: place type `Transaction`
+  (the field's declared type) × root Change → **rejected**.
+
+**Fact producers and consumers** — binding and return owners are
+named on both sides, not just call guards:
+- *Static producers:* `Param.ty` (whole parameter); `TypeDef`
+  `Field.ty` resolved by (root declared type name, field name)
+  — the `full_type_check` type-fact walk already emits
+  `record_field_place_v0` (2441). *Static consumers:* the
+  shared producer's binding/return admission branches, consumed
+  by the `ownership_check` stage (bindings via alias analysis,
+  returns via `returned_roots` / `OwnershipReturnDependency`)
+  and the `full_type_check` adapter at `check_stage_outcome`
+  (252).
+- *Runtime producers:* none today — the interpreter retains no
+  `TypeDef`s and `Value::Record` carries no type name (291), so
+  the root declared type and the field declared type must both
+  be threaded to the parameter binding (as with the
+  whole-parameter case; `RuntimeBinding::parameter` drops both
+  today, 2104–2111). The root permission is already present at
+  runtime (`RuntimeBinding.permission`). *Runtime consumers:*
+  `eval_binding` (2700) for the binding/view/field-copy paths;
+  the `return` statement arm (2633–2656) for returns.
 
 **Return-check ordering (corrected).** At the return site the
-expression is evaluated first (2634), the visible source root is
-marked moved unless it is a linear binding (2636–2640), and only
-then does `ensure_linear_closed_on_exit` run (2642) — the check
-does not run before the return expression is evaluated. A
-Borrow/Change parameter of recognized linear type carries
-`linear=false`, so it is marked moved and no trap fires: the
-value escapes.
+return expression is evaluated first (2634); `mark_moved` is
+then called on the visible source root (2636–2640), but it
+marks only `Local`/`Consume` bindings (4826–4837) — a
+Borrow/Change root is **not** marked moved; only then does
+`ensure_linear_closed_on_exit` run (2642). A Borrow/Change
+parameter of recognized linear type carries `linear=false`, so
+no trap fires: the value escapes while the source remains
+unmarked.
 
 **Preserved:** non-linear `Counter` copying in all positions;
 existing owned-local behavior; the L1 direct-consume rejection
@@ -1216,15 +1232,18 @@ planning delivery.
 |---|---|---|
 | `src/run.rs` | Two-phase argument loop at the user-task call site (§4.2, at 3143–3160); thread final parameter values through `execute_task` (2040) / `execute_task_body` (2072); the §4.5 final-value transfer + `CallAccess` overlap sweep at the call site through the real call owner (every exit, per the D1/D1-sub ruling); runtime admission — phase 0 runs the pre-authority stages (arity/unknown-task, D4 shape, D5 keyword/permission), phase 2 runs authority (`ensure_can_set` family) → overlap (H0810 backstop after the authority sweep, then live-alias H0808) → snapshots; new consume-branch guard (~3144) and ordinary/`borrow`-path guard (3148) for the §4.9 non-ownership controls; new H0807 `(Field, CallAccess)` / `(Element, CallAccess)` trap arms (existing `stale_view_trap` path, `FieldWrite`/`ListAppend` arms unchanged); declaration-time lexical-scope repair — `eval_binding` (2700) saves the displaced `RuntimeBinding` after initializer evaluation, immediately before `env.insert`, on all three insertion paths; `eval_block` (2511) restores only actually-executed declarations via `restore_binding` (5513), replacing the `block_binding_names` (5524) entry-time precomputation, with per-iteration re-save; proposed rejection of ownership
 escapes from Borrow/Change authority over recognized linear
-resource types — keyed on the declared type (`Param.ty`,
-`is_linear_resource_type` 5482–5485, equals-or-ends-with
-`Transaction`) crossed with source permission (Borrow/Change),
-not on the `binding.linear` cleanup-obligation flag (parameters
-hardcode `linear=false`, 379); runtime consumers are
-`eval_binding` (2700, binding/view/field-copy paths) and the
-`return` arm (2633–2656) — the parameter binding must carry the
-declared-type fact, which `RuntimeBinding::parameter` drops
-today (2104–2111); no per-mutation instrumentation | The defect and the runtime mechanism owner live here (§2) |
+resource types — keyed on the source-place declared type
+(`Param.ty` for whole parameters; the field's declared type from
+`TypeDef` `Field.ty` for direct fields) crossed with root
+permission in {Borrow, Change}, not on the `binding.linear`
+cleanup-obligation flag (parameters hardcode `linear=false`,
+379); runtime consumers are `eval_binding` (2700,
+binding/view/field-copy paths) and the `return` arm (2633–2656)
+— the parameter binding must carry the declared-type facts,
+which `RuntimeBinding::parameter` drops today (2104–2111) and
+which the interpreter cannot otherwise resolve (no `TypeDef`s
+retained; `Value::Record` carries no type name, 291); no
+per-mutation instrumentation | The defect and the runtime mechanism owner live here (§2) |
 | `src/main.rs` | **Crate-root declaration only:** add `mod change_arg_admission;` (alphabetical — between `mod capability_root;` and `mod check;`, main.rs:10–11) for the new narrow producer module; this is the sole production change in this file. Named as the consumer adapter the plan must stay consistent with: `hum ownership-check` report path (993–1025, `ownership_check_text`/`ownership_check_json` via `callable_text_report`/`callable_json_report`); `hum run --native` preflight admission gate on `ownership_check_has_errors` (1355–1380); trap printing + exit 2 (1528–1531, 1639–1646); the `hum check` stage pipeline (440–560) — no new stage is added, so the D3 `stages` listing stays truthful. Affected CLI tests (by intent, at implementation): `hum check` stages assertions, ownership-check text/JSON assertions for the new diagnostics, `validate_aq_diagnostic_occurrences` tests | Consumer adapter; stages truthfulness (§6) |
 | `src/diagnostic.rs` | **No production change proposed.** The new H0807 `CallAccess` trap arms construct their related spans (borrow site, call-access site) through the existing `with_related_span` builder (244) | Consumed by the new H0807 arms; no change needed |
 | `src/diagnostic_catalog.rs` | **Only if a proposed diagnostic is accepted:** §8-style checklist per accepted code — `diagnostic_causes!` entry (next free cause key), `diagnostic_code_allocations!` entry (next free allocation key), `historical_public_ordinal` arm, `DIAGNOSTICS` detail entry, the exact count literals in §8 item 5 — plus the open ruling whether H0810's cause key 194 joins `OWNERSHIP_CAUSES`. **Regardless of acceptances:** the H0807 `DIAGNOSTICS` detail entry's explanation/repair prose covers call-access invalidation (§4.5) — prose only; the code row (allocation key 70) is unchanged and no cause key is added | Designated diagnostic-identity owner |
@@ -1235,7 +1254,7 @@ today (2104–2111); no per-mutation instrumentation | The defect and the runtim
 | `docs/DIAGNOSTICS.md` | Mirror rows for accepted codes (test-enforced via `validate_human_projection`; catalog mirror, not prose). **Regardless of acceptances:** the H0807 mirror row is updated to cover call-access invalidation (§4.5 — prose only, no new code) | Standing catalog-mirror rule |
 | `tools/check_all.ps1` | Pinned count inside `Invoke-HumCompilerFrontChecks` (**only if a proposed code is accepted** — N→N+k per k accepted codes, not a fixed 100→101); new `Read-NativeOutput[WithExit]` assertions for the new fixtures; the `transaction_once` `ok` assertion (4196–4197) must keep passing unchanged after the example's implementation-time migration | Standing pin practice; acceptance assertions live here |
 | `tools/test_ci_policy.ps1` | `$CompilerBodies` digest re-pin for `Invoke-HumCompilerFrontChecks` (**only if that function's body changes** — i.e. only if the pinned count above changes; a `src/run.rs`-only repair does **not** trip it). The digest pins the body bytes of four shared functions (`Invoke-HumCompilerFrontChecks`, `Invoke-HumCompilerCorpusChecks`, `Invoke-HumUseAfterMoveRuntimeCheck`, `Invoke-HumUseAfterMoveProjectionCheck`); the failure message names the function and prints the new digest | Standing pin practice (decision 0028) |
-| `fixtures/` | New `.hum` fixtures + session tests exercised **through the real user-task call path** — the §12 traces, the §6 rejection table, the §14 exit rows — placed by family (`fixtures/ownership_check/`, `fixtures/run/`). Counterexample fixtures: `f(change r, g(change r.x))` nested-call preservation; `change r.x` + `consume r` / `consume r.z` rejection (no resurrection); `consume` of a Change/Borrow param (direct + nested forwarding) rejection; immutable-place `change` rejection. No-change-keyword controls: `inner(p)`, `inner(borrow p)`, `inner(consume p)` with `p` a caller Change/Borrow parameter into a Consume parameter (the rejected call carries no `change` keyword — §4.9 rows 3b/6b); keyword-less D5 controls (ordinary argument to a Change parameter — row 2). Lexical-scope repair controls (§4.3): shadowing declaration with a mutating initializer (`change x = bump(x)` — the bump's write survives); `set` to an outer binding whose shadowing declaration never executes (write survives); nested-block shadowing restored on return/fail/contract-violation paths; for-each per-iteration isolation. Linear-escape rejection controls (§4.9a): `let y: Transaction = p` / `let y = p` / `let v = borrow p.x` / `return p` from a Borrow/Change parameter of recognized linear type — rejected; non-linear `Counter` copy preserved | Positive-evidence rule: fixtures must observe the effect, not merely declare the form |
+| `fixtures/` | New `.hum` fixtures + session tests exercised **through the real user-task call path** — the §12 traces, the §6 rejection table, the §14 exit rows — placed by family (`fixtures/ownership_check/`, `fixtures/run/`). Counterexample fixtures: `f(change r, g(change r.x))` nested-call preservation; `change r.x` + `consume r` / `consume r.z` rejection (no resurrection); `consume` of a Change/Borrow param (direct + nested forwarding) rejection; immutable-place `change` rejection. No-change-keyword controls: `inner(p)`, `inner(borrow p)`, `inner(consume p)` with `p` a caller Change/Borrow parameter into a Consume parameter (the rejected call carries no `change` keyword — §4.9 rows 3b/6b); keyword-less D5 controls (ordinary argument to a Change parameter — row 2). Lexical-scope repair controls (§4.3): shadowing declaration with a mutating initializer (`change x = bump(x)` — the bump's write survives); `set` to an outer binding whose shadowing declaration never executes (write survives); nested-block shadowing restored on return/fail/contract-violation paths; for-each per-iteration isolation. Linear-escape rejection controls (§4.9a): `change t: Transaction` → `let y = t` / `return t` — rejected; `change t: Transaction` → `let i = t.id` / `return t.id` (`UInt` field) — permitted; `change o: Order` (non-linear record, `txn: Transaction` field) → `let x = o.txn` / `return o.txn` — rejected; non-linear `Counter` copy preserved | Positive-evidence rule: fixtures must observe the effect, not merely declare the form |
 | `examples/probes/transaction_once.hum` | **Not edited during planning.** Carried in the inventory as the writable-authority compatibility witness: `let txn` (immutable, line 66) passed as `change txn` (lines 68, 73) is the shape the item-1 authority rule newly rejects — even though `record_debit`/`record_credit` never write. The implementation-time migration is `let txn` → `change txn: Transaction = begin_transaction()`; the `hum run … --entry transfer --args 10` → `ok` assertion (`tools/check_all.ps1`:4196–4197) must keep passing unchanged. **No zero-compatibility-impact claim is made** — the example as written today exercises the newly-rejected shape, and the migration is verified at implementation time, not assumed here | Compatibility witness for the authority rule |
 | `src/run.rs` `mod tests` (5716) | Internal tests through `run_program_with_adapters` asserting the §14 observation points (post-call reads, stale-view trap-or-success) through the real evaluator — no journal | §14 seam distinction |
 
@@ -1846,37 +1865,45 @@ transfer captures from the actual `env`, never
 the postcondition `exit_env` (synthetic `result`/`old(...)`
 locals, `finish_success` 2294); the deep-copy-closure claim is
 **withdrawn** — `read_value`/`read_consume_value` clone
-unconditionally (4692, 4777). §4.9a (second correction) maps
-proposed *rejection* of ownership escapes from Borrow/Change
-authority over recognized linear resource types: keyed on the
-declared type (`Param.ty`; `is_linear_resource_type` recognizes
-tokens equal to — or ending in — `Transaction`, 5482–5485)
-crossed with source permission (Borrow/Change) — **not** on the
-`binding.linear` cleanup-obligation flag, which parameters
-hardcode to `false` (379) and so cannot identify these escape
-cases. Paths: annotated/unannotated bindings, resource-valued
-field/view copies, returns. No implicit moves, no additional
-owned snapshot. Return-site ordering corrected: expression is
-evaluated, the source root is marked moved (unless a linear
-binding), then the linear-close check runs (2633–2656). Static
-consumers: the shared producer's binding/return admission
-branches, consumed by `ownership_check` (bindings via alias
-analysis, returns via return-dependency analysis) and the
-`full_type_check` adapter at `check_stage_outcome` (252).
-Runtime consumers: `eval_binding` (2700) and the `return` arm —
-the parameter binding must carry the declared-type fact, which
-`RuntimeBinding::parameter` drops today. Non-linear `Counter`
-copying, owned-local behavior, and the L1 direct-consume
-rejection (§4.9) are preserved; no general move-on-read is
-proposed. Open for Ocean/Codex: the recognized-type set, the
-diagnostic allocation (new code vs explicit reviewed H0804
-extension — H0804's meaning is not widened silently), and the
-declared-type threading mechanism (decision 0014 honesty lock;
-no general linear-safety claim). Executed probes referenced
-in this map (H0640/H0641 call probes, the fail-closed probe) were
-run by Claude; their exact original repros stand as acceptance
-controls; walk mechanics stated here are source inspection
-at the pinned commit, not reruns.
+unconditionally (4692, 4777). §4.9a (third correction)
+separates source-place type from root authority: the rejection
+keys on the declared type of the *place* — `Param.ty` for whole
+parameters, the field's declared type (`TypeDef` `Field.ty`,
+ast.rs:568–572, resolved from the `TypeDef` named by the root's
+declared type) for direct fields — crossed with root permission
+in {Borrow, Change} (`RuntimeBinding.permission`), never on
+`binding.linear` (parameters hardcode `linear=false`, 379);
+`is_linear_resource_type` recognizes tokens equal to
+(case-insensitive) or ending in (case-sensitive) `Transaction`
+(5482–5485); no `Value::Transaction` variant exists. Proposed
+rejection (no implicit moves, no owned snapshot) through
+annotated/unannotated bindings, resource-valued field/view
+copies, and returns. Static producers: `Param.ty` +
+`TypeDef` `Field.ty` (the `full_type_check` walk already emits
+`record_field_place_v0`, 2441); static consumers: the shared
+producer's binding/return admission branches →
+`ownership_check` and the `full_type_check` adapter at
+`check_stage_outcome` (252). Runtime: the interpreter retains no
+`TypeDef`s and `Value::Record` carries no type name (291), so
+both declared-type facts must be threaded to the parameter
+binding (`RuntimeBinding::parameter` drops them today,
+2104–2111); consumers are `eval_binding` (2700) and the return
+arm (2633–2656). Return-site ordering corrected: the expression
+is evaluated (2634), `mark_moved` is called on the visible
+source root but marks only `Local`/`Consume` bindings
+(4826–4837) — a Borrow/Change root is not marked moved — then
+the linear-close check runs (2642); with `linear=false` no trap
+fires and the value escapes while the source remains unmarked.
+Acceptance controls: Borrow/Change `Transaction` → owned
+copy/return rejected; `Transaction.id: UInt` → ordinary
+copy/return permitted; non-linear record's `Transaction` field
+→ owned copy/return rejected; non-linear `Counter` copying
+permitted. No general copyability or new inference.
+Diagnostic allocation stays proposed (new code vs explicit
+reviewed H0804 extension — H0804 not widened silently);
+recognized-type set and declared-type threading open for
+Ocean/Codex; Claude attribution + exact original repros
+retained as acceptance controls; 0014 honesty lock.
 
 **Recommendations** (argued by the map; need Ocean/Codex approval):
 D2 (reject element-place change args via static admission), D4
