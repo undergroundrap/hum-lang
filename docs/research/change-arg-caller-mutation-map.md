@@ -337,16 +337,58 @@ never inferred into effects.
 ### 4.3 Threading final parameter values
 
 `execute_task` (2040) gains a second result: the callee's final
-parameter values in param order (no effect records). The four call
-sites: entry path (1837), expression-application (3047), direct
+parameter values in param order (no effect records).
+
+**Prerequisite — declaration-time block restoration.** Each call
+restores the callee's declaration-time block before the body runs:
+`execute_task_body` (2072) builds a fresh `Env::new()` and binds
+each parameter as `RuntimeBinding::parameter(value, permission,
+definition_id)` (run.rs:372–384 — permission, definition_id,
+linear, writable metadata). Reliable mutation transfer depends on
+this restoration and on preserving, through body execution, all
+four of: (1) **initializer effects** — body `let`/`change`
+initializers evaluate with their effects; the transfer never
+reorders or skips them; (2) **executed shadows** — nested blocks
+save and restore shadowed bindings on every path (WO28 #16,
+`eval_block` 2530–2548: if-block `let`/`change` bindings are
+scoped like for-each binders), so a parameter shadowed inside a
+nested block is the restored parameter binding at exit; (3)
+**per-iteration scope** — for-each binders are block-scoped the
+same way and never disturb parameter bindings; (4) **binding
+metadata** — permission, `definition_id`, and `linear` survive to
+exit. The transfer therefore identifies actual parameter bindings
+**by metadata** (`definition_id.is_some()` — the existing
+`binding_by_definition_id`, run.rs:4695), never by bare name, so
+an executed shadow cannot be mistaken for the parameter.
+
+The four call sites: entry path (1837), expression-application (3047), direct
 application (3077) destructure and ignore it; only the user-task call
 site (3161) consumes it for the §4.5 transfer. Inside
 `execute_task_body`, final values are captured from the callee env at
 each exit point: `Return`/fallthrough (env in scope), `Fail` (env in
 scope at 2126), `needs:`-`ContractViolation` (body never ran — no
-transfer; outcomes empty), `ensures:`-`ContractViolation` inside
-`finish_success` (transfer per the delegated ruling: completed
+transfer; outcomes empty), `ensures:`-`ContractViolation` —
+captured from the actual `env`, **not** from the postcondition
+`exit_env` (§4.3a; transfer per the delegated ruling: completed
 mutations survive postcondition failure).
+
+### 4.3a Capture site: actual parameter bindings, not the postcondition environment
+
+`finish_success` (2294) clones the body-exit `env` into `exit_env`
+and inserts a synthetic `result` local
+(`RuntimeBinding::local(value, false)`) before evaluating
+`ensures:`; `capture_old_contract_values` (2306) additionally
+inserts `old(...)` locals into the pre/postcondition environments.
+The §4.5 transfer **must capture from the actual `env`** — the
+parameter bindings as the body left them, identified by metadata
+(§4.3) — never from `exit_env`: `exit_env`'s synthetic `result`
+and `old(...)` locals are postcondition machinery, and a body
+binding legitimately named `result` would be indistinguishable
+there. Concretely, the parameter snapshot is taken from the `env`
+passed to `finish_success` **before** the `exit_env` clone, so
+the transfer reads actual parameter bindings on every path —
+including `ensures:`-`ContractViolation`, where completed
+mutations survive per the delegated ruling.
 
 ### 4.4 No per-mutation history (delegated ruling 2026-09-29)
 
@@ -704,6 +746,63 @@ designated diagnostic, regardless of the call keyword:
   parameter — unaffected. No zero-compatibility-impact claim beyond
   this checked inventory.
 
+### 4.9a Ownership-laundering closure (narrow; Claude finding 2026-09-30)
+
+**Laundering** = a Change/Borrow parameter's value reaching a
+`Consume` parameter through an intermediate binding the §4.9 guards
+do not see. The narrow closure is mapped here in full — direct,
+one-hop local, and return paths:
+
+- **L1 — direct** (`consume p`, `p`, `borrow p` where `p` is a
+  Change/Borrow parameter): the true laundering path — the frame
+  mints ownership it never had. Closed by §4.9 (rejection; today
+  it is the silent no-op: `read_consume_value` clones at 4777
+  while `mark_moved` skips non-`Local`/`Consume` bindings at
+  4826).
+- **L2 — one-hop unannotated local copy** (`let y = p`, then
+  `sink(consume y)` / `sink(y)` / `sink(borrow y)`): the
+  intermediate is an **unannotated** local, so neither the static
+  §4.9 branch (which keys on declared parameter permissions) nor
+  the runtime guard (which keys on binding permission) sees
+  through it. Severed by value semantics: `eval_binding`
+  (2698–2755) inserts `RuntimeBinding::local(value, linear=false)`
+  for unannotated `let` — **non-linear** (`linear` is set only
+  when the annotation names a linear resource type,
+  `annotation.is_some_and(is_linear_resource_type)` at 2740) —
+  and the value is a **deep copy** (`Value: Clone` over owned
+  `BTreeMap`/`Vec`, run.rs:286–296; `read_value` clones at
+  4692). The frame legitimately owns the copy; consuming `y`
+  moves the copy (`mark_moved` marks `Local`), never the caller's
+  place; the §4.5 transfer still reads `p`'s binding by metadata
+  (§4.3). No aliasing path exists.
+- **L2b — borrow-view local** (`let v = borrow p.x`, then
+  `sink(consume v)`): `eval_binding` inserts a
+  `RuntimeBinding::view` (permission `Local`, snapshot value +
+  `source_place`; `borrowed_view_source` 5416) — the snapshot is a
+  clone taken at view creation, and invalidation is logical
+  (H0807), not memory aliasing. Consuming the view moves the
+  snapshot; the source place is untouched.
+- **L3 — return** (`return p`; the caller binds the returned value
+  and consumes it): the returned value is a value, not a place —
+  the caller's fresh local owns it, consuming it is ordinary, and
+  the callee's exit transfer is independent of the return.
+
+**Non-linear copying is preserved:** `let y = p` stays legal in
+all positions — the repair targets the *consume* (L1), never the
+copy. No taint tracking through locals is proposed: the closure is
+narrow because value semantics sever L2/L2b/L3, not because the
+checker follows them.
+
+**Explicit ruling identification (as required): no additional
+semantic ruling is needed.** The closure is fully determined:
+L1 → §4.9 rejection (its proposed diagnostic joins the §4.9
+allocation ruling); L2/L2b/L3 → severed by settled value
+semantics (deep copies, snapshot views, owned return values —
+run.rs:286–296, 2698–2755, 4692, 5416). This determination is
+stated here explicitly so no reviewer must re-derive it; if
+Ocean/Codex disagree, that disagreement is itself the ruling to
+record.
+
 ## 5. Settled rules / unsupported shapes / genuine policy choices
 
 ### Settled (from 0014/0016, existing behavior, this audit)
@@ -783,12 +882,17 @@ authoritative in §13; this section states the split:
   `permission: ParamPermission` on declared parameters, ast.rs:83;
   `Binding { mutable, .. }`, ast.rs). It decides everything
   provable without runtime state — D4 argument shape, D5
-  keyword/permission match, provable authority violations (e.g.
-  `change` on a `let`-bound root, syntactic consume+change on one
-  root), the non-ownership→Consume controls (§4.9), and overlap on
+  keyword/permission match, provable authority violations
+  (`change` on a `let`-bound root, syntactic consume+change on one
+  root, and **Known Borrow**: a `change` argument whose root is
+  statically known to be borrow-permissioned — a caller-declared
+  `borrow` parameter or a `let`-bound borrow view — emitting H0802),
+  the non-ownership→Consume controls (§4.9), and overlap on
   syntactic caller places — in a single pass, first failure wins
   (authority-before-overlap is structural: the producer stops at
-  the first failing stage). The producer lives in a new narrow
+  the first failing stage, and Known Borrow authority precedes
+  overlap — a `change` on a known borrow root that also overlaps
+  another change argument emits H0802, never H0810). The producer lives in a new narrow
   module `src/change_arg_admission.rs` and emits no diagnostics
   itself; it also owns the shared message/help builders, so both
   static consumers — and the runtime `*_trap` helpers where the
@@ -801,12 +905,19 @@ authoritative in §13; this section states the split:
   emitting the proposed designated diagnostics into the existing
   occurrence set via `diagnostic_occurrence_set`
   (ownership_check.rs:822). Consumer B is the ordinary `hum check`
-  pipeline: a narrow adapter inside `full_type_check`'s
-  per-statement walk (alongside `call_shape_issue`, 1997, and
-  `call_argument_type_issue`, 2253), emitting through
-  `CheckStageOutcome.diagnostics` — the same channel as the
-  H0640/H0641 call probes. **The walk visits every user-task call
-  expression** — call statements, binding initializers, return
+  pipeline: a narrow adapter at `check_stage_outcome`
+  (full_type_check.rs:252) — the `hum check`-only entry — emitting
+  through `CheckStageOutcome.diagnostics`, the same channel as the
+  H0640/H0641 call probes. The adapter is deliberately **not**
+  inside the shared `build_report_with` per-statement walk: that
+  construction is shared with the effect-check pipeline via
+  `with_full_type_for_effect` (744; consumed at
+  effect_check.rs:440, 508), so check-only admission placed inside
+  it would leak change-arg diagnostics into effect checking. The
+  adapter runs after `build_report` returns: it walks the
+  program's parsed body statements through the shared producer and
+  appends the resulting diagnostics to the outcome.
+  **The walk visits every user-task call expression** — call statements, binding initializers, return
   expressions, and nested argument positions — **regardless of
   which argument keywords the call carries**: D5 mismatches and
   the §4.9 non-ownership→Consume controls fire on calls with no
@@ -817,14 +928,16 @@ authoritative in §13; this section states the split:
   (the §2 argument owner): phase 0 runs the pre-authority stages
   fail-fast (arity/unknown-task, D4 shape, D5 keyword/permission);
   phase 2 runs authority (mutable/moved/iteration/
-  borrow-permission via the existing `ensure_can_set` family) →
+  borrow-permission — Known Borrow — via the existing
+  `ensure_can_set` family) →
   overlap (the H0810 backstop, then the live-alias H0808 check —
   liveness is runtime state) → snapshots; then the §4.5 transfer
   itself.
 
 **Admission order** (deterministic; one diagnostic per call — the
 first failure wins): shape (D4) → keyword/permission (D5) →
-authority → overlap. **Static deferral:** when the
+authority (immutable-place, moved/consumed-root, **Known
+Borrow**) → overlap. **Static deferral:** when the
 `ownership_check` stage proves an authority violation for a call,
 it emits the authority diagnostic and defers — does not emit — the
 overlap diagnostic for that call. **Runtime timing:** phase 0 runs
@@ -885,15 +998,22 @@ path_boundary → callable → capability_root → resolve → type_check
 type_check, and full_type_check check-stage diagnostics run only
 for the `check` command — main.rs:496–530). The new static
 admission reaches `hum check` through Consumer B, the narrow
-adapter inside `full_type_check`'s per-statement walk — not through
-`ownership_check`. Adapter mechanics (all source-backed at the
-pinned commit): the adapter walks `CanonicalExpression` trees
-exactly like the H0640/H0641 probes — `call_shape_issue` (1997)
-and `call_argument_type_issue` (2253) recurse through
-`canonical_child_expressions` across `Return`, `Binding`, and
-`Other` statements, so calls inside bindings, returns, and nested
-expressions are all visited; `strip_permission_expression` (2560)
-already strips `borrow`/`change`/`consume` argument keywords.
+adapter at `check_stage_outcome` (full_type_check.rs:252) — not
+through `ownership_check`, and not inside the shared
+`build_report_with` walk (see §6: that walk is shared with effect
+checking via `with_full_type_for_effect`). Adapter mechanics (all
+source-backed at the pinned commit): the adapter walks the
+program's parsed body statements' canonical expressions in
+pre-order exactly like the H0640/H0641 probes —
+`call_shape_issue` (1997) and `call_argument_type_issue` (2253)
+recurse through `canonical_child_expressions` across `Return`,
+`Binding`, and `Other` statements, so calls inside bindings,
+returns, and nested expressions are all visited;
+`strip_permission_expression` (2560) already strips
+`borrow`/`change`/`consume` argument keywords. **Probe
+attribution:** the H0640/H0641 call probes were executed by
+Claude; the walk mechanics above are source inspection at the
+pinned commit, not a rerun of those probes.
 Gating: the adapter runs the producer only for arity-clean calls
 whose callee resolves builtin-first through `task_signatures` —
 unknown callees are skipped (the resolver owns H0601) and arity
@@ -951,7 +1071,7 @@ static-side cell appears.
 | change/change or change/borrow-declaring-arg overlap | **Static primary:** `ownership_check` on syntactic caller places → report, exit 1 | **Backstop:** phase-2 overlap sweep (~3143+), after the authority sweep, same diagnostic → diagnostic+trap, exit 2 | **H0810 proposed** | `src/ownership_check.rs` + `src/run.rs` (backstop) + catalog checklist iff accepted (`src/diagnostic_catalog.rs` §8 checklist, `docs/DIAGNOSTICS.md` mirror row, `tools/check_all.ps1` pinned count in `Invoke-HumCompilerFrontChecks`, `tools/test_ci_policy.ps1` `$CompilerBodies` re-pin for that function) |
 | change arg overlapping a live caller writable alias | — (liveness is runtime state) | phase-2 live-alias check → diagnostic+trap, exit 2 | **H0808** (existing meaning: the call creates the second live writer H0808 forbids) | `src/run.rs` only |
 | change arg on immutable place | `ownership_check` emits the authority diagnostic when it proves the violation (authority-before-overlap deferral) → report, exit 1 | phase-2 `ensure_can_set` authority sweep → diagnostic+trap, exit 2 | proposed `H0xxx` change argument on immutable place (code TBD at allocation) | `src/ownership_check.rs` + `src/run.rs` + catalog checklist iff accepted (as above) |
-| change arg on borrow-permission root | — | phase-2 `ensure_can_set` → `borrow_mutation_trap` (4856) → diagnostic+trap, exit 2 | **H0802** (same authority violation as an in-body write through a borrow) | `src/run.rs` only |
+| change arg on borrow-permission root | **Known Borrow:** `ownership_check`/adapter emit H0802 when the root is statically known borrow-permissioned (caller `borrow` param / borrow-view binding) — ordered **before** overlap (authority-before-overlap) → report, exit 1 | phase-2 `ensure_can_set` → `borrow_mutation_trap` (4856) → diagnostic+trap, exit 2 | **H0802** (same authority violation as an in-body write through a borrow) | `src/run.rs` + producer/adapter per the implication above |
 | change arg whose root is moved — before the call or consumed during argument evaluation (`change r.x` + `consume r`, or `consume r.z` which is root-granular) | `ownership_check`: syntactic consume+change on the same root → designated diagnostic (authority-before-overlap) → report, exit 1 | phase-2 moved check → diagnostic+trap, exit 2 — the transfer never resurrects a moved root | proposed `H0xxx` change argument on consumed/moved place (code TBD at allocation) | `src/ownership_check.rs` + `src/run.rs` + catalog checklist iff accepted (as above) |
 | non-ownership resource into a Consume parameter — `consume p`, ordinary `p`, or `borrow p` where `p` is a Change/Borrow parameter (§4.9) | `ownership_check` branch (Change/Borrow params are not movable roots — `is_movable_root` 2924) → report, exit 1 | consume-branch guard (~3144) for the keyword form; ordinary/`borrow`-path guard (3148) for the other two → diagnostic+trap, exit 2 | proposed `H0xxx` — **one** designated diagnostic for all three keyword forms (code TBD at allocation) | `src/ownership_check.rs` + `src/run.rs` + catalog checklist iff accepted (as above) |
 | change arg on actively iterated root | — | phase-2 `active_iteration_for` (4661) → `iteration_mutation_trap` (4884) → diagnostic+trap, exit 2 | **H0806** (same structural-mutation-during-iteration conflict) | `src/run.rs` only |
@@ -971,7 +1091,11 @@ template, one checklist per code). The
 borrow-permission-root change arg keeps H0802 explicitly: passing a
 borrow-permission root as `change` requests write authority through
 a borrow — the same authority violation `borrow_mutation_trap`
-names, not an expansion. Precedence among the catalog rows is the §6
+names, not an expansion. **Known Borrow takes precedence over
+overlap:** a `change` argument on a statically-known borrow root
+that also overlaps another change argument emits H0802 (authority),
+never H0810 — on both sides, per the §6 admission order.
+Precedence among the catalog rows is the §6
 admission order (shape → keyword/permission → authority →
 overlap), applied identically on the static and runtime sides; the
 existing `DIAGNOSTIC_PRECEDENCE` specs
@@ -1015,7 +1139,7 @@ planning delivery.
 | File | Change | Why |
 |---|---|---|
 | `src/run.rs` | Two-phase argument loop at the user-task call site (§4.2, at 3143–3160); thread final parameter values through `execute_task` (2040) / `execute_task_body` (2072); the §4.5 final-value transfer + `CallAccess` overlap sweep at the call site through the real call owner (every exit, per the D1/D1-sub ruling); runtime admission — phase 0 runs the pre-authority stages (arity/unknown-task, D4 shape, D5 keyword/permission), phase 2 runs authority (`ensure_can_set` family) → overlap (H0810 backstop after the authority sweep, then live-alias H0808) → snapshots; new consume-branch guard (~3144) and ordinary/`borrow`-path guard (3148) for the §4.9 non-ownership controls; new H0807 `(Field, CallAccess)` / `(Element, CallAccess)` trap arms (existing `stale_view_trap` path, `FieldWrite`/`ListAppend` arms unchanged); no per-mutation instrumentation | The defect and the runtime mechanism owner live here (§2) |
-| `src/main.rs` | **No production change proposed.** Named as the consumer adapter the plan must stay consistent with: `hum ownership-check` report path (993–1025, `ownership_check_text`/`ownership_check_json` via `callable_text_report`/`callable_json_report`); `hum run --native` preflight admission gate on `ownership_check_has_errors` (1355–1380); trap printing + exit 2 (1528–1531, 1639–1646); the `hum check` stage pipeline (440–560) — no new stage is added, so the D3 `stages` listing stays truthful. Affected CLI tests (by intent, at implementation): `hum check` stages assertions, ownership-check text/JSON assertions for the new diagnostics, `validate_aq_diagnostic_occurrences` tests | Consumer adapter; stages truthfulness (§6) |
+| `src/main.rs` | **Crate-root declaration only:** add `mod change_arg_admission;` (alphabetical — between `mod capability_root;` and `mod check;`, main.rs:10–11) for the new narrow producer module; this is the sole production change in this file. Named as the consumer adapter the plan must stay consistent with: `hum ownership-check` report path (993–1025, `ownership_check_text`/`ownership_check_json` via `callable_text_report`/`callable_json_report`); `hum run --native` preflight admission gate on `ownership_check_has_errors` (1355–1380); trap printing + exit 2 (1528–1531, 1639–1646); the `hum check` stage pipeline (440–560) — no new stage is added, so the D3 `stages` listing stays truthful. Affected CLI tests (by intent, at implementation): `hum check` stages assertions, ownership-check text/JSON assertions for the new diagnostics, `validate_aq_diagnostic_occurrences` tests | Consumer adapter; stages truthfulness (§6) |
 | `src/diagnostic.rs` | **No production change proposed.** The new H0807 `CallAccess` trap arms construct their related spans (borrow site, call-access site) through the existing `with_related_span` builder (244) | Consumed by the new H0807 arms; no change needed |
 | `src/diagnostic_catalog.rs` | **Only if a proposed diagnostic is accepted:** §8-style checklist per accepted code — `diagnostic_causes!` entry (next free cause key), `diagnostic_code_allocations!` entry (next free allocation key), `historical_public_ordinal` arm, `DIAGNOSTICS` detail entry, the exact count literals in §8 item 5 — plus the open ruling whether H0810's cause key 194 joins `OWNERSHIP_CAUSES`. **Regardless of acceptances:** the H0807 `DIAGNOSTICS` detail entry's explanation/repair prose covers call-access invalidation (§4.5) — prose only; the code row (allocation key 70) is unchanged and no cause key is added | Designated diagnostic-identity owner |
 | `src/ownership_check.rs` | **Only if the repair is approved:** static admission of D4/D5/D2 shapes, syntactic overlap, the authority branches (immutable-place change arg, syntactic consume+change on one root), and the non-ownership→Consume-parameter branch (§4.9) — new per-call admission branches in the `ownership_check` stage **calling the shared producer** (`src/change_arg_admission.rs`), invoked for every user-task call expression (not only change-keyword calls), emitting the proposed designated diagnostics into the existing occurrence set; authority-before-overlap deferral is structural in the producer | Proposed static admission owner (by intent); the stage that owns the H08x family |
@@ -1383,7 +1507,8 @@ Producers — one shared static producer, two static consumers, one
 runtime owner (§6): **static producer:** the pure admission
 function in the new narrow `src/change_arg_admission.rs` — D4/D5/D2
 shapes, syntactic overlap, the provable-authority branches
-(immutable-place change arg, syntactic consume+change on one root),
+(immutable-place change arg, syntactic consume+change on one root,
+**Known Borrow** authority → H0802, ordered before overlap),
 and the non-ownership→Consume-parameter branch (§4.9) — deciding
 the statically-decidable stages in admission order with
 authority-before-overlap structural (first failure wins); it emits
@@ -1395,12 +1520,14 @@ initializers, return expressions, nested argument positions —
 regardless of argument keywords, emitting the proposed designated
 diagnostics into the existing occurrence set
 (`diagnostic_occurrence_set`, ownership_check.rs:822); (B) the
-narrow adapter inside `full_type_check`'s per-statement walk (the
-`hum check` path: the `call_shape_issue`/`call_argument_type_issue`
-walk pattern — `Return`/`Binding`/`Other` statements, nested calls
-via `canonical_child_expressions`, builtin-first callee
-resolution, unknown callees skipped), emitting through
-`CheckStageOutcome.diagnostics`. The two static consumers are
+narrow adapter at `check_stage_outcome` (full_type_check.rs:252 —
+the `hum check`-only entry, **not** inside the shared
+`build_report_with` walk, which effect checking also consumes via
+`with_full_type_for_effect`): the `call_shape_issue`/
+`call_argument_type_issue` walk pattern (`Return`/`Binding`/`Other`
+statements, nested calls via `canonical_child_expressions`,
+builtin-first callee resolution, unknown callees skipped), emitting
+through `CheckStageOutcome.diagnostics`. The two static consumers are
 command-disjoint (`hum check` never runs `ownership_check`; the
 native preflight and explicit `hum ownership-check` never run the
 check pipeline's `full_type_check`), so no cross-consumer
@@ -1608,7 +1735,35 @@ rejected — mutation authority is not ownership-transfer authority
 `Local | Consume` only); Session W's public permission-bearing
 `try` stays unsupported while private caller-Env tests may drive
 the real evaluator/call boundary, labeled separately from public
-CLI behavior (§14).
+CLI behavior (§14); the Codex outstanding fixes (2026-09-30): the
+`hum check` admission adapter sits at `check_stage_outcome`
+(full_type_check.rs:252) — not inside the shared
+`build_report_with` walk, which effect checking also consumes via
+`with_full_type_for_effect` (744); Known Borrow authority (H0802)
+precedes overlap (H0810) on both sides — a `change` on a
+statically-known borrow root emits H0802, never H0810; the new
+module's `mod change_arg_admission;` crate-root declaration
+(main.rs:10–11) is in the §7 inventory. Claude's findings
+(2026-09-30): declaration-time block restoration is the transfer's
+prerequisite — fresh `Env` with
+`RuntimeBinding::parameter(value, permission, definition_id)`
+metadata per call, preserving initializer effects, executed
+shadows (WO28 #16 block save/restore), per-iteration scope, and
+binding metadata, with actual parameter bindings identified by
+`definition_id` (`binding_by_definition_id`, run.rs:4695) — never
+by bare name; the transfer captures from the actual `env`, never
+the postcondition `exit_env` (synthetic `result`/`old(...)`
+locals, `finish_success` 2294); the narrow ownership-laundering
+closure is mapped in §4.9a (L1 direct closed by §4.9; L2 one-hop
+unannotated-local copy, L2b borrow-view local, and L3 return
+severed by deep-copy/snapshot value semantics —
+run.rs:286–296, 2698–2755, 4692, 5416), non-linear copying is
+preserved (`let y = p` stays legal; the repair targets the
+consume, never the copy), and no additional semantic ruling is
+required — stated explicitly in §4.9a. Executed probes referenced
+in this map (H0640/H0641 call probes, the fail-closed probe) were
+run by Claude; walk mechanics stated here are source inspection
+at the pinned commit, not reruns.
 
 **Recommendations** (argued by the map; need Ocean/Codex approval):
 D2 (reject element-place change args via static admission), D4
