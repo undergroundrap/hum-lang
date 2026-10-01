@@ -46,8 +46,7 @@ Repair caller-visible mutation for `change` arguments in two parts:
   `restore_binding`, replacing the entry-time `block_binding_names`
   precomputation; loop-body declarations saved/restored per iteration.
   Completed writes, moved/view metadata, and early-exit behavior are
-  preserved; parameter identity through `definition_id`; final-value
-  capture from the actual body `env`, not the postcondition `exit_env`.
+  preserved; parameter identity through `definition_id`.
 - **Item B — change-call admission, transfer, invalidation, and the narrow
   ownership-escape controls.** The map's §§4.2/4.5/4.7/4.9/4.9a: the
   two-phase argument loop at the user-task call site; phase-0
