@@ -91,8 +91,86 @@ pub(crate) struct CapabilityRouteFact {
 pub(crate) struct CapabilityAnalysis {
     pub diagnostics: Vec<Diagnostic>,
     pub routes: Vec<CapabilityRouteFact>,
+    /// Explicit `(diagnostic_index, route_index)` pairs recording the exact
+    /// producer-owned route that carries each diagnostic's code. Recorded at
+    /// production time so `seal_analysis` verifies the true association
+    /// instead of pairing diagnostics to code-carrying routes positionally.
+    pub(crate) diagnostic_route_pairs: Vec<(usize, usize)>,
     pub(crate) diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet,
     pub(crate) diagnostic_projections: Vec<CapabilityDiagnosticProjection>,
+}
+
+/// Lexical identity of one operation call site: the capability it exercises,
+/// the owning task, and the exact call span. Two caller paths that reach the
+/// same identity are two path facts over one diagnostic owner.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct OperationIdentity {
+    capability: SourceCapability,
+    task: String,
+    file: String,
+    line: usize,
+    column: usize,
+}
+
+impl OperationIdentity {
+    fn new(capability: SourceCapability, task: &str, span: &Span) -> Self {
+        Self {
+            capability,
+            task: task.to_string(),
+            file: span.file.clone(),
+            line: span.line,
+            column: span.column,
+        }
+    }
+}
+
+/// Pushes capability diagnostics and routes while recording their exact
+/// association. A diagnostic and the route carrying its code are produced
+/// together, or explicitly paired later for operation calls whose routes
+/// need reachability computed after the diagnostic loop, so the seal never
+/// pairs them by position.
+struct CapabilityRouteSink<'a> {
+    diagnostics: &'a mut Vec<Diagnostic>,
+    routes: &'a mut Vec<CapabilityRouteFact>,
+    pairs: &'a mut Vec<(usize, usize)>,
+}
+
+impl CapabilityRouteSink<'_> {
+    fn push(&mut self, diagnostic: Diagnostic, route: CapabilityRouteFact) {
+        debug_assert!(
+            route.diagnostic_code.is_some(),
+            "paired route must carry its diagnostic code"
+        );
+        let diagnostic_index = self.diagnostics.len();
+        self.diagnostics.push(diagnostic);
+        let route_index = self.routes.len();
+        self.routes.push(route);
+        self.pairs.push((diagnostic_index, route_index));
+    }
+
+    fn push_route(&mut self, route: CapabilityRouteFact) {
+        debug_assert!(
+            route.diagnostic_code.is_none(),
+            "unpaired route must not claim a diagnostic code"
+        );
+        self.routes.push(route);
+    }
+
+    fn push_pending(&mut self, diagnostic: Diagnostic) -> usize {
+        let diagnostic_index = self.diagnostics.len();
+        self.diagnostics.push(diagnostic);
+        diagnostic_index
+    }
+
+    fn pair(&mut self, diagnostic_index: usize, route: CapabilityRouteFact) {
+        debug_assert!(
+            route.diagnostic_code.is_some(),
+            "paired route must carry its diagnostic code"
+        );
+        let route_index = self.routes.len();
+        self.routes.push(route);
+        self.pairs.push((diagnostic_index, route_index));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -478,19 +556,84 @@ fn one_entry_diagnostic(
 }
 
 fn seal_analysis(_program: &Program, analysis: &mut CapabilityAnalysis) {
-    let diagnostic_routes = analysis
-        .routes
-        .iter()
-        .enumerate()
-        .filter(|(_, route)| route.diagnostic_code.is_some())
-        .collect::<Vec<_>>();
+    let pairs = std::mem::take(&mut analysis.diagnostic_route_pairs);
     assert_eq!(
         analysis.diagnostics.len(),
-        diagnostic_routes.len(),
+        pairs.len(),
         "every capability diagnostic must leave with one analyzer-owned route"
     );
-    for (diagnostic, (route_index, route)) in analysis.diagnostics.iter_mut().zip(diagnostic_routes)
-    {
+    let mut route_claimed = vec![false; analysis.routes.len()];
+    let mut diagnostic_owned = vec![false; analysis.diagnostics.len()];
+    for (diagnostic_index, route_index) in &pairs {
+        assert!(
+            *diagnostic_index < analysis.diagnostics.len(),
+            "paired capability diagnostic index must exist"
+        );
+        let diagnostic = &analysis.diagnostics[*diagnostic_index];
+        let route = analysis
+            .routes
+            .get(*route_index)
+            .expect("paired capability route index must exist");
+        assert!(
+            !diagnostic_owned[*diagnostic_index],
+            "one capability diagnostic must not claim two owning routes"
+        );
+        diagnostic_owned[*diagnostic_index] = true;
+        assert!(
+            route.diagnostic_code == Some(diagnostic.code.as_str()),
+            "paired capability route must carry its diagnostic's exact code"
+        );
+        assert_eq!(
+            diagnostic.span.as_ref(),
+            Some(&route.primary_span),
+            "paired capability route must carry its diagnostic's exact primary span"
+        );
+        if matches!(
+            route.check,
+            "source_capability_output_operation"
+                | "source_capability_replay_operation"
+                | "source_capability_file_operation"
+        ) {
+            assert_eq!(
+                route
+                    .resolver_call
+                    .as_ref()
+                    .map(|resolver_call| &resolver_call.exact_call_span),
+                diagnostic.span.as_ref(),
+                "operation route must carry its diagnostic's exact resolver-call span"
+            );
+        }
+        assert!(
+            !route_claimed[*route_index],
+            "one capability route must not own two diagnostics"
+        );
+        route_claimed[*route_index] = true;
+    }
+    assert!(
+        diagnostic_owned.iter().all(|owned| *owned),
+        "every capability diagnostic must own exactly one route"
+    );
+    for (route_index, route) in analysis.routes.iter().enumerate() {
+        assert!(
+            route.diagnostic_code.is_none() || route_claimed[route_index],
+            "every code-carrying capability route must be paired with its diagnostic"
+        );
+    }
+    // Seal in diagnostic order so projections keep their existing order; the
+    // route ordinal sealed into each diagnostic still names the true owning route.
+    let mut ordered = pairs;
+    ordered.sort_unstable();
+    let CapabilityAnalysis {
+        diagnostics,
+        routes,
+        diagnostic_occurrences,
+        diagnostic_projections,
+        diagnostic_route_pairs,
+    } = analysis;
+    for (diagnostic_index, route_index) in ordered.iter().copied() {
+        let route = &routes[route_index];
+        let diagnostic = &mut diagnostics[diagnostic_index];
+
         let cause_key = match route.check {
             "source_capability_vocabulary" => {
                 crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(91)
@@ -556,17 +699,17 @@ fn seal_analysis(_program: &Program, analysis: &mut CapabilityAnalysis) {
                 .expect("capability occurrence must carry its exact resolver call");
         }
         *diagnostic = sealed.clone();
-        analysis
-            .diagnostic_projections
-            .push(CapabilityDiagnosticProjection {
-                diagnostic: sealed,
-                occurrence: occurrence.clone(),
-            });
-        analysis
-            .diagnostic_occurrences
+        diagnostic_projections.push(CapabilityDiagnosticProjection {
+            diagnostic: sealed,
+            occurrence: occurrence.clone(),
+        });
+        diagnostic_occurrences
             .insert_owned(occurrence)
             .expect("capability diagnostic occurrences must be unique");
     }
+    // Restore the explicit pairing so callers can resolve each diagnostic to
+    // its producer-owned route without positional inference.
+    *diagnostic_route_pairs = ordered;
 }
 
 fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis {
@@ -581,6 +724,16 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
     let entry_span = start_declaration_span(app).unwrap_or_else(|| start.span.clone());
     let mut diagnostics = Vec::new();
     let mut routes = Vec::new();
+    let mut diagnostic_route_pairs = Vec::new();
+    // Operation diagnostics are produced in task order below, but their routes
+    // need reachability computed afterwards; the pending index lets each route
+    // pair with its true diagnostic instead of by position.
+    let mut pending_operation_diagnostics: BTreeMap<OperationIdentity, usize> = BTreeMap::new();
+    let mut sink = CapabilityRouteSink {
+        diagnostics: &mut diagnostics,
+        routes: &mut routes,
+        pairs: &mut diagnostic_route_pairs,
+    };
     let output_recursion_has_complete_authority = app_capabilities
         .contains_key(&SourceCapability::StdoutWrite)
         && !reachable_output_routes.is_empty()
@@ -639,10 +792,9 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 span.clone(),
             );
         }
-        diagnostics.push(diagnostic);
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(issue.task_route.clone());
-        routes.push(route_fact(
+        let route = route_fact(
             program,
             "source_capability_output_recursion",
             "rejected_output_reachable_recursion_v0",
@@ -662,7 +814,8 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 "Replace output-bearing recursion with an explicit bounded loop or non-recursive task chain."
                     .to_string(),
             ),
-        ));
+        );
+        sink.push(diagnostic, route);
     }
 
     if let Some(issue) = replay_recursion
@@ -700,10 +853,9 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 span.clone(),
             );
         }
-        diagnostics.push(diagnostic);
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(issue.task_route.clone());
-        routes.push(route_fact(
+        let route = route_fact(
             program,
             "source_capability_replay_recursion",
             "rejected_replay_reachable_recursion_v0",
@@ -723,48 +875,46 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 "Replace replay-bearing recursion with an explicit bounded loop or non-recursive task chain."
                     .to_string(),
             ),
-        ));
+        );
+        sink.push(diagnostic, route);
     }
 
     for (capability, span) in app_unknown {
-        diagnostics.push(unknown_capability_diagnostic(
-            &capability,
-            &span,
-            "app",
-            &app.name,
-            &app.span,
-        ));
-        routes.push(unknown_route(
+        let diagnostic =
+            unknown_capability_diagnostic(&capability, &span, "app", &app.name, &app.span);
+        let route = unknown_route(
             program,
             &capability,
             &span,
             &start.span,
             Some(app),
             Some(start),
-        ));
+        );
+        sink.push(diagnostic, route);
     }
 
     for task_name in &graph.order {
         let node = &graph.tasks[task_name];
         for (capability, span) in &node.unknown_capabilities {
-            diagnostics.push(unknown_capability_diagnostic(
+            let diagnostic = unknown_capability_diagnostic(
                 capability,
                 span,
                 "task",
                 &node.task.name,
                 &node.task.span,
-            ));
-            routes.push(unknown_route(
+            );
+            let route = unknown_route(
                 program,
                 capability,
                 span,
                 &node.task.span,
                 Some(app),
                 Some(node.task),
-            ));
+            );
+            sink.push(diagnostic, route);
         }
         for (capability, declaration_span) in &node.capabilities {
-            routes.push(task_budget_route(
+            sink.push_route(task_budget_route(
                 program,
                 app,
                 node.task,
@@ -778,13 +928,21 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 .contains_key(&SourceCapability::StdoutWrite);
             let app_covers = app_capabilities.contains_key(&SourceCapability::StdoutWrite);
             if !task_covers || !app_covers {
-                diagnostics.push(missing_output_source_diagnostic(
+                let diagnostic_index = sink.push_pending(missing_output_source_diagnostic(
                     Some(app),
                     node.task,
                     &resolver_call.exact_call_span,
                     task_covers,
                     app_covers,
                 ));
+                pending_operation_diagnostics.insert(
+                    OperationIdentity::new(
+                        SourceCapability::StdoutWrite,
+                        &node.task.name,
+                        &resolver_call.exact_call_span,
+                    ),
+                    diagnostic_index,
+                );
             }
         }
         for resolver_call in &node.replay_calls {
@@ -793,30 +951,47 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 .contains_key(&SourceCapability::ClockReplay);
             let app_covers = app_capabilities.contains_key(&SourceCapability::ClockReplay);
             if !task_covers || !app_covers {
-                diagnostics.push(missing_replay_source_diagnostic(
+                let diagnostic_index = sink.push_pending(missing_replay_source_diagnostic(
                     Some(app),
                     node.task,
                     &resolver_call.exact_call_span,
                     task_covers,
                     app_covers,
                 ));
+                pending_operation_diagnostics.insert(
+                    OperationIdentity::new(
+                        SourceCapability::ClockReplay,
+                        &node.task.name,
+                        &resolver_call.exact_call_span,
+                    ),
+                    diagnostic_index,
+                );
             }
         }
         for resolver_call in &node.file_calls {
             let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
             let app_covers = app_capabilities.contains_key(&SourceCapability::FilesRead);
             if !task_covers || !app_covers {
-                diagnostics.push(missing_file_source_diagnostic(
+                let diagnostic_index = sink.push_pending(missing_file_source_diagnostic(
                     Some(app),
                     node.task,
                     &resolver_call.exact_call_span,
                     task_covers,
                     app_covers,
                 ));
+                pending_operation_diagnostics.insert(
+                    OperationIdentity::new(
+                        SourceCapability::FilesRead,
+                        &node.task.name,
+                        &resolver_call.exact_call_span,
+                    ),
+                    diagnostic_index,
+                );
             }
         }
     }
 
+    let mut output_ownership: BTreeSet<OperationIdentity> = BTreeSet::new();
     for output_route in &reachable_output_routes {
         let node = &graph.tasks[&output_route.task];
         let task_covers = node
@@ -825,7 +1000,7 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
         let app_covers = app_capabilities.contains_key(&SourceCapability::StdoutWrite);
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(output_route.task_route.clone());
-        routes.push(output_operation_route(
+        let mut route = output_operation_route(
             program,
             Some(app),
             node.task,
@@ -836,9 +1011,27 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
             app_covers,
             route_tasks,
             output_route.call_route.clone(),
-        ));
+        );
+        let identity = OperationIdentity::new(
+            SourceCapability::StdoutWrite,
+            &output_route.task,
+            &output_route.call_span,
+        );
+        if !output_ownership.insert(identity.clone()) {
+            // Another caller path reaches the same lexical operation. The path
+            // fact is preserved, but diagnostic ownership stays with the first
+            // route so one operation never claims two diagnostics.
+            route.diagnostic_code = None;
+            sink.push_route(route);
+            continue;
+        }
+        match pending_operation_diagnostics.remove(&identity) {
+            Some(diagnostic_index) => sink.pair(diagnostic_index, route),
+            None => sink.push_route(route),
+        }
     }
 
+    let mut replay_ownership: BTreeSet<OperationIdentity> = BTreeSet::new();
     for replay_route in &reachable_replay_routes {
         let node = &graph.tasks[&replay_route.task];
         let task_covers = node
@@ -847,7 +1040,7 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
         let app_covers = app_capabilities.contains_key(&SourceCapability::ClockReplay);
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(replay_route.task_route.clone());
-        routes.push(replay_operation_route(
+        let mut route = replay_operation_route(
             program,
             Some(app),
             node.task,
@@ -858,16 +1051,34 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
             app_covers,
             route_tasks,
             replay_route.call_route.clone(),
-        ));
+        );
+        let identity = OperationIdentity::new(
+            SourceCapability::ClockReplay,
+            &replay_route.task,
+            &replay_route.call_span,
+        );
+        if !replay_ownership.insert(identity.clone()) {
+            // Another caller path reaches the same lexical operation. The path
+            // fact is preserved, but diagnostic ownership stays with the first
+            // route so one operation never claims two diagnostics.
+            route.diagnostic_code = None;
+            sink.push_route(route);
+            continue;
+        }
+        match pending_operation_diagnostics.remove(&identity) {
+            Some(diagnostic_index) => sink.pair(diagnostic_index, route),
+            None => sink.push_route(route),
+        }
     }
 
+    let mut file_ownership: BTreeSet<OperationIdentity> = BTreeSet::new();
     for file_route in &reachable_file_routes {
         let node = &graph.tasks[&file_route.task];
         let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
         let app_covers = app_capabilities.contains_key(&SourceCapability::FilesRead);
         let mut route_tasks = vec![app.name.clone()];
         route_tasks.extend(file_route.task_route.clone());
-        routes.push(file_operation_route(
+        let mut route = file_operation_route(
             program,
             Some(app),
             node.task,
@@ -878,7 +1089,24 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
             app_covers,
             route_tasks,
             file_route.call_route.clone(),
-        ));
+        );
+        let identity = OperationIdentity::new(
+            SourceCapability::FilesRead,
+            &file_route.task,
+            &file_route.call_span,
+        );
+        if !file_ownership.insert(identity.clone()) {
+            // Another caller path reaches the same lexical operation. The path
+            // fact is preserved, but diagnostic ownership stays with the first
+            // route so one operation never claims two diagnostics.
+            route.diagnostic_code = None;
+            sink.push_route(route);
+            continue;
+        }
+        match pending_operation_diagnostics.remove(&identity) {
+            Some(diagnostic_index) => sink.pair(diagnostic_index, route),
+            None => sink.push_route(route),
+        }
     }
 
     for task_name in &graph.order {
@@ -895,7 +1123,7 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 .capabilities
                 .contains_key(&SourceCapability::StdoutWrite);
             let app_covers = app_capabilities.contains_key(&SourceCapability::StdoutWrite);
-            routes.push(output_operation_route(
+            let route = output_operation_route(
                 program,
                 Some(app),
                 node.task,
@@ -906,7 +1134,13 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 app_covers,
                 vec![app.name.clone(), node.task.name.clone()],
                 vec![call_span.clone()],
-            ));
+            );
+            let identity =
+                OperationIdentity::new(SourceCapability::StdoutWrite, &node.task.name, call_span);
+            match pending_operation_diagnostics.remove(&identity) {
+                Some(diagnostic_index) => sink.pair(diagnostic_index, route),
+                None => sink.push_route(route),
+            }
         }
         for resolver_call in &node.replay_calls {
             let call_span = &resolver_call.exact_call_span;
@@ -920,7 +1154,7 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 .capabilities
                 .contains_key(&SourceCapability::ClockReplay);
             let app_covers = app_capabilities.contains_key(&SourceCapability::ClockReplay);
-            routes.push(replay_operation_route(
+            let route = replay_operation_route(
                 program,
                 Some(app),
                 node.task,
@@ -931,7 +1165,13 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 app_covers,
                 vec![app.name.clone(), node.task.name.clone()],
                 vec![call_span.clone()],
-            ));
+            );
+            let identity =
+                OperationIdentity::new(SourceCapability::ClockReplay, &node.task.name, call_span);
+            match pending_operation_diagnostics.remove(&identity) {
+                Some(diagnostic_index) => sink.pair(diagnostic_index, route),
+                None => sink.push_route(route),
+            }
         }
         for resolver_call in &node.file_calls {
             let call_span = &resolver_call.exact_call_span;
@@ -943,7 +1183,7 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
             }
             let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
             let app_covers = app_capabilities.contains_key(&SourceCapability::FilesRead);
-            routes.push(file_operation_route(
+            let route = file_operation_route(
                 program,
                 Some(app),
                 node.task,
@@ -954,12 +1194,18 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 app_covers,
                 vec![app.name.clone(), node.task.name.clone()],
                 vec![call_span.clone()],
-            ));
+            );
+            let identity =
+                OperationIdentity::new(SourceCapability::FilesRead, &node.task.name, call_span);
+            match pending_operation_diagnostics.remove(&identity) {
+                Some(diagnostic_index) => sink.pair(diagnostic_index, route),
+                None => sink.push_route(route),
+            }
         }
     }
 
     for (capability, declaration_span) in &app_capabilities {
-        routes.push(app_budget_route(
+        sink.push_route(app_budget_route(
             program,
             app,
             start,
@@ -978,25 +1224,30 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
             };
             for (capability, requirement) in callee_requirements {
                 let covered = caller.capabilities.contains_key(capability);
-                let route = prepend_route(&caller.task.name, call, requirement);
-                if !covered {
-                    diagnostics.push(missing_caller_diagnostic(
-                        caller.task,
-                        callee.task,
-                        *capability,
-                        &call.span,
-                        &route,
-                    ));
-                }
-                routes.push(caller_route(
+                let prepended = prepend_route(&caller.task.name, call, requirement);
+                let route = caller_route(
                     program,
                     app,
                     caller.task,
                     callee.task,
                     *capability,
-                    &route,
+                    &prepended,
                     covered,
-                ));
+                );
+                if !covered {
+                    sink.push(
+                        missing_caller_diagnostic(
+                            caller.task,
+                            callee.task,
+                            *capability,
+                            &call.span,
+                            &prepended,
+                        ),
+                        route,
+                    );
+                } else {
+                    sink.push_route(route);
+                }
             }
         }
     }
@@ -1019,16 +1270,14 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                         graph.tasks.values().any(|node| !node.file_calls.is_empty())
                     }
                 };
-            if !app_covers && task_route_complete && !operation_call_owns_missing_app {
-                diagnostics.push(app_mismatch_diagnostic(
-                    app,
-                    start,
-                    &entry_span,
-                    *capability,
-                    requirement,
-                ));
-            }
-            routes.push(app_closure_route(
+            // When an operation call owns the missing-app rejection, the
+            // start-closure route stays as a policy fact but must not claim
+            // the suppressed H0619 code.
+            let emit_diagnostic =
+                !app_covers && task_route_complete && !operation_call_owns_missing_app;
+            let diagnostic_code =
+                emit_diagnostic.then(|| DiagnosticCode::APP_CAPABILITY_MISMATCH.as_str());
+            let route = app_closure_route(
                 program,
                 app,
                 start,
@@ -1037,13 +1286,23 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
                 requirement,
                 app_covers,
                 task_route_complete,
-            ));
+                diagnostic_code,
+            );
+            if emit_diagnostic {
+                sink.push(
+                    app_mismatch_diagnostic(app, start, &entry_span, *capability, requirement),
+                    route,
+                );
+            } else {
+                sink.push_route(route);
+            }
         }
     }
 
     CapabilityAnalysis {
         diagnostics,
         routes,
+        diagnostic_route_pairs,
         diagnostic_occurrences: crate::diagnostic::DiagnosticOccurrenceSet::default(),
         diagnostic_projections: Vec::new(),
     }
@@ -1051,6 +1310,11 @@ fn analyze_app(program: &Program, app: &App, start: &Task) -> CapabilityAnalysis
 
 fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
     let mut analysis = CapabilityAnalysis::default();
+    let mut sink = CapabilityRouteSink {
+        diagnostics: &mut analysis.diagnostics,
+        routes: &mut analysis.routes,
+        pairs: &mut analysis.diagnostic_route_pairs,
+    };
     for file in &program.files {
         let graph = build_task_graph(program, &file.items);
         for task_name in &graph.order {
@@ -1060,14 +1324,14 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                 let task_covers = node
                     .capabilities
                     .contains_key(&SourceCapability::StdoutWrite);
-                analysis.diagnostics.push(missing_output_source_diagnostic(
+                let diagnostic = missing_output_source_diagnostic(
                     None,
                     node.task,
                     call_span,
                     task_covers,
                     false,
-                ));
-                analysis.routes.push(output_operation_route(
+                );
+                let route = output_operation_route(
                     program,
                     None,
                     node.task,
@@ -1078,21 +1342,22 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                     false,
                     vec![node.task.name.clone()],
                     vec![call_span.clone()],
-                ));
+                );
+                sink.push(diagnostic, route);
             }
             for resolver_call in &node.replay_calls {
                 let call_span = &resolver_call.exact_call_span;
                 let task_covers = node
                     .capabilities
                     .contains_key(&SourceCapability::ClockReplay);
-                analysis.diagnostics.push(missing_replay_source_diagnostic(
+                let diagnostic = missing_replay_source_diagnostic(
                     None,
                     node.task,
                     call_span,
                     task_covers,
                     false,
-                ));
-                analysis.routes.push(replay_operation_route(
+                );
+                let route = replay_operation_route(
                     program,
                     None,
                     node.task,
@@ -1103,19 +1368,15 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                     false,
                     vec![node.task.name.clone()],
                     vec![call_span.clone()],
-                ));
+                );
+                sink.push(diagnostic, route);
             }
             for resolver_call in &node.file_calls {
                 let call_span = &resolver_call.exact_call_span;
                 let task_covers = node.capabilities.contains_key(&SourceCapability::FilesRead);
-                analysis.diagnostics.push(missing_file_source_diagnostic(
-                    None,
-                    node.task,
-                    call_span,
-                    task_covers,
-                    false,
-                ));
-                analysis.routes.push(file_operation_route(
+                let diagnostic =
+                    missing_file_source_diagnostic(None, node.task, call_span, task_covers, false);
+                let route = file_operation_route(
                     program,
                     None,
                     node.task,
@@ -1126,7 +1387,8 @@ fn analyze_unrooted_operations(program: &Program) -> CapabilityAnalysis {
                     false,
                     vec![node.task.name.clone()],
                     vec![call_span.clone()],
-                ));
+                );
+                sink.push(diagnostic, route);
             }
         }
     }
@@ -1918,25 +2180,24 @@ fn app_closure_route(
     requirement: &Requirement,
     app_covers: bool,
     task_route_complete: bool,
+    diagnostic_code: Option<&'static str>,
 ) -> CapabilityRouteFact {
     let spec = capability.spec();
-    let (status, reason, diagnostic_code, help) = if !task_route_complete {
+    let (status, reason, help) = if !task_route_complete {
         (
             "not_checked_app_closure_blocked_by_caller_v0",
             Some("caller_capability_closure_must_be_repaired_first_v0"),
-            None,
             Some(format!(
                 "Repair the missing caller `{}` declaration before evaluating app `{}`'s maximum.",
                 spec.id, app.name
             )),
         )
     } else if app_covers {
-        ("accepted_app_capability_closure_v0", None, None, None)
+        ("accepted_app_capability_closure_v0", None, None)
     } else {
         (
             "rejected_app_capability_mismatch_v0",
             Some("app_does_not_cover_start_task_capability_closure_v0"),
-            Some(DiagnosticCode::APP_CAPABILITY_MISMATCH.as_str()),
             Some(format!(
                 "Add exact `{}` under app `{}`'s `uses:` section.",
                 spec.id, app.name
@@ -2685,5 +2946,910 @@ mod tests {
                 .iter()
                 .all(|part| !part.contains("run_tool") && !part.contains("helper"))
         );
+    }
+
+    // ---- N2 diagnostic-ownership repair controls ----
+    //
+    // Every control below asserts the exact producer-owned relationship
+    // (code, cause, span, resolver call) between a diagnostic and its owning
+    // route through the explicit production-time pairing, never by position.
+
+    /// The route that owns `diagnostics[diagnostic_index]`'s code claim,
+    /// resolved through the explicit pairing recorded at production time.
+    fn paired_route(
+        analysis: &CapabilityAnalysis,
+        diagnostic_index: usize,
+    ) -> &super::CapabilityRouteFact {
+        let paired = analysis
+            .diagnostic_route_pairs
+            .iter()
+            .filter(|(paired_diagnostic, _)| *paired_diagnostic == diagnostic_index)
+            .count();
+        assert_eq!(
+            paired, 1,
+            "diagnostic must be paired with exactly one route"
+        );
+        let (_, route_index) = analysis
+            .diagnostic_route_pairs
+            .iter()
+            .find(|(paired_diagnostic, _)| *paired_diagnostic == diagnostic_index)
+            .expect("paired route index");
+        &analysis.routes[*route_index]
+    }
+
+    fn occurrence_for(
+        analysis: &CapabilityAnalysis,
+        diagnostic: &crate::diagnostic::Diagnostic,
+    ) -> crate::diagnostic::DiagnosticOccurrence {
+        analysis
+            .diagnostic_projections
+            .iter()
+            .find(|projection| projection.diagnostic == *diagnostic)
+            .expect("sealed diagnostic must project its occurrence")
+            .occurrence
+            .clone()
+    }
+
+    /// Asserts the full producer-owned relationship for one operation
+    /// diagnostic: exact code, exact cause, exact call span on both sides, and
+    /// the resolver call carried by the owning route.
+    fn assert_owned_operation(
+        analysis: &CapabilityAnalysis,
+        diagnostic_index: usize,
+        expected_code: crate::diagnostic::DiagnosticCode,
+        expected_cause: crate::diagnostic_catalog::DiagnosticCauseKey,
+        expected_check: &str,
+    ) {
+        let diagnostic = &analysis.diagnostics[diagnostic_index];
+        assert_eq!(diagnostic.code, expected_code);
+        let route = paired_route(analysis, diagnostic_index);
+        assert_eq!(route.check, expected_check);
+        assert_eq!(route.diagnostic_code, Some(expected_code.as_str()));
+        let span = diagnostic
+            .span
+            .clone()
+            .expect("operation diagnostic must carry its call span");
+        assert_eq!(route.primary_span, span);
+        let resolver_call = route
+            .resolver_call
+            .as_ref()
+            .expect("operation route must carry its resolver call");
+        assert_eq!(resolver_call.exact_call_span, span);
+        let occurrence = occurrence_for(analysis, diagnostic);
+        assert_eq!(occurrence.code, expected_code);
+        assert_eq!(occurrence.cause_key(), expected_cause);
+    }
+
+    /// The suppressed-H0619 policy fact: present with its existing status and
+    /// reason, but carrying no diagnostic code.
+    fn assert_suppressed_h0619_route(analysis: &CapabilityAnalysis, capability_id: &str) {
+        let suppressed: Vec<_> = analysis
+            .routes
+            .iter()
+            .filter(|route| {
+                route.check == "source_capability_start_closure"
+                    && route.status == "rejected_app_capability_mismatch_v0"
+                    && route.capability_id == capability_id
+            })
+            .collect();
+        assert_eq!(suppressed.len(), 1);
+        assert!(suppressed[0].diagnostic_code.is_none());
+        assert!(
+            !analysis.diagnostics.iter().any(|diagnostic| diagnostic.code
+                == crate::diagnostic::DiagnosticCode::APP_CAPABILITY_MISMATCH),
+            "suppressed H0619 must not appear as a diagnostic"
+        );
+    }
+
+    #[test]
+    fn n2_stdout_write_direct_owns_diagnostic_without_phantom_h0619() {
+        let analysis = analyze(&program(
+            r#"app n2_stdout_direct {
+  starts with:
+    run_tool
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("blocked")
+      return written
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(95),
+            "source_capability_output_operation",
+        );
+        assert!(
+            !analysis.diagnostics.iter().any(|diagnostic| diagnostic.code
+                == crate::diagnostic::DiagnosticCode::APP_CAPABILITY_MISMATCH),
+            "no H0619 may appear when the operation diagnostic owns the rejection"
+        );
+    }
+
+    #[test]
+    fn n2_clock_replay_direct_owns_diagnostic_without_phantom_h0619() {
+        let analysis = analyze(&program(
+            r#"app n2_clock_direct {
+  starts with:
+    run_tool
+  task run_tool -> Result Unit, ReplayClockError {
+    fails when:
+      runner replay input is unavailable
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let tick = try clock_replay_tick()
+      return ()
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::REPLAY_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(97),
+            "source_capability_replay_operation",
+        );
+        assert!(
+            !analysis.diagnostics.iter().any(|diagnostic| diagnostic.code
+                == crate::diagnostic::DiagnosticCode::APP_CAPABILITY_MISMATCH),
+            "no H0619 may appear when the operation diagnostic owns the rejection"
+        );
+    }
+
+    #[test]
+    fn n2_files_read_direct_owns_diagnostic_without_phantom_h0619() {
+        let analysis = analyze(&program(
+            r#"app n2_files_direct {
+  starts with:
+    run_tool
+  task run_tool(input: Path) -> Result Unit, FileReadError {
+    fails when:
+      the exact file operation fails
+    allocates:
+      one bounded file buffer
+    does:
+      let text = try files_read_text(input)
+      return
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::FILE_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(99),
+            "source_capability_file_operation",
+        );
+        assert!(
+            !analysis.diagnostics.iter().any(|diagnostic| diagnostic.code
+                == crate::diagnostic::DiagnosticCode::APP_CAPABILITY_MISMATCH),
+            "no H0619 may appear when the operation diagnostic owns the rejection"
+        );
+    }
+
+    #[test]
+    fn n2_stdout_write_helper_call_owns_diagnostic_without_phantom_h0619() {
+        let analysis = analyze(&program(
+            r#"app n2_stdout_helper {
+  starts with:
+    run_tool
+  task helper -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("helper")
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try helper()
+      return written
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(95),
+            "source_capability_output_operation",
+        );
+        let route = paired_route(&analysis, 0);
+        assert_eq!(
+            route.route_tasks.last().expect("route task").as_str(),
+            "helper"
+        );
+        assert_suppressed_h0619_route(&analysis, "stdout.write");
+    }
+
+    #[test]
+    fn n2_clock_replay_helper_call_owns_diagnostic_without_phantom_h0619() {
+        let analysis = analyze(&program(
+            r#"app n2_clock_helper {
+  starts with:
+    run_tool
+  task helper -> Result Unit, ReplayClockError {
+    fails when:
+      runner replay input is unavailable
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let tick = try clock_replay_tick()
+      return ()
+  }
+  task run_tool -> Result Unit, ReplayClockError {
+    uses:
+      clock.replay
+    fails when:
+      runner replay input is unavailable
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let tick = try helper()
+      return ()
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::REPLAY_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(97),
+            "source_capability_replay_operation",
+        );
+        let route = paired_route(&analysis, 0);
+        assert_eq!(
+            route.route_tasks.last().expect("route task").as_str(),
+            "helper"
+        );
+        assert_suppressed_h0619_route(&analysis, "clock.replay");
+    }
+
+    #[test]
+    fn n2_files_read_helper_call_owns_diagnostic_without_phantom_h0619() {
+        let analysis = analyze(&program(
+            r#"app n2_files_helper {
+  starts with:
+    run_tool
+  task helper(input: Path) -> Result Unit, FileReadError {
+    fails when:
+      the exact file operation fails
+    allocates:
+      one bounded file buffer
+    does:
+      let text = try files_read_text(input)
+      return
+  }
+  task run_tool(input: Path) -> Result Unit, FileReadError {
+    uses:
+      files.read
+    fails when:
+      the exact file operation fails
+    allocates:
+      one bounded file buffer
+    does:
+      let written = try helper(input)
+      return
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::FILE_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(99),
+            "source_capability_file_operation",
+        );
+        let route = paired_route(&analysis, 0);
+        assert_eq!(
+            route.route_tasks.last().expect("route task").as_str(),
+            "helper"
+        );
+        assert_suppressed_h0619_route(&analysis, "files.read");
+    }
+
+    #[test]
+    fn n2_pure_start_closure_reports_exactly_one_h0619() {
+        let analysis = analyze(&program(
+            r#"app n2_pure_closure {
+  starts with:
+    run_tool
+  task run_tool -> Unit {
+    uses:
+      stdout.write
+    does:
+      return
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        let diagnostic = &analysis.diagnostics[0];
+        assert_eq!(
+            diagnostic.code,
+            crate::diagnostic::DiagnosticCode::APP_CAPABILITY_MISMATCH
+        );
+        let route = paired_route(&analysis, 0);
+        assert_eq!(route.check, "source_capability_start_closure");
+        assert_eq!(route.status, "rejected_app_capability_mismatch_v0");
+        assert_eq!(
+            route.diagnostic_code,
+            Some(crate::diagnostic::DiagnosticCode::APP_CAPABILITY_MISMATCH.as_str())
+        );
+        let occurrence = occurrence_for(&analysis, diagnostic);
+        assert_eq!(
+            occurrence.cause_key(),
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(93)
+        );
+    }
+
+    #[test]
+    fn n2_fully_declared_program_reports_no_diagnostics() {
+        let analysis = analyze(&program(
+            r#"app n2_declared {
+  uses:
+    stdout.write
+  starts with:
+    run_tool
+  task run_tool -> Result Unit, OutputError {
+    uses:
+      stdout.write
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("ok")
+      return written
+  }
+}
+"#,
+        ));
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{:#?}",
+            analysis.diagnostics
+        );
+        assert!(analysis.diagnostic_route_pairs.is_empty());
+        assert!(
+            analysis
+                .routes
+                .iter()
+                .all(|route| route.diagnostic_code.is_none()),
+            "no route may claim a diagnostic code without a diagnostic"
+        );
+    }
+
+    #[test]
+    fn n2_diamond_caller_paths_share_one_diagnostic_owner() {
+        let analysis = analyze(&program(
+            r#"app n2_diamond {
+  starts with:
+    run_tool
+  task shared -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("diamond")
+      return written
+  }
+  task left -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try shared()
+      return written
+  }
+  task right -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try shared()
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let a = try left()
+      let b = try right()
+      return b
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(95),
+            "source_capability_output_operation",
+        );
+        let call_span = analysis.diagnostics[0]
+            .span
+            .clone()
+            .expect("operation diagnostic must carry its call span");
+        // Both caller paths are preserved as distinct path facts ...
+        let path_routes: Vec<_> = analysis
+            .routes
+            .iter()
+            .filter(|route| {
+                route.check == "source_capability_output_operation"
+                    && route.primary_span == call_span
+            })
+            .collect();
+        assert_eq!(path_routes.len(), 2);
+        assert_ne!(path_routes[0].id, path_routes[1].id);
+        assert_ne!(path_routes[0].route_tasks, path_routes[1].route_tasks);
+        // ... but diagnostic ownership is not multiplied across them.
+        assert_eq!(
+            path_routes
+                .iter()
+                .filter(|route| route.diagnostic_code.is_some())
+                .count(),
+            1
+        );
+        let owned = paired_route(&analysis, 0);
+        assert!(owned.diagnostic_code.is_some());
+        assert!(
+            path_routes.iter().any(|route| route.id == owned.id),
+            "the paired route must be the one code-carrying path fact"
+        );
+    }
+
+    #[test]
+    fn n2_repeated_helper_calls_share_one_diagnostic_owner() {
+        let analysis = analyze(&program(
+            r#"app n2_repeated {
+  starts with:
+    run_tool
+  task helper -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("repeated")
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let a = try helper()
+      let b = try helper()
+      let c = try helper()
+      return c
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(95),
+            "source_capability_output_operation",
+        );
+        let call_span = analysis.diagnostics[0]
+            .span
+            .clone()
+            .expect("operation diagnostic must carry its call span");
+        let path_routes: Vec<_> = analysis
+            .routes
+            .iter()
+            .filter(|route| {
+                route.check == "source_capability_output_operation"
+                    && route.primary_span == call_span
+            })
+            .collect();
+        assert_eq!(path_routes.len(), 3);
+        let ids: std::collections::BTreeSet<_> =
+            path_routes.iter().map(|route| &route.id).collect();
+        assert_eq!(ids.len(), 3, "each path fact keeps its own policy id");
+        assert_eq!(
+            path_routes
+                .iter()
+                .filter(|route| route.diagnostic_code.is_some())
+                .count(),
+            1
+        );
+        let owned = paired_route(&analysis, 0);
+        assert!(owned.diagnostic_code.is_some());
+    }
+
+    #[test]
+    fn n2_reversed_mixed_capability_order_pairs_by_identity_not_position() {
+        // Source order (replay, output) is reversed relative to the analyzer's
+        // canonical operation loop order (output, replay): the pairing must
+        // follow the producer-owned identity, not the position.
+        let analysis = analyze(&program(
+            r#"app n2_reversed_mixed {
+  starts with:
+    run_tool
+  task replay_helper -> Result Unit, ReplayClockError {
+    fails when:
+      runner replay input is unavailable
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let tick = try clock_replay_tick()
+      return ()
+  }
+  task output_helper -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("mixed")
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let tick = try replay_helper()
+      let written = try output_helper()
+      return written
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 2);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::REPLAY_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(97),
+            "source_capability_replay_operation",
+        );
+        assert_owned_operation(
+            &analysis,
+            1,
+            crate::diagnostic::DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(95),
+            "source_capability_output_operation",
+        );
+        let replay_span = analysis.diagnostics[0].span.clone().expect("span");
+        let output_span = analysis.diagnostics[1].span.clone().expect("span");
+        assert_ne!(replay_span, output_span);
+        assert_ne!(paired_route(&analysis, 0).id, paired_route(&analysis, 1).id);
+    }
+
+    #[test]
+    fn n2_same_capability_calls_pair_by_span_not_position() {
+        let analysis = analyze(&program(
+            r#"app n2_identity_swap {
+  starts with:
+    run_tool
+  task helper_a -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("a")
+      return written
+  }
+  task helper_b -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("b")
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let a = try helper_a()
+      let b = try helper_b()
+      return b
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 2);
+        assert_owned_operation(
+            &analysis,
+            0,
+            crate::diagnostic::DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(95),
+            "source_capability_output_operation",
+        );
+        assert_owned_operation(
+            &analysis,
+            1,
+            crate::diagnostic::DiagnosticCode::OUTPUT_CAPABILITY_UNDECLARED,
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(95),
+            "source_capability_output_operation",
+        );
+        // Two identical codes: only the span-keyed pairing tells them apart.
+        let span_a = analysis.diagnostics[0].span.clone().expect("span");
+        let span_b = analysis.diagnostics[1].span.clone().expect("span");
+        assert_ne!(span_a, span_b);
+        let route_a = paired_route(&analysis, 0);
+        let route_b = paired_route(&analysis, 1);
+        assert_ne!(route_a.id, route_b.id);
+        assert_eq!(route_a.primary_span, span_a);
+        assert_eq!(route_b.primary_span, span_b);
+        assert_eq!(
+            route_a
+                .resolver_call
+                .as_ref()
+                .expect("resolver call")
+                .exact_call_span,
+            span_a
+        );
+        assert_eq!(
+            route_b
+                .resolver_call
+                .as_ref()
+                .expect("resolver call")
+                .exact_call_span,
+            span_b
+        );
+    }
+
+    // ---- N2 seal corruption controls ----
+    //
+    // Each control below runs the real capability producer, corrupts the
+    // production-time pairing record at the producer/sealer boundary, and
+    // drives the real `seal_analysis`. The seal must reject the corruption;
+    // the matching valid shapes above must keep sealing.
+
+    /// Runs the real capability producer without sealing, so corruption
+    /// controls exercise the true producer/sealer boundary.
+    fn unsealed_analysis(program: &crate::ast::Program) -> CapabilityAnalysis {
+        let entry = crate::app_entry::analyze(program)
+            .entry
+            .expect("corruption fixture must declare an app entry");
+        super::analyze_app(program, entry.app, entry.task)
+    }
+
+    /// The caller-closure diagnostic pairs with its exact call span and code,
+    /// exercising the seal's code/span checks on a non-operation path.
+    #[test]
+    fn n2_caller_closure_diagnostic_pairs_by_call_span() {
+        let analysis = analyze(&program(
+            r#"app n2_caller_closure {
+  starts with:
+    run_tool
+  task helper -> Int {
+    uses:
+      clock.replay
+    does:
+      return 7
+  }
+  task run_tool -> Unit {
+    does:
+      let observed = helper()
+      return
+  }
+}
+"#,
+        ));
+        assert_eq!(analysis.diagnostics.len(), 1);
+        let diagnostic = &analysis.diagnostics[0];
+        assert_eq!(
+            diagnostic.code,
+            crate::diagnostic::DiagnosticCode::MISSING_CALLER_CAPABILITY
+        );
+        let route = paired_route(&analysis, 0);
+        assert_eq!(route.check, "source_capability_caller_closure");
+        assert_eq!(
+            route.diagnostic_code,
+            Some(crate::diagnostic::DiagnosticCode::MISSING_CALLER_CAPABILITY.as_str())
+        );
+        let span = diagnostic
+            .span
+            .clone()
+            .expect("caller diagnostic must carry its call span");
+        assert_eq!(route.primary_span, span);
+        let occurrence = occurrence_for(&analysis, diagnostic);
+        assert_eq!(
+            occurrence.cause_key(),
+            crate::diagnostic_catalog::DiagnosticCauseKey::producer_owned(92)
+        );
+    }
+
+    /// Two diagnostics must not share one owner: duplicating a diagnostic
+    /// index keeps the pair count intact but leaves a diagnostic unowned.
+    #[test]
+    #[should_panic(expected = "one capability diagnostic must not claim two owning routes")]
+    fn n2_seal_rejects_duplicate_diagnostic_owner() {
+        let program = program(
+            r#"app n2_dup_owner {
+  starts with:
+    run_tool
+  task helper_a -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("a")
+      return written
+  }
+  task helper_b -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("b")
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let a = try helper_a()
+      let b = try helper_b()
+      return b
+  }
+}
+"#,
+        );
+        let mut analysis = unsealed_analysis(&program);
+        assert_eq!(analysis.diagnostics.len(), 2);
+        let mut owned: Vec<usize> = analysis
+            .diagnostic_route_pairs
+            .iter()
+            .map(|(diagnostic, _)| *diagnostic)
+            .collect();
+        owned.sort_unstable();
+        owned.dedup();
+        assert_eq!(owned, vec![0, 1], "fixture must pair two diagnostics");
+        let stolen = owned[0];
+        let victim = owned[1];
+        for pair in analysis.diagnostic_route_pairs.iter_mut() {
+            if pair.0 == victim {
+                pair.0 = stolen;
+            }
+        }
+        super::seal_analysis(&program, &mut analysis);
+    }
+
+    /// Two same-code diagnostics at different spans must keep their own
+    /// routes: swapping the route indices keeps every structural check green
+    /// but breaks the primary-span match.
+    #[test]
+    #[should_panic(
+        expected = "paired capability route must carry its diagnostic's exact primary span"
+    )]
+    fn n2_seal_rejects_same_code_route_swap() {
+        let program = program(
+            r#"app n2_swap {
+  starts with:
+    run_tool
+  task helper_a -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("a")
+      return written
+  }
+  task helper_b -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("b")
+      return written
+  }
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let a = try helper_a()
+      let b = try helper_b()
+      return b
+  }
+}
+"#,
+        );
+        let mut analysis = unsealed_analysis(&program);
+        assert_eq!(analysis.diagnostics.len(), 2);
+        let route_of = |diagnostic: usize| {
+            analysis
+                .diagnostic_route_pairs
+                .iter()
+                .find(|(paired, _)| *paired == diagnostic)
+                .map(|(_, route)| *route)
+                .expect("diagnostic must be paired")
+        };
+        let route_a = route_of(0);
+        let route_b = route_of(1);
+        assert_ne!(route_a, route_b, "fixture must pair two distinct routes");
+        for pair in analysis.diagnostic_route_pairs.iter_mut() {
+            if pair.0 == 0 {
+                pair.1 = route_b;
+            } else if pair.0 == 1 {
+                pair.1 = route_a;
+            }
+        }
+        super::seal_analysis(&program, &mut analysis);
+    }
+
+    /// A route must not claim a code its diagnostic does not carry.
+    #[test]
+    #[should_panic(expected = "paired capability route must carry its diagnostic's exact code")]
+    fn n2_seal_rejects_incorrect_route_code_claim() {
+        let program = program(
+            r#"app n2_wrong_code {
+  starts with:
+    run_tool
+  task run_tool -> Result Unit, OutputError {
+    fails when:
+      the output operation fails
+    allocates:
+      callee-defined allocation behavior
+    does:
+      let written = try stdout_write("blocked")
+      return written
+  }
+}
+"#,
+        );
+        let mut analysis = unsealed_analysis(&program);
+        assert_eq!(analysis.diagnostics.len(), 1);
+        let route_index = analysis.diagnostic_route_pairs[0].1;
+        analysis.routes[route_index].diagnostic_code =
+            Some(crate::diagnostic::DiagnosticCode::REPLAY_CAPABILITY_UNDECLARED.as_str());
+        super::seal_analysis(&program, &mut analysis);
     }
 }
