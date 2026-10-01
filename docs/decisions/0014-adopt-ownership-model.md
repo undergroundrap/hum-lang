@@ -215,6 +215,12 @@ claim — this decision's honesty lock stands.
 
 Decided semantic choices (D1–D6 closed):
 
+- Completed mutations survive ordinary typed failure (D1) and
+  postcondition failure (D1-sub): transfer and invalidation precede
+  propagation of `Returned`, `Failed`, and `ContractViolation` at every
+  frame. The pre-body rejection stands — a `needs:`-violation (body
+  never ran) transfers nothing — and fatal `Err(String)` traps bypass
+  the boundary with no rollback guarantee.
 - Change arguments admit whole roots and direct fields only. Indexed,
   deeper, and non-place shapes are rejected (D2/D4).
 - The reviewed permission matrix governs: a Change parameter requires

@@ -88,10 +88,8 @@ The repair from the map's §4.3, credited and unchanged:
 - Loop-body declarations are saved/restored per iteration.
 - Completed writes, moved/view metadata, and early-exit behavior are
   preserved.
-- Parameter identity through `definition_id` and capture from the actual
-  body `env` remain required, but do not themselves repair rollback.
-- Final-value transfer captures actual parameter bindings from `env`,
-  not postcondition `exit_env`.
+- Parameter identity through `definition_id` remains required, but
+  does not itself repair rollback.
 
 Standalone acceptance controls (effects reachable without Item B;
 fixtures observe the effect, not the form): `set` to an outer binding
@@ -119,12 +117,14 @@ From the map's §§4.2/4.5/4.7/4.9/4.9a:
   ordinary/`borrow`-path guard for the §4.9 non-ownership controls
   (H0814 for ownership transfer from a non-owning parameter).
 - Final-value transfer (§4.5): thread final parameter values through
-  `execute_task`/`execute_task_body`; the transfer plus the `CallAccess`
-  overlap sweep runs at the call site through the real call owner on
-  every task exit. New H0807 `(Field, CallAccess)` / `(Element,
-  CallAccess)` trap arms on the existing `stale_view_trap` path
-  (`FieldWrite`/`ListAppend` arms unchanged). No per-mutation
-  instrumentation, no replay journal.
+  `execute_task`/`execute_task_body`; final values are captured from
+  the actual body `env`, not the postcondition `exit_env`; the
+  transfer plus the `CallAccess` overlap sweep runs at the call site
+  through the real call owner on every task exit (`Returned`,
+  `Failed`, `ContractViolation` — D1/D1-sub ruled). New H0807 `(Field,
+  CallAccess)` / `(Element, CallAccess)` trap arms on the existing
+  `stale_view_trap` path (`FieldWrite`/`ListAppend` arms unchanged).
+  No per-mutation instrumentation, no replay journal.
 - Narrow ownership-escape rejection (§4.9a, H0815): ownership escapes
   from Borrow/Change authority over recognized linear resource types
   are *rejected* through annotated/unannotated bindings,
@@ -157,7 +157,7 @@ From the map's §§4.2/4.5/4.7/4.9/4.9a:
 ## Affected-file inventory (proposed envelope — only if the repair is approved)
 
 The map's §7 is this plan's one inventory. Line numbers below are at the
-map's pinned commit `0e215d3` (current main).
+map's pinned commit `0e215d3` (historical source pin — main has since moved).
 
 | File | Change | Why |
 |---|---|---|
@@ -206,7 +206,7 @@ Out of scope: every other `src/` file, the CLI surface (no new flags), Work Orde
 - **Pre-push gates:** `cargo fmt --all -- --check`, `cargo clippy
   --workspace --all-targets -- -D warnings`, `cargo test --bin hum`,
   `tools/test_ci_policy.ps1`, hand-run the exact commands behind any
-  added/changed Session AB assertions, `tools/check_public_readiness.ps1`,
+  added/changed Item A/Item B acceptance assertions, `tools/check_public_readiness.ps1`,
   text hygiene.
 - **Draft until separately authorized.** A green CI Full run never
   marks the draft ready by itself: readiness requires the Codex review
