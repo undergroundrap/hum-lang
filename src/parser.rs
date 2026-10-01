@@ -6630,6 +6630,28 @@ fn retained_token_fact(
     ));
 }
 
+/// Locate the type-annotation boundary token for a retained binding statement.
+///
+/// The retained channel must apply the same top-level rule as the projection:
+/// only a `:` at delimiter depth zero is a type annotation boundary. Colons
+/// nested inside record literals (or other delimiters) belong to the value
+/// expression and must not produce a boundary fact. The returned token keeps
+/// its exact lexical source range.
+fn retained_binding_type_boundary<'a>(
+    events: &'a [CanonicalLexicalTokenEvent],
+    span: &Span,
+    text: &str,
+) -> Option<&'a CanonicalLexicalTokenEvent> {
+    let offset = find_top_level_char(text, ':')?;
+    let base = span.column;
+    events.iter().find(|event| {
+        event.spelling == ":" && {
+            let start = event.range.start.column.saturating_sub(base);
+            start <= offset && offset < start + event.range.byte_len
+        }
+    })
+}
+
 fn append_retained_form_facts(
     facts: &mut Vec<CanonicalStatementEventFact>,
     form: CanonicalStatementKindEvent,
@@ -6704,15 +6726,15 @@ fn append_retained_form_facts(
                 CanonicalStatementEventField::BinderRelationship,
                 CanonicalStatementEventValue::TokenReference(1),
             ));
-            if events.iter().any(|event| event.spelling == ":") {
-                retained_token_fact(
-                    facts,
+            if let Some(boundary) = retained_binding_type_boundary(&events, span, text) {
+                facts.push(statement_fact(
                     CanonicalStatementEventField::TypeBoundary,
-                    &events,
-                    2,
-                    ":",
-                    0,
-                );
+                    CanonicalStatementEventValue::Token {
+                        slot: 2,
+                        range: boundary.range.clone(),
+                        spelling: boundary.spelling.clone(),
+                    },
+                ));
             }
             if events.iter().any(|event| event.spelling == "=") {
                 retained_token_fact(
@@ -14713,6 +14735,196 @@ task after() -> UInt {
                 1,
                 "literal {literal} cannot repair the real block"
             );
+        }
+    }
+
+    /// N8: the retained binding `TypeBoundary` producer must only fire on a
+    /// top-level `:`. Colons nested inside record literals belong to the value
+    /// expression; treating them as annotation boundaries corrupts the
+    /// retained statement authority and trips the seal validator.
+    fn n8_binding_seal(statement: &str) -> CanonicalStatementSeal {
+        let source = format!(
+            "module qa2.n8\n\ntask f() -> Int {{\n  why:\n    probe\n\n  does:\n    {statement}\n    return 1\n}}\n"
+        );
+        let parsed = parse_source("n8.hum", &source);
+        let seals: Vec<&CanonicalStatementSeal> = parsed
+            .statement_seals
+            .iter()
+            .filter(|seal| {
+                seal.projection
+                    .iter()
+                    .any(|fact| fact.field == CanonicalStatementEventField::Binder)
+            })
+            .collect();
+        assert_eq!(
+            seals.len(),
+            1,
+            "one binding statement seal for `{statement}`"
+        );
+        let seal = seals[0].clone();
+        assert!(
+            validate_statement_seal(&seal).is_ok(),
+            "binding statement seal validates for `{statement}`"
+        );
+        seal
+    }
+
+    fn n8_type_boundary_values(
+        seal: &CanonicalStatementSeal,
+    ) -> (
+        Vec<&CanonicalStatementSealValue>,
+        Vec<&CanonicalStatementSealValue>,
+    ) {
+        (
+            seal.projection
+                .iter()
+                .filter(|fact| fact.field == CanonicalStatementEventField::TypeBoundary)
+                .map(|fact| &fact.value)
+                .collect(),
+            seal.authority
+                .iter()
+                .filter(|fact| fact.field == CanonicalStatementEventField::TypeBoundary)
+                .map(|fact| &fact.value)
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn n8_untyped_record_binding_has_no_type_boundary() {
+        let seal = n8_binding_seal("let v = {x: 1, y: 2}");
+        let (projection, authority) = n8_type_boundary_values(&seal);
+        assert!(
+            projection.is_empty(),
+            "projection must not see an annotation boundary"
+        );
+        assert!(
+            authority.is_empty(),
+            "retained authority must not see an annotation boundary"
+        );
+    }
+
+    #[test]
+    fn n8_change_record_binding_has_no_type_boundary() {
+        let seal = n8_binding_seal("change v = {x: 1, y: 2}");
+        let (projection, authority) = n8_type_boundary_values(&seal);
+        assert!(
+            projection.is_empty(),
+            "projection must not see an annotation boundary"
+        );
+        assert!(
+            authority.is_empty(),
+            "retained authority must not see an annotation boundary"
+        );
+    }
+
+    #[test]
+    fn n8_nested_list_quoted_colons_have_no_type_boundary() {
+        for statement in [
+            "let v = {p: {x: 1}}",
+            "let v = [{x: 1}, {y: 2}]",
+            "let v = \"a:b\"",
+        ] {
+            let seal = n8_binding_seal(statement);
+            let (projection, authority) = n8_type_boundary_values(&seal);
+            assert!(projection.is_empty(), "`{statement}` projection");
+            assert!(authority.is_empty(), "`{statement}` retained authority");
+        }
+    }
+
+    #[test]
+    fn n8_annotated_record_keeps_exact_type_boundary() {
+        let statement = "let v: Point = {x: 1, y: 2}";
+        let seal = n8_binding_seal(statement);
+        let (projection, authority) = n8_type_boundary_values(&seal);
+        assert_eq!(projection.len(), 1, "projected boundary");
+        assert_eq!(authority.len(), 1, "retained boundary");
+        assert_eq!(
+            projection[0], authority[0],
+            "channels agree on the genuine token"
+        );
+        let CanonicalStatementSealValue::Token(_, range, spelling) = projection[0] else {
+            panic!("TypeBoundary must be a token fact");
+        };
+        assert_eq!(spelling.as_str(), ":");
+        assert_eq!(range.byte_len, 1);
+        let line = seal
+            .projection
+            .iter()
+            .find(|fact| fact.field == CanonicalStatementEventField::Line)
+            .expect("line fact");
+        let CanonicalStatementSealValue::Range(line_range) = &line.value else {
+            panic!("Line must be a range fact");
+        };
+        let colon = statement.find(':').expect("annotation colon");
+        assert_eq!(
+            range.start.column,
+            line_range.start.column + colon,
+            "boundary keeps the genuine token's exact source range"
+        );
+    }
+
+    #[test]
+    fn n8_type_boundary_corruption_still_rejects() {
+        let seal = n8_binding_seal("let v: Point = {x: 1, y: 2}");
+        let foreign = parse_source(
+            "n8-foreign.hum",
+            "module qa2.n8\n\ntask f() -> Int {\n  why:\n    probe\n\n  does:\n    let w: Int = 3\n    return 1\n}\n",
+        );
+        let index = seal
+            .projection
+            .iter()
+            .position(|fact| fact.field == CanonicalStatementEventField::TypeBoundary)
+            .expect("boundary index");
+        let corrupted = mutate_statement_projection(
+            &seal,
+            &foreign.statement_seals,
+            index,
+            ProjectionMutation::Corrupt,
+        );
+        assert!(
+            validate_statement_seal(&corrupted).is_err(),
+            "corrupted TypeBoundary must still reject"
+        );
+        let substituted = mutate_statement_projection(
+            &seal,
+            &foreign.statement_seals,
+            index,
+            ProjectionMutation::Substituted,
+        );
+        assert!(
+            validate_statement_seal(&substituted).is_err(),
+            "substituted TypeBoundary must still reject"
+        );
+    }
+
+    #[test]
+    fn n8_unclosed_record_diagnostic_remains() {
+        let parsed = parse_source(
+            "n8-unclosed.hum",
+            "module qa2.n8\n\ntask f() -> Int {\n  why:\n    probe\n\n  does:\n    let v = {x: 1\n    return 1\n}\n",
+        );
+        assert_eq!(
+            parsed
+                .diagnostics
+                .iter()
+                .filter(
+                    |diagnostic| diagnostic.code == DiagnosticCode::ITEM_BLOCK_MISSING_CLOSE_BRACE
+                )
+                .count(),
+            1,
+            "unclosed record still reports the existing block diagnostic"
+        );
+    }
+
+    #[test]
+    fn n8_empty_annotation_and_missing_field_colon_do_not_panic() {
+        // No-panic observations only: these inputs must not trip the seal
+        // validator. They mandate no new rejection rule.
+        for statement in ["let v: = 1", "let v = {x 1}"] {
+            let source = format!(
+                "module qa2.n8\n\ntask f() -> Int {{\n  why:\n    probe\n\n  does:\n    {statement}\n    return 1\n}}\n"
+            );
+            let _ = parse_source("n8-observation.hum", &source);
         }
     }
 
