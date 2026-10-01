@@ -566,6 +566,21 @@ impl<'report> EffectOwnershipReportAccess<'report> {
         )
     }
 
+    /// Ownership-input prerequisites: source errors plus the complete upstream
+    /// full-type blocker aggregate (resolver/type/Core errors,
+    /// rejected/unchecked/unsupported body statements, predicate blockers).
+    /// Effect-owned statement/boundary verdicts are excluded: the narrow
+    /// place/move analysis consumes zero effect facts, so those verdicts
+    /// cannot inform its soundness and must not gate it. Canonical
+    /// ownership consumers still require effect authority and the full
+    /// gate set.
+    pub(crate) fn ownership_prerequisite_blocking_issues(&self) -> usize {
+        // FullTypeCheckSummary::blocking_issues already includes source_errors;
+        // the explicit term keeps the gate total even if the upstream aggregate
+        // ever stops including it.
+        self.report.source_errors + self.report.full_type_check_summary.blocking_issues
+    }
+
     pub(crate) fn canonical_minimal_add_for(
         &self,
         item: &Item,
@@ -1407,8 +1422,47 @@ fn save_target(text: &str) -> Option<&str> {
     }
 }
 
+/// Blanks Hum text-literal spans (quotes included) with spaces, mirroring the
+/// lexer's own literal state machine (`Parser::find_matching_close`): `"`
+/// toggles quoted, a backslash inside quotes arms the escaped flag (exactly odd/even
+/// backslash-run parity), and literals are line-scoped — an unterminated quote
+/// shields to end of line. Spaces keep executable text after literals intact
+/// while removing literal contents from lexical matching.
+fn blank_string_literal_spans(text: &str) -> String {
+    let mut blanked = String::with_capacity(text.len());
+    let mut quoted = false;
+    let mut escaped = false;
+    for ch in text.chars() {
+        if ch == '\n' {
+            quoted = false;
+            escaped = false;
+            blanked.push(ch);
+            continue;
+        }
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            blanked.push(' ');
+            continue;
+        }
+        if ch == '"' {
+            quoted = true;
+            blanked.push(' ');
+            continue;
+        }
+        blanked.push(ch);
+    }
+    blanked
+}
+
 fn first_ambient_resource(text: &str) -> Option<String> {
-    let lowered = text.to_ascii_lowercase();
+    let shielded = blank_string_literal_spans(text);
+    let lowered = shielded.to_ascii_lowercase();
     AMBIENT_READ_ROOTS
         .iter()
         .find(|root| contains_word_or_path(&lowered, root))
@@ -2627,5 +2681,108 @@ task retry(flag: Bool) -> Result UInt, WorkError {{
         Program {
             files: vec![parse_source("effect_demo.hum", &source).file],
         }
+    }
+
+    fn ambient_probe_case(text: &str) -> Option<String> {
+        super::first_ambient_resource(text)
+    }
+
+    #[test]
+    fn ambient_matcher_ignores_quoted_literals() {
+        assert_eq!(ambient_probe_case("\"clock\""), None);
+        // Unterminated quotes shield to end of line (line-scoped literals).
+        assert_eq!(ambient_probe_case("\"clock"), None);
+        // Identifier boundaries: longer identifiers do not match the root.
+        assert_eq!(ambient_probe_case("clockwork"), None);
+        assert_eq!(ambient_probe_case("my_clock"), None);
+    }
+
+    #[test]
+    fn ambient_matcher_ignores_escaped_quotes_inside_literals() {
+        let bs = char::from(92);
+        let text = format!("\"say {bs}\"clock{bs}\" now\"");
+        assert_eq!(ambient_probe_case(&text), None);
+    }
+
+    #[test]
+    fn ambient_matcher_keeps_genuine_identifier_and_path_reads() {
+        // No unused-binding exemption: real initializer effects remain even
+        // when the binding is unused.
+        assert_eq!(ambient_probe_case("clock"), Some("clock".to_string()));
+        assert_eq!(ambient_probe_case("CLOCK"), Some("clock".to_string()));
+        assert_eq!(
+            ambient_probe_case("clock.read()"),
+            Some("clock".to_string())
+        );
+        // Executable text following a literal still matches.
+        assert_eq!(
+            ambient_probe_case("\"clock\" + clock"),
+            Some("clock".to_string())
+        );
+    }
+
+    #[test]
+    fn ambient_matcher_backslash_parity() {
+        let bs = char::from(92).to_string();
+        // Even backslash run: the quote terminates the literal, so the
+        // trailing identifier is executable text.
+        let terminated = format!("\"a {bs}{bs}\" + clock");
+        assert_eq!(ambient_probe_case(&terminated), Some("clock".to_string()));
+        // Odd backslash run: the quote is escaped, the literal stays open,
+        // and the trailing identifier is still literal text.
+        let unterminated = format!("\"a {bs}{bs}{bs}\" + clock");
+        assert_eq!(ambient_probe_case(&unterminated), None);
+    }
+
+    #[test]
+    fn ambient_matcher_literals_are_line_scoped() {
+        // Mirrors the lexer: a quote cannot consume the next line.
+        assert_eq!(
+            ambient_probe_case("\"unterminated\nclock"),
+            Some("clock".to_string())
+        );
+    }
+
+    #[test]
+    fn quoted_clock_literal_produces_no_ambient_rejection() {
+        let program = Program {
+            files: vec![
+                parse_source(
+                    "quoted_clock.hum",
+                    r#"task probe() -> UInt {
+  does:
+    let label = "clock"
+    return 0
+}
+"#,
+                )
+                .file,
+            ],
+        };
+        let json = effect_check_json(&program, &[]);
+        assert!(!effect_check_has_errors(&program, &[]));
+        assert!(!json.contains("rejected_missing_uses_declaration_v0"));
+        assert!(!json.contains("\"ambient_read\""));
+    }
+
+    #[test]
+    fn undeclared_clock_parameter_read_is_rejected_without_uses() {
+        let program = Program {
+            files: vec![
+                parse_source(
+                    "undeclared_clock.hum",
+                    r#"task probe(clock: Text) -> UInt {
+  does:
+    let stamp = clock
+    return 0
+}
+"#,
+                )
+                .file,
+            ],
+        };
+        let json = effect_check_json(&program, &[]);
+        assert!(effect_check_has_errors(&program, &[]));
+        assert!(json.contains("rejected_missing_uses_declaration_v0"));
     }
 }
