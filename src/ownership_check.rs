@@ -642,7 +642,14 @@ fn build_report_from_effect(
         .iter()
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
-    let blocked = source_errors > 0 || effect_check_summary.blocking_issues > 0;
+    // The narrow place/move analysis consumes parsed spans, resolved places,
+    // and type identity, but zero effect facts. Only input-pipeline
+    // prerequisites gate this analysis: source errors plus the complete
+    // upstream full-type blocker aggregate. Effect-owned statement/boundary
+    // verdicts are excluded — they cannot inform ownership soundness, only
+    // suppress it. Canonical ownership consumers still require effect
+    // authority and the full gate set.
+    let blocked = source_errors > 0 || effect_access.ownership_prerequisite_blocking_issues() > 0;
     let mut items = Vec::new();
     for file in &program.files {
         collect_items(program, &file.items, blocked, &mut items);
@@ -3312,8 +3319,47 @@ fn save_target(text: &str) -> Option<&str> {
     }
 }
 
+/// Blanks Hum text-literal spans (quotes included) with spaces, mirroring the
+/// lexer's own literal state machine (`Parser::find_matching_close`): `"`
+/// toggles quoted, a backslash inside quotes arms the escaped flag (exactly odd/even
+/// backslash-run parity), and literals are line-scoped — an unterminated quote
+/// shields to end of line. Spaces keep executable text after literals intact
+/// while removing literal contents from lexical matching.
+fn blank_string_literal_spans(text: &str) -> String {
+    let mut blanked = String::with_capacity(text.len());
+    let mut quoted = false;
+    let mut escaped = false;
+    for ch in text.chars() {
+        if ch == '\n' {
+            quoted = false;
+            escaped = false;
+            blanked.push(ch);
+            continue;
+        }
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                quoted = false;
+            }
+            blanked.push(' ');
+            continue;
+        }
+        if ch == '"' {
+            quoted = true;
+            blanked.push(' ');
+            continue;
+        }
+        blanked.push(ch);
+    }
+    blanked
+}
+
 fn first_ambient_resource(text: &str) -> Option<String> {
-    let lowered = text.to_ascii_lowercase();
+    let shielded = blank_string_literal_spans(text);
+    let lowered = shielded.to_ascii_lowercase();
     AMBIENT_READ_ROOTS
         .iter()
         .find(|root| contains_word_or_path(&lowered, root))
@@ -4729,5 +4775,110 @@ task remember(title: Text) -> Result WorkItem, WorkError {
                     .is_some()
             });
         assert!(!withheld);
+    }
+
+    fn cr021_misuse_program(extra_does: &str, extra_items: &str) -> Program {
+        let source = format!(
+            "task take(consume value: Int) -> Int {{\n  does:\n    return value\n}}\n\ntask probe() -> Int {{\n  does:\n    let second: Int = 9\n{extra_does}    let taken: Int = take(consume second)\n    let reused: Int = second\n    return reused\n}}\n{extra_items}"
+        );
+        parse_program("cr021_probe.hum", &source)
+    }
+
+    fn cr021_probe_identity(program: &Program) -> BTreeSet<String> {
+        let task = program
+            .files
+            .iter()
+            .flat_map(|file| file.items.iter())
+            .find_map(|item| match item {
+                Item::Task(task) if task.name == "probe" => Some(task),
+                _ => None,
+            })
+            .expect("probe task");
+        BTreeSet::from([crate::resolve::semantic_task_identity(program, task)])
+    }
+
+    fn assert_single_h0801_blocker(program: &Program) {
+        let blockers = runtime_use_after_move_blockers(program, &cr021_probe_identity(program))
+            .expect("producer-owned H0801 blocker");
+        // Exactly one producer-owned H0801 blocker returned by the runtime
+        // selector.
+        assert_eq!(blockers.len(), 1);
+        let blocker = &blockers[0];
+        assert_eq!(
+            blocker.occurrence().cause_key(),
+            super::USE_AFTER_MOVE_CAUSE
+        );
+        assert_eq!(blocker.occurrence().owning_stage(), "ownership_check");
+        let (_identity, name, root, move_site, use_site, path) = blocker.structured_fact();
+        assert_eq!(name, "probe");
+        assert_eq!(root, "second");
+        assert!(move_site.line < use_site.line);
+        assert!(path.is_empty());
+    }
+
+    #[test]
+    fn neutral_misuse_reaches_h0801_preflight() {
+        let program = cr021_misuse_program("", "");
+        assert_single_h0801_blocker(&program);
+        let json = ownership_check_json(&program, &[]);
+        assert!(json.contains("rejected_use_after_move_v0"));
+        // Analysis ran: unavailable-analysis markers must be absent.
+        assert!(!json.contains("not_checked_blocked_by_prior_errors_v0"));
+    }
+
+    #[test]
+    fn quoted_clock_literal_no_longer_shadows_h0801() {
+        let program = cr021_misuse_program("    let label = \"clock\"\n", "");
+        // The effect face records no ambient rejection for the literal...
+        let effect_json = crate::effect_check::effect_check_json(&program, &[]);
+        assert!(!effect_json.contains("rejected_missing_uses_declaration_v0"));
+        // ...and the ownership preflight now finds the genuine H0801.
+        assert_single_h0801_blocker(&program);
+        let json = ownership_check_json(&program, &[]);
+        assert!(json.contains("rejected_use_after_move_v0"));
+        assert!(!json.contains("not_checked_blocked_by_prior_errors_v0"));
+    }
+
+    #[test]
+    fn uncalled_foreach_helper_no_longer_shadows_h0801() {
+        let program = cr021_misuse_program(
+            "",
+            "task helper_unused(words: List Text) -> UInt {\n  does:\n    for each word in words {\n    }\n    return 0\n}\n",
+        );
+        // The unrelated effect-owned verdict still exists in the effect face...
+        let effect_summary = crate::effect_check::effect_check_summary(&program, &[]);
+        assert!(effect_summary.unchecked_statements > 0);
+        assert!(crate::effect_check::effect_check_has_errors(&program, &[]));
+        // ...but it no longer gates ownership analysis or the H0801 preflight.
+        assert_single_h0801_blocker(&program);
+        let json = ownership_check_json(&program, &[]);
+        assert!(json.contains("rejected_use_after_move_v0"));
+        assert!(!json.contains("not_checked_blocked_by_prior_errors_v0"));
+    }
+
+    #[test]
+    fn genuine_type_error_keeps_ownership_analysis_unavailable() {
+        let program = cr021_misuse_program("    let bad: Int = \"text\"\n", "");
+        let json = ownership_check_json(&program, &[]);
+        // Unavailable analysis is still reported as unavailable — never as
+        // successfully checked absence.
+        assert!(json.contains("not_checked_blocked_by_prior_errors_v0"));
+        assert!(!json.contains("rejected_use_after_move_v0"));
+    }
+
+    #[test]
+    fn ownership_text_and_json_agree_on_partitioned_status() {
+        let program = cr021_misuse_program(
+            "",
+            "task helper_unused(words: List Text) -> UInt {\n  does:\n    for each word in words {\n    }\n    return 0\n}\n",
+        );
+        let text = ownership_check_text(&program, &[]);
+        let json = ownership_check_json(&program, &[]);
+        // The effect face still reports its own verdict in both renderings...
+        assert!(text.contains("status: blocked_by_effect_check_errors"));
+        assert!(json.contains("\"status\": \"blocked_by_effect_check_errors\""));
+        // ...while ownership analysis ran in both.
+        assert!(json.contains("rejected_use_after_move_v0"));
+        assert!(!json.contains("not_checked_blocked_by_prior_errors_v0"));
     }
 }
