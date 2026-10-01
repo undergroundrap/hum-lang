@@ -2388,7 +2388,14 @@ mod tests {
                 .occurrences()
                 .filter(|occurrence| occurrence.code == DiagnosticCode::USE_AFTER_MOVE)
                 .count(),
-            0
+            1
+        );
+        assert_eq!(
+            ownership_from_source
+                .occurrences()
+                .find(|occurrence| occurrence.code == DiagnosticCode::USE_AFTER_MOVE)
+                .and_then(|occurrence| occurrence.cause_reason()),
+            Some("value_used_after_move_v0")
         );
         crate::profile_check::diagnostic_occurrence_set_from_source(
             &effect_program,
