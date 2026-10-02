@@ -74,6 +74,16 @@ try {
   $After = [int](& pgrep -f $Marker | Measure-Object | Select-Object -ExpandProperty Count)
   Assert-True ($After -eq $Before) "timeout: no stray grandchild (before=$Before after=$After)"
 
+  # Absolute-path control: bare tool names fail under the Windows native
+  # capture path; the resolved absolute path must capture cleanly.
+  $AbsGit = (Get-Command git -ErrorAction Stop).Source
+  Assert-True ([IO.Path]::IsPathRooted($AbsGit)) 'absolute-path control: git resolves to a rooted path'
+  $GitCapDir = Join-Path $WorkRoot 'cap-git-abs'
+  $GitCap = Invoke-HumBinaryCapture $AbsGit @('--version') $WorkRoot $GitCapDir 30 5 -CaseName 'kit-validate-git-abs'
+  $GitAssertOk = $true; try { $null = Assert-HumCaptureComplete $GitCap } catch { $GitAssertOk = $false }
+  $GitOut = [IO.File]::ReadAllText((Join-Path $GitCapDir 'stdout.bin'))
+  Assert-True ($GitAssertOk -and $GitCap.ExitCode -eq 0 -and $GitOut -match '^git version') 'absolute-path control: git --version captured and authenticated via absolute path'
+
   # ---------- Phase 2: kit dot-source guard; budget + boundary helpers ----------
   . $KitPath
   $Now = [DateTime]::UtcNow
@@ -126,6 +136,15 @@ try {
   Assert-True ((Test-KitRunLaunchAllowed 's' @{'s' = 'ok'}) -eq $true) 'launch gate: clean listing launches run'
   Assert-True ((Test-KitRunLaunchAllowed 's' @{'s' = 'bad'}) -eq $false) 'launch gate: failed listing blocks run'
 
+  # Restore proof gate: staleness is prevented structurally (the kit resets
+  # the proof on every launch); the predicate rejects absent/non-quiescent proof.
+  $QGood = [ordered]@{ job_quiescent = $true; final_active = 0 }
+  $QActive = [ordered]@{ job_quiescent = $false; final_active = 3 }
+  Assert-True ((Test-KitRestoreProof $false $null) -eq $true) 'restore proof: no launch attempted -> restore allowed'
+  Assert-True ((Test-KitRestoreProof $true $QGood) -eq $true) 'restore proof: current child quiescent -> restore allowed'
+  Assert-True ((Test-KitRestoreProof $true $null) -eq $false) 'restore proof: helper threw (absent proof) -> retain + report'
+  Assert-True ((Test-KitRestoreProof $true $QActive) -eq $false) 'restore proof: child still active -> retain + report'
+
   # ---------- Phase 5: actual finalization path ----------
   $tmpRepo = Join-Path $WorkRoot 'fake-repo'
   New-Item -ItemType Directory -Force -Path $tmpRepo | Out-Null
@@ -157,8 +176,9 @@ try {
   $script:CargoVersion = 'cargo 1.99.0 (synth)'; $script:RustcVersion = 'rustc 1.99.0 (synth)'
   $script:KitError = $null
   $script:PinnedHead = $fakeHead; $script:PinnedBase = $fakeBase
+  $ValGit = (Get-Command git -ErrorAction Stop).Source
   Write-KitSummary -OutDir $tmpOut -RepoRoot $tmpRepo -FrozenPath $frozenFile -FrozenSha256 $frozenHash `
-    -KitStartUtc ([DateTime]::UtcNow.AddMinutes(-5)) -AbsoluteBudgetSeconds 900
+    -KitStartUtc ([DateTime]::UtcNow.AddMinutes(-5)) -AbsoluteBudgetSeconds 900 -GitPath $ValGit
   $sum = Get-Content (Join-Path $tmpOut 'summary.json') -Raw | ConvertFrom-Json
   Assert-True ($sum.family_stats.F0.mean_ms -eq 125) 'summary: F0 mean over clean samples only'
   Assert-True ($sum.family_stats.F1.mean_ms -eq 5000 -and $sum.family_stats.F1.measured_clean -eq 1 -and $sum.family_stats.F1.incomplete -eq 1) 'summary: incomplete timing excluded from mean'
@@ -174,7 +194,7 @@ try {
   $script:KitError = $null
   $script:PinnedHead = '0000000000000000000000000000000000000000'
   Write-KitSummary -OutDir $tmpOutB -RepoRoot $tmpRepo -FrozenPath $frozenFile -FrozenSha256 $frozenHash `
-    -KitStartUtc ([DateTime]::UtcNow.AddMinutes(-5)) -AbsoluteBudgetSeconds 900
+    -KitStartUtc ([DateTime]::UtcNow.AddMinutes(-5)) -AbsoluteBudgetSeconds 900 -GitPath $ValGit
   Assert-True ($script:KitError -match 'final verification failed' -and $script:KitError -match 'head drift') 'summary: head drift FAILS the kit'
   $script:PinnedHead = $fakeHead
 
@@ -183,7 +203,7 @@ try {
   New-Item -ItemType Directory -Force -Path $tmpOutC | Out-Null
   $script:KitError = $null
   Write-KitSummary -OutDir $tmpOutC -RepoRoot $tmpRepo -FrozenPath $frozenFile -FrozenSha256 'deadbeef' `
-    -KitStartUtc ([DateTime]::UtcNow.AddMinutes(-5)) -AbsoluteBudgetSeconds 900
+    -KitStartUtc ([DateTime]::UtcNow.AddMinutes(-5)) -AbsoluteBudgetSeconds 900 -GitPath $ValGit
   Assert-True ($script:KitError -match 'final verification failed' -and $script:KitError -match 'frozen binary hash') 'summary: frozen hash mismatch FAILS the kit'
 
   # 5d. early capture failure: abort sweep finalizes every planned ID

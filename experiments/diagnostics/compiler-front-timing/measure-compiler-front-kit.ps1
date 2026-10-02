@@ -57,7 +57,9 @@
   - cargo resolvable via Get-Command (absolute path recorded; production's
     default target selection is preserved: plain `cargo test <selector>`,
     never --bin/--package substitutions)
-  - rustc on PATH (version recorded via bounded capture)
+  - git and rustc resolved to absolute executable paths before capture
+    (bare names fail under the Windows native capture path; the
+    absolute-path control passes); rustc version recorded via bounded capture
   - git on PATH (all invocations go through the bounded capture helper;
     exits verified, never inferred from output text alone)
 
@@ -138,6 +140,8 @@ $script:PlanSeq = 0
 $script:NdjsonPath = $null
 $script:CargoVersion = $null
 $script:RustcVersion = $null
+$script:GitPath = $null
+$script:RustcPath = $null
 $script:HumSourcePath = $null
 $script:HumMtime = $null
 
@@ -186,6 +190,18 @@ function Test-KitMutationBudget {
   param([datetime] $NowUtc, [datetime] $DeadlineUtc, [int] $ReserveSeconds, [int] $GraceSeconds)
   $Remaining = ($DeadlineUtc - $NowUtc).TotalSeconds - $ReserveSeconds - $GraceSeconds
   return $Remaining -ge 150
+}
+
+# Restore proof gate: the mutated source may be restored only with
+# authenticated quiescence proof for the CURRENT (last-launched) child,
+# or when no child was launched after applying. Absent proof (the capture
+# helper threw, so no record exists) or stale proof (a later launch
+# superseded it) retains the mutated scratch source and reports it.
+function Test-KitRestoreProof {
+  param([bool] $AttemptedLaunch, $LastProof)
+  if (-not $AttemptedLaunch) { return $true }
+  if ($null -eq $LastProof) { return $false }
+  return [bool]($LastProof.job_quiescent -and $LastProof.final_active -eq 0)
 }
 
 function New-KitPlan {
@@ -255,11 +271,15 @@ function Write-KitRecord([hashtable] $Record) {
 
 # Bounded git through the pinned capture helper (replaces all unchecked git).
 # Returns trimmed stdout. Throws on timeout, incomplete capture, or nonzero exit.
+# $GitPath is resolved to an absolute executable path by the caller: bare
+# 'git' fails under the Windows native capture path while the absolute-path
+# control passes.
 function Invoke-KitGit {
-  param([string] $RepoRoot, [string[]] $Arguments, [string] $OutDir,
+  param([string] $GitPath, [string] $RepoRoot, [string[]] $Arguments, [string] $OutDir,
         [string] $Tag, [int] $TimeoutSeconds)
+  if ([string]::IsNullOrWhiteSpace($GitPath)) { $GitPath = (Get-Command git -ErrorAction Stop).Source }
   $CapDir = Join-Path $OutDir ("git-$Tag")
-  $Cap = Invoke-HumBinaryCapture 'git' $Arguments $RepoRoot $CapDir $TimeoutSeconds 5 -CaseName ("kit-git-$Tag")
+  $Cap = Invoke-HumBinaryCapture $GitPath $Arguments $RepoRoot $CapDir $TimeoutSeconds 5 -CaseName ("kit-git-$Tag")
   if ($Cap.TimedOut) { throw "git $($Arguments -join ' ') timed out after ${TimeoutSeconds}s" }
   $null = Assert-HumCaptureComplete $Cap
   if ($Cap.ExitCode -ne 0) {
@@ -412,7 +432,8 @@ function Invoke-KitMutation {
   if ($Mutated -ceq $Original) { throw "mutation $($M.label) replacement did not change source" }
   [IO.File]::WriteAllText($Path, $Mutated, $script:Utf8)
   Write-KitConsole "mutation applied: $($M.label)"
-  $LastRaw = $null
+  $AttemptedLaunch = $false
+  $LastProof = $null
   $ListOk = $false
   $MutationError = $null
   foreach ($E in @($ListEntry, $RunEntry)) {
@@ -428,6 +449,8 @@ function Invoke-KitMutation {
       $E['state'] = 'not-run'; $E['reason'] = 'budget_exhausted'
       $script:Records += $E; Write-KitRecord $E; continue
     }
+    $AttemptedLaunch = $true
+    $LastProof = $null
     try {
       $R = Invoke-KitMeasuredCommand $E $CargoPath $RepoRoot $OutDir $B.TimeoutSeconds $GraceSeconds
     } catch {
@@ -437,7 +460,7 @@ function Invoke-KitMutation {
       $MutationError = "mutation $($M.label) $($E.kind): capture helper failed: $($_.Exception.Message)"
       break
     }
-    $LastRaw = $R
+    $LastProof = $R.quiescence
     $Text = (Read-CapStdout $R.capture_dir) + "`n" + (Read-CapStderr $R.capture_dir)
     if ($R.state -ceq 'measured') {
       if ($E.kind -ceq 'mut-list') {
@@ -461,13 +484,13 @@ function Invoke-KitMutation {
     $script:Records += $E
     if ($E.state -ceq 'error') { $MutationError = "mutation $($M.label) $($E.kind) error: $($E.reason)"; break }
   }
-  # Restore iff quiescence is authenticated for the last launched child, or
-  # no child was launched after applying (nothing can be active). NEVER
-  # restore while a compiler child may remain active.
+  # Restore ONLY with authenticated quiescence proof for the CURRENT
+  # (last-launched) child, or when no child was launched after applying.
+  # Absent proof (helper threw) or stale proof (superseded by a later
+  # launch) retains the mutated source. NEVER restore while a compiler
+  # child may remain active.
   $Restored = $false
-  $CanRestore = ($null -eq $LastRaw) -or
-    ($LastRaw.quiescence.job_quiescent -and $LastRaw.quiescence.final_active -eq 0)
-  if ($CanRestore) {
+  if (Test-KitRestoreProof $AttemptedLaunch $LastProof) {
     [IO.File]::WriteAllBytes($Path, $OriginalBytes)
     $Check = [IO.File]::ReadAllBytes($Path)
     $Equal = $Check.Length -eq $OriginalBytes.Length
@@ -502,15 +525,15 @@ function Complete-KitAbortRecords {
 
 function Write-KitSummary {
   param([string] $OutDir, [string] $RepoRoot, [string] $FrozenPath, [string] $FrozenSha256,
-        [datetime] $KitStartUtc, [int] $AbsoluteBudgetSeconds)
+        [datetime] $KitStartUtc, [int] $AbsoluteBudgetSeconds, [string] $GitPath)
   $GitAfter = [ordered]@{ head = $null; base = $null; clean = $null; error = $null }
   if ((Get-Command Invoke-KitGit -ErrorAction SilentlyContinue) -and
       -not [string]::IsNullOrWhiteSpace($RepoRoot)) {
     try {
       # Bounded: 3 x 10s fits inside the 60s final reserve.
-      $GitAfter.head = Invoke-KitGit $RepoRoot @('rev-parse', 'HEAD') $OutDir 'final-head' 10
-      $GitAfter.base = Invoke-KitGit $RepoRoot @('rev-parse', 'HEAD^') $OutDir 'final-base' 10
-      $Porcelain = Invoke-KitGit $RepoRoot @('status', '--porcelain') $OutDir 'final-status' 10
+      $GitAfter.head = Invoke-KitGit $GitPath $RepoRoot @('rev-parse', 'HEAD') $OutDir 'final-head' 10
+      $GitAfter.base = Invoke-KitGit $GitPath $RepoRoot @('rev-parse', 'HEAD^') $OutDir 'final-base' 10
+      $Porcelain = Invoke-KitGit $GitPath $RepoRoot @('status', '--porcelain') $OutDir 'final-status' 10
       $GitAfter.clean = [string]::IsNullOrEmpty($Porcelain)
     } catch { $GitAfter.error = $_.Exception.Message }
   } else {
@@ -562,6 +585,7 @@ function Write-KitSummary {
     pins = [ordered]@{ head = $script:PinnedHead; base = $script:PinnedBase; helper_sha256 = $script:PinnedHelperSha256 }
     provenance = [ordered]@{
       cargo_version = $script:CargoVersion; rustc_version = $script:RustcVersion
+      git_path = $script:GitPath; rustc_path = $script:RustcPath
       hum_source = $script:HumSourcePath; hum_frozen = $FrozenPath
       hum_sha256_before = $FrozenSha256; hum_sha256_after = $FrozenAfter
       hum_frozen_verified = ($null -ne $FrozenSha256 -and $FrozenAfter -ceq $FrozenSha256)
@@ -597,6 +621,8 @@ function Main-Kit {
   $OutDir = $null
   $FrozenPath = $null
   $FrozenSha256 = $null
+  $GitPath = $null
+  $RustcPath = $null
   try {
     if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'kit requires PowerShell 7+' }
     if ([string]::IsNullOrWhiteSpace($SourceCopy)) { throw '-SourceCopy is required (fresh owned scratch source copy)' }
@@ -632,13 +658,22 @@ function Main-Kit {
       throw 'Invoke-HumBinaryCapture not available after dot-sourcing helper'
     }
 
+    # Absolute executable paths: bare 'git'/'rustc' fail under the Windows
+    # native capture path while the absolute-path control passes.
+    $GitPath = (Get-Command git -ErrorAction Stop).Source
+    $RustcPath = (Get-Command rustc -ErrorAction Stop).Source
+    $script:GitPath = $GitPath
+    $script:RustcPath = $RustcPath
+    Write-KitConsole "git: $GitPath"
+    Write-KitConsole "rustc: $RustcPath"
+
     # Dedicated owned scratch-source boundary: SourceCopy and OutputDirectory
     # must live inside it, and it must live outside every registered worktree.
     $BoundaryFull = [IO.Path]::GetFullPath($ScratchBoundary)
     if (-not [IO.Directory]::Exists($BoundaryFull)) { throw "ScratchBoundary not found: $ScratchBoundary" }
     if (-not (Test-PathInside $RepoRoot $BoundaryFull)) { throw "SourceCopy outside ScratchBoundary: $RepoRoot" }
     if (-not (Test-PathInside $OutDir $BoundaryFull)) { throw "OutputDirectory outside ScratchBoundary: $OutDir" }
-    $WtText = Invoke-KitGit $RepoRoot @('worktree', 'list', '--porcelain') $OutDir 'boundary-worktrees' 15
+    $WtText = Invoke-KitGit $GitPath $RepoRoot @('worktree', 'list', '--porcelain') $OutDir 'boundary-worktrees' 15
     $WtPaths = @($WtText -split "`r?`n" | Where-Object { $_ -match '^worktree ' } | ForEach-Object { $_.Substring(9) })
     foreach ($W in $WtPaths) {
       $Wf = [IO.Path]::GetFullPath($W)
@@ -649,11 +684,11 @@ function Main-Kit {
     }
     Write-KitConsole "boundary ok: $BoundaryFull"
 
-    $Head = Invoke-KitGit $RepoRoot @('rev-parse', 'HEAD') $OutDir 'preflight-head' 15
+    $Head = Invoke-KitGit $GitPath $RepoRoot @('rev-parse', 'HEAD') $OutDir 'preflight-head' 15
     if ($Head -cne $script:PinnedHead) { throw "head $Head != pinned $($script:PinnedHead)" }
-    $Base = Invoke-KitGit $RepoRoot @('rev-parse', 'HEAD^') $OutDir 'preflight-base' 15
+    $Base = Invoke-KitGit $GitPath $RepoRoot @('rev-parse', 'HEAD^') $OutDir 'preflight-base' 15
     if ($Base -cne $script:PinnedBase) { throw "base $Base != pinned $($script:PinnedBase)" }
-    $Porcelain = Invoke-KitGit $RepoRoot @('status', '--porcelain') $OutDir 'preflight-status' 15
+    $Porcelain = Invoke-KitGit $GitPath $RepoRoot @('status', '--porcelain') $OutDir 'preflight-status' 15
     if ($Porcelain) { throw "scratch copy not clean: $Porcelain" }
 
     $CargoPath = (Get-Command $Cargo -ErrorAction Stop).Source
@@ -665,7 +700,7 @@ function Main-Kit {
     if ($CargoCap.ExitCode -ne 0) { throw "cargo --version exited $($CargoCap.ExitCode)" }
     $script:CargoVersion = (Read-CapStdout $CargoCapDir).Trim()
     $RustcCapDir = Join-Path $OutDir 'tool-rustc-version'
-    $RustcCap = Invoke-HumBinaryCapture 'rustc' @('--version') $RepoRoot $RustcCapDir 30 5 -CaseName 'kit-tool-rustc-version'
+    $RustcCap = Invoke-HumBinaryCapture $RustcPath @('--version') $RepoRoot $RustcCapDir 30 5 -CaseName 'kit-tool-rustc-version'
     if ($RustcCap.TimedOut) { throw 'rustc --version timed out' }
     $null = Assert-HumCaptureComplete $RustcCap
     if ($RustcCap.ExitCode -ne 0) { throw "rustc --version exited $($RustcCap.ExitCode)" }
@@ -778,7 +813,8 @@ function Main-Kit {
     # failures fail the kit inside Write-KitSummary.
     if ($null -ne $OutDir) {
       Write-KitSummary -OutDir $OutDir -RepoRoot $RepoRoot -FrozenPath $FrozenPath `
-        -FrozenSha256 $FrozenSha256 -KitStartUtc $KitStartUtc -AbsoluteBudgetSeconds $AbsoluteBudgetSeconds
+        -FrozenSha256 $FrozenSha256 -KitStartUtc $KitStartUtc -AbsoluteBudgetSeconds $AbsoluteBudgetSeconds `
+        -GitPath $GitPath
     }
   }
 }

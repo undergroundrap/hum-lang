@@ -12,7 +12,7 @@ is wired into CI, builds anything, or judges anything.
 - `validate-kit-harness.ps1` — synthetic (non-Hum) harness validation for
   the kit's mechanics and finalization path.
 - `validation-results.txt` — retained output of the harness validation run
-  (49 checks, all passing).
+  (55 checks, all passing).
 - `SHA256SUMS` — SHA-256 checksums of the files in this directory.
 
 Context: PR #69 (undergroundrap/hum-lang#69) Windows validation failed
