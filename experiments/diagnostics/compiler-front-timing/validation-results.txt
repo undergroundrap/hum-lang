@@ -1,0 +1,70 @@
+ok - helper dot-source exposes Invoke-HumBinaryCapture
+ok - channels: exit 0, no timeout
+ok - channels: stdout captured
+ok - channels: stderr captured
+ok - channels: Assert-HumCaptureComplete authenticates clean capture
+ok - timeout: TimedOut=true
+ok - timeout: deadline_expired
+ok - timeout: descendant quiescence authenticated, final_active=0
+ok - timeout: no stray grandchild (before=0 after=0)
+ok - budget: 935s usable -> launch, clamped to max 180
+ok - budget: 35s usable -> launch, clamped to 35 (reserve+grace charged)
+ok - budget: 5s usable -> not-run (skip accounting)
+ok - mutation budget: 235s usable -> proceed
+ok - mutation budget: 85s usable -> skip
+ok - boundary: child inside parent
+ok - boundary: equal paths inside
+ok - boundary: prefix sibling not inside
+ok - boundary: outside not inside
+ok - plan inventory: 28 entries (got 28)
+ok - plan kinds: control=10,list=4,mut-list=2,mut-run=2,probe=6,run=4
+ok - plan: exact argv arrays retained
+ok - selection: exact single accepted
+ok - selection: zero rejected
+ok - selection: duplicate rejected
+ok - selection: non-matching single (ignored) rejected
+ok - run result: named ok + 1 passed -> ok
+ok - run result: exit 0 without named pass -> unexpected_exit
+ok - run result: compilation failure distinguished
+ok - run result: nonzero exit without compile error -> unexpected_exit
+ok - mutation result: exactly the intended FAILED -> expected_failure
+ok - mutation result: two FAILED lines -> unexpected_exit
+ok - mutation result: wrong selector FAILED -> unexpected_exit
+ok - mutation result: compilation failure distinguished
+ok - mutation result: exit 0 -> unexpected_exit
+ok - launch gate: unknown selector not launched
+ok - launch gate: clean listing launches run
+ok - launch gate: failed listing blocks run
+==> summary (also in summary.json)
+  F0: clean_n=2 mean=125ms incomplete=0 error=0 notrun=0 unexpected=0
+  F1: clean_n=1 mean=5000ms incomplete=1 error=0 notrun=0 unexpected=0
+  F2: clean_n=1 mean=9000ms incomplete=0 error=1 notrun=0 unexpected=0
+  F3: clean_n=0 mean=ms incomplete=0 error=0 notrun=1 unexpected=0
+  git_after: head=c2c8301400c8bef8449caede2204e90dd8a28f40 base=c9c7b6c6e9c48799f424c1e66d3f0c0664270412 clean=True
+ok - summary: F0 mean over clean samples only
+ok - summary: incomplete timing excluded from mean
+ok - summary: F2 counts
+ok - summary: no kit_error on clean verification
+ok - summary: final git verification recorded
+ok - summary: frozen hash verified
+ok - summary: inventory retained
+==> summary (also in summary.json)
+  F0: clean_n=2 mean=125ms incomplete=0 error=0 notrun=0 unexpected=0
+  F1: clean_n=1 mean=5000ms incomplete=1 error=0 notrun=0 unexpected=0
+  F2: clean_n=1 mean=9000ms incomplete=0 error=1 notrun=0 unexpected=0
+  F3: clean_n=0 mean=ms incomplete=0 error=0 notrun=1 unexpected=0
+  kit_error: final verification failed: final head drift: c2c8301400c8bef8449caede2204e90dd8a28f40
+  git_after: head=c2c8301400c8bef8449caede2204e90dd8a28f40 base=c9c7b6c6e9c48799f424c1e66d3f0c0664270412 clean=True
+ok - summary: head drift FAILS the kit
+==> summary (also in summary.json)
+  F0: clean_n=2 mean=125ms incomplete=0 error=0 notrun=0 unexpected=0
+  F1: clean_n=1 mean=5000ms incomplete=1 error=0 notrun=0 unexpected=0
+  F2: clean_n=1 mean=9000ms incomplete=0 error=1 notrun=0 unexpected=0
+  F3: clean_n=0 mean=ms incomplete=0 error=0 notrun=1 unexpected=0
+  kit_error: final verification failed: frozen binary hash mismatch or unavailable
+  git_after: head=c2c8301400c8bef8449caede2204e90dd8a28f40 base=c9c7b6c6e9c48799f424c1e66d3f0c0664270412 clean=True
+ok - summary: frozen hash mismatch FAILS the kit
+ok - abort sweep: exactly one terminal state per planned ID (28)
+ok - abort sweep: unstarted commands are definitive not-run/aborted
+ok - abort sweep: current failed command keeps its terminal state
+harness validation: all synthetic checks passed
