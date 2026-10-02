@@ -1,0 +1,13 @@
+timing-observability candidate export r2
+pinned base: a01f4dc242cd075d7aff91090280ce9c38bcc8a7
+
+candidate file blob identities (git blob SHA-1 of exact worktree bytes):
+12dfb370e3e12ce7bbe5156398645dc26056bb20  .github/workflows/ci.yml
+1ea080c83f6920567efa5bb5226f22b414e2c6bd  tools/check_all.ps1
+d05ea51d94f6aeafab8d547c0f05faa26ee8c785  tools/test_exact_rust_selector.ps1
+997cf7725af5d8e2d2521797aa51ab96fa1d3ce5  tools/run_fast_evidence.ps1
+29a153c38f6b98a8c72a0765002bb5728539d12b  tools/hum_timing_ledger.ps1
+c7370e482ce8088b25621fd9a7e4189d6e65e9ba  tools/test_timing_ledger.ps1
+
+package sha256: 0d406d2b12f7087959450a43605e03cc2ad683159083ee74d10bb642601bfd3a
+(SHA-256 of the SHA256SUMS file bytes in this directory)
