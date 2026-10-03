@@ -1,0 +1,621 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1c575e8..9115251 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -347,6 +347,12 @@ jobs:
+           $CaptureDirectory = Join-Path $env:RUNNER_TEMP ('hum-full-capture-' + [Guid]::NewGuid().ToString('N'))
+           $DiagnosticDirectory = Join-Path $env:RUNNER_TEMP ('hum-preflight-diagnostics-' + [Guid]::NewGuid().ToString('N'))
+           "failure_capture=$DiagnosticDirectory" >> $env:GITHUB_OUTPUT
++          # Invocation-owned timing journal: per-command timing evidence for
++          # the Full profile. check_all.ps1 initializes it only when this
++          # explicit path is supplied; on failure it is staged into the
++          # diagnostic (upload) directory, on success it is removed.
++          $TimingJournal = Join-Path $env:RUNNER_TEMP ('hum-timing-journal-' + [Guid]::NewGuid().ToString('N') + '.ndjson')
++          $env:HUM_TIMING_JOURNAL = $TimingJournal
+           $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
+           . ./tools/run_fast_evidence.ps1
+           $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+@@ -447,6 +453,49 @@ jobs:
+                     Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason
+                   }
+                 } catch { Write-Warning "Final preflight diagnostic retention also failed: $($_.Exception.Message)" -WarningAction Continue }
++                # Timing journal: stage into the actual upload directory
++                # (Full uploads DiagnosticDirectory, not CaptureDirectory;
++                # the diagnostic copier excludes the journal). The directory
++                # may already exist from an early snapshot. A retention
++                # failure must not mask the original failure.
++                #
++                # Quiescence proof is required before staging: consume the
++                # current authenticated capture's existing process-tree and
++                # channel quiescence proof. Do not reconstruct from
++                # Get-Process/PID absence. A timeout flag alone is not proof;
++                # quiescence does not require Full success. Missing or
++                # unproven current capture preserves the original failure
++                # and reports the retention gap. No new process model.
++                $Quiescent = $false
++                $QuiescenceGap = ''
++                if ($null -ne $Capture) {
++                  $Quiescent = ($Capture.JobQuiescenceObserved -and
++                    $Capture.FinalActiveProcessCount -eq 0 -and
++                    $Capture.StdoutCompletionObserved -and
++                    $Capture.StderrCompletionObserved -and
++                    $Capture.PrimaryExitObserved)
++                  if (-not $Quiescent) {
++                    $QuiescenceGap = 'current capture quiescence unproven (job/process/channel)'
++                  }
++                } else {
++                  $QuiescenceGap = 'no current authenticated capture; quiescence unproven'
++                }
++                if ($Quiescent) {
++                  try {
++                    Invoke-HumTimingJournalRetention -JournalPath $TimingJournal -CaptureDirectory $CaptureDirectory -Failed $true -DestinationDirectory $DiagnosticDirectory | Out-Null
++                  } catch { Write-Warning "Timing journal retention also failed: $($_.Exception.Message)" -WarningAction Continue }
++                } else {
++                  Write-Warning "Timing journal not staged: quiescence unproven ($QuiescenceGap). Original failure preserved." -WarningAction Continue
++                }
++              } else {
++                # Success: remove the journal; the capture inventory stays
++                # canonical and authenticated cleanup is unchanged.
++                try {
++                  Invoke-HumTimingJournalRetention -JournalPath $TimingJournal -CaptureDirectory $CaptureDirectory -Failed $false | Out-Null
++                } catch {
++                  if ($null -eq $PreflightFailure -and $ExitCode -eq 0) { $PreflightFailure = $_ }
++                  else { Write-Warning "Timing journal cleanup also failed: $($_.Exception.Message)" -WarningAction Continue }
++                }
+               }
+             }
+           }
+diff --git a/tools/check_all.ps1 b/tools/check_all.ps1
+index 554da8b..00c9a53 100644
+--- a/tools/check_all.ps1
++++ b/tools/check_all.ps1
+@@ -1522,7 +1522,7 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
+   $UploadMatches=[regex]::Matches($Normalized,'(?ms)^      - name: Upload failed preflight diagnostics'+$Lf+'.*?(?=^      - name: )')
+   if($UploadMatches.Count-ne1-or$UploadMatches[0].Index-ne($Matches[0].Index+$Matches[0].Length)){throw 'Unit B failure-diagnostics upload ownership drifted'}
+   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($UploadMatches[0].Value)))-cne'2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa'){throw 'Unit B failure-diagnostics upload positive closure drifted'}
+-  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'20b346c44d2e2840c035710ee726e5538043602fc497730161951e7ce59eabea'){throw 'Unit B full-preflight workflow positive closure drifted'}
++  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'082b5d214a1250a16f22cf81204ceac17216562cb1267aa6d08616deafc13f31'){throw 'Unit B full-preflight workflow positive closure drifted'}
+   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($SummaryStep)))-cne'e4ae140917b9706da4e9a6444dd7fce000b89f1fa6479a500b02ad64ea6a258e'){throw 'Unit B summary workflow positive closure drifted'}
+   $Required=@(
+     '$RustcStart.RedirectStandardOutput = $true',
+@@ -7095,6 +7095,12 @@ try {
+   if ($EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo; return }
+   if ($EvidenceTier -eq 'Wo25UnitCMutation') { Initialize-Wo25WindowsToolchain; Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo; return }
+   if ($EvidenceTier -cin @('Language', 'Runtime', 'Compiler')) { Invoke-HumFixedProfile $EvidenceTier $Cargo; return }
++  # Timing journal (Full profile): initialize only when the workflow
++  # supplied an explicit invocation-owned journal path. Unset locally
++  # preserves the default (no journal) behavior.
++  if ($script:HumTimingEnabled -and -not [string]::IsNullOrEmpty($env:HUM_TIMING_JOURNAL)) {
++    Initialize-HumProfileTimingJournal
++  }
+   # Decision 0025: the status-boundary classifier runs in the hygiene group
+   # (every profile), not as a standalone Fast-tier invocation.
+   $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
+diff --git a/tools/run_fast_evidence.ps1 b/tools/run_fast_evidence.ps1
+index c40a34e..d612763 100644
+--- a/tools/run_fast_evidence.ps1
++++ b/tools/run_fast_evidence.ps1
+@@ -1312,26 +1312,39 @@ function Invoke-HumTimingJournalRetention {
+   param(
+     [string] $JournalPath,
+     [string] $CaptureDirectory,
+-    [bool] $Failed
++    [bool] $Failed,
++    [string] $DestinationDirectory = ''
+   )
+   # Durable timing journal retention: the single decision point the CI
+-  # fixed-profile step calls in its outer finally block.
++  # fixed-profile step calls in its outer finally block, and the Full
++  # preflight step calls with -DestinationDirectory.
+   #
+   # The journal lives outside the inventoried capture directory at all
+   # times: staging it there unconditionally would break the success-path
+   # capture inventory authentication (Remove-HumCaptureAfterAuthentication).
+-  # On failure the journal is staged inside the capture directory so the
++  # On failure the journal is staged inside the destination directory so the
+   # existing failed-diagnostics artifact upload retains it; on success it is
+   # removed. Only the exact per-invocation path the profile was told to
+   # write is considered, so a stale cached journal at any other path is
+   # never attributed to this run. A missing journal (the profile never
+   # reached ledger initialization) is not an error.
+   #
++  # The destination defaults to the capture directory (the fixed-profile
++  # seam). The Full preflight passes its DiagnosticDirectory explicitly:
++  # Full uploads the diagnostic directory, not the capture directory, and
++  # the diagnostic copier excludes the journal. The destination is created
++  # if absent, so an early diagnostic snapshot (directory already exists)
++  # does not block staging.
++  #
+   # Returns 'retained', 'removed', or 'absent' for control assertions.
+   if ([string]::IsNullOrWhiteSpace($JournalPath)) { return 'absent' }
+   if (-not (Test-Path -LiteralPath $JournalPath)) { return 'absent' }
++  $Destination = if ([string]::IsNullOrEmpty($DestinationDirectory)) { $CaptureDirectory } else { $DestinationDirectory }
+   if ($Failed) {
+-    Copy-Item -LiteralPath $JournalPath -Destination (Join-Path $CaptureDirectory 'hum-timing-journal.ndjson') -Force
++    if (-not (Test-Path -LiteralPath $Destination)) {
++      $null = [IO.Directory]::CreateDirectory($Destination)
++    }
++    Copy-Item -LiteralPath $JournalPath -Destination (Join-Path $Destination 'hum-timing-journal.ndjson') -Force
+     return 'retained'
+   }
+   Remove-Item -LiteralPath $JournalPath -Force
+diff --git a/tools/test_ci_policy.ps1 b/tools/test_ci_policy.ps1
+index 5b87ddd..ef44acd 100644
+--- a/tools/test_ci_policy.ps1
++++ b/tools/test_ci_policy.ps1
+@@ -443,6 +443,23 @@ foreach($Yaml in @($Workflow,$Ci)) {
+ # Exercise the actual aggregate's script, not a duplicate acceptance validator.
+ $AggregateMatch = [regex]::Match($Workflow, '(?ms)^      - name: Require explicit success\n.*?        run: \|\n(?<body>.*)\z')
+ Assert-Policy $AggregateMatch.Success 'aggregate owner exists'
++# Full timing journal wiring: scoped to the actual "Run Hum preflight"
++# step block (not the whole file). The step must set an invocation-owned
++# HUM_TIMING_JOURNAL and retain it into the actual upload directory
++# (DiagnosticDirectory, not CaptureDirectory).
++$FullBlockMatch = [regex]::Match($Ci, '(?ms)^      - name: Run Hum preflight\n.*?(?=^      - name: )')
++Assert-Policy $FullBlockMatch.Success 'full_preflight step block found'
++$FullBlock = $FullBlockMatch.Value
++Assert-Policy ($FullBlock -match '\$TimingJournal = Join-Path \$env:RUNNER_TEMP') 'full_preflight sets an invocation-owned timing journal'
++Assert-Policy ($FullBlock -match '\$env:HUM_TIMING_JOURNAL = \$TimingJournal') 'full_preflight exports HUM_TIMING_JOURNAL'
++Assert-Policy ($FullBlock -match 'Invoke-HumTimingJournalRetention[^\n]*-DestinationDirectory \$DiagnosticDirectory') 'full_preflight retains the journal into the diagnostic (upload) directory'
++Assert-Policy ($FullBlock -match 'Timing journal retention also failed') 'full_preflight preserves the original failure when retention fails'
++Assert-Policy ($FullBlock -match 'quiescence unproven') 'full_preflight requires quiescence proof before staging'
++Assert-Policy ($FullBlock -match 'JobQuiescenceObserved') 'full_preflight consumes the capture''s existing quiescence proof'
++Assert-Policy ($FullBlock -match 'FinalActiveProcessCount -eq 0') 'full_preflight requires zero active processes'
++# Fast-tier initialization: check_all.ps1 must initialize the journal only
++# when the workflow supplied an explicit path; unset preserves local behavior.
++Assert-Policy ($Source -match '\$script:HumTimingEnabled -and[^\n]*IsNullOrEmpty\(\$env:HUM_TIMING_JOURNAL\)[^\n]*\{\s*\n[^\n]*Initialize-HumProfileTimingJournal') 'Fast-tier initializes the journal only on explicit path'
+ $AggregateSource = ($AggregateMatch.Groups['body'].Value -split "`n" | ForEach-Object { if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ } }) -join "`n"
+ $Aggregate = [scriptblock]::Create($AggregateSource)
+ $OriginalNeeds = [Environment]::GetEnvironmentVariable('HUM_CI_NEEDS','Process')
+diff --git a/tools/test_timing_ledger.ps1 b/tools/test_timing_ledger.ps1
+index 8426b35..c05deb2 100644
+--- a/tools/test_timing_ledger.ps1
++++ b/tools/test_timing_ledger.ps1
+@@ -69,13 +69,6 @@ $RepoRoot = (Resolve-Path (Join-Path $ToolsDir '..')).Path
+ $WorkDir = Join-Path ([IO.Path]::GetTempPath()) ('hum-timing-controls-' + [guid]::NewGuid().ToString('N'))
+ [IO.Directory]::CreateDirectory($WorkDir) | Out-Null
+ $LedgerPath = Join-Path $WorkDir 'ledger.ndjson'
+-$Pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop).Source
+-
+-. (Join-Path $ToolsDir 'hum_timing_ledger.ps1')
+-# The existing capture machinery: authenticated process-tree boundary,
+-# retention seam, and capture record readers. Dot-sourcing is side-effect
+-# free (the producer entrypoint is guarded by $MyInvocation).
+-. (Join-Path $ToolsDir 'run_fast_evidence.ps1')
+ 
+ function Import-RealFunction([string] $File, [string] $Name) {
+   $Source = [IO.File]::ReadAllText($File)
+@@ -87,6 +80,19 @@ function Import-RealFunction([string] $File, [string] $Name) {
+   return [scriptblock]::Create($Defs[0].Extent.Text)
+ }
+ 
++$CheckAll = Join-Path $ToolsDir 'check_all.ps1'
++. (Import-RealFunction $CheckAll 'Select-FirstApplicationSource')
++# Scalar pwsh selection: Get-Command can resolve multiple applications
++# (e.g., three on GitHub Ubuntu runners); the real selector picks the
++# first and validates it is one absolute path.
++$Pwsh = Select-FirstApplicationSource @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop) 'timing controls pwsh'
++
++. (Join-Path $ToolsDir 'hum_timing_ledger.ps1')
++# The existing capture machinery: authenticated process-tree boundary,
++# retention seam, and capture record readers. Dot-sourcing is side-effect
++# free (the producer entrypoint is guarded by $MyInvocation).
++. (Join-Path $ToolsDir 'run_fast_evidence.ps1')
++
+ function Get-RealFunctionText([string] $File, [string] $Name) {
+   $Source = [IO.File]::ReadAllText($File)
+   $Tokens = $null; $Errors = $null
+@@ -103,7 +109,6 @@ function ConvertTo-EncodedCommand([string] $Command) {
+   return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
+ }
+ 
+-$CheckAll = Join-Path $ToolsDir 'check_all.ps1'
+ $SelectorModule = Join-Path $ToolsDir 'test_exact_rust_selector.ps1'
+ . (Import-RealFunction $SelectorModule 'Assert-ExactRustSelectorSyntax')
+ . (Import-RealFunction $SelectorModule 'Assert-ExactRustSelectorEvidence')
+@@ -715,7 +720,10 @@ __EPILOGUE__
+ '@
+ $FixtureDir = Join-Path $WorkDir 'control25-fixtures'
+ [IO.Directory]::CreateDirectory($FixtureDir) | Out-Null
+-$PwshPath = (Get-Command pwsh -ErrorAction Stop).Source
++# Reuse the scalar $Pwsh selected at the top (real Select-FirstApplicationSource)
++# rather than resolving again; a second resolution could member-enumerate
++# an array.
++$PwshPath = $Pwsh
+ try {
+   # Fixture 1: success — an expected native failure leaks $LASTEXITCODE,
+   # then the actual completion logic resets it; the caller must not throw.
+@@ -767,6 +775,393 @@ try {
+   Remove-Item -LiteralPath $FixtureDir -Recurse -Force -ErrorAction SilentlyContinue
+ }
+ 
++Write-Host 'control 26: pwsh selection is scalar through the real selector and consumer'
++$Control26Dir = Join-Path $WorkDir 'control26-fixtures'
++[IO.Directory]::CreateDirectory($Control26Dir) | Out-Null
++$SavedPath26 = $env:PATH
++try {
++  $Fake1Dir = Join-Path $Control26Dir 'fake1'
++  $Fake2Dir = Join-Path $Control26Dir 'fake2'
++  [IO.Directory]::CreateDirectory($Fake1Dir) | Out-Null
++  [IO.Directory]::CreateDirectory($Fake2Dir) | Out-Null
++  # BOM-less executable fixtures (repo rule: a BOM before #! breaks exec).
++  $Utf8NoBom = [Text.UTF8Encoding]::new($false)
++  if ($IsWindows) {
++    $Fake1Exe = Join-Path $Fake1Dir 'pwsh.cmd'
++    $Fake2Exe = Join-Path $Fake2Dir 'pwsh.cmd'
++    [IO.File]::WriteAllText($Fake1Exe, "@exit /b 42`r`n", $Utf8NoBom)
++    [IO.File]::WriteAllText($Fake2Exe, "@exit /b 43`r`n", $Utf8NoBom)
++  } else {
++    $Fake1Exe = Join-Path $Fake1Dir 'pwsh'
++    $Fake2Exe = Join-Path $Fake2Dir 'pwsh'
++    [IO.File]::WriteAllText($Fake1Exe, "#!/bin/sh`nexit 42`n", $Utf8NoBom)
++    [IO.File]::WriteAllText($Fake2Exe, "#!/bin/sh`nexit 43`n", $Utf8NoBom)
++    & chmod +x $Fake1Exe $Fake2Exe
++    if ($LASTEXITCODE -ne 0) { throw 'control26 fixture chmod failed' }
++    $global:LASTEXITCODE = 0
++  }
++  $Sep = [IO.Path]::PathSeparator
++
++  # Zero applications: the real selector must throw, not return null/array.
++  $env:PATH = $Control26Dir
++  $ZeroApps = @(Get-Command pwsh -CommandType Application -All -ErrorAction SilentlyContinue)
++  Assert-Control ($ZeroApps.Count -eq 0) 'zero pwsh applications resolve to empty'
++  $ZeroThrew = $false
++  try { Select-FirstApplicationSource $ZeroApps 'control26 zero' | Out-Null } catch { $ZeroThrew = $true }
++  Assert-Control $ZeroThrew 'zero applications throw through the real selector'
++
++  # One application: scalar selection of the only candidate.
++  $env:PATH = $Fake1Dir
++  $OneApps = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
++  Assert-Control ($OneApps.Count -eq 1) 'one pwsh application resolves'
++  $OneSelected = Select-FirstApplicationSource $OneApps 'control26 single'
++  Assert-Control ($OneSelected -is [string]) 'single selection is a scalar string'
++  Assert-Control ($OneSelected -ceq $Fake1Exe) 'single selection is the application'
++
++  # Multiple applications: the real selector picks the first; the real
++  # consumer launches it (exit 42 proves fake1, not fake2/real, ran).
++  $env:PATH = $Fake1Dir + $Sep + $Fake2Dir + $Sep + $SavedPath26
++  $MultiApps = @(Get-Command pwsh -CommandType Application -All -ErrorAction Stop)
++  Assert-Control ($MultiApps.Count -ge 3) 'multiple pwsh applications resolve'
++  $MultiSelected = Select-FirstApplicationSource $MultiApps 'control26 multiple'
++  Assert-Control ($MultiSelected -is [string]) 'multiple selection is a scalar string'
++  Assert-Control ($MultiSelected -ceq $Fake1Exe) 'multiple selection is the first application'
++  $MultiLaunch = Read-NativeChannelsWithExit 'control26 consumer' $MultiSelected @()
++  Assert-Control ($MultiLaunch.ExitCode -eq 42) 'the selected executable launches through the real consumer'
++} finally {
++  $env:PATH = $SavedPath26
++  Remove-Item -LiteralPath $Control26Dir -Recurse -Force -ErrorAction SilentlyContinue
++}
++
++Write-Host 'control 27: Full journal via extracted AND CALLED production owners'
++$Control27Dir = Join-Path $WorkDir 'control27-fixtures'
++[IO.Directory]::CreateDirectory($Control27Dir) | Out-Null
++$SavedJournal27 = $env:HUM_TIMING_JOURNAL
++try {
++  # === MECHANICAL EXTRACTION ===
++  $ExtractError = $null
++  try {
++    $CaSrc = [IO.File]::ReadAllText($CheckAll)
++    $CaTokens = $null; $CaErrors = $null
++    $CaAst = [Management.Automation.Language.Parser]::ParseInput($CaSrc, [ref]$CaTokens, [ref]$CaErrors)
++    if ($CaErrors.Count -ne 0) { throw "check_all.ps1 parse: $($CaErrors[0].Message)" }
++    $CaIfs = @($CaAst.FindAll({ param($N) $N -is [System.Management.Automation.Language.IfStatementAst] }, $true))
++    $ExtractedGuard = $null
++    foreach ($If in $CaIfs) {
++      $T = $If.Extent.Text
++      if ($T -match 'HumTimingEnabled' -and $T -match 'HUM_TIMING_JOURNAL' -and $T -match 'Initialize-HumProfileTimingJournal') {
++        $ExtractedGuard = $T; break
++      }
++    }
++    if ($null -eq $ExtractedGuard) { throw 'Fast-tier guard not found via AST' }
++
++    $CiSrc = [IO.File]::ReadAllText((Join-Path $RepoRoot '.github/workflows/ci.yml'))
++    $CiLines = $CiSrc -split "`n"
++    $InStep = $false; $BodyLines = @()
++    foreach ($Line in $CiLines) {
++      if ($Line -match '^      - name: Run Hum preflight$') { $InStep = $true; continue }
++      if ($InStep -and $Line -match '^      - name: ') { break }
++      if ($InStep) { $BodyLines += $Line }
++    }
++    $BodyStart = -1
++    for ($i = 0; $i -lt $BodyLines.Count; $i++) {
++      if ($BodyLines[$i] -match '^        run: \|$') { $BodyStart = $i + 1; break }
++    }
++    if ($BodyStart -lt 0) { throw 'run: | not found' }
++    $PsLines = @()
++    for ($i = $BodyStart; $i -lt $BodyLines.Count; $i++) {
++      $L = $BodyLines[$i]
++      if ($L.StartsWith('          ')) { $PsLines += $L.Substring(10) }
++      elseif ($L -match '^\s*$') { $PsLines += '' }
++      else { break }
++    }
++    $PsBody = $PsLines -join "`n"
++    $PsTokens = $null; $PsErrors = $null
++    $PsAst = [Management.Automation.Language.Parser]::ParseInput($PsBody, [ref]$PsTokens, [ref]$PsErrors)
++    if ($PsErrors.Count -ne 0) { throw "step body parse: $($PsErrors[0].Message)" }
++
++    $F1 = @($PsAst.FindAll({ param($N) $N -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $N.Name -ceq 'Save-HumPreflightDiagnostics' }, $true))
++    if ($F1.Count -ne 1) { throw "Save-HumPreflightDiagnostics found $($F1.Count)x" }
++    $ExtractedSaveDiag = $F1[0].Extent.Text
++
++    $F2 = @($PsAst.FindAll({ param($N) $N -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $N.Name -ceq 'Invoke-HumPreflightCapture' }, $true))
++    if ($F2.Count -ne 1) { throw "Invoke-HumPreflightCapture found $($F2.Count)x" }
++    $ExtractedCaptureFn = $F2[0].Extent.Text
++
++    # Finalizer: the quiescence-check + staging block from the failure finally.
++    # Extract from '$Quiescent = $false' through the end of the staging if/else.
++    $FinStart = $PsBody.IndexOf('$Quiescent = $false')
++    if ($FinStart -lt 0) { throw 'finalizer $Quiescent not found' }
++    # The block ends at the matching closing brace for the outer if ($Quiescent).
++    # Take lines until we see the success-branch 'else' at the same indent.
++    $FinLines = ($PsBody.Substring($FinStart) -split "`n")
++    $FinEnd = -1
++    for ($i = 0; $i -lt [Math]::Min(40, $FinLines.Count); $i++) {
++      # Take the SECOND '} else {' (the one for 'if ($Quiescent)'), skipping
++      # the first (for 'if ($null -ne $Capture)').
++      if ($FinLines[$i] -match '^\s{6}\} else \{$' -and $i -gt 15) { $FinEnd = $i; break }
++    }
++    if ($FinEnd -lt 0) { throw 'finalizer end not found' }
++    # Extend from the '} else {' to the closing '}' at the same 6-space indent.
++    for ($j = $FinEnd + 1; $j -lt [Math]::Min(60, $FinLines.Count); $j++) {
++      if ($FinLines[$j] -match '^\s{6}\}$') { $FinEnd = $j; break }
++    }
++    $ExtractedFinalizer = ($FinLines[0..$FinEnd] -join "`n")
++
++    # Success finalizer: the full 'if ($null -ne $PreflightFailure -or $ExitCode -ne 0) { ... } else { ... }'
++    # The else branch removes the journal on success via Invoke-HumTimingJournalRetention -Failed $false.
++    $SuccIf = $PsBody.IndexOf('if ($null -ne $PreflightFailure -or $ExitCode -ne 0)')
++    if ($SuccIf -lt 0) { throw 'success-finalizer if not found' }
++    $SuccLines = ($PsBody.Substring($SuccIf) -split "`n")
++    # Find the '} else {' at 4-space indent (the success branch), then its closing '}'.
++    $SuccElse = -1
++    for ($i = 0; $i -lt [Math]::Min(80, $SuccLines.Count); $i++) {
++      if ($SuccLines[$i] -match '^\s{4}\} else \{$' -and $i -gt 5) { $SuccElse = $i; break }
++    }
++    if ($SuccElse -lt 0) { throw 'success-finalizer else not found' }
++    $SuccEnd = -1
++    for ($j = $SuccElse + 1; $j -lt [Math]::Min(100, $SuccLines.Count); $j++) {
++      if ($SuccLines[$j] -match '^\s{4}\}$') { $SuccEnd = $j; break }
++    }
++    if ($SuccEnd -lt 0) { throw 'success-finalizer end not found' }
++    # Extract the COMPLETE if/else (from line 0, the 'if', through the closing '}').
++    $ExtractedSuccessFinalizer = ($SuccLines[0..$SuccEnd] -join "`n")
++  } catch {
++    $ExtractError = $_
++  }
++  Assert-Control ($null -eq $ExtractError) "mechanical extraction succeeded (obstacle: $($ExtractError.Exception.Message))"
++
++  # === DEFINE the extracted owners ===
++  # NOTE: Set-HumDurableText is NOT redefined here. The genuine production
++  # writer from the dot-sourced run_fast_evidence.ps1 must stay active: it
++  # appends the final LF that Assert-HumCaptureComplete requires. An R10-era
++  # test-only override omitted the LF and broke manifest authentication
++  # ("final LF required"); it has been removed, not repaired.
++  # REGRESSION (R11): pin the genuine writer's definition now; after the
++  # capture, assert it is unchanged (no replacement writer leaked).
++  $GenuineWriterDef = (Get-Command Set-HumDurableText -CommandType Function -ErrorAction Stop).Definition
++  Assert-Control ($GenuineWriterDef.Contains('"`n"')) 'genuine writer appends final LF'
++  Invoke-Expression $ExtractedSaveDiag
++  Invoke-Expression $ExtractedCaptureFn
++  Assert-Control ((Get-Command Save-HumPreflightDiagnostics -CommandType Function -ErrorAction SilentlyContinue) -ne $null) 'extracted Save-HumPreflightDiagnostics defined'
++  Assert-Control ((Get-Command Invoke-HumPreflightCapture -CommandType Function -ErrorAction SilentlyContinue) -ne $null) 'extracted Invoke-HumPreflightCapture defined'
++
++  # === SET/UNSET via the EXTRACTED guard ===
++  $GuardJournal = Join-Path $Control27Dir 'guard-journal.ndjson'
++  $env:HUM_TIMING_JOURNAL = $GuardJournal
++  Invoke-Expression $ExtractedGuard
++  Assert-Control (Test-Path -LiteralPath $GuardJournal) 'extracted guard initializes on explicit path'
++  Remove-Item Env:HUM_TIMING_JOURNAL -ErrorAction SilentlyContinue
++  $UnsetJournal = Join-Path $Control27Dir 'unset-guard-journal.ndjson'
++  Invoke-Expression $ExtractedGuard
++  Assert-Control (-not (Test-Path -LiteralPath $UnsetJournal)) 'extracted guard skips on unset path'
++
++  # === CALL the real Invoke-HumPreflightCapture with a timeout child ===
++  # The child invokes the source-owned Read-NativeChannelsWithExit (extracted
++  # via AST from check_all.ps1), which internally uses Start-HumTimedCommand.
++  # The child runs a sleep past the capture deadline, producing a genuine
++  # orphan START (no END) when the tree is terminated.
++  $TimeoutJournal = Join-Path $Control27Dir 'timeout-journal.ndjson'
++  $env:HUM_TIMING_JOURNAL = $TimeoutJournal
++  Initialize-HumProfileTimingJournal
++  $TimeoutChild = Join-Path $Control27Dir 'timeout-child.ps1'
++  $SleepB64 = ConvertTo-EncodedCommand 'Start-Sleep -Seconds 60'
++  $ReadNativeText = Get-RealFunctionText $CheckAll 'Read-NativeChannelsWithExit'
++  [IO.File]::WriteAllText($TimeoutChild, (@(
++    '$ErrorActionPreference = ' + (Quote-Single 'Stop')
++    '. ' + (Quote-Single (Join-Path $ToolsDir 'hum_timing_ledger.ps1'))
++    ('$JournalPath = ' + (Quote-Single $TimeoutJournal))
++    'Initialize-HumTimingLedger -LedgerPath $JournalPath'
++    $ReadNativeText
++    '# Source-owned invocation: Read-NativeChannelsWithExit wraps the timed native call'
++    ('Read-NativeChannelsWithExit -Label ''timeout-orphan'' -FilePath ' + (Quote-Single $Pwsh) + ' -Arguments @(''-NoLogo'',''-NoProfile'',''-NonInteractive'',''-EncodedCommand'',' + (Quote-Single $SleepB64) + ') | Out-Null')
++  ) -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
++  $TimeoutCapDir = Join-Path $Control27Dir 'timeout-capture'
++  $TimeoutDiagDir = Join-Path $Control27Dir 'timeout-diagnostic'
++  # CALL the extracted production function. One invocation yields one unit:
++  # the returned capture, its capture directory, the child-written journal,
++  # and the actual early DiagnosticDirectory. Production returns the capture
++  # for SIGKILL timeouts (exit 137); it throws only for exit-0 timeouts.
++  $TimeoutCapture = $null
++  $CaptureThrown = $null
++  try {
++    $TimeoutCapture = Invoke-HumPreflightCapture $Pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$TimeoutChild) $Control27Dir $TimeoutCapDir $TimeoutDiagDir 15
++  } catch {
++    $CaptureThrown = $_
++  }
++  Assert-Control ($null -ne $TimeoutCapture) 'timeout invocation returned an authenticated capture'
++  Assert-Control ($TimeoutCapture.TimedOut) 'the returned capture proves the timeout occurred'
++  # Quiescence is derived from the capture's OWN fields. A throw alone proves
++  # nothing; only the authenticated fields do.
++  $QProven = ($TimeoutCapture.JobQuiescenceObserved -and
++    $TimeoutCapture.FinalActiveProcessCount -eq 0 -and
++    $TimeoutCapture.StdoutCompletionObserved -and
++    $TimeoutCapture.StderrCompletionObserved -and
++    $TimeoutCapture.PrimaryExitObserved)
++  Assert-Control $QProven 'timeout capture proves authenticated quiescence via its own fields'
++  # The extracted producer wrote early diagnostics to the invocation's own directory.
++  Assert-Control (Test-Path -LiteralPath (Join-Path $TimeoutDiagDir 'diagnostic_status.txt')) 'timeout invocation produced early diagnostics via extracted producer'
++
++  # The child-written journal has the genuine orphan START (no END).
++  $TimeoutRecords = @(Read-LedgerRecords $TimeoutJournal)
++  Assert-Control ((@($TimeoutRecords | Where-Object { $_.event -ceq 'start' -and $_.label -ceq 'timeout-orphan' })).Count -eq 1) 'genuine START without END'
++  Assert-Control ((@($TimeoutRecords | Where-Object { $_.event -ceq 'end' -and $_.label -ceq 'timeout-orphan' })).Count -eq 0) 'no END fabricated'
++
++  # REGRESSION: the genuine writer survived (no replacement leaked).
++  $WriterDefAfter = (Get-Command Set-HumDurableText -CommandType Function -ErrorAction Stop).Definition
++  Assert-Control ($WriterDefAfter -ceq $GenuineWriterDef) 'no replacement writer leaked into control 27 scope'
++  $ManifestBytes = [IO.File]::ReadAllBytes((Join-Path $TimeoutCapDir 'manifest.txt'))
++  Assert-Control ($ManifestBytes[-1] -eq 10) 'manifest framing ends with LF'
++  $AuthFailed = $null
++  try { Assert-HumCaptureComplete $TimeoutCapture | Out-Null } catch { $AuthFailed = $_ }
++  Assert-Control ($null -eq $AuthFailed) 'capture authentication survives (Assert-HumCaptureComplete passes)'
++
++  # === EXECUTE the extracted finalizer with the timeout invocation's data ===
++  # One invocation, kept together: its capture, its journal, its capture
++  # directory, its actual early DiagnosticDirectory. No borrowed proof.
++  $Capture = $TimeoutCapture
++  $TimingJournal = $TimeoutJournal
++  $CaptureDirectory = $TimeoutCapDir
++  $DiagnosticDirectory = $TimeoutDiagDir
++  Invoke-Expression $ExtractedFinalizer
++  $Staged = Join-Path $TimeoutDiagDir 'hum-timing-journal.ndjson'
++  Assert-Control (Test-Path -LiteralPath $Staged) 'EXECUTED finalizer stages journal to the invocation DiagnosticDirectory'
++  Assert-Control (Test-Path -LiteralPath (Join-Path $TimeoutDiagDir 'diagnostic_status.txt')) 'early diagnostics preserved alongside staged journal'
++  Assert-Control ((@((Read-LedgerRecords $Staged) | Where-Object { $_.event -ceq 'start' -and $_.label -ceq 'timeout-orphan' })).Count -eq 1) 'staged journal retains orphan START'
++
++  # === SUCCESS CLEANUP (its own corresponding invocation) ===
++  # A separate success invocation via the real Invoke-HumPreflightCapture.
++  # The child uses the source-owned Read-NativeChannelsWithExit with
++  # whitespace-free arguments (base64 has no whitespace). It must exit 0
++  # with expected output/stderr and matching START/END records.
++  $SuccessJournal = Join-Path $Control27Dir 'success-journal.ndjson'
++  $env:HUM_TIMING_JOURNAL = $SuccessJournal
++  Initialize-HumProfileTimingJournal
++  $SuccessChild = Join-Path $Control27Dir 'success-child.ps1'
++  $SuccessChildJournal = Join-Path $Control27Dir 'success-child-journal.ndjson'
++  $ReadNativeText2 = Get-RealFunctionText $CheckAll 'Read-NativeChannelsWithExit'
++  # Whitespace-free: the inner command is base64-encoded (no whitespace).
++  $InnerB64 = ConvertTo-EncodedCommand '[Console]::Out.WriteLine("expected-out"); [Console]::Error.WriteLine("expected-err"); exit 0'
++  [IO.File]::WriteAllText($SuccessChild, (@(
++    '$ErrorActionPreference = ' + (Quote-Single 'Stop')
++    '. ' + (Quote-Single (Join-Path $ToolsDir 'hum_timing_ledger.ps1'))
++    ('$JournalPath = ' + (Quote-Single $SuccessChildJournal))
++    'Initialize-HumTimingLedger -LedgerPath $JournalPath'
++    $ReadNativeText2
++    '$R = ' + ('Read-NativeChannelsWithExit -Label ''success-child'' -FilePath ' + (Quote-Single $Pwsh) + ' -Arguments @(''-NoLogo'',''-NoProfile'',''-NonInteractive'',''-EncodedCommand'',' + (Quote-Single $InnerB64) + ')')
++    '# Echo the captured channels so the outer capture records expected output/stderr.'
++    'Write-Output ("CHILD-STDOUT:" + $R.Stdout)'
++    '[Console]::Error.WriteLine("CHILD-STDERR:" + $R.Stderr)'
++  ) -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
++  $SuccessCapDir = Join-Path $Control27Dir 'success-capture'
++  $SuccessDiagDir = Join-Path $Control27Dir 'success-diagnostic'
++  $SuccessCapture = Invoke-HumPreflightCapture $Pwsh @('-NoLogo','-NoProfile','-NonInteractive','-File',$SuccessChild) $Control27Dir $SuccessCapDir $SuccessDiagDir 30
++  # Authenticated success: exit 0, no timeout, from the capture's own fields.
++  Assert-Control ($null -ne $SuccessCapture) 'success invocation returned a capture'
++  Assert-Control (-not $SuccessCapture.TimedOut) 'success invocation did not time out'
++  Assert-Control ($SuccessCapture.ExitCode -eq 0) 'success invocation authenticated exit 0'
++  # Expected output/stderr in the captured channels (echoed by the child).
++  $SuccStdout = [IO.File]::ReadAllText((Join-Path $SuccessCapDir 'stdout.bin'))
++  $SuccStderr = [IO.File]::ReadAllText((Join-Path $SuccessCapDir 'stderr.bin'))
++  Assert-Control ($SuccStdout.Contains('CHILD-STDOUT:expected-out')) 'success capture has expected stdout'
++  Assert-Control ($SuccStderr.Contains('CHILD-STDERR:expected-err')) 'success capture has expected stderr'
++  # Matching START/END records with success outcome.
++  $SuccRecords = @(Read-LedgerRecords $SuccessChildJournal)
++  $SuccStarts = @($SuccRecords | Where-Object { $_.event -ceq 'start' -and $_.label -ceq 'success-child' })
++  $SuccEnds = @($SuccRecords | Where-Object { $_.event -ceq 'end' -and $_.label -ceq 'success-child' })
++  Assert-Control ($SuccStarts.Count -eq 1 -and $SuccEnds.Count -eq 1) 'success journal has matching START/END'
++  Assert-Control ($SuccEnds[0].outcome -ceq 'success') 'success END records success outcome'
++  # Execute the source-owned Full success-finalizer branch with this
++  # invocation's own data (not a direct retention-helper substitute).
++  # The branch expects: $TimingJournal, $CaptureDirectory, $PreflightFailure, $ExitCode.
++  $TimingJournal = $SuccessChildJournal
++  $CaptureDirectory = $SuccessCapDir
++  $PreflightFailure = $null
++  $ExitCode = 0
++  Invoke-Expression $ExtractedSuccessFinalizer
++  Assert-Control (-not (Test-Path -LiteralPath $SuccessChildJournal)) 'success-finalizer branch cleans up its journal'
++
++  # === CORRUPTION 1: invalidated proof fails the SAME observation ===
++  # Execute the REAL extracted finalizer with the timeout invocation's data,
++  # but with the capture's quiescence proof invalidated. Staging must not occur.
++  $InvCapDir = Join-Path $Control27Dir 'inv-capture'
++  $InvDiagDir = Join-Path $Control27Dir 'inv-diagnostic'
++  Copy-Item -LiteralPath $TimeoutCapDir -Destination $InvCapDir -Recurse -Force
++  [IO.Directory]::CreateDirectory($InvDiagDir) | Out-Null
++  $InvJournal = Join-Path $Control27Dir 'inv-journal.ndjson'
++  Copy-Item -LiteralPath $TimeoutJournal -Destination $InvJournal -Force
++  # Invalidate: copy the authenticated capture, then break its quiescence proof.
++  $InvCapture = $TimeoutCapture.PSObject.Copy()
++  $InvCapture.JobQuiescenceObserved = $false
++  $Capture = $InvCapture
++  $TimingJournal = $InvJournal
++  $CaptureDirectory = $InvCapDir
++  $DiagnosticDirectory = $InvDiagDir
++  Invoke-Expression $ExtractedFinalizer
++  Assert-Control (-not (Test-Path -LiteralPath (Join-Path $InvDiagDir 'hum-timing-journal.ndjson'))) 'invalidated proof prevents staging via the source-owned finalizer'
++
++  # === CORRUPTION 2: disabled retention CALL fails the SAME observation ===
++  # Keep a valid journal; disable the extracted retention CALL within the
++  # source-owned finalizer flow. The finalizer still runs, but the CALL that
++  # stages the journal is a no-op. Staging must not occur.
++  $DisCapDir = Join-Path $Control27Dir 'dis-capture'
++  $DisDiagDir = Join-Path $Control27Dir 'dis-diagnostic'
++  Copy-Item -LiteralPath $TimeoutCapDir -Destination $DisCapDir -Recurse -Force
++  [IO.Directory]::CreateDirectory($DisDiagDir) | Out-Null
++  $DisJournal = Join-Path $Control27Dir 'dis-journal.ndjson'
++  Copy-Item -LiteralPath $TimeoutJournal -Destination $DisJournal -Force
++  Assert-Control (Test-Path -LiteralPath $DisJournal) 'corruption journal is valid before the CALL is disabled'
++  # Disable the extracted retention CALL (journal stays valid).
++  function Invoke-HumTimingJournalRetention { param([string]$JournalPath, [string]$CaptureDirectory, [bool]$Failed, [string]$DestinationDirectory = '') }
++  $Capture = $TimeoutCapture
++  $TimingJournal = $DisJournal
++  $CaptureDirectory = $DisCapDir
++  $DiagnosticDirectory = $DisDiagDir
++  Invoke-Expression $ExtractedFinalizer
++  Assert-Control (-not (Test-Path -LiteralPath (Join-Path $DisDiagDir 'hum-timing-journal.ndjson'))) 'disabled retention CALL prevents staging via the source-owned finalizer'
++  # Restore the genuine retention function.
++  . (Import-RealFunction (Join-Path $ToolsDir 'run_fast_evidence.ps1') 'Invoke-HumTimingJournalRetention')
++  Assert-Control ((Get-Command Invoke-HumTimingJournalRetention -CommandType Function).Definition.Contains('Failed')) 'genuine retention function restored'
++
++  # === CORRUPTION 3: misdirected destination fails the SAME observation ===
++  # Execute the REAL extracted finalizer with the timeout invocation's data,
++  # but with the destination misdirected. The expected location stays empty.
++  $MisExpected = Join-Path $Control27Dir 'mis-expected'
++  $MisActual = Join-Path $Control27Dir 'mis-actual'
++  [IO.Directory]::CreateDirectory($MisExpected) | Out-Null
++  [IO.Directory]::CreateDirectory($MisActual) | Out-Null
++  $MisJournal = Join-Path $Control27Dir 'mis-journal.ndjson'
++  Copy-Item -LiteralPath $TimeoutJournal -Destination $MisJournal -Force
++  $Capture = $TimeoutCapture
++  $TimingJournal = $MisJournal
++  $CaptureDirectory = $TimeoutCapDir
++  $DiagnosticDirectory = $MisActual
++  Invoke-Expression $ExtractedFinalizer
++  Assert-Control (-not (Test-Path -LiteralPath (Join-Path $MisExpected 'hum-timing-journal.ndjson'))) 'misdirected destination leaves the expected location empty'
++  Assert-Control (Test-Path -LiteralPath (Join-Path $MisActual 'hum-timing-journal.ndjson')) 'misdirected destination stages elsewhere (proving the flow ran)'
++
++  # === UNAVAILABLE PROOF: missing capture prevents staging ===
++  # Execute the REAL extracted finalizer with no capture. The quiescence
++  # check must fail and nothing must be staged.
++  $NullDiagDir = Join-Path $Control27Dir 'null-diagnostic'
++  [IO.Directory]::CreateDirectory($NullDiagDir) | Out-Null
++  $NullJournal = Join-Path $Control27Dir 'null-journal.ndjson'
++  Copy-Item -LiteralPath $TimeoutJournal -Destination $NullJournal -Force
++  $Capture = $null
++  $TimingJournal = $NullJournal
++  $CaptureDirectory = $TimeoutCapDir
++  $DiagnosticDirectory = $NullDiagDir
++  Invoke-Expression $ExtractedFinalizer
++  Assert-Control (-not (Test-Path -LiteralPath (Join-Path $NullDiagDir 'hum-timing-journal.ndjson'))) 'missing capture proof prevents staging via the source-owned finalizer'
++
++  # Note: TimeoutCapDir cleanup is handled by the finally block's
++  # Control27Dir removal; authenticated cleanup is not required for
++  # the timeout fixture.
++} finally {
++  if ($null -ne $SavedJournal27) { $env:HUM_TIMING_JOURNAL = $SavedJournal27 } else { Remove-Item Env:HUM_TIMING_JOURNAL -ErrorAction SilentlyContinue }
++  Remove-Item -LiteralPath $Control27Dir -Recurse -Force -ErrorAction SilentlyContinue
++}
++
+ Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
+ Write-Host "timing controls: $($script:Passed) passed, $($script:Failed) failed"
+ if ($script:Failed -gt 0) { exit 1 }

@@ -1,0 +1,40 @@
+  ok: single selection is a scalar string
+  ok: single selection is the application
+  ok: multiple pwsh applications resolve
+  ok: multiple selection is a scalar string
+  ok: multiple selection is the first application
+  ok: the selected executable launches through the real consumer
+  ok: mechanical extraction succeeded (obstacle: )
+  ok: genuine writer appends final LF
+  ok: extracted Save-HumPreflightDiagnostics defined
+  ok: extracted Invoke-HumPreflightCapture defined
+  ok: extracted guard initializes on explicit path
+  ok: extracted guard skips on unset path
+  ok: timeout invocation returned an authenticated capture
+  ok: the returned capture proves the timeout occurred
+  ok: timeout capture proves authenticated quiescence via its own fields
+  ok: timeout invocation produced early diagnostics via extracted producer
+  ok: genuine START without END
+  ok: no END fabricated
+  ok: no replacement writer leaked into control 27 scope
+  ok: manifest framing ends with LF
+  ok: capture authentication survives (Assert-HumCaptureComplete passes)
+  ok: EXECUTED finalizer stages journal to the invocation DiagnosticDirectory
+  ok: early diagnostics preserved alongside staged journal
+  ok: staged journal retains orphan START
+  ok: success invocation returned a capture
+  ok: success invocation did not time out
+  ok: success invocation authenticated exit 0
+  ok: success capture has expected stdout
+  ok: success capture has expected stderr
+  ok: success journal has matching START/END
+  ok: success END records success outcome
+  ok: success-finalizer branch cleans up its journal
+  ok: invalidated proof prevents staging via the source-owned finalizer
+  ok: corruption journal is valid before the CALL is disabled
+  ok: disabled retention CALL prevents staging via the source-owned finalizer
+  ok: genuine retention function restored
+  ok: misdirected destination leaves the expected location empty
+  ok: misdirected destination stages elsewhere (proving the flow ran)
+  ok: missing capture proof prevents staging via the source-owned finalizer
+timing controls: 136 passed, 0 failed
