@@ -1,0 +1,745 @@
+name: ci
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        required: true
+        type: string
+      integration:
+        required: true
+        type: string
+      tree:
+        required: true
+        type: string
+      boundary_required:
+        required: false
+        type: string
+        default: ''
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cargo-home
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.profile || 'push' }}-executor
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  preflight:
+    name: preflight (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.integration || github.sha }}
+
+      - name: Verify integration identity
+        id: integration_identity
+        shell: pwsh
+        env:
+          HUM_EXPECTED_SHA: ${{ inputs.integration || github.sha }}
+          HUM_EXPECTED_TREE: ${{ inputs.tree }}
+          HUM_SELECTED_PROFILE: ${{ inputs.profile || 'full' }}
+        run: |
+          if ($env:HUM_SELECTED_PROFILE -cnotin @('language','runtime','compiler','full')) { throw 'invalid fixed profile' }
+          $Actual = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $Actual -cne $env:HUM_EXPECTED_SHA) { throw 'integration checkout mismatch' }
+          $Tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0 -or ($env:HUM_EXPECTED_TREE -and $Tree -cne $env:HUM_EXPECTED_TREE)) { throw 'integration tree mismatch' }
+          "profile=$env:HUM_SELECTED_PROFILE;integration=$Actual;tree=$Tree;run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Authenticate PowerShell 7 runtime
+        id: pwsh_identity
+        shell: pwsh
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 7) { throw 'CI orchestration requires PowerShell 7' }
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+          if (-not [IO.Path]::IsPathFullyQualified($Pwsh) -or $Pwsh.IndexOfAny([char[]]@(13, 10, 0)) -ge 0) { throw 'CI orchestration PowerShell path is malformed' }
+          $Pwsh = [IO.Path]::GetFullPath($Pwsh); $Item = Get-Item -LiteralPath $Pwsh -Force
+          if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'CI orchestration PowerShell is not an ordinary file' }
+          $Comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+          if (-not $Pwsh.Equals([IO.Path]::GetFullPath((Get-Process -Id $PID).Path), $Comparison)) { throw 'CI orchestration PowerShell differs from the running host' }
+          "pwsh_path=$Pwsh"
+
+      - name: Classify CI evidence lane
+        id: classify
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HUM_CI_REPOSITORY: ${{ github.repository }}
+          HUM_CI_WORKFLOW_PATH: .github/workflows/ci.yml
+          HUM_CI_EVENT_NAME: ${{ github.event_name }}
+          HUM_CI_EVENT_REF: ${{ github.ref }}
+          HUM_CI_BASE_SHA: ${{ github.event.before }}
+          HUM_CI_HEAD_SHA: ${{ github.sha }}
+          HUM_SELECTED_PROFILE: ${{ inputs.profile || 'full' }}
+          HUM_CI_BOUNDARY_REQUIRED_INPUT: ${{ inputs.boundary_required }}
+        run: |
+          $Mode = 'full'
+          $Result = $null
+          try {
+            . ./tools/check_workorder_status_boundary.ps1
+            $Result = Invoke-ProductionWorkOrderStatusClassification `
+              -RepositoryIdentity $env:HUM_CI_REPOSITORY `
+              -Workflow $env:HUM_CI_WORKFLOW_PATH `
+              -Event $env:HUM_CI_EVENT_NAME `
+              -Ref $env:HUM_CI_EVENT_REF `
+              -Base $env:HUM_CI_BASE_SHA `
+              -Head $env:HUM_CI_HEAD_SHA
+            if ($Result.Mode -ceq 'fast') {
+              $Mode = 'fast'
+            }
+          } catch {
+            Write-Warning "CI evidence classifier failed closed: $($_.Exception.Message)"
+          }
+          if ($env:HUM_CI_EVENT_NAME -ne 'push') { $Mode = 'full' }
+          $SelectedProfile = $env:HUM_SELECTED_PROFILE
+          if ($env:HUM_CI_EVENT_NAME -ceq 'push' -and $env:HUM_CI_EVENT_REF -ceq 'refs/heads/main' -and $Mode -cne 'fast') {
+            $SelectedProfile = 'full'
+            if ($env:HUM_CI_BASE_SHA -cmatch '\A[0-9a-f]{40}\z' -and $env:HUM_CI_BASE_SHA -cne ('0' * 40)) {
+              # The pre-push accepted revision owns the complete range decision.
+              # Never fall back to the candidate's registry or last-commit diff.
+              $SavedPreference = $ErrorActionPreference
+              try {
+                $ErrorActionPreference = 'Continue'
+                $Policy = git show "$($env:HUM_CI_BASE_SHA):tools/check_ci_policy.ps1" 2>$null
+                $PolicyExit = $LASTEXITCODE
+                # A failed probe must not leak its exit code: GitHub fails the
+                # step when $LASTEXITCODE is non-zero at the end, even though
+                # the bootstrap path below handles this case explicitly.
+                $global:LASTEXITCODE = 0
+              } finally { $ErrorActionPreference = $SavedPreference }
+              if ($PolicyExit -eq 0) {
+                $PolicyPath = Join-Path $env:RUNNER_TEMP ('hum-accepted-push-policy-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+                try {
+                  [IO.File]::WriteAllText($PolicyPath, ($Policy -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+                  # The policy script opens with a param() block ($Mode defaults to
+                  # 'Library'). Dot-sourcing it in the step scope would overwrite the
+                  # step's $Mode, so the policy and everything that consumes it run
+                  # in a child scope; only the selected profile crosses the boundary.
+                  $SelectedProfile = & {
+                    . $PolicyPath
+                    $HasPushSelection = Get-Command Get-HumCiPushSelection -CommandType Function -ErrorAction SilentlyContinue
+                    if (-not $HasPushSelection) { return 'full' }
+                    $Selection = Get-HumCiPushSelection (Get-Location).Path $env:HUM_CI_BASE_SHA $env:HUM_CI_HEAD_SHA
+                    "base=$($Selection.Base);head=$($Selection.Head);tree=$($Selection.Tree);reason=$($Selection.Reason);run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
+                    if ($Selection.Profile -cne 'full') {
+                      $Json = gh api "repos/$env:GITHUB_REPOSITORY/actions/workflows/validation.yml/runs?branch=main&per_page=10"
+                      if ($LASTEXITCODE -ne 0) { throw 'integration health metadata unavailable' }
+                      $Health = Assert-HumIntegrationHealth @(($Json | ConvertFrom-Json).workflow_runs) ([datetimeoffset]::UtcNow) $env:GITHUB_REPOSITORY
+                      $JobJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/actions/runs/$($Health.id)/attempts/$($Health.run_attempt)/jobs?per_page=100"
+                      if ($LASTEXITCODE -ne 0) { throw 'integration job metadata unavailable' }
+                      Assert-HumIntegrationJobs @(($JobJson | ConvertFrom-Json) | ForEach-Object { $_.jobs }) $Health
+                      "health_run=$($Health.id);health_attempt=$($Health.run_attempt);health_sha=$($Health.head_sha)" >> $env:GITHUB_STEP_SUMMARY
+                    }
+                    # Decision 0025 amendment (2026-09-23, boolean transport):
+                    # publish boundary_required — whether the fixed profiles
+                    # must run the status-boundary classifier tests — computed
+                    # here from the ACCEPTED BASE policy's trigger function
+                    # against the same classified paths that selected the
+                    # profile. Only a boolean crosses the step boundary:
+                    # check_all never sees the path inventory and never
+                    # dot-sources the PR's policy. A PR editing the trigger
+                    # function cannot change its own decision. Published only
+                    # once the selection is accepted (after the health gate);
+                    # a rejected selection publishes nothing (missing output
+                    # fails safe: the tests run).
+                    $BoundaryRequired = Test-HumCiWorkOrderBoundaryTrigger -Paths $Selection.Paths
+                    "boundary_required=$($BoundaryRequired.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+                    $Selection.Profile
+                  }
+                } finally { if (Test-Path -LiteralPath $PolicyPath) { Remove-Item -LiteralPath $PolicyPath -Force } }
+              } else { Write-Host 'Accepted pre-push policy unavailable: Full bootstrap required.' }
+            }
+          }
+          if ($SelectedProfile -cnotin @('language','runtime','compiler','full')) { throw 'invalid accepted profile selection' }
+          if ($SelectedProfile -cne 'full') { $Mode = 'normal' }
+          "profile=$SelectedProfile" >> $env:GITHUB_OUTPUT
+          "mode=$Mode" >> $env:GITHUB_OUTPUT
+          # Decision 0025 amendment (2026-09-23, boolean transport; corrected
+          # 2026-09-24): when the boundary_required boolean arrives as the
+          # reusable input (published by validation.yml's plan step from the
+          # accepted base policy), forward it to the step outputs so the fixed
+          # profiles can gate the status-boundary classifier tests. Push
+          # publishes its own boundary_required output above (from the accepted
+          # push-range selection), so forwarding runs on every event EXCEPT
+          # push: a second boundary_required output would overwrite it (last
+          # wins). The input is forwarded only when it is exactly 'true' or
+          # 'false' — anything else stays empty downstream and fails safe
+          # (the tests run). Gate note: inside a reusable workflow
+          # github.event_name is the CALLER's event (pull_request, schedule,
+          # workflow_dispatch), never 'workflow_call'; the old
+          # -ceq 'workflow_call' gate therefore never fired and the skip never
+          # took effect.
+          if ($env:HUM_CI_EVENT_NAME -cne 'push' -and ($env:HUM_CI_BOUNDARY_REQUIRED_INPUT -ceq 'true' -or $env:HUM_CI_BOUNDARY_REQUIRED_INPUT -ceq 'false')) {
+            "boundary_required=$env:HUM_CI_BOUNDARY_REQUIRED_INPUT" >> $env:GITHUB_OUTPUT
+          }
+          if ($Mode -ceq 'fast') {
+            "reason=$($Result.Reason)" >> $env:GITHUB_OUTPUT
+            "anchor=$($Result.Anchor)" >> $env:GITHUB_OUTPUT
+            "run_id=$($Result.RunId)" >> $env:GITHUB_OUTPUT
+            "run_attempt=$($Result.RunAttempt)" >> $env:GITHUB_OUTPUT
+            "ubuntu_job_id=$($Result.UbuntuJobId)" >> $env:GITHUB_OUTPUT
+            "windows_job_id=$($Result.WindowsJobId)" >> $env:GITHUB_OUTPUT
+            "transitions=$([string]::Join(',', $Result.Transitions))" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Cache Cargo artifacts
+        if: steps.classify.outputs.mode != 'fast'
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cargo-home/registry
+            .cargo-home/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Prepare Rust toolchain
+        if: steps.classify.outputs.mode != 'fast'
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt clippy
+
+      - name: Run fixed validation profile
+        id: normal_profile
+        if: steps.classify.outputs.mode == 'normal'
+        shell: pwsh
+        env:
+          HUM_SELECTED_PROFILE: ${{ steps.classify.outputs.profile }}
+          HUM_CI_BOUNDARY_REQUIRED: ${{ steps.classify.outputs.boundary_required }}
+        run: |
+          if ($env:HUM_SELECTED_PROFILE -cnotin @('language','runtime','compiler')) { throw 'normal profile admission failed' }
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+          cargo build -p hum-dev
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          . ./tools/run_fast_evidence.ps1
+          $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
+          $Directory = Join-Path $env:RUNNER_TEMP ('hum-normal-profile-' + [Guid]::NewGuid().ToString('N'))
+          $Isolated = $null
+          $Failure = $null
+          $Capture = $null
+          # Durable timing journal: the profile writes per-command START/END
+          # records with immediate flushes, so they survive the outer capture
+          # deadline (which empties hum-dev's buffered console channels).
+          # The journal lives at a per-invocation path under target/ - never
+          # inside the inventoried capture directory, and with a unique name
+          # so a stale cached journal can never be attributed to this run.
+          $TimingJournal = Join-Path (Get-Location).Path ('target/hum-timing-journal-' + [Guid]::NewGuid().ToString('N') + '.ndjson')
+          $env:HUM_TIMING_JOURNAL = $TimingJournal
+          try {
+            $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+            "capture=$Directory" >> $env:GITHUB_OUTPUT
+            Assert-HumIsolatedExecutable $Isolated -RequireSource
+            $Capture = Invoke-HumBinaryCapture $Isolated.Executable @('evidence',$env:HUM_SELECTED_PROFILE,'--pwsh',$Pwsh) (Get-Location).Path $Directory 3000 -CaseName 'ci-normal-profile'
+            $Capture = Assert-HumCaptureComplete $Capture
+            [Console]::Out.Write([IO.File]::ReadAllText($Capture.StdoutPath))
+            [Console]::Error.Write([IO.File]::ReadAllText($Capture.StderrPath))
+            if ($Capture.ExitCode -ne 0 -or $Capture.TimedOut) { throw "normal profile failed: exit=$($Capture.ExitCode);timeout=$($Capture.TimedOut)" }
+            $Label = [Globalization.CultureInfo]::InvariantCulture.TextInfo.ToTitleCase($env:HUM_SELECTED_PROFILE)
+            if ($Capture.TerminalStdoutLine -cne "Hum $Label validation passed (not Full acceptance)." -or $Capture.SuccessMarkerCount -ne 0) { throw 'normal profile terminal evidence differs' }
+          } catch { $Failure = $_ } finally {
+            try { if ($null -ne $Isolated) { Remove-HumIsolatedExecutable $Isolated } } catch {
+              if ($null -eq $Failure) { $Failure = $_ } else { $Failure.Exception.Data['executable_cleanup'] = $_ }
+            }
+            try {
+              # Timing journal retention through the tested seam: on failure
+              # the journal is staged inside the capture directory so the
+              # existing failed-diagnostics artifact upload retains it; on
+              # success it is removed, so the capture inventory
+              # authentication sees a clean directory. A stale cached journal
+              # at any other path is never attributed to this run.
+              $null = Invoke-HumTimingJournalRetention -JournalPath $TimingJournal -CaptureDirectory $Directory -Failed ($null -ne $Failure)
+            } catch {
+              if ($null -eq $Failure) { $Failure = $_ } else { $Failure.Exception.Data['timing_journal_retention'] = $_ }
+            }
+            try {
+              if ($null -eq $Failure) { Remove-HumCaptureAfterAuthentication $Directory }
+            } catch {
+              if ($null -eq $Failure) { $Failure = $_ } else { $Failure.Exception.Data['capture_cleanup'] = $_ }
+            }
+          }
+          if ($null -ne $Failure) { throw $Failure }
+
+      - name: Upload failed normal diagnostics
+        if: failure() && steps.normal_profile.outputs.capture != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-normal-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}
+          path: ${{ steps.normal_profile.outputs.capture }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
+      - name: Run Hum preflight
+        id: full_preflight
+        if: steps.classify.outputs.mode == 'full'
+        shell: pwsh
+        env:
+          HUM_EVIDENCE_RECEIPT: ${{ runner.temp }}/hum-full-evidence.receipt
+        run: |
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+          $PwshItem = Get-Item -LiteralPath $Pwsh -Force
+          if (-not $PwshItem.PSIsContainer -and ($PwshItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) { $null = & $Pwsh --version } else { throw 'orchestration PowerShell is not an ordinary file' }
+          if ($LASTEXITCODE -ne 0) { throw 'orchestration PowerShell version failed' }
+          $env:HUM_BUILD_TARGET = if ($IsWindows) { 'x86_64-pc-windows-msvc' } else { 'x86_64-unknown-linux-gnu' }
+          $Rustc = (Get-Command rustc -CommandType Application -TotalCount 1 -ErrorAction Stop).Source
+          $RustcStart = [Diagnostics.ProcessStartInfo]::new($Rustc)
+          $RustcStart.UseShellExecute = $false
+          $RustcStart.CreateNoWindow = $true
+          $RustcStart.RedirectStandardOutput = $true
+          $RustcStart.RedirectStandardError = $true
+          $RustcStart.ArgumentList.Add('-Vv')
+          $RustcProcess = [Diagnostics.Process]::new()
+          $RustcProcess.StartInfo = $RustcStart
+          $ToolchainStdout = [IO.MemoryStream]::new()
+          $ToolchainStderr = [IO.MemoryStream]::new()
+          try {
+            if (-not $RustcProcess.Start()) { throw 'rustc verbose identity did not start' }
+            $StdoutCopy = $RustcProcess.StandardOutput.BaseStream.CopyToAsync($ToolchainStdout)
+            $StderrCopy = $RustcProcess.StandardError.BaseStream.CopyToAsync($ToolchainStderr)
+            $RustcProcess.WaitForExit()
+            $StdoutCopy.GetAwaiter().GetResult()
+            $StderrCopy.GetAwaiter().GetResult()
+            $RustcExit = $RustcProcess.ExitCode
+            $ToolchainBytes = $ToolchainStdout.ToArray()
+            $ToolchainStderrBytes = $ToolchainStderr.ToArray()
+          } finally {
+            $RustcProcess.Dispose()
+            $ToolchainStdout.Dispose()
+            $ToolchainStderr.Dispose()
+          }
+          if ($RustcExit -ne 0 -or $ToolchainBytes.Length -eq 0) { throw 'rustc verbose identity failed' }
+          if ([Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0) { throw 'rustc verbose identity contains NUL' }
+          $StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+          $ToolchainText = $StrictUtf8.GetString($ToolchainBytes)
+          $ToolchainPayload = [Convert]::ToBase64String($ToolchainBytes)
+          if ([Convert]::ToBase64String([Convert]::FromBase64String($ToolchainPayload)) -cne $ToolchainPayload) { throw 'rustc verbose identity encoding failed' }
+          $env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"
+          cargo build -p hum-dev
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $StartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+          $Frequency = [Diagnostics.Stopwatch]::Frequency
+          $CaptureDirectory = Join-Path $env:RUNNER_TEMP ('hum-full-capture-' + [Guid]::NewGuid().ToString('N'))
+          $DiagnosticDirectory = Join-Path $env:RUNNER_TEMP ('hum-preflight-diagnostics-' + [Guid]::NewGuid().ToString('N'))
+          "failure_capture=$DiagnosticDirectory" >> $env:GITHUB_OUTPUT
+          $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
+          . ./tools/run_fast_evidence.ps1
+          $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+          function Save-HumPreflightDiagnostics {
+            param([string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $Reason)
+            try {
+              if (Test-Path -LiteralPath $DiagnosticDirectory) { throw 'preflight diagnostic directory already exists' }
+              $null = [IO.Directory]::CreateDirectory($DiagnosticDirectory)
+              Set-HumDurableText (Join-Path $DiagnosticDirectory 'diagnostic_status.txt') 'unaccepted_diagnostics;not_success_evidence;capture_may_be_partial'
+              Set-HumDurableText (Join-Path $DiagnosticDirectory 'failure.txt') $Reason
+              Write-Host 'Preflight failed: retaining unaccepted diagnostics, not success evidence.'
+              if (Test-Path -LiteralPath $CaptureDirectory) {
+                $Root = Get-Item -LiteralPath $CaptureDirectory -Force
+                if (-not $Root.PSIsContainer -or ($Root.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'preflight diagnostic capture root is not an ordinary directory' }
+                foreach ($Name in @($script:HumCaptureFiles) + 'manifest.txt') {
+                  $Source = Join-Path $CaptureDirectory $Name
+                  if (-not (Test-Path -LiteralPath $Source)) { Write-Host "unaccepted_capture_missing=$Name"; continue }
+                  try {
+                    $Item = Get-Item -LiteralPath $Source -Force
+                    if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'capture entry is not an ordinary file' }
+                    $Before = Get-HumFileIdentity $Source
+                    $Destination = Join-Path $DiagnosticDirectory $Name
+                    [IO.File]::Copy($Source, $Destination, $false)
+                    $After = Get-HumFileIdentity $Destination
+                    if ($Before.Bytes -ne $After.Bytes -or $Before.Sha256 -cne $After.Sha256) { throw 'diagnostic copy identity differs' }
+                    Write-Host "unaccepted_capture_file=$Name;bytes=$($After.Bytes);sha256=$($After.Sha256)"
+                    if ($Name -in @('exit.txt','deadline_disposition.txt','termination_disposition.txt','final_active_process_count.txt','capture_error.bin','launch_error.bin')) {
+                      Write-Host "unaccepted_capture_record=$Name;base64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes($Destination)))"
+                    }
+                  } catch { Write-Warning "unaccepted capture entry unavailable: $Name; $($_.Exception.Message)" -WarningAction Continue }
+                }
+              } else { Write-Host 'unaccepted_capture_missing=directory' }
+            } catch { Write-Warning "Preflight diagnostic retention failed: $($_.Exception.Message)" -WarningAction Continue }
+          }
+          function Invoke-HumPreflightCapture {
+            param([string] $Executable, [string[]] $Arguments, [string] $WorkingDirectory,
+              [string] $CaptureDirectory, [string] $DiagnosticDirectory, [int] $DeadlineSeconds)
+            $Capture = $null
+            $Failure = $null
+            try {
+              $Capture = Invoke-HumBinaryCapture $Executable $Arguments $WorkingDirectory $CaptureDirectory $DeadlineSeconds -CaseName 'ci-full-preflight'
+              $Capture = Assert-HumCaptureComplete $Capture
+            } catch { $Failure = $_ }
+            if ($null -ne $Failure -or $Capture.ExitCode -ne 0 -or $Capture.TimedOut) {
+              $Reason = if ($null -ne $Failure) { $Failure.ToString() } else { "child_exit=$($Capture.ExitCode);timed_out=$($Capture.TimedOut)" }
+              try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason }
+              catch { Write-Warning "Preflight diagnostic retention also failed: $($_.Exception.Message)" -WarningAction Continue }
+            }
+            if ($null -ne $Failure) { throw $Failure }
+            if ($Capture.TimedOut -and $Capture.ExitCode -eq 0) { throw 'preflight capture exceeded its deadline despite zero primary exit' }
+            $Capture
+          }
+          $CaptureAuthenticated = $false
+          $PreflightFailure = $null
+          $ExitCode = 1
+          try {
+            Assert-HumIsolatedExecutable $Isolated -RequireSource
+            $Capture = Invoke-HumPreflightCapture $Isolated.Executable @('evidence','full','--pwsh',$Pwsh) (Get-Location).Path $CaptureDirectory $DiagnosticDirectory 3000
+            $CaptureAuthenticated = $true
+            $Output = $Capture.StdoutPath
+            $ErrorOutput = $Capture.StderrPath
+            $ExitCode = $Capture.ExitCode
+            $OutputBytes = [IO.File]::ReadAllBytes($Output)
+            $ErrorBytes = [IO.File]::ReadAllBytes($ErrorOutput)
+            [Console]::OpenStandardOutput().Write($OutputBytes, 0, $OutputBytes.Length)
+            [Console]::OpenStandardError().Write($ErrorBytes, 0, $ErrorBytes.Length)
+            $CompletedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+            "started_ticks=$StartedTicks" >> $env:GITHUB_OUTPUT
+            "completed_ticks=$CompletedTicks" >> $env:GITHUB_OUTPUT
+            "timer_frequency=$Frequency" >> $env:GITHUB_OUTPUT
+            "duration_ms=$([math]::Floor(1000 * ($CompletedTicks - $StartedTicks) / $Frequency))" >> $env:GITHUB_OUTPUT
+            "stdout_sha256=$($Capture.StdoutSha256)" >> $env:GITHUB_OUTPUT
+            "stderr_sha256=$($Capture.StderrSha256)" >> $env:GITHUB_OUTPUT
+            $Sha = [Security.Cryptography.SHA256]::Create()
+            try { "event_sha256=$( -join ($Sha.ComputeHash($OutputBytes + $ErrorBytes) | ForEach-Object ToString x2) )" >> $env:GITHUB_OUTPUT } finally { $Sha.Dispose() }
+            "receipt=$env:HUM_EVIDENCE_RECEIPT" >> $env:GITHUB_OUTPUT
+            "toolchain=$env:HUM_BUILD_TOOLCHAIN" >> $env:GITHUB_OUTPUT
+          } catch {
+            if ($CaptureAuthenticated -and $ExitCode -ne 0) { Write-Warning "Preflight reporting also failed: $($_.Exception.Message)" -WarningAction Continue }
+            else { $PreflightFailure = $_ }
+          } finally {
+            try {
+              try { Remove-HumIsolatedExecutable $Isolated } catch {
+                if ($null -eq $PreflightFailure -and $ExitCode -eq 0) { $PreflightFailure = $_ }
+                else { Write-Warning "Isolated executable cleanup also failed: $($_.Exception.Message)" -WarningAction Continue }
+              }
+              try {
+                if ($null -eq $PreflightFailure -and $CaptureAuthenticated -and $ExitCode -eq 0 -and -not $Capture.TimedOut) { Remove-HumCaptureAfterAuthentication $CaptureDirectory }
+              } catch {
+                if ($null -eq $PreflightFailure -and $ExitCode -eq 0) { $PreflightFailure = $_ }
+                else { Write-Warning "Preflight cleanup also failed: $($_.Exception.Message)" -WarningAction Continue }
+              }
+            } finally {
+              if ($null -ne $PreflightFailure -or $ExitCode -ne 0) {
+                try {
+                  if (-not (Test-Path -LiteralPath $DiagnosticDirectory)) {
+                    $Reason = if ($null -ne $PreflightFailure) { $PreflightFailure.ToString() } else { "child_exit=$ExitCode" }
+                    Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason
+                  }
+                } catch { Write-Warning "Final preflight diagnostic retention also failed: $($_.Exception.Message)" -WarningAction Continue }
+              }
+            }
+          }
+          if ($null -ne $PreflightFailure) { throw $PreflightFailure }
+          if ($ExitCode -ne 0) { exit $ExitCode }
+
+      - name: Upload failed preflight diagnostics
+        if: failure() && steps.full_preflight.outcome == 'failure' && steps.full_preflight.outputs.failure_capture != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-preflight-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}
+          path: ${{ steps.full_preflight.outputs.failure_capture }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
+      - name: Run exhaustive canonical-seal evidence
+        id: exhaustive
+        if: (steps.classify.outputs.mode == 'full' || steps.classify.outputs.mode == 'normal') && matrix.os == 'ubuntu-latest'
+        continue-on-error: false
+        shell: pwsh
+        run: |
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+          . ./tools/run_fast_evidence.ps1
+          $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
+          $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+          try { & $Isolated.Executable evidence exhaustive --pwsh $Pwsh; $ExitCode = $LASTEXITCODE }
+          finally { Remove-HumIsolatedExecutable $Isolated }
+          if ($ExitCode -ne 0) { exit $ExitCode }
+
+      - name: Generate evidence summary
+        id: generate_evidence_summary
+        if: steps.classify.outputs.mode == 'full' && github.event_name == 'push'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HUM_WORKFLOW: ci
+          HUM_CLASSIFIER_MODE: full
+          HUM_CLASSIFIER_REASON: no_status_transition
+          HUM_CLASSIFIER_ANCHOR: ''
+          HUM_CLASSIFIER_TRANSITIONS: ''
+          HUM_DURATION_MS: ${{ steps.full_preflight.outputs.duration_ms }}
+          HUM_STDOUT_SHA256: ${{ steps.full_preflight.outputs.stdout_sha256 }}
+          HUM_STDERR_SHA256: ${{ steps.full_preflight.outputs.stderr_sha256 }}
+          HUM_EVENT_SHA256: ${{ steps.full_preflight.outputs.event_sha256 }}
+          HUM_STARTED_TICKS: ${{ steps.full_preflight.outputs.started_ticks }}
+          HUM_COMPLETED_TICKS: ${{ steps.full_preflight.outputs.completed_ticks }}
+          HUM_TIMER_FREQUENCY: ${{ steps.full_preflight.outputs.timer_frequency }}
+          HUM_TOOLCHAIN: ${{ steps.full_preflight.outputs.toolchain }}
+        run: |
+          $Pwsh = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+          $env:HUM_PLATFORM = if ($IsWindows) { 'windows' } else { 'ubuntu' }
+          $env:HUM_TARGET = if ($IsWindows) { 'x86_64-pc-windows-msvc' } else { 'x86_64-unknown-linux-gnu' }
+          $env:HUM_GH_PATH = (Get-Command gh -CommandType Application -TotalCount 1).Source
+          $env:HUM_DEPENDENCY_CLOSURE_SHA256 = (Get-FileHash Cargo.lock -Algorithm SHA256).Hash.ToLowerInvariant()
+          $Compiler = if ($IsWindows) { 'target/debug/hum.exe' } else { 'target/debug/hum' }
+          if (-not (Test-Path -LiteralPath $Compiler -PathType Leaf)) { throw 'full-anchor compiler executable is missing' }
+          $env:HUM_COMPILER_SHA256 = (Get-FileHash -LiteralPath $Compiler -Algorithm SHA256).Hash.ToLowerInvariant()
+          $ConfigurationBytes = [IO.File]::ReadAllBytes('.github/workflows/ci.yml') + [IO.File]::ReadAllBytes('tools/check_all.ps1')
+          $ConfigurationHasher = [Security.Cryptography.SHA256]::Create()
+          try { $env:HUM_CONFIGURATION_SHA256 = -join ($ConfigurationHasher.ComputeHash($ConfigurationBytes) | ForEach-Object { $_.ToString('x2') }) } finally { $ConfigurationHasher.Dispose() }
+          $Receipt = @{}
+          foreach ($Line in [IO.File]::ReadAllLines('${{ steps.full_preflight.outputs.receipt }}')) { $Key,$Value = $Line -split '=',2; if ($Receipt.ContainsKey($Key)) { throw "duplicate evidence receipt key $Key" }; $Receipt[$Key] = $Value }
+          foreach ($Key in @('selector_ledger_sha256','selector_count','mutation_ledger_sha256','mutation_count','suite_count','readiness','hygiene_file_count','claims','release_version')) { if (-not $Receipt.ContainsKey($Key)) { throw "missing evidence receipt key $Key" }; [Environment]::SetEnvironmentVariable("HUM_$($Key.ToUpperInvariant())",$Receipt[$Key]) }
+          $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
+          $OutputDirectory = Join-Path $env:RUNNER_TEMP 'hum-evidence-summary'
+          New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
+          $Output = Join-Path $OutputDirectory 'hum-evidence-summary.v2.json'
+          . ./tools/run_fast_evidence.ps1
+          $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
+          try { $Lines = @(& $Isolated.Executable evidence summarize --output $Output --pwsh $Pwsh); $ExitCode = $LASTEXITCODE }
+          finally { Remove-HumIsolatedExecutable $Isolated }
+          if ($ExitCode -ne 0 -or $Lines.Count -ne 2) { throw 'summary generation failed closed' }
+          $SummaryName = ($Lines | Where-Object { $_ -clike 'summary_artifact=*' }).Substring(17)
+          $ExecutableName = ($Lines | Where-Object { $_ -clike 'executable_artifact=*' }).Substring(20)
+          if ([string]::IsNullOrEmpty($SummaryName) -or [string]::IsNullOrEmpty($ExecutableName)) { throw 'summary artifact output shape mismatch' }
+          "summary_name=$SummaryName" >> $env:GITHUB_OUTPUT
+          "summary_path=$Output" >> $env:GITHUB_OUTPUT
+          "executable_name=$ExecutableName" >> $env:GITHUB_OUTPUT
+          "executable_path=$Executable" >> $env:GITHUB_OUTPUT
+
+      - name: Upload evidence summary
+        id: upload_evidence_summary
+        if: steps.classify.outputs.mode == 'full' && github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.generate_evidence_summary.outputs.summary_name }}
+          path: ${{ steps.generate_evidence_summary.outputs.summary_path }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
+      - name: Upload hum-dev executable
+        id: upload_hum_dev_executable
+        if: steps.classify.outputs.mode == 'full' && github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.generate_evidence_summary.outputs.executable_name }}
+          path: ${{ steps.generate_evidence_summary.outputs.executable_path }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
+      - name: Close full evidence transport
+        id: close_full_transport
+        if: always() && steps.classify.outputs.mode == 'full'
+        shell: pwsh
+        run: |
+          foreach ($Owned in @('${{ steps.full_preflight.outputs.receipt }}', (Join-Path $env:RUNNER_TEMP 'hum-evidence-summary'))) {
+            if (-not [string]::IsNullOrEmpty($Owned) -and (Test-Path -LiteralPath $Owned)) { Remove-Item -LiteralPath $Owned -Recurse -Force }
+            if (-not [string]::IsNullOrEmpty($Owned) -and (Test-Path -LiteralPath $Owned)) { throw "full evidence transport cleanup failed: $Owned" }
+          }
+
+      - name: Resolve status executable
+        id: start_status_review_and_resolve_hum_dev
+        if: steps.classify.outputs.mode == 'fast'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HUM_ANCHOR: ${{ steps.classify.outputs.anchor }}
+          HUM_RUN_ID: ${{ steps.classify.outputs.run_id }}
+          HUM_RUN_ATTEMPT: ${{ steps.classify.outputs.run_attempt }}
+          HUM_UBUNTU_JOB_ID: ${{ steps.classify.outputs.ubuntu_job_id }}
+          HUM_WINDOWS_JOB_ID: ${{ steps.classify.outputs.windows_job_id }}
+        run: |
+          function Assert-StatusField([string]$Name,[string]$Actual,[string]$Expected) { if ($Actual -cne $Expected) { throw "status $Name mismatch" } }
+          $StartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+          $Frequency = [Diagnostics.Stopwatch]::Frequency
+          $Platform = if ($IsWindows) { 'windows' } else { 'ubuntu' }
+          $Job = if ($IsWindows) { $env:HUM_WINDOWS_JOB_ID } else { $env:HUM_UBUNTU_JOB_ID }
+          $ExpectedJobName = if ($IsWindows) { 'preflight (windows-latest)' } else { 'preflight (ubuntu-latest)' }
+          $RunRecord = @(gh api "repos/${{ github.repository }}/actions/runs/$($env:HUM_RUN_ID)" --jq '[.id,.run_attempt,.head_sha,.event,.path,.name,.status,.conclusion] | @tsv')
+          if ($RunRecord.Count -ne 1) { throw 'status anchor run metadata cardinality mismatch' }
+          $RunFields = $RunRecord[0] -split "`t",-1
+          if ($RunFields.Count -ne 8) { throw 'status anchor run metadata shape mismatch' }
+          foreach ($Field in @(@('run ID',$RunFields[0],$env:HUM_RUN_ID),@('run attempt',$RunFields[1],$env:HUM_RUN_ATTEMPT),@('anchor SHA',$RunFields[2],$env:HUM_ANCHOR),@('event',$RunFields[3],'push'),@('workflow path',$RunFields[4],'.github/workflows/ci.yml'),@('workflow name',$RunFields[5],'ci'),@('run status',$RunFields[6],'completed'),@('run conclusion',$RunFields[7],'success'))) { Assert-StatusField @Field }
+          $Tree = @(gh api "repos/${{ github.repository }}/git/commits/$($env:HUM_ANCHOR)" --jq '.tree.sha')
+          if ($Tree.Count -ne 1 -or $Tree[0] -cnotmatch '^[0-9a-f]{40}$') { throw 'status anchor tree metadata mismatch' }
+          $JobRecord = @(gh api "repos/${{ github.repository }}/actions/jobs/$Job" --jq '[.id,.run_id,.run_attempt,.head_sha,.status,.conclusion,.name] | @tsv')
+          if ($JobRecord.Count -ne 1) { throw 'status producing-job metadata cardinality mismatch' }
+          $JobFields = $JobRecord[0] -split "`t",-1
+          if ($JobFields.Count -ne 7) { throw 'status producing-job metadata shape mismatch' }
+          foreach ($Field in @(@('job ID',$JobFields[0],$Job),@('job run ID',$JobFields[1],$env:HUM_RUN_ID),@('job attempt',$JobFields[2],$env:HUM_RUN_ATTEMPT),@('job SHA',$JobFields[3],$env:HUM_ANCHOR),@('job status',$JobFields[4],'completed'),@('job conclusion',$JobFields[5],'success'),@('job name',$JobFields[6],$ExpectedJobName))) { Assert-StatusField @Field }
+          $Prefix = "hum-dev-executable-transport-v1-$($env:HUM_RUN_ID)-$($env:HUM_RUN_ATTEMPT)-$Job-$Platform-"
+          $Rows = @(gh api "repos/${{ github.repository }}/actions/runs/$($env:HUM_RUN_ID)/artifacts?per_page=100" --paginate --jq '.artifacts[] | [.id,.name,.size_in_bytes,.expired,.digest] | @tsv')
+          $Match = @($Rows | Where-Object { $_ -clike "$Prefix*" })
+          if ($Match.Count -ne 1) { throw 'status executable artifact cardinality mismatch' }
+          $Fields = $Match[0] -split "`t",-1
+          if ($Fields.Count -ne 5) { throw 'status executable metadata shape mismatch' }
+          if ($Fields[0] -cnotmatch '^[1-9][0-9]*$') { throw 'status executable artifact ID mismatch' }
+          if ($Fields[2] -cnotmatch '^[1-9][0-9]*$') { throw 'status executable artifact size mismatch' }
+          if ($Fields[3] -cne 'false') { throw 'status executable artifact expiry mismatch' }
+          if ($Fields[4] -cnotmatch '^sha256:[0-9a-f]{64}$') { throw 'status executable artifact digest shape mismatch' }
+          $Hash = $Fields[1].Substring($Prefix.Length)
+          if ($Hash -cnotmatch '^[0-9a-f]{64}$') { throw 'status executable artifact name mismatch' }
+          "artifact_id=$($Fields[0])" >> $env:GITHUB_OUTPUT
+          "github_digest=$($Fields[4].Substring(7))" >> $env:GITHUB_OUTPUT
+          "executable_sha256=$Hash" >> $env:GITHUB_OUTPUT
+          "download_path=$($env:RUNNER_TEMP)/hum-status-bootstrap" >> $env:GITHUB_OUTPUT
+          "anchor_tree=$($Tree[0])" >> $env:GITHUB_OUTPUT
+          "started_ticks=$StartedTicks" >> $env:GITHUB_OUTPUT
+          "frequency=$Frequency" >> $env:GITHUB_OUTPUT
+
+      - name: Discover active Work Order
+        id: discover_workorder
+        if: steps.classify.outputs.mode == 'fast'
+        shell: pwsh
+        run: |
+          . ${{ github.workspace }}/tools/Find-ActiveWorkorder.ps1
+          $Found = Find-ActiveWorkorder -Directory ${{ github.workspace }}/workorders/active -RepoRoot ${{ github.workspace }}
+          "path=$($Found.FullPath)" >> $env:GITHUB_OUTPUT
+          "repo_path=$($Found.RepoPath)" >> $env:GITHUB_OUTPUT
+
+      - name: Download hum-dev executable
+        id: download_hum_dev_executable
+        if: steps.classify.outputs.mode == 'fast'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.artifact_id }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.classify.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.download_path }}
+          merge-multiple: false
+          skip-decompress: true
+          digest-mismatch: error
+
+      - name: Run status-only evidence
+        id: authenticate_and_run_status_only_evidence
+        if: always() && steps.classify.outputs.mode == 'fast' && steps.start_status_review_and_resolve_hum_dev.outcome == 'success'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HUM_STATUS_REPOSITORY: ${{ github.repository }}
+          HUM_STATUS_RUN_ID: ${{ steps.classify.outputs.run_id }}
+          HUM_STATUS_RUN_ATTEMPT: ${{ steps.classify.outputs.run_attempt }}
+          HUM_STATUS_UBUNTU_JOB_ID: ${{ steps.classify.outputs.ubuntu_job_id }}
+          HUM_STATUS_WINDOWS_JOB_ID: ${{ steps.classify.outputs.windows_job_id }}
+          HUM_STATUS_ANCHOR: ${{ steps.classify.outputs.anchor }}
+          HUM_STATUS_GH_PATH: ${{ github.workspace }}/gh-placeholder
+          HUM_STATUS_WORKORDER: ${{ steps.discover_workorder.outputs.path }}
+          HUM_STATUS_WORKORDER_REPO_PATH: ${{ steps.discover_workorder.outputs.repo_path }}
+          HUM_BOOTSTRAP_PATH: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.download_path }}
+          HUM_BOOTSTRAP_DIGEST: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.github_digest }}
+          HUM_EXECUTABLE_SHA256: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.executable_sha256 }}
+          HUM_ANCHOR_TREE: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.anchor_tree }}
+          HUM_REVIEW_STARTED_TICKS: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.started_ticks }}
+          HUM_REVIEW_FREQUENCY: ${{ steps.start_status_review_and_resolve_hum_dev.outputs.frequency }}
+        run: |
+          $Root = [IO.Path]::GetFullPath($env:HUM_BOOTSTRAP_PATH)
+          try {
+            $Entries = @(Get-ChildItem -LiteralPath $Root -Force -Recurse)
+            if ($Entries.Count -ne 1) { throw 'status executable raw-archive entry count mismatch' }
+            if ($Entries[0].PSIsContainer) { throw 'status executable raw-archive entry is a directory' }
+            if ($Entries[0].Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'status executable raw-archive entry is a reparse point' }
+            $Archive = $Entries[0].FullName
+            if ((Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:HUM_BOOTSTRAP_DIGEST) { throw 'status executable GitHub digest mismatch' }
+            $ExpectedName = if ($IsWindows) { 'hum-dev.exe' } else { 'hum-dev' }
+            $Extraction = Join-Path $Root 'authenticated-executable'
+            New-Item -ItemType Directory -Path $Extraction | Out-Null
+            $Zip = [IO.Compression.ZipFile]::OpenRead($Archive)
+            try {
+              $ArchiveEntries = @($Zip.Entries)
+              if ($ArchiveEntries.Count -ne 1) { throw 'status executable archive entry count mismatch' }
+              if ($ArchiveEntries[0].FullName -cne $ExpectedName) { throw 'status executable filename mismatch' }
+              if ($ArchiveEntries[0].FullName.Contains('/') -or $ArchiveEntries[0].FullName.Contains('\') -or [IO.Path]::IsPathRooted($ArchiveEntries[0].FullName)) { throw 'status executable archive traversal mismatch' }
+              $UnixType = ($ArchiveEntries[0].ExternalAttributes -shr 16) -band 0xF000
+              if ($UnixType -ne 0 -and $UnixType -ne 0x8000) { throw 'status executable archive entry is not regular' }
+              $Executable = Join-Path $Extraction $ExpectedName
+              [IO.Compression.ZipFileExtensions]::ExtractToFile($ArchiveEntries[0],$Executable,$false)
+            } finally { $Zip.Dispose() }
+            $ExecutableInfo = Get-Item -LiteralPath $Executable -Force
+            if ($ExecutableInfo.PSIsContainer) { throw 'status executable extraction is a directory' }
+            if ($ExecutableInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'status executable extraction is a reparse point' }
+            if ((Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:HUM_EXECUTABLE_SHA256) { throw 'status executable byte hash mismatch' }
+            if (-not $IsWindows) {
+              [IO.File]::SetUnixFileMode($Executable,[IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserExecute)
+              if (([IO.File]::GetUnixFileMode($Executable) -band [IO.UnixFileMode]::UserExecute) -eq 0) { throw 'status executable bit missing' }
+            }
+            $env:HUM_STATUS_GH_PATH = (Get-Command gh -CommandType Application -TotalCount 1).Source
+            $StatusOut = Join-Path $Root 'status.stdout'
+            $StatusErr = Join-Path $Root 'status.stderr'
+            $PriorRelevant = @((Get-Process -Name 'hum-dev','gh' -ErrorAction SilentlyContinue).Id)
+            $StatusProcess = Start-Process -FilePath $Executable -ArgumentList @('evidence','status') -PassThru -Wait -RedirectStandardOutput $StatusOut -RedirectStandardError $StatusErr
+            $StatusPid = $StatusProcess.Id
+            $StatusExit = $StatusProcess.ExitCode
+            $StatusProcess.Dispose()
+            [Console]::Out.Write([IO.File]::ReadAllText($StatusOut))
+            [Console]::Error.Write([IO.File]::ReadAllText($StatusErr))
+            if (Get-Process -Id $StatusPid -ErrorAction SilentlyContinue) { throw 'status executable process or handle did not reach quiescence' }
+            $NewRelevant = @((Get-Process -Name 'hum-dev','gh' -ErrorAction SilentlyContinue).Id | Where-Object { $PriorRelevant -notcontains $_ })
+            if ($NewRelevant.Count -ne 0) { throw "status executable descendants survived: $([string]::Join(',', $NewRelevant))" }
+            if ($StatusExit -ne 0) { exit $StatusExit }
+          } finally {
+            if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
+            if (Test-Path -LiteralPath $Root) { throw 'status executable bootstrap cleanup failed' }
+          }
+          $ElapsedMs = [math]::Floor(1000 * ([Diagnostics.Stopwatch]::GetTimestamp() - [long]$env:HUM_REVIEW_STARTED_TICKS) / [long]$env:HUM_REVIEW_FREQUENCY)
+          if ($ElapsedMs -ge 120000) { throw "status-review performance boundary exceeded: $ElapsedMs ms" }
+          "elapsed_ms=$ElapsedMs" >> $env:GITHUB_OUTPUT
+          ./tools/test_workorder_status_boundary.ps1
+          ./tools/check_text_hygiene.ps1
+          ./tools/check_public_readiness.ps1
+          ./tools/check_release_readiness.ps1
+      - name: Confirm selected work completion
+        if: always()
+        shell: pwsh
+        env:
+          HUM_COMPLETED_STEPS: ${{ toJSON(steps) }}
+          HUM_SELECTED_MODE: ${{ steps.classify.outputs.mode }}
+          HUM_SELECTED_PROFILE: ${{ steps.classify.outputs.profile }}
+          HUM_MATRIX_OS: ${{ matrix.os }}
+        run: |
+          $Steps = $env:HUM_COMPLETED_STEPS | ConvertFrom-Json
+          $Mode = $env:HUM_SELECTED_MODE
+          $Profile = $env:HUM_SELECTED_PROFILE
+          if ($env:HUM_MATRIX_OS -cnotin @('windows-latest','ubuntu-latest')) { throw 'unknown required platform' }
+          if ($Profile -cnotin @('language','runtime','compiler','full')) { throw 'unknown required profile' }
+          $Required = @('integration_identity','pwsh_identity','classify')
+          if ($Mode -ceq 'normal' -and $Profile -cne 'full') {
+            $Required += 'normal_profile'
+            if ($env:HUM_MATRIX_OS -ceq 'ubuntu-latest') { $Required += 'exhaustive' }
+          } elseif ($Mode -ceq 'full' -and $Profile -ceq 'full') {
+            $Required += @('full_preflight','close_full_transport')
+            if ($env:HUM_MATRIX_OS -ceq 'ubuntu-latest') { $Required += 'exhaustive' }
+            if ($env:GITHUB_EVENT_NAME -ceq 'push') { $Required += @('generate_evidence_summary','upload_evidence_summary','upload_hum_dev_executable') }
+          } elseif ($Mode -ceq 'fast' -and $Profile -ceq 'full' -and $env:GITHUB_EVENT_NAME -ceq 'push') {
+            $Required += @('start_status_review_and_resolve_hum_dev','download_hum_dev_executable','authenticate_and_run_status_only_evidence')
+          } else { throw 'selected mode/profile/event disagree' }
+          foreach ($Name in $Required) {
+            if ($Steps.$Name.outcome -cne 'success' -or $Steps.$Name.conclusion -cne 'success') { throw "required execution incomplete: $Name" }
+          }
+          Write-Host "Explicit selected-step completion: $env:HUM_MATRIX_OS / $Profile / $Mode"
