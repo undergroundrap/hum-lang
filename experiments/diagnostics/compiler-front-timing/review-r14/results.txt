@@ -1,0 +1,3 @@
+timing controls: 138 passed, 0 failed (true exit code 0)
+policy assertions: 445 (retained R13 run, true exit code 0)
+exact-baseline apply/reconstruction: verified (all eight blobs match)
