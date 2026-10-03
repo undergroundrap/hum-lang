@@ -1,0 +1,5 @@
+genuine bytes: 61 62 63 0a
+genuine last byte is LF (0a): True
+genuine definition contains LF append: True
+override bytes: 61 62 63
+override last byte is LF (0a): False

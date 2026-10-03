@@ -1,0 +1,16 @@
+7f5bf0ff3da407b51b8ded4f4a40c2fdd93379c77e5d8fc5ed367d7629af7c58  ./MANIFEST-R11.md
+ecbfeb93cbb7f8425f68f95e24bd2a0a05e1bfb3b7358b2c00bab423d4b048b2  ./MANIFEST.txt
+28d9e88c9449e0e4b349e438cd8c23dc4759e931af6c24f682f55d6f418f74ec  ./README.md
+db3111ebe725c12320388769caf8ebd4f75322ab558da5c669847ee219306d2d  ./WITHDRAWAL-R10.md
+1ff3153849d6dbfb5e882d01aa4f80e1fe013c2a6f5c2fb0311d9c92632dc77f  ./candidate.diff
+b44611917f9a7532fb241fb6bf3cd3fd82df6272ed0721daa8c7c307afc1e4e1  ./files/.github/workflows/ci.yml
+bd0b4af239a00201f8ec39438de9859ba891d0a8043e3d974f6656187b50fbb8  ./files/crates/hum-dev/src/shell.rs
+04b31ab8c43bc7d7ea05cbbe9a89ed4b60967dc57222dd1f08210164dc5b4c86  ./files/tools/check_all.ps1
+b259375b3a2a81e5e4550e826624de53cafb4943eae219c6744ab93a28b59aeb  ./files/tools/hum_timing_ledger.ps1
+30c6aacc17d07cc2cd827967b1bff99928438862b601c5ada45f0314e5a82e5e  ./files/tools/run_fast_evidence.ps1
+dbbdeff107e7648a3e6dc17183cdccfd0c7adfd0fe124e858982e07b13daa67a  ./files/tools/test_ci_policy.ps1
+bb2ea529414d86f083d28b639ab1d406f53a3cca227398f305fee4aae0d9e228  ./files/tools/test_exact_rust_selector.ps1
+f697d4851668ddc11affbfbd5f45448c1354281c3229c13629d4bc351f7f99c8  ./files/tools/test_timing_ledger.ps1
+b68fc12518a02fb4a13f770d3e0dda69e93c27512734b14d538f1f34c9e16d24  ./obstacle-set-hum-durable-text-shadow.md
+c7b276cf12487ee96bd40d33ee1fdeb0cffbdb26b96b6592e29820f9ecdfff0f  ./results.txt
+aee2c6f09fad360ffd94f98aa697fccbccdfd50c9a5e7a27dc480e60695edf3a  ./writer-byte-proof.txt
