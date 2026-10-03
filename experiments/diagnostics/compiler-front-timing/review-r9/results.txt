@@ -1,0 +1,24 @@
+R9 verification results (2026-10-03, Linux x86_64, pwsh 7.6.6)
+Run against the exact bytes in this bundle's files/ directory.
+
+tools/test_timing_ledger.ps1: 115 passed, 0 failed (elapsed ~85s)
+  - control 26: pwsh scalar selection, 9 assertions (preserved)
+  - control 27 (rewritten): real production path, 12 assertions
+    * actual guard execution (set/unset)
+    * real timed child via Invoke-HumBinaryCapture
+    * capture-native quiescence proof
+    * DiagnosticDirectory observation
+    * removal/misdirection proofs
+
+tools/test_ci_policy.ps1: 445 assertions passed (elapsed ~38s)
+  - 8 assertions scoped to the Full workflow block
+  - canonical Unit B closure preserved (hash updated)
+
+YAML: .github/workflows/ci.yml parses (Python yaml.safe_load)
+Public readiness: 659 files passed
+PowerShell syntax: all modified files parse clean
+
+Platform limits:
+- Linux only (Windows CI not run locally per standing rule)
+- No Full campaign executed locally (per authorization)
+- No new process model; uses existing capture quiescence fields

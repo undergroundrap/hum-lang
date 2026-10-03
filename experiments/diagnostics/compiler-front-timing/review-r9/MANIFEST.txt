@@ -1,0 +1,30 @@
+timing-observability candidate export r9
+correction baseline: 827eec2865cf886c979de9e60e26f3e6b60154b8
+worktree HEAD: 949900362befe179ddaa66f13fb0dfcdd63cb6b8 (same tree as baseline)
+parent commit (r8 head): 5c1f5c67c6105b5eb66d67d7acb42a7069ca5db4
+
+R9 implements Codex's satisfiability audit: the Full-path proof is
+reachable through existing production functions. No synthetic approximation.
+
+1. Quiescence: Full retention consumes the current authenticated capture's
+   existing process-tree/channel quiescence proof (JobQuiescenceObserved,
+   FinalActiveProcessCount, Stdout/StderrCompletionObserved,
+   PrimaryExitObserved). No Get-Process/PID reconstruction. Missing or
+   unproven capture preserves the original failure and reports the gap.
+2. Control 27: executes the actual Fast-tier guard, launches a real timed
+   child through Invoke-HumBinaryCapture, invokes the real finalizer, and
+   observes DiagnosticDirectory. Proves removal/misdirection fails the
+   observation (not just a regex).
+3. Policy: assertions scoped to the actual "Run Hum preflight" block;
+   canonical closure (hash pin) preserved; Get-Process text criterion dropped.
+
+candidate file blob identities (git blob SHA-1 of exact worktree bytes)
+and byte counts:
+911525192825306bf2a886de378277ac25f232de    52278  .github/workflows/ci.yml
+00c9a53b1dff91e0cfeafd627705b1151590f700   749021  tools/check_all.ps1
+6b7dd305ab467e984b29c05ee653a518c40d5e4f    11952  tools/test_exact_rust_selector.ps1
+d612763f0b5d87b78bf221c21029b04d719df837    84715  tools/run_fast_evidence.ps1
+4abd3749508f6b98ef6edf2944b5717b8aa239f2     6682  tools/hum_timing_ledger.ps1
+d05660bc3a952efe0dc58fb673ce3240e25c815e    64069  tools/test_timing_ledger.ps1
+ef44acdf75a77771f9dce1f67be18262fe29e146    74476  tools/test_ci_policy.ps1
+99f54498af18d1aec6a7389fa0f4937d19fd3b06    47306  crates/hum-dev/src/shell.rs
