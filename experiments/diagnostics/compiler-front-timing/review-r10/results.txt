@@ -1,0 +1,31 @@
+R10 verification results (2026-10-03, Linux x86_64, pwsh 7.6.6)
+Run against the exact bytes in this bundle's files/ directory.
+
+tools/test_timing_ledger.ps1: 123 passed, 0 failed (elapsed ~108s)
+  - control 26: pwsh scalar selection, 9 assertions (preserved)
+  - control 27 (rewritten): mechanically extracted source, 21 assertions
+    * extraction of guard, Save-HumPreflightDiagnostics,
+      Invoke-HumPreflightCapture, finalizer (4)
+    * guard set/unset via extracted source (2)
+    * bounded 15s timeout, genuine orphan START (3)
+    * capture-native quiescence proof (1)
+    * real early diagnostics via extracted function (1)
+    * DiagnosticDirectory observation with orphan START (3)
+    * success cleanup (1)
+    * unavailable proof (2)
+    * removal/misdirection fail the same observation (2)
+
+tools/test_ci_policy.ps1: 445 assertions passed (elapsed ~35s; frozen from R9)
+
+Diff verification:
+- candidate.diff = git diff 827eec28 (FETCH_HEAD), 2163 lines
+- git apply --check: SUCCESS against owned clean baseline copy
+- All eight blob SHA-1 identities reconstruct after apply
+
+MUSE.md: tools/test_timing_ledger.ps1 is the only changed candidate file;
+seven others frozen (byte-identical to R9).
+
+Platform limits:
+- Linux only (Windows CI not run locally per standing rule)
+- No Full campaign executed locally (per authorization)
+- 15s bounded timeout (not the production 3000s deadline)

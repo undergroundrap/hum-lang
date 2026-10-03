@@ -1,0 +1,35 @@
+timing-observability candidate export r10
+correction baseline: 827eec2865cf886c979de9e60e26f3e6b60154b8
+worktree HEAD: 949900362befe179ddaa66f13fb0dfcdd63cb6b8 (same tree as baseline)
+parent commit (r9 head): a612f7d62b36e8a340883b047058d0e165fb497c
+
+R10: harness/package correction only. Seven files frozen from R9.
+Only tools/test_timing_ledger.ps1 changes.
+
+Control 27 now uses MECHANICALLY EXTRACTED production source (via AST):
+- Fast-tier guard from check_all.ps1
+- Save-HumPreflightDiagnostics from ci.yml
+- Invoke-HumPreflightCapture from ci.yml
+- Journal finalizer quiescence block from ci.yml
+
+The child invokes the actual timed native wrapper. A bounded 15s timeout
+produces a genuine START without END; the journal is observed in
+DiagnosticDirectory after the capture's authenticated tree/channel
+quiescence proof. Covers real early diagnostics, success cleanup,
+set/unset, unavailable-proof. Removing/misdirecting the extracted
+retention call fails the SAME DiagnosticDirectory observation.
+
+candidate.diff is against 827eec28 (not a01f4dc2). Verified:
+- git apply --check succeeds against owned clean baseline copy
+- Applying reconstructs all eight blob identities below
+
+candidate file blob identities (git blob SHA-1 of exact worktree bytes)
+and byte counts:
+911525192825306bf2a886de378277ac25f232de    52278  .github/workflows/ci.yml
+00c9a53b1dff91e0cfeafd627705b1151590f700   749021  tools/check_all.ps1
+6b7dd305ab467e984b29c05ee653a518c40d5e4f    11952  tools/test_exact_rust_selector.ps1
+d612763f0b5d87b78bf221c21029b04d719df837    84715  tools/run_fast_evidence.ps1
+4abd3749508f6b98ef6edf2944b5717b8aa239f2     6682  tools/hum_timing_ledger.ps1
+4915d3a5204888c4f186dcb92670225da3b66e25    70031  tools/test_timing_ledger.ps1
+ef44acdf75a77771f9dce1f67be18262fe29e146    74476  tools/test_ci_policy.ps1
+99f54498af18d1aec6a7389fa0f4937d19fd3b06    47306  crates/hum-dev/src/shell.rs
