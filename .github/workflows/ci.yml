@@ -242,6 +242,14 @@ jobs:
           $Isolated = $null
           $Failure = $null
           $Capture = $null
+          # Durable timing journal: the profile writes per-command START/END
+          # records with immediate flushes, so they survive the outer capture
+          # deadline (which empties hum-dev's buffered console channels).
+          # The journal lives at a per-invocation path under target/ - never
+          # inside the inventoried capture directory, and with a unique name
+          # so a stale cached journal can never be attributed to this run.
+          $TimingJournal = Join-Path (Get-Location).Path ('target/hum-timing-journal-' + [Guid]::NewGuid().ToString('N') + '.ndjson')
+          $env:HUM_TIMING_JOURNAL = $TimingJournal
           try {
             $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
             "capture=$Directory" >> $env:GITHUB_OUTPUT
@@ -256,6 +264,17 @@ jobs:
           } catch { $Failure = $_ } finally {
             try { if ($null -ne $Isolated) { Remove-HumIsolatedExecutable $Isolated } } catch {
               if ($null -eq $Failure) { $Failure = $_ } else { $Failure.Exception.Data['executable_cleanup'] = $_ }
+            }
+            try {
+              # Timing journal retention through the tested seam: on failure
+              # the journal is staged inside the capture directory so the
+              # existing failed-diagnostics artifact upload retains it; on
+              # success it is removed, so the capture inventory
+              # authentication sees a clean directory. A stale cached journal
+              # at any other path is never attributed to this run.
+              $null = Invoke-HumTimingJournalRetention -JournalPath $TimingJournal -CaptureDirectory $Directory -Failed ($null -ne $Failure)
+            } catch {
+              if ($null -eq $Failure) { $Failure = $_ } else { $Failure.Exception.Data['timing_journal_retention'] = $_ }
             }
             try {
               if ($null -eq $Failure) { Remove-HumCaptureAfterAuthentication $Directory }

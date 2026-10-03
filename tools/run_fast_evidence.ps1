@@ -1308,19 +1308,81 @@ function Remove-HumCaptureAfterAuthentication {
     throw "capture cleanup failed: $Resolved"
   }
 }
+function Invoke-HumTimingJournalRetention {
+  param(
+    [string] $JournalPath,
+    [string] $CaptureDirectory,
+    [bool] $Failed
+  )
+  # Durable timing journal retention: the single decision point the CI
+  # fixed-profile step calls in its outer finally block.
+  #
+  # The journal lives outside the inventoried capture directory at all
+  # times: staging it there unconditionally would break the success-path
+  # capture inventory authentication (Remove-HumCaptureAfterAuthentication).
+  # On failure the journal is staged inside the capture directory so the
+  # existing failed-diagnostics artifact upload retains it; on success it is
+  # removed. Only the exact per-invocation path the profile was told to
+  # write is considered, so a stale cached journal at any other path is
+  # never attributed to this run. A missing journal (the profile never
+  # reached ledger initialization) is not an error.
+  #
+  # Returns 'retained', 'removed', or 'absent' for control assertions.
+  if ([string]::IsNullOrWhiteSpace($JournalPath)) { return 'absent' }
+  if (-not (Test-Path -LiteralPath $JournalPath)) { return 'absent' }
+  if ($Failed) {
+    Copy-Item -LiteralPath $JournalPath -Destination (Join-Path $CaptureDirectory 'hum-timing-journal.ndjson') -Force
+    return 'retained'
+  }
+  Remove-Item -LiteralPath $JournalPath -Force
+  return 'removed'
+}
 function Invoke-HumContainedRustNativeCapture {
   param([string] $Label, [string] $Cargo, [string[]] $Arguments)
-  $Root = Join-Path ([IO.Path]::GetTempPath()) ('hum-contained-rust-' + [Guid]::NewGuid().ToString('N'))
-  $Capture = Join-Path $Root 'capture'; [void] [IO.Directory]::CreateDirectory($Root); $Authenticated = $false
+  # Durable timing (see the launch wrappers in check_all.ps1): START is
+  # flushed before the contained cargo launch and END after it exits,
+  # matched by unique launch id. The Get-Command guard keeps standalone use
+  # (timing module absent) running untimed instead of failing before launch.
+  # The contained-capture authentication and cleanup behavior below are
+  # unchanged.
+  $TimingAvailable = $null -ne (Get-Command Start-HumTimedCommand -CommandType Function -ErrorAction SilentlyContinue)
+  $TimingPhase = if ($Label.EndsWith('-list')) { 'list' } elseif ($Label.EndsWith('-run')) { 'run' } else { 'exec' }
+  $TimingScope = if ($TimingAvailable) { Start-HumTimedCommand -Kind 'cargo-selector' -Label $Label -Phase $TimingPhase -Executable $Cargo -Arguments $Arguments } else { $null }
+  $TimingOutcome = 'error'
+  $TimingExitCode = -1
+  $TimingError = ''
+  # Root creation runs inside the scope: a creation failure records an error
+  # END with the original message instead of stranding the scope, and the
+  # depth slot is released by Stop-HumTimedCommand (never by resetting the
+  # counter). Authenticated cleanup only runs when the capture authenticated.
+  $Root = $null
+  $Capture = $null
+  $Authenticated = $false
   try {
+    $Root = Join-Path ([IO.Path]::GetTempPath()) ('hum-contained-rust-' + [Guid]::NewGuid().ToString('N'))
+    $Capture = Join-Path $Root 'capture'
+    [void] [IO.Directory]::CreateDirectory($Root)
     $Result = Invoke-HumBinaryCapture $Cargo $Arguments (Get-Location).Path $Capture 120 -CaseName ($Label.ToLowerInvariant() -replace '[^a-z0-9_-]', '-')
     $Result = Assert-HumCaptureComplete $Result
     $Authenticated = $true
     $Encoding = New-Object Text.UTF8Encoding($false, $true)
     $Text = $Encoding.GetString([IO.File]::ReadAllBytes($Result.StdoutPath)) +
       $Encoding.GetString([IO.File]::ReadAllBytes($Result.StderrPath))
+    $TimingExitCode = $Result.ExitCode
+    $TimingOutcome = if ($TimingExitCode -eq 0) { 'success' } else { 'failure' }
     [pscustomobject] @{ Output = @([regex]::Split($Text, '\r\n|\n|\r')); ExitCode = $Result.ExitCode }
+  } catch {
+    $TimingError = $_.Exception.Message
+    throw
   } finally {
+    if ($TimingAvailable) {
+      # A journal END-write failure must not skip the authenticated cleanup
+      # below: the journal never changes command behavior, and
+      # Stop-HumTimedCommand already released the depth slot before writing.
+      # The missing END is itself the signal (completion unobserved).
+      try { Stop-HumTimedCommand -Scope $TimingScope -ExitCode $TimingExitCode -Outcome $TimingOutcome -ErrorMessage $TimingError }
+      catch { }
+    }
     if ($Authenticated) {
       Remove-HumCaptureAfterAuthentication $Capture
       Remove-Item -LiteralPath $Root -Force

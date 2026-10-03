@@ -21,25 +21,56 @@ function Assert-ExactRustSelectorSyntax {
 function Invoke-ExactRustNativeCapture {
   param(
     [string] $Cargo,
-    [string[]] $Arguments
+    [string[]] $Arguments,
+    # Optional durable-timing identity. Empty values disable timing; the
+    # command runs exactly as before. Invoke-ExactRustTest supplies
+    # kind='cargo-selector' with phase 'list'/'run' so the ledger
+    # distinguishes the two cargo invocations per selector.
+    [string] $TimingKind = '',
+    [string] $TimingLabel = '',
+    [string] $TimingPhase = '',
+    [string] $TimingSelector = ''
   )
 
-  if (-not (Test-Path -LiteralPath $Cargo -PathType Leaf)) {
-    throw "cargo executable is unavailable: $Cargo"
-  }
-
-  $PreviousErrorActionPreference = $ErrorActionPreference
-  $ErrorActionPreference = 'Continue'
+  # Durable timing (see Invoke-ExactRustTest below). The Get-Command guard
+  # preserves this script's standalone use: when the timing module was never
+  # loaded, the command runs untimed instead of failing before launch.
+  # When the module is loaded but disabled (ledger never initialized),
+  # Start-HumTimedCommand returns $null and the command runs unchanged.
+  #
+  # The timing scope opens BEFORE the pre-launch executable check: a setup
+  # failure (missing executable) records an error END with the original
+  # message instead of leaving an unbalanced scope, and the scope is always
+  # closed, so a subsequent launch records its own complete pair.
+  $TimingAvailable = $null -ne (Get-Command Start-HumTimedCommand -CommandType Function -ErrorAction SilentlyContinue)
+  $TimingScope = if ($TimingAvailable) { Start-HumTimedCommand -Kind $TimingKind -Label $TimingLabel -Phase $TimingPhase -Selector $TimingSelector -Executable $Cargo -Arguments $Arguments } else { $null }
+  $TimingOutcome = 'error'
+  $TimingExitCode = -1
+  $TimingError = ''
   try {
-    $Output = @(& $Cargo @Arguments 2>&1 | ForEach-Object { $_.ToString() })
-    $ExitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $PreviousErrorActionPreference
-  }
+    if (-not (Test-Path -LiteralPath $Cargo -PathType Leaf)) {
+      throw "cargo executable is unavailable: $Cargo"
+    }
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $Output = @(& $Cargo @Arguments 2>&1 | ForEach-Object { $_.ToString() })
+      $ExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    $TimingExitCode = $ExitCode
+    $TimingOutcome = if ($TimingExitCode -eq 0) { 'success' } else { 'failure' }
 
-  return [pscustomobject] @{
-    Output = $Output
-    ExitCode = $ExitCode
+    return [pscustomobject] @{
+      Output = $Output
+      ExitCode = $ExitCode
+    }
+  } catch {
+    $TimingError = $_.Exception.Message
+    throw
+  } finally {
+    if ($TimingAvailable) { Stop-HumTimedCommand -Scope $TimingScope -ExitCode $TimingExitCode -Outcome $TimingOutcome -ErrorMessage $TimingError }
   }
 }
 
@@ -110,7 +141,7 @@ function Invoke-ExactRustTest {
   Write-Host "==> $Label"
   Assert-ExactRustSelectorSyntax $Selector
 
-  $ListResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact', '--list')
+  $ListResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact', '--list') -TimingKind 'cargo-selector' -TimingPhase 'list' -TimingLabel $Label -TimingSelector $Selector
   if ($ListResult.ExitCode -ne 0) {
     $ListResult.Output | ForEach-Object { Write-Host $_ }
     throw "$Label could not list '$Selector'; cargo exited $($ListResult.ExitCode)"
@@ -124,7 +155,7 @@ function Invoke-ExactRustTest {
     throw "$Label must resolve '$Selector' to exactly one test before execution; listed $($ListedTests.Count) total and $($ExactListings.Count) exact"
   }
 
-  $RunResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact')
+  $RunResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact') -TimingKind 'cargo-selector' -TimingPhase 'run' -TimingLabel $Label -TimingSelector $Selector
   $RunResult.Output | ForEach-Object { Write-Host $_ }
   if ($RunResult.ExitCode -ne 0) {
     throw "$Label failed with exit code $($RunResult.ExitCode)"
