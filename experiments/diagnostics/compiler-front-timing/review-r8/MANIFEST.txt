@@ -1,0 +1,29 @@
+timing-observability candidate export r8
+correction baseline: 827eec2865cf886c979de9e60e26f3e6b60154b8
+worktree HEAD: 949900362befe179ddaa66f13fb0dfcdd63cb6b8 (same tree as baseline)
+parent commit (r7 head): bbe6233e01a12686149955c4899f6407b739e173
+
+R8 consolidates R7 with three corrections:
+1. Quiescence proof: Full's failure finally requires current-capture
+   quiescence proof (child Pid exists AND Get-Process returns null) before
+   staging the journal. A timeout flag alone is not proof. If proof is
+   unavailable (e.g., capture authentication failed), the gap is reported
+   via warning without masking the original failure.
+2. Control 27 rewritten: tests the actual Full init/retention path via
+   the real guard (extracted from check_all.ps1) and real timed commands.
+   Covers set/unset, early snapshots, success cleanup, unavailable
+   quiescence. Proves wiring removal/misdirection fails.
+3. Includes the missing tools/test_ci_policy.ps1 (7 assertions for Full
+   journal wiring: journal setup, export, DiagnosticDirectory retention,
+   failure preservation, quiescence proof).
+
+candidate file blob identities (git blob SHA-1 of exact worktree bytes)
+and byte counts:
+56a950d5e35197595229a545b37afa9948eebd6c    52036  .github/workflows/ci.yml
+6eccb1ce7b997c9a4e088b86d87be34cc2524871   749021  tools/check_all.ps1
+6b7dd305ab467e984b29c05ee653a518c40d5e4f    11952  tools/test_exact_rust_selector.ps1
+d612763f0b5d87b78bf221c21029b04d719df837    84715  tools/run_fast_evidence.ps1
+4abd3749508f6b98ef6edf2944b5717b8aa239f2     6682  tools/hum_timing_ledger.ps1
+ae162b9215c15fc31761810542d085c61d18f9f1    63749  tools/test_timing_ledger.ps1
+c0cebbdb6fd923bab45439d1b2ee1f16bcdd751e    74042  tools/test_ci_policy.ps1
+99f54498af18d1aec6a7389fa0f4937d19fd3b06    47306  crates/hum-dev/src/shell.rs

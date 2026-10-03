@@ -1,0 +1,21 @@
+R8 verification results (2026-10-03, Linux x86_64, pwsh 7.6.6)
+Run against the exact bytes in this bundle's files/ directory.
+
+tools/test_timing_ledger.ps1: 122 passed, 0 failed (elapsed ~87s)
+  - control 26: pwsh scalar selection, 9 assertions (preserved from R7)
+  - control 27 (rewritten): Full init/retention path, 19 assertions
+    * real guard extraction, real timed commands
+    * quiescence available/unavailable
+    * wiring removal/misdirection proofs
+
+tools/test_ci_policy.ps1: 443 assertions passed (elapsed ~39s)
+  - 7 assertions for Full journal wiring (was 5 in R7, +2 for quiescence)
+
+YAML: .github/workflows/ci.yml parses (Python yaml.safe_load)
+Public readiness: 659 files passed
+PowerShell syntax: all modified .ps1 files parse clean
+
+Platform limits:
+- Linux only (Windows CI not run locally per standing rule)
+- No Full campaign executed locally (per authorization)
+- Quiescence proven via Get-Process null check (not timeout flag)
