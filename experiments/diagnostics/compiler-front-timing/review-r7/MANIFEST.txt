@@ -1,0 +1,21 @@
+timing-observability candidate export r7
+pinned base: a01f4dc242cd075d7aff91090280ce9c38bcc8a7
+parent commit (r6 head): 46db3f8158378bb6184251a8b9f33dd48ee3eaa8
+
+R7 corrects two defects found in R6 validation diagnosis:
+1. Multi-pwsh resolution: test_timing_ledger.ps1 used .Source on
+   Get-Command results without scalar selection (broke on 3-pwsh runners).
+   Fixed with real Select-FirstApplicationSource at both sites.
+2. Full timing journal: full_preflight now sets invocation-owned
+   HUM_TIMING_JOURNAL; check_all.ps1 Fast-tier initializes only on explicit
+   path; retention stages to DiagnosticDirectory (the actual upload dir).
+
+candidate file blob identities (git blob SHA-1 of exact worktree bytes)
+and byte counts:
+3742696486a7e41b76700c4c27f5c777c102a395    50897  .github/workflows/ci.yml
+df3a13f4be6a90183513e513d1438a55350a1f58   749021  tools/check_all.ps1
+6b7dd305ab467e984b29c05ee653a518c40d5e4f    11952  tools/test_exact_rust_selector.ps1
+d612763f0b5d87b78bf221c21029b04d719df837    84715  tools/run_fast_evidence.ps1
+4abd3749508f6b98ef6edf2944b5717b8aa239f2     6682  tools/hum_timing_ledger.ps1
+786d048b016435430c7e021b5c8e4952fbf97c40    62541  tools/test_timing_ledger.ps1
+99f54498af18d1aec6a7389fa0f4937d19fd3b06    47306  crates/hum-dev/src/shell.rs

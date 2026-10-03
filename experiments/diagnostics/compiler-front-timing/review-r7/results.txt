@@ -1,0 +1,17 @@
+R7 verification results (2026-10-03, Linux x86_64, pwsh 7.6.6)
+
+tools/test_timing_ledger.ps1: 119 passed, 0 failed (elapsed ~79s)
+  - control 26 (new): pwsh scalar selection, 9 assertions
+  - control 27 (new): Full journal retention, 16 assertions
+
+tools/test_ci_policy.ps1: 441 assertions passed (elapsed ~47s)
+  - 5 new policy assertions for Full journal wiring
+
+YAML: .github/workflows/ci.yml parses (Python yaml.safe_load)
+Public readiness: 659 files passed
+PowerShell syntax: all 4 modified .ps1 files parse clean
+
+Platform limits:
+- Linux only (Windows CI not run locally per standing rule)
+- No Full campaign executed locally (per authorization)
+- Fake-pwsh fixtures used for multi-application control (single-install host)
