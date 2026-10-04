@@ -1,0 +1,15 @@
+diff --git a/tools/test_timing_ledger.ps1 b/tools/test_timing_ledger.ps1
+index 648caf3..de8a65e 100644
+--- a/tools/test_timing_ledger.ps1
++++ b/tools/test_timing_ledger.ps1
+@@ -830,8 +830,8 @@ try {
+   if ($IsWindows) {
+     $Fake1Exe = Join-Path $Fake1Dir 'pwsh.cmd'
+     $Fake2Exe = Join-Path $Fake2Dir 'pwsh.cmd'
+-    [IO.File]::WriteAllText($Fake1Exe, "@exit /b 42`r`n", $Utf8NoBom)
+-    [IO.File]::WriteAllText($Fake2Exe, "@exit /b 43`r`n", $Utf8NoBom)
++    [IO.File]::WriteAllText($Fake1Exe, "@exit /b 42$([char]13)$([char]10)", $Utf8NoBom)
++    [IO.File]::WriteAllText($Fake2Exe, "@exit /b 43$([char]13)$([char]10)", $Utf8NoBom)
+   } else {
+     $Fake1Exe = Join-Path $Fake1Dir 'pwsh'
+     $Fake2Exe = Join-Path $Fake2Dir 'pwsh'

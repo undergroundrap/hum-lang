@@ -1,0 +1,23 @@
+Review R19 MANIFEST
+===================
+
+Baseline: 91d821b5a5ee38c02c52ca1c43cd6f093b9ad6cf (PR #69 R18 published head)
+
+Deliverable A — Hygiene correction (uncommitted on wip/timing-observability-candidate):
+de8a65e2e81b5054bf4524b8f9a5039434da2f92  tools/test_timing_ledger.ps1
+  (was 648caf39c3bf09429f928294b4b6b64a7253588f; single-line fixture
+   representation change, byte-identical generated output)
+
+Preserved R18/R17 files (all byte-identical):
+911525192825306bf2a886de378277ac25f232de  .github/workflows/ci.yml
+00c9a53b1dff91e0cfeafd627705b1151590f700  tools/check_all.ps1
+6b7dd305ab467e984b29c05ee653a518c40d5e4f  tools/test_exact_rust_selector.ps1
+d612763f0b5d87b78bf221c21029b04d719df837  tools/run_fast_evidence.ps1
+4abd3749508f6b98ef6edf2944b5717b8aa239f2  tools/hum_timing_ledger.ps1
+ef44acdf75a77771f9dce1f67be18262fe29e146  tools/test_ci_policy.ps1
+8a0ec6817c4a4b0f92cba4350a5bf63d7575819c  tools/test_fast_evidence_capture.ps1
+99f54498af18d1aec6a7389fa0f4937d19fd3b06  crates/hum-dev/src/shell.rs
+
+Deliverable B — Unit C diagnosis: unit-c-diagnosis.md (read-only, no code changes)
+
+Applying candidate.diff to baseline reconstructs the corrected file identity above.
