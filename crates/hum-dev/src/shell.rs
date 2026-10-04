@@ -6,7 +6,7 @@ use std::process::{Command, Output};
 
 pub(crate) use crate::summary::PwshIdentity;
 
-const ENVIRONMENT_KEYS: &str = "CARGO_HOME,COMSPEC,HOME,OS,PATH,PATHEXT,ProgramFiles,ProgramFiles(x86),ProgramData,PSModulePath,RUNNER_TEMP,RUSTUP_HOME,RUSTUP_TOOLCHAIN,SystemRoot,TEMP,TMP,TMPDIR,USERPROFILE,WINDIR,CI,GITHUB_ACTIONS,GITHUB_ACTION,GITHUB_ACTOR,GITHUB_API_URL,GITHUB_ENV,GITHUB_EVENT_NAME,GITHUB_EVENT_PATH,GITHUB_GRAPHQL_URL,GITHUB_JOB,GITHUB_OUTPUT,GITHUB_PATH,GITHUB_REF,GITHUB_REPOSITORY,GITHUB_RUN_ATTEMPT,GITHUB_RUN_ID,GITHUB_SERVER_URL,GITHUB_SHA,GITHUB_STEP_SUMMARY,GITHUB_TOKEN,GITHUB_WORKFLOW,GITHUB_WORKSPACE,RUNNER_ARCH,RUNNER_OS,RUNNER_TOOL_CACHE,HUM_CANONICAL_SEAL_EVIDENCE_TIER,HUM_EVIDENCE_RECEIPT,HUM_BUILD_TARGET,HUM_BUILD_TOOLCHAIN,HUM_CI_BOUNDARY_REQUIRED,INCLUDE,LIB,LIBPATH,VCINSTALLDIR,VCToolsInstallDir,VSCMD_ARG_HOST_ARCH,VSCMD_ARG_TGT_ARCH,WindowsSdkDir,WindowsSDKVersion,GIT_CONFIG_COUNT,GIT_CONFIG_KEY_0,GIT_CONFIG_VALUE_0";
+const ENVIRONMENT_KEYS: &str = "CARGO_HOME,COMSPEC,HOME,OS,PATH,PATHEXT,ProgramFiles,ProgramFiles(x86),ProgramData,PSModulePath,RUNNER_TEMP,RUSTUP_HOME,RUSTUP_TOOLCHAIN,SystemRoot,TEMP,TMP,TMPDIR,USERPROFILE,WINDIR,CI,GITHUB_ACTIONS,GITHUB_ACTION,GITHUB_ACTOR,GITHUB_API_URL,GITHUB_ENV,GITHUB_EVENT_NAME,GITHUB_EVENT_PATH,GITHUB_GRAPHQL_URL,GITHUB_JOB,GITHUB_OUTPUT,GITHUB_PATH,GITHUB_REF,GITHUB_REPOSITORY,GITHUB_RUN_ATTEMPT,GITHUB_RUN_ID,GITHUB_SERVER_URL,GITHUB_SHA,GITHUB_STEP_SUMMARY,GITHUB_TOKEN,GITHUB_WORKFLOW,GITHUB_WORKSPACE,RUNNER_ARCH,RUNNER_OS,RUNNER_TOOL_CACHE,HUM_CANONICAL_SEAL_EVIDENCE_TIER,HUM_EVIDENCE_RECEIPT,HUM_BUILD_TARGET,HUM_BUILD_TOOLCHAIN,HUM_CI_BOUNDARY_REQUIRED,HUM_TIMING_JOURNAL,INCLUDE,LIB,LIBPATH,VCINSTALLDIR,VCToolsInstallDir,VSCMD_ARG_HOST_ARCH,VSCMD_ARG_TGT_ARCH,WindowsSdkDir,WindowsSDKVersion,GIT_CONFIG_COUNT,GIT_CONFIG_KEY_0,GIT_CONFIG_VALUE_0";
 const WINDOWS_TOOLCHAIN_KEYS: &str = "INCLUDE,LIB,LIBPATH,VCINSTALLDIR,VCToolsInstallDir,VSCMD_ARG_HOST_ARCH,VSCMD_ARG_TGT_ARCH,WindowsSdkDir,WindowsSDKVersion";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellEnvironment(pub(crate) BTreeMap<OsString, OsString>);
@@ -549,6 +549,155 @@ mod ci_boundary_required_tests {
             environment.get("HUM_CI_BOUNDARY_REQUIRED").unwrap(),
             "false"
         );
+    }
+}
+
+#[cfg(test)]
+mod hum_timing_journal_tests {
+    use super::ShellEnvironment;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    fn root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap()
+    }
+
+    /// Selects the child-probe mode. The parent test spawns this test binary
+    /// with a controlled process environment so the real producer
+    /// (ShellEnvironment::from_process) sees exactly the absent/present
+    /// input under test. No global environment mutation, no cross-test
+    /// races: each probe is its own process. HUM_TIMING_JOURNAL_PROBE is not
+    /// an allowlisted key, so from_process ignores it.
+    fn probe_mode() -> Option<String> {
+        std::env::var("HUM_TIMING_JOURNAL_PROBE").ok()
+    }
+
+    #[test]
+    fn hum_timing_journal_absent_probe() {
+        if probe_mode().as_deref() != Some("absent") {
+            return;
+        }
+        let root = root();
+        let environment = ShellEnvironment::from_process(&root).unwrap();
+        assert!(
+            environment.get("HUM_TIMING_JOURNAL").is_err(),
+            "from_process invented a value for an absent key"
+        );
+        println!("hum-timing-journal-absent-probe-ok");
+    }
+
+    #[test]
+    fn hum_timing_journal_present_probe() {
+        if probe_mode().as_deref() != Some("present") {
+            return;
+        }
+        let root = root();
+        let environment = ShellEnvironment::from_process(&root).unwrap();
+        let expected =
+            std::env::var_os("HUM_TIMING_JOURNAL").expect("probe environment carries the key");
+        assert_eq!(
+            environment.get("HUM_TIMING_JOURNAL").unwrap(),
+            expected.as_os_str()
+        );
+        environment.authenticate(&root).unwrap();
+        println!("hum-timing-journal-present-probe-ok");
+    }
+
+    fn run_probe(mode: &str, test: &str, marker: &str, configure: impl FnOnce(&mut Command)) {
+        let exe = std::env::current_exe().expect("test binary path");
+        let test_path = format!("shell::hum_timing_journal_tests::{test}");
+        let mut child = Command::new(&exe);
+        child.env("HUM_TIMING_JOURNAL_PROBE", mode).args([
+            "--exact",
+            test_path.as_str(),
+            "--nocapture",
+        ]);
+        configure(&mut child);
+        let output = child.output().expect("spawn timing journal probe");
+        assert!(
+            output.status.success(),
+            "{mode} probe failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // The marker proves the probe body really ran: an --exact match on a
+        // misspelled test name would otherwise exit 0 having run nothing.
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains(marker),
+            "{mode} probe did not report its marker"
+        );
+    }
+
+    #[test]
+    fn hum_timing_journal_survives_sanitized_environment() {
+        // Timing-observability transport: CI sets HUM_TIMING_JOURNAL to the
+        // per-invocation journal path; hum-dev carries it through the finite
+        // authenticated environment to the profile's pwsh. The controlled
+        // absent/present inputs go through the real producer (from_process)
+        // in child processes, so the test never assumes the ambient runner
+        // environment and never mutates it.
+        let root = root();
+        run_probe(
+            "absent",
+            "hum_timing_journal_absent_probe",
+            "hum-timing-journal-absent-probe-ok",
+            |child| {
+                child.env_remove("HUM_TIMING_JOURNAL");
+            },
+        );
+        let journal = std::env::temp_dir().join("hum-timing-journal-allowlist-probe.ndjson");
+        run_probe(
+            "present",
+            "hum_timing_journal_present_probe",
+            "hum-timing-journal-present-probe-ok",
+            |child| {
+                child.env("HUM_TIMING_JOURNAL", &journal);
+            },
+        );
+        // The child pwsh sees exactly the allowlisted value through env_clear.
+        let mut environment = ShellEnvironment::from_process(&root).unwrap();
+        environment
+            .0
+            .insert("HUM_TIMING_JOURNAL".into(), journal.as_os_str().to_owned());
+        environment.authenticate(&root).unwrap();
+        assert_eq!(
+            environment.get("HUM_TIMING_JOURNAL").unwrap(),
+            journal.as_os_str()
+        );
+        // Unrelated ambient keys are still rejected.
+        let mut polluted = environment.clone();
+        polluted
+            .0
+            .insert("HUM_TIMING_JOURNAL_UNRELATED".into(), "x".into());
+        assert!(
+            polluted
+                .authenticate(&root)
+                .unwrap_err()
+                .contains("unsupported")
+        );
+        // The child sees exactly the allowlisted value through env_clear.
+        let executable = super::test_pwsh7(&environment, &root);
+        let output = Command::new(&executable.path)
+            .env_clear()
+            .envs(&environment.0)
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$env:HUM_TIMING_JOURNAL",
+            ])
+            .output()
+            .expect("launch pwsh with transported HUM_TIMING_JOURNAL");
+        assert!(output.status.success());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(stdout.trim(), journal.to_string_lossy().as_ref());
+        // env_clear stays at the production launch site.
+        let source = include_str!("shell.rs");
+        assert!(source.contains("command.env_clear().envs(&self.environment.0)"));
     }
 }
 

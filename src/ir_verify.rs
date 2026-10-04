@@ -724,7 +724,7 @@ fn verify_bytes(artifact: &[u8]) -> VerifyResult {
         )));
     }
     let envelope = exact_object(&root, &["schema", "artifact_id", "payload"], "A-R01", "$")
-        .map_err(&unbound)?;
+        .map_err(unbound)?;
     if text_field(envelope, "schema", "A-R01").map_err(unbound)?
         != backend_input::BACKEND_INPUT_SCHEMA
     {

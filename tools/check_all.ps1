@@ -60,6 +60,7 @@ function Resolve-Tool {
 $Cargo = Resolve-Tool 'cargo' '.cargo\bin\cargo.exe' 'cargo was not found on PATH or in the standard user Cargo install directory'
 $Git = Resolve-Tool 'git' '' 'git was not found on PATH'
 . (Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1')
+. (Join-Path $PSScriptRoot 'hum_timing_ledger.ps1')
 . (Join-Path $PSScriptRoot 'run_fast_evidence.ps1')
 
 if ($EvidenceTier -eq 'Exhaustive') {
@@ -102,9 +103,32 @@ function Invoke-Native {
   )
 
   Write-Host "==> $Label"
-  & $FilePath @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "$Label failed with exit code $LASTEXITCODE"
+  # Durable timing: START is flushed before launch and END after the child
+  # exits; every launch gets a unique id shared by its START/END records, so
+  # readers match by id, never by label. A START without an END means
+  # completion was unobserved (interrupted). The Get-Command guard keeps
+  # standalone imports (timing module absent) running untimed instead of
+  # failing before launch. Child output, exit code and error behavior below
+  # are unchanged.
+  $TimingAvailable = $null -ne (Get-Command Start-HumTimedCommand -CommandType Function -ErrorAction SilentlyContinue)
+  $TimingScope = if ($TimingAvailable) { Start-HumTimedCommand -Kind 'native' -Label $Label -Phase 'exec' -Executable $FilePath -Arguments $Arguments } else { $null }
+  $TimingOutcome = 'error'
+  $TimingExitCode = -1
+  $TimingError = ''
+  try {
+    & $FilePath @Arguments
+    $TimingExitCode = $LASTEXITCODE
+    if ($TimingExitCode -ne 0) {
+      # An expected nonzero exit is a recorded failure, not a wrapper error.
+      $TimingOutcome = 'failure'
+      throw "$Label failed with exit code $TimingExitCode"
+    }
+    $TimingOutcome = 'success'
+  } catch {
+    $TimingError = $_.Exception.Message
+    throw
+  } finally {
+    if ($TimingAvailable) { Stop-HumTimedCommand -Scope $TimingScope -ExitCode $TimingExitCode -Outcome $TimingOutcome -ErrorMessage $TimingError }
   }
 }
 
@@ -116,9 +140,29 @@ function Read-NativeOutput {
   )
 
   Write-Host "==> $Label"
-  $Output = & $FilePath @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "$Label failed with exit code $LASTEXITCODE"
+  # Durable timing (see Invoke-Native): START is flushed before launch, END
+  # after the child exits, matched by unique launch id. Standalone imports
+  # without the timing module run untimed. Child output and error behavior
+  # below are unchanged.
+  $TimingAvailable = $null -ne (Get-Command Start-HumTimedCommand -CommandType Function -ErrorAction SilentlyContinue)
+  $TimingScope = if ($TimingAvailable) { Start-HumTimedCommand -Kind 'native-output' -Label $Label -Phase 'exec' -Executable $FilePath -Arguments $Arguments } else { $null }
+  $TimingOutcome = 'error'
+  $TimingExitCode = -1
+  $TimingError = ''
+  try {
+    $Output = & $FilePath @Arguments
+    $TimingExitCode = $LASTEXITCODE
+    if ($TimingExitCode -ne 0) {
+      # An expected nonzero exit is a recorded failure, not a wrapper error.
+      $TimingOutcome = 'failure'
+      throw "$Label failed with exit code $TimingExitCode"
+    }
+    $TimingOutcome = 'success'
+  } catch {
+    $TimingError = $_.Exception.Message
+    throw
+  } finally {
+    if ($TimingAvailable) { Stop-HumTimedCommand -Scope $TimingScope -ExitCode $TimingExitCode -Outcome $TimingOutcome -ErrorMessage $TimingError }
   }
 
   return ($Output -join "`n")
@@ -131,13 +175,28 @@ function Read-NativeOutputWithExit {
   )
 
   Write-Host "==> $Label"
+  # Durable timing (see Invoke-Native): START is flushed before launch, END
+  # after the child exits, matched by unique launch id. Standalone imports
+  # without the timing module run untimed. The ErrorActionPreference
+  # save/restore and the returned Output/ExitCode shape are unchanged.
+  $TimingAvailable = $null -ne (Get-Command Start-HumTimedCommand -CommandType Function -ErrorAction SilentlyContinue)
+  $TimingScope = if ($TimingAvailable) { Start-HumTimedCommand -Kind 'native-output' -Label $Label -Phase 'exec' -Executable $FilePath -Arguments $Arguments } else { $null }
+  $TimingOutcome = 'error'
+  $TimingExitCode = -1
+  $TimingError = ''
   $PreviousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   try {
     $Output = & $FilePath @Arguments 2>&1
     $ExitCode = $LASTEXITCODE
+    $TimingExitCode = $ExitCode
+    $TimingOutcome = if ($ExitCode -eq 0) { 'success' } else { 'failure' }
+  } catch {
+    $TimingError = $_.Exception.Message
+    throw
   } finally {
     $ErrorActionPreference = $PreviousErrorActionPreference
+    if ($TimingAvailable) { Stop-HumTimedCommand -Scope $TimingScope -ExitCode $TimingExitCode -Outcome $TimingOutcome -ErrorMessage $TimingError }
   }
   return [pscustomobject] @{
     Output = ($Output -join "`n")
@@ -156,31 +215,52 @@ function Read-NativeChannelsWithExit {
   if (@($Arguments | Where-Object { $_ -match '\s' }).Count -gt 0) {
     throw "$Label channel capture accepts only whitespace-free smoke-test arguments"
   }
-  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
-  $StartInfo.FileName = $FilePath
-  $StartInfo.Arguments = ($Arguments -join ' ')
-  $StartInfo.UseShellExecute = $false
-  $StartInfo.CreateNoWindow = $true
-  $StartInfo.RedirectStandardOutput = $true
-  $StartInfo.RedirectStandardError = $true
-  # Explicit UTF-8 decoding at the Hum capture boundary. The hum compiler
-  # emits UTF-8; without this, .NET decodes using the system default
-  # (e.g., Windows-1252), corrupting non-ASCII diagnostics like U+00E9.
-  # This is scoped to the capture, not a global console/env change.
-  $StartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-  $StartInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-  $Process = New-Object System.Diagnostics.Process
-  $Process.StartInfo = $StartInfo
-  if (-not $Process.Start()) {
-    throw "$Label could not start"
-  }
-  $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
-  $StderrTask = $Process.StandardError.ReadToEndAsync()
-  $Process.WaitForExit()
-  return [pscustomobject] @{
-    Stdout = $StdoutTask.Result
-    Stderr = $StderrTask.Result
-    ExitCode = $Process.ExitCode
+  # Durable timing: START is flushed before launch and END after the child
+  # exits; every launch gets a unique id shared by its START/END records, so
+  # readers match by id, never by label. A START without an END means
+  # completion was unobserved (interrupted). The Get-Command guard keeps
+  # standalone imports (timing module absent) running untimed instead of
+  # failing before launch. Child output, exit code and error behavior below
+  # are unchanged.
+  $TimingAvailable = $null -ne (Get-Command Start-HumTimedCommand -CommandType Function -ErrorAction SilentlyContinue)
+  $TimingScope = if ($TimingAvailable) { Start-HumTimedCommand -Kind 'hum-cli' -Label $Label -Phase 'cli' -Executable $FilePath -Arguments $Arguments } else { $null }
+  $TimingOutcome = 'error'
+  $TimingExitCode = -1
+  $TimingError = ''
+  try {
+    $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $StartInfo.FileName = $FilePath
+    $StartInfo.Arguments = ($Arguments -join ' ')
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.CreateNoWindow = $true
+    $StartInfo.RedirectStandardOutput = $true
+    $StartInfo.RedirectStandardError = $true
+    # Explicit UTF-8 decoding at the Hum capture boundary. The hum compiler
+    # emits UTF-8; without this, .NET decodes using the system default
+    # (e.g., Windows-1252), corrupting non-ASCII diagnostics like U+00E9.
+    # This is scoped to the capture, not a global console/env change.
+    $StartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $StartInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    $Process = New-Object System.Diagnostics.Process
+    $Process.StartInfo = $StartInfo
+    if (-not $Process.Start()) {
+      throw "$Label could not start"
+    }
+    $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+    $StderrTask = $Process.StandardError.ReadToEndAsync()
+    $Process.WaitForExit()
+    $TimingExitCode = $Process.ExitCode
+    $TimingOutcome = if ($TimingExitCode -eq 0) { 'success' } else { 'failure' }
+    return [pscustomobject] @{
+      Stdout = $StdoutTask.Result
+      Stderr = $StderrTask.Result
+      ExitCode = $TimingExitCode
+    }
+  } catch {
+    $TimingError = $_.Exception.Message
+    throw
+  } finally {
+    if ($TimingAvailable) { Stop-HumTimedCommand -Scope $TimingScope -ExitCode $TimingExitCode -Outcome $TimingOutcome -ErrorMessage $TimingError }
   }
 }
 
@@ -192,29 +272,48 @@ function Read-NativeArgumentListWithExit {
   )
 
   Write-Host "==> $Label"
-  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
-  $StartInfo.FileName = $FilePath
-  foreach ($Argument in $Arguments) { $StartInfo.ArgumentList.Add($Argument) }
-  $StartInfo.UseShellExecute = $false
-  $StartInfo.CreateNoWindow = $true
-  $StartInfo.RedirectStandardOutput = $true
-  $StartInfo.RedirectStandardError = $true
-  # Explicit UTF-8 decoding at the Hum capture boundary (see
-  # Read-NativeChannelsWithExit). Scoped to the capture, not global.
-  $StartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-  $StartInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-  $Process = New-Object System.Diagnostics.Process
-  $Process.StartInfo = $StartInfo
-  if (-not $Process.Start()) {
-    throw "$Label could not start"
-  }
-  $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
-  $StderrTask = $Process.StandardError.ReadToEndAsync()
-  $Process.WaitForExit()
-  return [pscustomobject] @{
-    Stdout = $StdoutTask.Result
-    Stderr = $StderrTask.Result
-    ExitCode = $Process.ExitCode
+  # Durable timing (see Read-NativeChannelsWithExit): START is flushed before
+  # launch and END after the child exits, matched by unique launch id; a
+  # killed process leaves START without END (completion unobserved).
+  # Standalone imports without the timing module run untimed. Child output,
+  # exit code and error behavior are unchanged.
+  $TimingAvailable = $null -ne (Get-Command Start-HumTimedCommand -CommandType Function -ErrorAction SilentlyContinue)
+  $TimingScope = if ($TimingAvailable) { Start-HumTimedCommand -Kind 'hum-cli' -Label $Label -Phase 'cli' -Executable $FilePath -Arguments $Arguments } else { $null }
+  $TimingOutcome = 'error'
+  $TimingExitCode = -1
+  $TimingError = ''
+  try {
+    $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $StartInfo.FileName = $FilePath
+    foreach ($Argument in $Arguments) { $StartInfo.ArgumentList.Add($Argument) }
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.CreateNoWindow = $true
+    $StartInfo.RedirectStandardOutput = $true
+    $StartInfo.RedirectStandardError = $true
+    # Explicit UTF-8 decoding at the Hum capture boundary (see
+    # Read-NativeChannelsWithExit). Scoped to the capture, not global.
+    $StartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $StartInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    $Process = New-Object System.Diagnostics.Process
+    $Process.StartInfo = $StartInfo
+    if (-not $Process.Start()) {
+      throw "$Label could not start"
+    }
+    $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+    $StderrTask = $Process.StandardError.ReadToEndAsync()
+    $Process.WaitForExit()
+    $TimingExitCode = $Process.ExitCode
+    $TimingOutcome = if ($TimingExitCode -eq 0) { 'success' } else { 'failure' }
+    return [pscustomobject] @{
+      Stdout = $StdoutTask.Result
+      Stderr = $StderrTask.Result
+      ExitCode = $TimingExitCode
+    }
+  } catch {
+    $TimingError = $_.Exception.Message
+    throw
+  } finally {
+    if ($TimingAvailable) { Stop-HumTimedCommand -Scope $TimingScope -ExitCode $TimingExitCode -Outcome $TimingOutcome -ErrorMessage $TimingError }
   }
 }
 
@@ -227,48 +326,73 @@ function Read-NativeBytesWithExit {
   )
 
   Write-Host "==> $Label"
-  $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
-  $StartInfo.FileName = $FilePath
-  foreach ($Argument in $Arguments) { $StartInfo.ArgumentList.Add($Argument) }
-  $StartInfo.UseShellExecute = $false
-  $StartInfo.CreateNoWindow = $true
-  # Redirect stdin and close it immediately: a child must never block
-  # waiting on input the harness will never send.
-  $StartInfo.RedirectStandardInput = $true
-  $StartInfo.RedirectStandardOutput = $true
-  $StartInfo.RedirectStandardError = $true
-  $Process = New-Object System.Diagnostics.Process
-  $Process.StartInfo = $StartInfo
-  if (-not $Process.Start()) {
-    throw "$Label could not start"
-  }
-  $Process.StandardInput.Close()
-  # Drain both pipes concurrently. A sequential stdout-then-stderr read
-  # deadlocks permanently when the child fills the stderr pipe buffer
-  # while the harness drains stdout (Session AG Windows hang, validation
-  # run 35906343427: preflight killed at the 3000 s deadline, hiding the
-  # real failure behind an empty log).
-  $StdoutBytes = New-Object System.IO.MemoryStream
+  # Durable timing (see Invoke-Native): START is flushed before launch, END
+  # after the child exits, matched by unique launch id. A harness-killed
+  # timeout leaves START without END (completion unobserved). Standalone
+  # imports without the timing module run untimed. Every post-START
+  # setup/launch step (start-info construction, process creation, Start(),
+  # stdin close, buffer allocation) runs inside the scope: a setup failure
+  # records an error END with the original message instead of stranding the
+  # scope, and the outer finally still disposes whatever was created. The
+  # timeout kill, stream draining and disposal behavior below are unchanged.
+  $TimingAvailable = $null -ne (Get-Command Start-HumTimedCommand -CommandType Function -ErrorAction SilentlyContinue)
+  $TimingScope = if ($TimingAvailable) { Start-HumTimedCommand -Kind 'native-bytes' -Label $Label -Phase 'exec' -Executable $FilePath -Arguments $Arguments } else { $null }
+  $TimingOutcome = 'error'
+  $TimingExitCode = -1
+  $TimingError = ''
+  $Process = $null
+  $StdoutBytes = $null
   try {
-    $StdoutTask = $Process.StandardOutput.BaseStream.CopyToAsync($StdoutBytes)
-    $StderrTask = $Process.StandardError.ReadToEndAsync()
-    if (-not $Process.WaitForExit($TimeoutMilliseconds)) {
-      try { $Process.Kill($true) } catch { }
-      $Process.WaitForExit()
-      $null = $StderrTask.Wait(5000)
-      $PartialStderr = if ($StderrTask.IsCompleted) { $StderrTask.Result } else { '' }
-      throw "$Label timed out after ${TimeoutMilliseconds}ms; stderr so far: $PartialStderr"
-    }
-    $null = $StdoutTask.Wait($TimeoutMilliseconds)
-    $null = $StderrTask.Wait($TimeoutMilliseconds)
-    return [pscustomobject] @{
-      Bytes = $StdoutBytes.ToArray()
-      Stderr = if ($StderrTask.IsCompleted) { $StderrTask.Result } else { '' }
-      ExitCode = $Process.ExitCode
+    try {
+      $StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+      $StartInfo.FileName = $FilePath
+      foreach ($Argument in $Arguments) { $StartInfo.ArgumentList.Add($Argument) }
+      $StartInfo.UseShellExecute = $false
+      $StartInfo.CreateNoWindow = $true
+      # Redirect stdin and close it immediately: a child must never block
+      # waiting on input the harness will never send.
+      $StartInfo.RedirectStandardInput = $true
+      $StartInfo.RedirectStandardOutput = $true
+      $StartInfo.RedirectStandardError = $true
+      $Process = New-Object System.Diagnostics.Process
+      $Process.StartInfo = $StartInfo
+      if (-not $Process.Start()) {
+        throw "$Label could not start"
+      }
+      $Process.StandardInput.Close()
+      # Drain both pipes concurrently. A sequential stdout-then-stderr read
+      # deadlocks permanently when the child fills the stderr pipe buffer
+      # while the harness drains stdout (Session AG Windows hang, validation
+      # run 35906343427: preflight killed at the 3000 s deadline, hiding the
+      # real failure behind an empty log).
+      $StdoutBytes = New-Object System.IO.MemoryStream
+      $StdoutTask = $Process.StandardOutput.BaseStream.CopyToAsync($StdoutBytes)
+      $StderrTask = $Process.StandardError.ReadToEndAsync()
+      if (-not $Process.WaitForExit($TimeoutMilliseconds)) {
+        try { $Process.Kill($true) } catch { }
+        $Process.WaitForExit()
+        $null = $StderrTask.Wait(5000)
+        $PartialStderr = if ($StderrTask.IsCompleted) { $StderrTask.Result } else { '' }
+        throw "$Label timed out after ${TimeoutMilliseconds}ms; stderr so far: $PartialStderr"
+      }
+      $null = $StdoutTask.Wait($TimeoutMilliseconds)
+      $null = $StderrTask.Wait($TimeoutMilliseconds)
+      $TimingExitCode = $Process.ExitCode
+      $TimingOutcome = if ($TimingExitCode -eq 0) { 'success' } else { 'failure' }
+      return [pscustomobject] @{
+        Bytes = $StdoutBytes.ToArray()
+        Stderr = if ($StderrTask.IsCompleted) { $StderrTask.Result } else { '' }
+        ExitCode = $TimingExitCode
+      }
+    } catch {
+      $TimingError = $_.Exception.Message
+      throw
+    } finally {
+      if ($TimingAvailable) { Stop-HumTimedCommand -Scope $TimingScope -ExitCode $TimingExitCode -Outcome $TimingOutcome -ErrorMessage $TimingError }
     }
   } finally {
-    $StdoutBytes.Dispose()
-    $Process.Dispose()
+    if ($null -ne $StdoutBytes) { $StdoutBytes.Dispose() }
+    if ($null -ne $Process) { $Process.Dispose() }
   }
 }
 
@@ -1398,7 +1522,7 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
   $UploadMatches=[regex]::Matches($Normalized,'(?ms)^      - name: Upload failed preflight diagnostics'+$Lf+'.*?(?=^      - name: )')
   if($UploadMatches.Count-ne1-or$UploadMatches[0].Index-ne($Matches[0].Index+$Matches[0].Length)){throw 'Unit B failure-diagnostics upload ownership drifted'}
   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($UploadMatches[0].Value)))-cne'2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa'){throw 'Unit B failure-diagnostics upload positive closure drifted'}
-  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'20b346c44d2e2840c035710ee726e5538043602fc497730161951e7ce59eabea'){throw 'Unit B full-preflight workflow positive closure drifted'}
+  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'082b5d214a1250a16f22cf81204ceac17216562cb1267aa6d08616deafc13f31'){throw 'Unit B full-preflight workflow positive closure drifted'}
   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($SummaryStep)))-cne'e4ae140917b9706da4e9a6444dd7fce000b89f1fa6479a500b02ad64ea6a258e'){throw 'Unit B summary workflow positive closure drifted'}
   $Required=@(
     '$RustcStart.RedirectStandardOutput = $true',
@@ -1844,6 +1968,7 @@ function Invoke-HumCoreCheck {
       Invoke-RepoScript 'fixed validation policy controls' 'test_ci_policy.ps1'
       Invoke-RepoScript 'validation bootstrap probe' 'test_validation_bootstrap.ps1'
       Invoke-RepoScript 'workorder discovery regression' 'test_workorder_discovery.ps1'
+      Invoke-RepoScript 'timing ledger controls' 'test_timing_ledger.ps1'
       # Decision 0025 amendment (2026-09-23, boolean transport): the
       # status-boundary classifier is the consumer that lets workorders/
       # route at language rank. The fixed profiles (language/runtime/compiler)
@@ -2018,6 +2143,20 @@ function Invoke-HumCaptureSmoke {
   }
 }
 
+function Initialize-HumProfileTimingJournal {
+  # Durable timing journal bootstrap: the testable adapter seam between CI's
+  # per-invocation journal path and the ledger module. CI sets
+  # HUM_TIMING_JOURNAL on the fixed-profile step; hum-dev transports it
+  # through its finite authenticated environment (see
+  # crates/hum-dev/src/shell.rs ENVIRONMENT_KEYS, which keeps env_clear and
+  # rejects unrelated ambient keys); the profile reads it here. The caller
+  # (Invoke-HumFixedProfile) guards on $script:HumTimingEnabled so the CI
+  # policy tests, which import the profile without the timing module, skip
+  # initialization silently. An unset or empty value falls back to the
+  # module default path.
+  Initialize-HumTimingLedger -LedgerPath $env:HUM_TIMING_JOURNAL
+}
+
 function Invoke-HumFixedProfile {
   param([string] $Profile, [string] $Cargo)
   if ($Profile -cnotin @('Language','Runtime','Compiler')) { throw 'ci_profile: invalid fixed profile' }
@@ -2035,12 +2174,16 @@ function Invoke-HumFixedProfile {
   $Omitted = 'complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt'
   if ($Profile -cne 'Compiler') { $Omitted += ',compiler-front,compiler-corpus' }
   Write-Host "profile=$Profile;selected=$($Groups -join ',');omitted=$Omitted;credit=normal-only"
+  # Guarded: the CI policy tests import this function without the timing
+  # module, where the variable is $null and initialization is skipped.
+  if ($script:HumTimingEnabled) { Initialize-HumProfileTimingJournal }
   $Hum = Join-Path $RepoRoot $(if ($env:OS -ceq 'Windows_NT') { 'target/debug/hum.exe' } else { 'target/debug/hum' })
   $CheckAllSource = [IO.File]::ReadAllText((Join-Path $RepoRoot 'tools/check_all.ps1'))
   $ParserSource = [IO.File]::ReadAllText((Join-Path $RepoRoot 'src/parser.rs'))
   foreach ($Group in $Groups) {
     $Clock = [Diagnostics.Stopwatch]::StartNew()
     $Passed = $false
+    if ($script:HumTimingEnabled) { Set-HumTimingGroup $Group }
     try {
       switch -CaseSensitive ($Group) {
         'capture' { Invoke-HumCaptureSmoke }
@@ -6952,6 +7095,12 @@ try {
   if ($EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -eq 'Wo25UnitCMutation') { Initialize-Wo25WindowsToolchain; Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -cin @('Language', 'Runtime', 'Compiler')) { Invoke-HumFixedProfile $EvidenceTier $Cargo; return }
+  # Timing journal (Full profile): initialize only when the workflow
+  # supplied an explicit invocation-owned journal path. Unset locally
+  # preserves the default (no journal) behavior.
+  if ($script:HumTimingEnabled -and -not [string]::IsNullOrEmpty($env:HUM_TIMING_JOURNAL)) {
+    Initialize-HumProfileTimingJournal
+  }
   # Decision 0025: the status-boundary classifier runs in the hygiene group
   # (every profile), not as a standalone Fast-tier invocation.
   $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
