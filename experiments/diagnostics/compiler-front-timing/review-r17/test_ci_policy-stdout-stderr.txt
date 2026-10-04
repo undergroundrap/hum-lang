@@ -1,0 +1,110 @@
+[33;1mWARNING: ci_policy: unresolved push range selects Full[0m
+fatal: Not a valid commit name ffffffffffffffffffffffffffffffffffffffff
+[33;1mWARNING: ci_policy: unresolved push range selects Full[0m
+Accepted pre-push policy unavailable: Full bootstrap required.
+Selected work succeeded. Review definitions and exact run before owner-authorized integration; this badge is not attestation.
+Explicit selected-step completion: windows-latest / language / normal
+Explicit selected-step completion: windows-latest / runtime / normal
+Explicit selected-step completion: windows-latest / compiler / normal
+Explicit selected-step completion: windows-latest / full / full
+Explicit selected-step completion: ubuntu-latest / language / normal
+Explicit selected-step completion: ubuntu-latest / runtime / normal
+Explicit selected-step completion: ubuntu-latest / compiler / normal
+Explicit selected-step completion: ubuntu-latest / full / full
+==> short capture caller smoke
+Short profile capture smoke passed; no complete harness credit.
+profile=Language;selected=capture,format,check,tests,clippy,build,language-programs,hygiene;omitted=complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt,compiler-front,compiler-corpus;credit=normal-only
+profile_group=capture;passed=True;elapsed_ms=0
+profile_group=format;passed=True;elapsed_ms=1
+profile_group=check;passed=True;elapsed_ms=0
+profile_group=tests;passed=True;elapsed_ms=0
+profile_group=clippy;passed=True;elapsed_ms=0
+profile_group=build;passed=True;elapsed_ms=0
+profile_group=language-programs;passed=True;elapsed_ms=0
+profile_group=hygiene;passed=True;elapsed_ms=0
+Hum Language validation passed (not Full acceptance).
+profile=Runtime;selected=capture,format,check,tests,clippy,build,language-programs,runtime-programs,hygiene;omitted=complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt,compiler-front,compiler-corpus;credit=normal-only
+profile_group=capture;passed=True;elapsed_ms=2
+profile_group=format;passed=True;elapsed_ms=0
+profile_group=check;passed=True;elapsed_ms=0
+profile_group=tests;passed=True;elapsed_ms=0
+profile_group=clippy;passed=True;elapsed_ms=0
+profile_group=build;passed=True;elapsed_ms=0
+profile_group=language-programs;passed=True;elapsed_ms=0
+profile_group=runtime-programs;passed=True;elapsed_ms=0
+profile_group=hygiene;passed=True;elapsed_ms=0
+Hum Runtime validation passed (not Full acceptance).
+profile=Compiler;selected=capture,format,check,tests,clippy,build,compiler-front,compiler-corpus,hygiene;omitted=complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt;credit=normal-only
+profile_group=capture;passed=True;elapsed_ms=0
+profile_group=format;passed=True;elapsed_ms=0
+profile_group=check;passed=True;elapsed_ms=0
+profile_group=tests;passed=True;elapsed_ms=0
+profile_group=clippy;passed=True;elapsed_ms=0
+profile_group=build;passed=True;elapsed_ms=0
+profile_group=compiler-front;passed=True;elapsed_ms=0
+profile_group=compiler-corpus;passed=True;elapsed_ms=0
+profile_group=hygiene;passed=True;elapsed_ms=0
+Hum Compiler validation passed (not Full acceptance).
+profile=Compiler;selected=capture,format,check,tests,clippy,build,compiler-front,compiler-corpus,hygiene;omitted=complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt;credit=normal-only
+profile_group=capture;passed=True;elapsed_ms=0
+profile_group=format;passed=True;elapsed_ms=0
+profile_group=check;passed=True;elapsed_ms=0
+profile_group=tests;passed=True;elapsed_ms=0
+profile_group=clippy;passed=True;elapsed_ms=0
+profile_group=build;passed=True;elapsed_ms=0
+profile_group=compiler-front;passed=True;elapsed_ms=0
+profile_group=compiler-corpus;passed=True;elapsed_ms=0
+profile_group=hygiene;passed=True;elapsed_ms=1
+Hum Compiler validation passed (not Full acceptance).
+profile=Compiler;selected=capture,format,check,tests,clippy,build,compiler-front,compiler-corpus,hygiene;omitted=complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt;credit=normal-only
+profile_group=capture;passed=True;elapsed_ms=0
+profile_group=format;passed=True;elapsed_ms=0
+profile_group=check;passed=True;elapsed_ms=0
+profile_group=tests;passed=True;elapsed_ms=0
+profile_group=clippy;passed=True;elapsed_ms=0
+profile_group=build;passed=True;elapsed_ms=0
+profile_group=compiler-front;passed=True;elapsed_ms=0
+profile_group=compiler-corpus;passed=True;elapsed_ms=0
+profile_group=hygiene;passed=True;elapsed_ms=0
+Hum Compiler validation passed (not Full acceptance).
+profile=Language;selected=capture,format,check,tests,clippy,build,language-programs,hygiene;omitted=complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt,compiler-front,compiler-corpus;credit=normal-only
+profile_group=capture;passed=True;elapsed_ms=0
+profile_group=format;passed=True;elapsed_ms=0
+profile_group=check;passed=True;elapsed_ms=0
+profile_group=tests;passed=True;elapsed_ms=2
+profile_group=clippy;passed=True;elapsed_ms=0
+profile_group=build;passed=True;elapsed_ms=0
+profile_group=language-programs;passed=True;elapsed_ms=0
+profile_group=hygiene;passed=True;elapsed_ms=0
+Hum Language validation passed (not Full acceptance).
+profile=Runtime;selected=capture,format,check,tests,clippy,build,language-programs,runtime-programs,hygiene;omitted=complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt,compiler-front,compiler-corpus;credit=normal-only
+profile_group=capture;passed=True;elapsed_ms=0
+profile_group=format;passed=True;elapsed_ms=0
+profile_group=check;passed=True;elapsed_ms=0
+profile_group=tests;passed=True;elapsed_ms=0
+profile_group=clippy;passed=True;elapsed_ms=0
+profile_group=build;passed=True;elapsed_ms=0
+profile_group=language-programs;passed=True;elapsed_ms=0
+profile_group=runtime-programs;passed=True;elapsed_ms=0
+profile_group=hygiene;passed=True;elapsed_ms=0
+Hum Runtime validation passed (not Full acceptance).
+profile=Compiler;selected=capture,format,check,tests,clippy,build,compiler-front,compiler-corpus,hygiene;omitted=complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt;credit=normal-only
+profile_group=capture;passed=True;elapsed_ms=0
+profile_group=format;passed=True;elapsed_ms=0
+profile_group=check;passed=True;elapsed_ms=0
+profile_group=tests;passed=True;elapsed_ms=0
+profile_group=clippy;passed=True;elapsed_ms=0
+profile_group=build;passed=True;elapsed_ms=0
+profile_group=compiler-front;passed=True;elapsed_ms=0
+profile_group=compiler-corpus;passed=True;elapsed_ms=0
+profile_group=hygiene;passed=True;elapsed_ms=0
+Hum Compiler validation passed (not Full acceptance).
+profile=Runtime;selected=capture,format,check,tests,clippy,build,language-programs,runtime-programs,hygiene;omitted=complete-capture-pair,infrastructure-mutations,full-ledger,full-receipt,compiler-front,compiler-corpus;credit=normal-only
+profile_group=capture;passed=True;elapsed_ms=0
+profile_group=format;passed=True;elapsed_ms=0
+profile_group=check;passed=True;elapsed_ms=0
+profile_group=tests;passed=False;elapsed_ms=0
+ok - Unit B full-preflight workflow route and 31 corruptions authenticated
+Accepted pre-push policy unavailable: Full bootstrap required.
+CI policy focused controls passed: 445 assertions; no Full execution credit.
+EXIT_CODE=0
