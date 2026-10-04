@@ -1,0 +1,4 @@
+timing controls: 142 passed, 0 failed (true exit code 0, isolated checkout, builder-lane run)
+policy assertions: 445 (retained R13 run, true exit code 0)
+default-journal present/absent preservation: independently verified by Codex
+exact-baseline apply/reconstruction: verified against 827eec2865cf886c979de9e60e26f3e6b60154b8 (all eight blobs match)

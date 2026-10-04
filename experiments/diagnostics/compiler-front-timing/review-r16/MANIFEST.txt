@@ -1,0 +1,19 @@
+timing-observability candidate export r16
+correction baseline: 827eec2865cf886c979de9e60e26f3e6b60154b8
+parent commit (r15 head): bb1d6ca0190ba20e6e87ad7440a04ef68ccb77de
+
+R16: control-27 required-fix correction. Seven files frozen at R12/R13/R14/R15.
+Only tools/test_timing_ledger.ps1 changes.
+
+candidate.diff is against 827eec2865cf886c979de9e60e26f3e6b60154b8 (explicit SHA). Verified:
+- git apply --check succeeds against exact git archive of 827eec2865cf886c979de9e60e26f3e6b60154b8
+- Applying reconstructs all eight blob identities below
+
+911525192825306bf2a886de378277ac25f232de  .github/workflows/ci.yml
+00c9a53b1dff91e0cfeafd627705b1151590f700  tools/check_all.ps1
+6b7dd305ab467e984b29c05ee653a518c40d5e4f  tools/test_exact_rust_selector.ps1
+d612763f0b5d87b78bf221c21029b04d719df837  tools/run_fast_evidence.ps1
+4abd3749508f6b98ef6edf2944b5717b8aa239f2  tools/hum_timing_ledger.ps1
+4445bdf809bd2db64ee21c6b22dd56621f09338e  tools/test_timing_ledger.ps1
+ef44acdf75a77771f9dce1f67be18262fe29e146  tools/test_ci_policy.ps1
+99f54498af18d1aec6a7389fa0f4937d19fd3b06  crates/hum-dev/src/shell.rs
