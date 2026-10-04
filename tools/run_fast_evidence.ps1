@@ -1312,26 +1312,39 @@ function Invoke-HumTimingJournalRetention {
   param(
     [string] $JournalPath,
     [string] $CaptureDirectory,
-    [bool] $Failed
+    [bool] $Failed,
+    [string] $DestinationDirectory = ''
   )
   # Durable timing journal retention: the single decision point the CI
-  # fixed-profile step calls in its outer finally block.
+  # fixed-profile step calls in its outer finally block, and the Full
+  # preflight step calls with -DestinationDirectory.
   #
   # The journal lives outside the inventoried capture directory at all
   # times: staging it there unconditionally would break the success-path
   # capture inventory authentication (Remove-HumCaptureAfterAuthentication).
-  # On failure the journal is staged inside the capture directory so the
+  # On failure the journal is staged inside the destination directory so the
   # existing failed-diagnostics artifact upload retains it; on success it is
   # removed. Only the exact per-invocation path the profile was told to
   # write is considered, so a stale cached journal at any other path is
   # never attributed to this run. A missing journal (the profile never
   # reached ledger initialization) is not an error.
   #
+  # The destination defaults to the capture directory (the fixed-profile
+  # seam). The Full preflight passes its DiagnosticDirectory explicitly:
+  # Full uploads the diagnostic directory, not the capture directory, and
+  # the diagnostic copier excludes the journal. The destination is created
+  # if absent, so an early diagnostic snapshot (directory already exists)
+  # does not block staging.
+  #
   # Returns 'retained', 'removed', or 'absent' for control assertions.
   if ([string]::IsNullOrWhiteSpace($JournalPath)) { return 'absent' }
   if (-not (Test-Path -LiteralPath $JournalPath)) { return 'absent' }
+  $Destination = if ([string]::IsNullOrEmpty($DestinationDirectory)) { $CaptureDirectory } else { $DestinationDirectory }
   if ($Failed) {
-    Copy-Item -LiteralPath $JournalPath -Destination (Join-Path $CaptureDirectory 'hum-timing-journal.ndjson') -Force
+    if (-not (Test-Path -LiteralPath $Destination)) {
+      $null = [IO.Directory]::CreateDirectory($Destination)
+    }
+    Copy-Item -LiteralPath $JournalPath -Destination (Join-Path $Destination 'hum-timing-journal.ndjson') -Force
     return 'retained'
   }
   Remove-Item -LiteralPath $JournalPath -Force

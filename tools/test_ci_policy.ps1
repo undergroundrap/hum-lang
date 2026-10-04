@@ -443,6 +443,23 @@ foreach($Yaml in @($Workflow,$Ci)) {
 # Exercise the actual aggregate's script, not a duplicate acceptance validator.
 $AggregateMatch = [regex]::Match($Workflow, '(?ms)^      - name: Require explicit success\n.*?        run: \|\n(?<body>.*)\z')
 Assert-Policy $AggregateMatch.Success 'aggregate owner exists'
+# Full timing journal wiring: scoped to the actual "Run Hum preflight"
+# step block (not the whole file). The step must set an invocation-owned
+# HUM_TIMING_JOURNAL and retain it into the actual upload directory
+# (DiagnosticDirectory, not CaptureDirectory).
+$FullBlockMatch = [regex]::Match($Ci, '(?ms)^      - name: Run Hum preflight\n.*?(?=^      - name: )')
+Assert-Policy $FullBlockMatch.Success 'full_preflight step block found'
+$FullBlock = $FullBlockMatch.Value
+Assert-Policy ($FullBlock -match '\$TimingJournal = Join-Path \$env:RUNNER_TEMP') 'full_preflight sets an invocation-owned timing journal'
+Assert-Policy ($FullBlock -match '\$env:HUM_TIMING_JOURNAL = \$TimingJournal') 'full_preflight exports HUM_TIMING_JOURNAL'
+Assert-Policy ($FullBlock -match 'Invoke-HumTimingJournalRetention[^\n]*-DestinationDirectory \$DiagnosticDirectory') 'full_preflight retains the journal into the diagnostic (upload) directory'
+Assert-Policy ($FullBlock -match 'Timing journal retention also failed') 'full_preflight preserves the original failure when retention fails'
+Assert-Policy ($FullBlock -match 'quiescence unproven') 'full_preflight requires quiescence proof before staging'
+Assert-Policy ($FullBlock -match 'JobQuiescenceObserved') 'full_preflight consumes the capture''s existing quiescence proof'
+Assert-Policy ($FullBlock -match 'FinalActiveProcessCount -eq 0') 'full_preflight requires zero active processes'
+# Fast-tier initialization: check_all.ps1 must initialize the journal only
+# when the workflow supplied an explicit path; unset preserves local behavior.
+Assert-Policy ($Source -match '\$script:HumTimingEnabled -and[^\n]*IsNullOrEmpty\(\$env:HUM_TIMING_JOURNAL\)[^\n]*\{\s*\n[^\n]*Initialize-HumProfileTimingJournal') 'Fast-tier initializes the journal only on explicit path'
 $AggregateSource = ($AggregateMatch.Groups['body'].Value -split "`n" | ForEach-Object { if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ } }) -join "`n"
 $Aggregate = [scriptblock]::Create($AggregateSource)
 $OriginalNeeds = [Environment]::GetEnvironmentVariable('HUM_CI_NEEDS','Process')

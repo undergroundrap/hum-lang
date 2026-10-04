@@ -1522,7 +1522,7 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
   $UploadMatches=[regex]::Matches($Normalized,'(?ms)^      - name: Upload failed preflight diagnostics'+$Lf+'.*?(?=^      - name: )')
   if($UploadMatches.Count-ne1-or$UploadMatches[0].Index-ne($Matches[0].Index+$Matches[0].Length)){throw 'Unit B failure-diagnostics upload ownership drifted'}
   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($UploadMatches[0].Value)))-cne'2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa'){throw 'Unit B failure-diagnostics upload positive closure drifted'}
-  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'20b346c44d2e2840c035710ee726e5538043602fc497730161951e7ce59eabea'){throw 'Unit B full-preflight workflow positive closure drifted'}
+  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'082b5d214a1250a16f22cf81204ceac17216562cb1267aa6d08616deafc13f31'){throw 'Unit B full-preflight workflow positive closure drifted'}
   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($SummaryStep)))-cne'e4ae140917b9706da4e9a6444dd7fce000b89f1fa6479a500b02ad64ea6a258e'){throw 'Unit B summary workflow positive closure drifted'}
   $Required=@(
     '$RustcStart.RedirectStandardOutput = $true',
@@ -7095,6 +7095,12 @@ try {
   if ($EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -eq 'Wo25UnitCMutation') { Initialize-Wo25WindowsToolchain; Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -cin @('Language', 'Runtime', 'Compiler')) { Invoke-HumFixedProfile $EvidenceTier $Cargo; return }
+  # Timing journal (Full profile): initialize only when the workflow
+  # supplied an explicit invocation-owned journal path. Unset locally
+  # preserves the default (no journal) behavior.
+  if ($script:HumTimingEnabled -and -not [string]::IsNullOrEmpty($env:HUM_TIMING_JOURNAL)) {
+    Initialize-HumProfileTimingJournal
+  }
   # Decision 0025: the status-boundary classifier runs in the hygiene group
   # (every profile), not as a standalone Fast-tier invocation.
   $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
