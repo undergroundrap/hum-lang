@@ -1,0 +1,24 @@
+Review R18 MANIFEST
+===================
+
+Baseline: 1ac100fa732d13fd1b4ef72a93ab0c0efd9c916c (PR #69 R17 published head)
+Correction: tools/test_fast_evidence_capture.ps1 (uncommitted on wip/timing-observability-candidate)
+
+Changed file identity (with correction):
+8a0ec6817c4a4b0f92cba4350a5bf63d7575819c  tools/test_fast_evidence_capture.ps1
+
+Preserved R17 implementation blobs (all eight, byte-identical):
+911525192825306bf2a886de378277ac25f232de  .github/workflows/ci.yml
+00c9a53b1dff91e0cfeafd627705b1151590f700  tools/check_all.ps1
+6b7dd305ab467e984b29c05ee653a518c40d5e4f  tools/test_exact_rust_selector.ps1
+d612763f0b5d87b78bf221c21029b04d719df837  tools/run_fast_evidence.ps1
+4abd3749508f6b98ef6edf2944b5717b8aa239f2  tools/hum_timing_ledger.ps1
+648caf39c3bf09429f928294b4b6b64a7253588f  tools/test_timing_ledger.ps1
+ef44acdf75a77771f9dce1f67be18262fe29e146  tools/test_ci_policy.ps1
+99f54498af18d1aec6a7389fa0f4937d19fd3b06  crates/hum-dev/src/shell.rs
+
+Fingerprint change:
+- Old: 20b346c44d2e2840c035710ee726e5538043602fc497730161951e7ce59eabea
+- New: 082b5d214a1250a16f22cf81204ceac17216562cb1267aa6d08616deafc13f31 (Codex-verified)
+
+Applying candidate.diff to baseline reconstructs the corrected file identity above.

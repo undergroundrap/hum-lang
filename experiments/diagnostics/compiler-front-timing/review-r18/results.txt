@@ -1,0 +1,30 @@
+tools/test_fast_evidence_capture.ps1 — full suite
+Host: Linux (VM), pwsh 7.6.6 (~/powershell/pwsh)
+Date: 2026-10-03
+Exit code: 0
+
+ok - preflight diagnostic success
+ok - preflight diagnostic exit23
+ok - preflight diagnostic timeout
+ok - preflight diagnostic invalid-terminal
+ok - preflight diagnostic validation-failure
+ok - missing capture, allowlist, original failure, and byte restoration
+ok - actual outer preflight lifecycle success
+ok - actual outer preflight lifecycle cleanup-validation
+ok - actual outer preflight lifecycle isolated-failure
+ok - actual outer preflight lifecycle primary-and-secondary
+ok - actual outer preflight lifecycle nonzero-and-secondary
+ok - actual outer preflight lifecycle reporting-failure
+ok - actual outer preflight lifecycle nonzero-reporting
+ok - complete lifecycle with parent hashing unavailable and module discovery disabled
+ok - Test-ProcessSurvived PID-reuse regression
+ok - Test-ProcessSurvivedCaptureChild PID-reuse regression
+Fast evidence capture tests passed for pwsh.
+
+Platform limits: Linux only. Windows-specific capture paths ($WindowsCaptures)
+not exercised on this host. CI remains the cross-platform authority.
+
+Digest verification (independent recomputation):
+- Full-preflight step digest: 082b5d214a1250a16f22cf81204ceac17216562cb1267aa6d08616deafc13f31 (matches Codex)
+- Summary step digest: e4ae140917b9706da4e9a6444dd7fce000b89f1fa6479a500b02ad64ea6a258e (unchanged)
+- Upload step digest: 2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa (unchanged)
