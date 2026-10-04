@@ -1,0 +1,249 @@
+control 1: initialize truncates a stale ledger and opens a versioned session
+  ok: stale content replaced by one versioned session record
+control 2: success records share one launch id and name the executable
+  ok: wrapper still returns exit 0
+  ok: start and end share one unique launch id
+  ok: both records name the actual executable
+  ok: start has kind/phase/group
+  ok: start has label/selector
+  ok: start carries argv
+  ok: end has success outcome, exit 0, elapsed
+control 3: expected failure records outcome=failure without swallowing
+  ok: wrapper returns the failure output and exit 3
+  ok: end shares the start id and records failure with exit 3
+control 4: caught setup failure records an error END; retry gets its own pair
+  ok: missing cargo still throws the original message
+  ok: setup failure records an error END with the message, matched by id
+  ok: subsequent launch records its own complete pair with a new id
+  ok: no unbalanced scopes: every start has its end
+control 5: mid-execution launch error records outcome=error with the message
+==> control launch-error
+  ok: launch error still throws
+  ok: start+end share the id and record the error outcome with message
+control 6: timed wrapper output is byte-identical to the untimed wrapper
+==> control cli timed
+==> control cli untimed
+  ok: stdout/stderr/exit identical with and without timing
+  ok: cli end shares the start id and records kind/label/failure/executable
+control 7: argument-list variant preserves whitespace-bearing arguments
+==> control ws
+  ok: whitespace/newline args preserved byte-identically
+control 8: Invoke-ExactRustTest emits list then run records with distinct ids
+==> control exact test
+running 1 test
+test fake_crate::tests::timing_probe ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;
+  ok: one start+end pair per phase
+  ok: list precedes run
+  ok: each launch has a distinct id
+  ok: ends match starts by id
+  ok: both phases succeeded
+  ok: selector credit accounting unchanged
+control 9: profile journal init reads HUM_TIMING_JOURNAL from the environment
+  ok: env path initializes the journal at the exact path (adapter seam, not a direct init)
+  ok: the incoming parent journal value is restored, not removed
+  ok: the parent journal file is untouched
+  ok: default path is target/hum-timing-ledger.ndjson under the repo root
+  ok: unset env defers to the module default (empty path passed through the adapter)
+  ok: the real initializer is restored after the shadow
+  ok: the default journal file was neither created nor deleted
+==> after-control-9
+  ok: the next command succeeds after the fixture
+  ok: the next command retains the restored session and group
+  ok: balanced depth: no stranded scopes after the fixture
+  ok: the depth slot is released after the fixture
+control 10: retention seam stages on failure, removes on success, ignores absent journals
+  ok: failure stages the journal into the capture directory byte-identically
+  ok: success removes the journal and leaves the capture directory clean
+  ok: a missing journal (profile never initialized) is not an error
+  ok: a stale journal at any other path is never attributed to this run
+control 11: workflow, profile and hum-dev agree on the HUM_TIMING_JOURNAL contract
+  ok: workflow sets, profile reads, and hum-dev allowlists the same key
+  ok: hum-dev keeps env_clear at the launch site
+control 12: interruption through the authenticated process-tree boundary
+  ok: the boundary deadline fired (timed_out, deadline_expired)
+  ok: the tree termination is authenticated and confirmed
+  ok: descendant quiescence proven: no active processes remain
+  ok: channel quiescence proven: streams drained, primary exit observed
+  ok: two launches share one label
+  ok: both launches share the phase
+  ok: the shared label still yields distinct launch ids
+  ok: the completed launch has its END, matched by id
+  ok: the killed launch has START without END: completion unobserved, matched by id
+  ok: exactly one incomplete launch under the shared label
+  ok: authenticated cleanup removes the capture directory after quiescence was proven
+control 13: nested launches record only the outer command
+  ok: nested start is suppressed while the outer launch is open
+==> nested-wrapped
+  ok: a new launch records again after the outer scope closes
+  ok: only outer and after launches recorded; the nested wrapper added none
+  ok: both recorded launches completed
+control 14: a failed START write releases its depth slot
+  ok: failed START rethrows and releases the depth slot
+==> after-failed-start
+  ok: the next launch records its own complete pair
+control 15: without initialization the wrappers run untimed and unchanged
+  ok: start returns null when disabled
+==> control bare
+  ok: wrapper output unchanged with timing disabled
+  ok: no ledger file created when disabled
+control 16: absent timing module - standalone imports run untimed, never failing before launch
+  ok: selector script runs untimed with the module absent (list+run+credit intact)
+  ok: check_all wrapper imported alone (policy-test shape) runs untimed
+control 17: Invoke-Native preserves throw behavior and records
+==> control native ok
+native-hi
+==> control native fail
+failing
+  ok: nonzero exit still throws the original message
+  ok: both launches recorded with success then failure outcomes
+  ok: ends match starts by id
+control 18: Read-NativeOutput preserves text and throw behavior
+==> control readout ok
+==> control readout fail
+  ok: output text unchanged
+  ok: failure still throws the original message
+  ok: failure recorded with kind and exit code
+control 19: Read-NativeOutputWithExit records kind and executable
+==> control owe
+  ok: exit code preserved
+  ok: kind/executable/outcome recorded
+control 20: Read-NativeBytesWithExit preserves bytes and records a harness timeout as error
+==> control bytes ok
+==> control bytes timeout
+  ok: stdout bytes and exit preserved
+  ok: timeout still throws the original message after killing the child
+  ok: timeout recorded as error with the message, matched by id
+control 21: every journal line is valid NDJSON with the required fields
+  ok: all lines parse; required fields (id, executable, outcome, elapsed, exit) present
+control 22: Read-NativeBytesWithExit balances a missing-executable setup failure; retry gets its own pair
+==> control bytes setup
+  ok: missing executable still throws
+  ok: the original launch error is preserved, not replaced
+  ok: setup failure records an error END with the original message, matched by id
+==> control bytes retry
+  ok: retry records its own complete pair with a new id
+  ok: no unbalanced scopes: every start has its end
+control 23: contained root-creation failure records an error END and releases the scope
+  ok: root-creation failure still throws
+  ok: the original creation error is preserved, not replaced
+  ok: root failure records an error END with the original message, matched by id
+==> after-rootfail
+  ok: the next launch records its own complete pair: no stranded scope
+  ok: no unbalanced scopes
+control 24: a journal END-write failure cannot skip authenticated cleanup
+  ok: the journal was sabotaged after START and before END
+  ok: the wrapper completed despite the END-write failure: the journal never changes command behavior
+  ok: the END write really failed against the sabotaged journal
+  ok: authenticated cleanup ran and the depth slot was released
+control 25: the shared caller succeeds on all-pass and fails on genuine failure
+==> control25 success fixture
+  ok: the success fixture really leaked $LASTEXITCODE=5 (not vacuous)
+  ok: all-pass completion succeeds through the shared caller
+==> control25 setup failure fixture
+  ok: a deliberate setup failure still fails through the shared caller
+==> control25 assertion failure fixture
+  ok: a deliberate assertion failure still fails through the shared caller
+control 26: pwsh selection is scalar through the real selector and consumer
+  ok: zero pwsh applications resolve to empty
+  ok: zero applications throw through the real selector
+  ok: one pwsh application resolves
+  ok: single selection is a scalar string
+  ok: single selection is the application
+  ok: multiple pwsh applications resolve
+  ok: multiple selection is a scalar string
+  ok: multiple selection is the first application
+==> control26 consumer
+  ok: the selected executable launches through the real consumer
+control 27: Full journal via extracted AND CALLED production owners
+  ok: mechanical extraction succeeded (obstacle: )
+  ok: genuine writer appends final LF
+  ok: extracted Save-HumPreflightDiagnostics defined
+  ok: extracted Invoke-HumPreflightCapture defined
+  ok: extracted guard initializes on explicit path (genuine)
+  ok: extracted guard does NOT call initializer when unset
+  ok: guard with removed env condition CALLS initializer when unset (observation fails as expected)
+  ok: corruption probe defers to default via empty path (recorder, non-writing)
+  ok: the real ledger initializer is restored after the recorder
+  ok: the default journal file was neither created nor deleted
+Preflight failed: retaining unaccepted diagnostics, not success evidence.
+unaccepted_capture_file=case_name.txt;bytes=18;sha256=c36fdd3fbbdcf35efef6667beaf5519d93e2ae4f92403e749e1a3b2995117f6d
+unaccepted_capture_file=containment_kind.txt;bytes=13;sha256=427c77758f57ae2b09318b6076cd2806253200f193d4effe1d67049c3f44dba8
+unaccepted_capture_file=job_creation_attempted.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_file=job_creation_succeeded.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_file=job_kill_on_close_configured.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_file=child_creation_attempted.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=process_creation_attempted.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=process_creation_succeeded.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=process_created_suspended.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_file=launch_succeeded.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=launch_error.bin;bytes=0;sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+unaccepted_capture_record=launch_error.bin;base64=
+unaccepted_capture_file=capture_error.bin;bytes=0;sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+unaccepted_capture_record=capture_error.bin;base64=
+unaccepted_capture_file=pid.txt;bytes=5;sha256=c985003ba6d406a00f9d7f5ad3880c309dc9ce2ae33d5c4330beaea3bc341f58
+unaccepted_capture_file=job_assignment_attempted.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_file=job_assignment_succeeded.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_file=resume_attempted.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_file=resume_succeeded.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_file=started_utc.txt;bytes=29;sha256=58c0d4ad15fb640d6f9726be990068b1085a288ddd29374f8de48c73ae76c41d
+unaccepted_capture_file=completed_utc.txt;bytes=29;sha256=df5d2f392f8a6c82ae51de0156040338bbeddd8818a65956aa48df7b9455561f
+unaccepted_capture_file=duration_ticks.txt;bytes=12;sha256=35a997577cf9d0820620103c78c8dc5bc235a4692679766cf28a440c65520545
+unaccepted_capture_file=stopwatch_frequency.txt;bytes=11;sha256=8bd5a23c3aef1243c78bac155b39b9d57a43d8c49665ccf6f42acf2992a94afa
+unaccepted_capture_file=deadline_ticks.txt;bytes=12;sha256=ed4e36b47926f48632b01b364fa67603feb5012187d1469d21d4bff0d708a798
+unaccepted_capture_file=termination_grace_ticks.txt;bytes=11;sha256=15d6f42ba683d3f3b2b6c1ef7d19ce4e8e776284395e8f200000093559a86b88
+unaccepted_capture_file=exit.txt;bytes=4;sha256=e3b9c2844b5a5c2677b3a2279db2ec8487491dd9a23d6b22fac153391b3bb63c
+unaccepted_capture_record=exit.txt;base64=MTM3Cg==
+unaccepted_capture_file=primary_exit_observed.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=stdout_completion_observed.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=stderr_completion_observed.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=job_quiescence_observed.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=final_active_process_count.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_record=final_active_process_count.txt;base64=MAo=
+unaccepted_capture_file=deadline_disposition.txt;bytes=17;sha256=29ddebecb2cfbd9ea0ad5336095801a524ebc3b73f2fe9123b6b5e5c8ec96804
+unaccepted_capture_record=deadline_disposition.txt;base64=ZGVhZGxpbmVfZXhwaXJlZAo=
+unaccepted_capture_file=timed_out.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=termination_requested.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=termination_disposition.txt;bytes=27;sha256=ded87a55d686d2790a60c571127af12c43222e52062b33a28dfe71f8d3e81b6c
+unaccepted_capture_record=termination_disposition.txt;base64=dHJlZV90ZXJtaW5hdGlvbl9jb25maXJtZWQK
+unaccepted_capture_file=termination_result.txt;bytes=25;sha256=efda2238013311d70fcf253368bc4d9b18c004423112a12f106e573eca65c567
+unaccepted_capture_file=termination_count.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=kill_attempt_count.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=final_descendant_tree.txt;bytes=51;sha256=6e2c47a4c39b02d595bb9975fcc8d8c7d1380b5e63f35d25b0ff9515955363f3
+unaccepted_capture_file=stdout.bin;bytes=19;sha256=3a5b6e4bf234145eef8905593db7f45a9258231565838b8e3ff3747e631048f6
+unaccepted_capture_file=stderr.bin;bytes=0;sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+unaccepted_capture_file=completion_count.txt;bytes=2;sha256=4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+unaccepted_capture_file=terminal_stdout_line.bin;bytes=18;sha256=2e6589293508b3a7236a9c847f0c273c840ff0ea88363f63d73b68a33a79370a
+unaccepted_capture_file=success_marker_count.txt;bytes=2;sha256=9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa
+unaccepted_capture_file=manifest.txt;bytes=4587;sha256=d2299a5f6ac717de569568d94ad8dc92528196f95b178b98ee0ffd579fe6779b
+  ok: timeout invocation returned an authenticated capture
+  ok: the returned capture proves the timeout occurred
+  ok: timeout capture proves authenticated quiescence via its own fields
+  ok: timeout invocation produced early diagnostics via extracted producer
+  ok: genuine START without END
+  ok: no END fabricated
+  ok: no replacement writer leaked into control 27 scope
+  ok: manifest framing ends with LF
+  ok: capture authentication survives (Assert-HumCaptureComplete passes)
+  ok: EXECUTED finalizer stages journal to the invocation DiagnosticDirectory
+  ok: early diagnostics preserved alongside staged journal
+  ok: staged journal retains orphan START
+  ok: success invocation returned a capture
+  ok: success invocation did not time out
+  ok: success invocation authenticated exit 0
+  ok: success capture has expected stdout
+  ok: success capture has expected stderr
+  ok: success journal has matching START/END
+  ok: success END records success outcome
+  ok: success-finalizer branch cleans up its journal
+[33;1mWARNING: Timing journal not staged: quiescence unproven (current capture quiescence unproven (job/process/channel)). Original failure preserved.[0m
+  ok: invalidated proof prevents staging via the source-owned finalizer
+  ok: corruption journal is valid before the CALL is disabled
+  ok: disabled retention CALL prevents staging via the source-owned finalizer
+  ok: genuine retention function restored
+  ok: misdirected destination leaves the expected location empty
+  ok: misdirected destination stages elsewhere (proving the flow ran)
+[33;1mWARNING: Timing journal not staged: quiescence unproven (no current authenticated capture; quiescence unproven). Original failure preserved.[0m
+  ok: missing capture proof prevents staging via the source-owned finalizer
+timing controls: 140 passed, 0 failed
+EXIT_CODE=0
