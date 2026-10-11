@@ -1468,10 +1468,10 @@ function Assert-PreflightDiagnosticEvidence {
   $Reported = [Collections.Generic.List[object]]::new()
   $ReportingFailures = [Collections.Generic.List[object]]::new()
   function Save-HumPreflightDiagnostics {
-    param([string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $Reason)
+    param([string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $PhaseDiagnosticDirectory, [string] $Reason)
     # Production reporting contains per-child PID, timing and digest facts.
     # Consume those fixture reports here, not in the caller's stable stdout.
-    try { foreach ($Record in @(& $NativeSave $CaptureDirectory $DiagnosticDirectory $Reason 3>&1 6>&1)) {
+    try { foreach ($Record in @(& $NativeSave $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $Reason 3>&1 6>&1)) {
       if ($Record -is [Management.Automation.WarningRecord]) {
         Assert-True ($Record.Message -ceq 'Preflight diagnostic retention failed: preflight diagnostic directory already exists') 'unexpected fixture retention warning'
       } else {
@@ -1486,8 +1486,20 @@ function Assert-PreflightDiagnosticEvidence {
           $Name = $Text.Substring(26).Split(';')[0]
           Assert-True ($Name -cin @('exit.txt','deadline_disposition.txt','termination_disposition.txt','final_active_process_count.txt','capture_error.bin','launch_error.bin')) 'fixture scalar report named an unowned file'
           Assert-True ($Text -ceq "unaccepted_capture_record=$Name;base64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $DiagnosticDirectory $Name))))") 'fixture scalar report differs from retained bytes'
+        } elseif ($Text -ceq 'Preflight succeeded: retaining validated phase diagnostics (report-only).') {
+          # The success header is only truthful for the success reason; a
+          # failure reason behind it is a corrupted producer report.
+          Assert-True ($Reason -ceq 'capture_succeeded') 'success header for failure reason'
+        } elseif ($Text -ceq 'Preflight failed: retaining unaccepted diagnostics, not success evidence.') {
+          # The failure header is only truthful for a non-success reason; a
+          # success reason behind it is a corrupted producer report.
+          Assert-True ($Reason -cne 'capture_succeeded') 'failure header for success reason'
         } else {
-          Assert-True ($Text -ceq 'Preflight failed: retaining unaccepted diagnostics, not success evidence.' -or $Text -ceq 'unaccepted_capture_missing=directory' -or $Text -ceq 'unaccepted_capture_missing=completed_utc.txt') 'unexpected fixture diagnostic message'
+          # Current production also reports phase diagnostic outcomes. The
+          # fixture's controlled phase directories stay empty, so only
+          # none_found/directory_missing may appear; any marker report would
+          # be an unowned production change.
+          Assert-True ($Text -ceq 'unaccepted_capture_missing=directory' -or $Text -ceq 'unaccepted_capture_missing=completed_utc.txt' -or $Text -ceq 'phase_diagnostics=none_found' -or $Text -ceq 'phase_diagnostics=directory_missing') 'unexpected fixture diagnostic message'
         }
       }
       $Reported.Add($Record)
@@ -1498,6 +1510,38 @@ function Assert-PreflightDiagnosticEvidence {
   Assert-True (-not (Test-Path -LiteralPath $Root)) 'diagnostic test root already exists'
   $null = [IO.Directory]::CreateDirectory($Root)
   $NativeCapture = ${function:Invoke-HumBinaryCapture}
+  # Fixture-owned adapter: prove the producer's exact phase forwarding BEFORE
+  # any capture effect. The appended --phase-diagnostics path must equal the
+  # named PhaseDiagnosticDirectory, which must equal the fixture's owned
+  # per-case fact; the controlled deadline and CaseName are bound too. Only
+  # then is the unchanged argv handed to the real capture. The controlled
+  # synthetic child takes no such parameter but tolerates it in $args;
+  # stripping the pair would hide the real argv under test.
+  $AdapterExpectedPhase = ''
+  $AdapterExpectedDeadline = 0
+  $CorruptValidationInventory = $false
+  function Invoke-HumBinaryCapture {
+    param(
+      [string] $FilePath,
+      [string[]] $Arguments,
+      [string] $WorkingDirectory,
+      [string] $CaptureDirectory,
+      [int] $TimeoutSeconds,
+      [string] $CaseName,
+      [string] $PhaseDiagnosticDirectory
+    )
+    Assert-True ($Arguments.Count -ge 2 -and $Arguments[-2] -ceq '--phase-diagnostics') 'producer phase argv pair not forwarded'
+    Assert-True ($Arguments[-1] -ceq $PhaseDiagnosticDirectory) 'argv phase path differs from named phase'
+    Assert-True ($PhaseDiagnosticDirectory -ceq $AdapterExpectedPhase) 'named phase differs from owned case phase'
+    Assert-True ($TimeoutSeconds -eq $AdapterExpectedDeadline) 'capture deadline differs from owned case deadline'
+    Assert-True ($CaseName -ceq 'ci-full-preflight') 'capture case name changed'
+    $Result = & $NativeCapture $FilePath $Arguments $WorkingDirectory $CaptureDirectory -TimeoutSeconds $TimeoutSeconds -CaseName $CaseName -PhaseDiagnosticDirectory $PhaseDiagnosticDirectory
+    if ($CorruptValidationInventory) {
+      Remove-Item -LiteralPath (Join-Path $Result.CaptureDirectory 'completed_utc.txt')
+    }
+    $Result
+  }
+  $AdapterCapture = ${function:Invoke-HumBinaryCapture}
   $Shell = (Get-Process -Id $PID).Path
   $Base = @('-NoLogo','-NoProfile','-NonInteractive','-File',$script:HumCaptureTestPath,'-SyntheticChild')
   $BeforeWorkflow = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($Workflow))
@@ -1505,22 +1549,26 @@ function Assert-PreflightDiagnosticEvidence {
     foreach ($Mode in @('success','exit23','timeout','invalid-terminal','validation-failure')) {
       $Directory = Join-Path $Root $Mode
       $Diagnostics = Join-Path $Root ($Mode + '-diagnostics')
+      $PhaseDiagnostics = Join-Path $Root ($Mode + '-phase-diagnostics')
+      $null = [IO.Directory]::CreateDirectory($PhaseDiagnostics)
       $Child = if ($Mode -eq 'validation-failure') { 'success' } else { $Mode }
       $Result = $null; $Failure = $null
       try {
-        if ($Mode -eq 'validation-failure') {
-          function Invoke-HumBinaryCapture {
-            $Result = & $NativeCapture @args
-            Remove-Item -LiteralPath (Join-Path $Result.CaptureDirectory 'completed_utc.txt')
-            $Result
-          }
-        }
-        $Result = Invoke-HumPreflightCapture $Shell ($Base + $Child) (Get-Location).Path $Directory $Diagnostics $(if ($Mode -eq 'timeout') { 10 } else { 30 })
-      } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
-      Assert-True (${function:Invoke-HumBinaryCapture}.ToString() -ceq $NativeCapture.ToString()) 'native capture test seam did not restore'
+        $AdapterExpectedPhase = $PhaseDiagnostics
+        $AdapterExpectedDeadline = $(if ($Mode -eq 'timeout') { 10 } else { 30 })
+        $CorruptValidationInventory = ($Mode -eq 'validation-failure')
+        $Result = Invoke-HumPreflightCapture $Shell ($Base + $Child) (Get-Location).Path $Directory $Diagnostics $PhaseDiagnostics $(if ($Mode -eq 'timeout') { 10 } else { 30 })
+      } catch { $Failure = $_ } finally {
+        $CorruptValidationInventory = $false
+        Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $AdapterCapture
+      }
+      Assert-True (${function:Invoke-HumBinaryCapture}.ToString() -ceq $AdapterCapture.ToString()) 'native capture test seam did not restore'
       if ($Mode -eq 'success') {
         Assert-True ($null -eq $Failure -and $Result.ExitCode -eq 0 -and -not $Result.TimedOut) 'honest preflight capture failed'
-        Assert-True (-not (Test-Path -LiteralPath $Diagnostics)) 'honest completion fabricated failure diagnostics'
+        # R4: success also runs the report-only consumer. The diagnostics must
+        # exist and be labeled report-only, never success evidence.
+        Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'diagnostic_status.txt')).TrimEnd([char]10) -ceq 'diagnostics_report_only;capture_succeeded;not_success_evidence') 'success diagnostics mislabeled'
+        Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'result.txt')).TrimEnd([char]10) -ceq 'capture_succeeded') 'success result mislabeled'
       } else {
         if ($Mode -eq 'exit23') { Assert-True ($null -eq $Failure -and $Result.ExitCode -eq 23) 'original nonzero child exit changed' }
         if ($Mode -eq 'timeout') {
@@ -1556,7 +1604,7 @@ function Assert-PreflightDiagnosticEvidence {
           $Source = Join-Path $Directory $Name
           if ([IO.File]::Exists($Source)) { Assert-Bytes (Read-Bytes (Join-Path $Diagnostics $Name)) (Read-Bytes $Source) "retained diagnostic bytes: $Mode/$Name" }
         }
-        if ($null -ne $Failure) { Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'failure.txt')).Contains($Failure.Exception.Message)) 'original failure lost during retention' }
+        if ($null -ne $Failure) { Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'result.txt')).Contains($Failure.Exception.Message)) 'original failure lost during retention' }
       }
       if ($null -ne $Result -and $null -ne $Result.Pid) {
         # PID-reuse flake fix: a process with this PID whose StartTime is later
@@ -1568,18 +1616,20 @@ function Assert-PreflightDiagnosticEvidence {
     }
     $Missing = Join-Path $Root 'absent-capture'
     $Diagnostics = Join-Path $Root 'missing-diagnostics'
+    $MissingPhaseDiagnostics = Join-Path $Root 'missing-phase-diagnostics'
+    $null = [IO.Directory]::CreateDirectory($MissingPhaseDiagnostics)
     $Failure = $null
     function Invoke-HumBinaryCapture { throw 'controlled capture missing before creation' }
-    try { Invoke-HumPreflightCapture $Shell ($Base + 'success') (Get-Location).Path $Missing $Diagnostics 30 } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
+    try { Invoke-HumPreflightCapture $Shell ($Base + 'success') (Get-Location).Path $Missing $Diagnostics $MissingPhaseDiagnostics 30 } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
     Assert-True ($null -ne $Failure -and $Failure.Exception.Message -ceq 'controlled capture missing before creation') 'missing capture became success'
     Assert-True ((@(Get-ChildItem -LiteralPath $Diagnostics)).Count -eq 2) 'missing capture fabricated records'
     function Invoke-HumBinaryCapture { throw 'controlled capture missing before creation' }
     $Failure = $null
-    try { Invoke-HumPreflightCapture $Shell ($Base + 'success') (Get-Location).Path $Missing $Diagnostics 30 } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
+    try { Invoke-HumPreflightCapture $Shell ($Base + 'success') (Get-Location).Path $Missing $Diagnostics $MissingPhaseDiagnostics 30 } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
     Assert-True ($null -ne $Failure -and $Failure.Exception.Message -ceq 'controlled capture missing before creation') 'diagnostic retention failure masked original failure'
     $Foreign = Join-Path (Join-Path $Root 'exit23') 'unrelated.txt'
     Set-HumDurableText $Foreign 'must not be collected'
-    Save-HumPreflightDiagnostics (Split-Path $Foreign) (Join-Path $Root 'allowlist-diagnostics') 'controlled allowlist probe'
+    Save-HumPreflightDiagnostics (Split-Path $Foreign) (Join-Path $Root 'allowlist-diagnostics') (Join-Path $Root 'allowlist-phase-diagnostics') 'controlled allowlist probe'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Root 'allowlist-diagnostics/unrelated.txt'))) 'unrelated file collected'
     Assert-True ([Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($Workflow)) -ceq $BeforeWorkflow) 'workflow bytes changed during diagnostics controls'
     Assert-True ($ReportingFailures.Count -eq 0) 'fixture reporting validation failed'
@@ -1645,6 +1695,11 @@ function Assert-PreflightOuterLifecycleEvidence {
     $NativeIsolatedCleanup = ${function:Remove-HumIsolatedExecutable}
     $CaptureDirectory = Join-Path $CaseRoot 'capture'
     $DiagnosticDirectory = Join-Path $CaseRoot 'diagnostics'
+    # Owned per-case phase fact, mirroring the production step prelude that
+    # creates the parent-owned phase directory before the producer runs. The
+    # actual workflow call below passes this; the stub must accept exactly it.
+    $PhaseDiagnosticDirectory = Join-Path $CaseRoot 'workflow-phase-diagnostics'
+    $null = [IO.Directory]::CreateDirectory($PhaseDiagnosticDirectory)
     $Target = Join-Path $Repository 'target'
     $Source = Join-Path $Target $(if ($script:HumHostIsWindows) { 'debug/hum-dev.exe' } else { 'debug/hum-dev' })
     $Isolated = New-HumIsolatedExecutable $Source $CaseRoot $Target
@@ -1655,10 +1710,16 @@ function Assert-PreflightOuterLifecycleEvidence {
       & $NativeSave @args
     }
     function Invoke-HumPreflightCapture {
-      param($Executable, $Arguments, $WorkingDirectory, $Directory, $Diagnostics, $Deadline)
+      param($Executable, $Arguments, $WorkingDirectory, $Directory, $Diagnostics, $PhaseDiagnostics, $Deadline)
+      # Validate the actual producer inputs BEFORE any effect: the incoming
+      # phase directory must be the setup-established owned fact. A foreign
+      # path, null, or any stub-derived substitute is refused here.
+      if ($PhaseDiagnostics -cne $PhaseDiagnosticDirectory) { throw 'outer workflow phase identity changed' }
       if ($Deadline -ne 3000 -or $Executable -cne $Isolated.Executable -or ($Arguments -join '|') -cne "evidence|full|--pwsh|$Pwsh") { throw 'outer workflow invocation changed' }
       $Child = if ($Mode -eq 'primary-and-secondary') { 'invalid-terminal' } elseif ($Mode -in @('nonzero-and-secondary','nonzero-reporting')) { 'exit23' } else { 'success' }
-      & $NativeInvoke $Shell @('-NoLogo','-NoProfile','-NonInteractive','-File',$TestPath,'-SyntheticChild',$Child) $WorkingDirectory $Directory $Diagnostics 30
+      # Forward the accepted authoritative phase directory. The synthetic
+      # child writes no markers, so it stays honestly empty (none_found).
+      & $NativeInvoke $Shell @('-NoLogo','-NoProfile','-NonInteractive','-File',$TestPath,'-SyntheticChild',$Child) $WorkingDirectory $Directory $Diagnostics $PhaseDiagnostics 30
     }
     function Remove-HumIsolatedExecutable {
       $script:IsolatedAttempts++
@@ -1711,7 +1772,10 @@ function Assert-PreflightOuterLifecycleEvidence {
         Assert-True ($State.GetVariable('IsolatedAttempts') -eq 1) "isolated cleanup was not attempted exactly once: $Mode"
         if ($Mode -eq 'success') {
           Assert-True ($null -eq $Failure -and $Exit -eq 0 -and $State.GetVariable('AfterExit')) 'honest outer workflow failed'
-          Assert-True ($State.GetVariable('CaptureAttempts') -eq 1 -and -not (Test-Path -LiteralPath $Directory) -and -not (Test-Path -LiteralPath $Diagnostics) -and -not (Test-Path -LiteralPath $Isolated.Directory)) 'honest cleanup or diagnostic absence changed'
+          Assert-True ($State.GetVariable('CaptureAttempts') -eq 1 -and -not (Test-Path -LiteralPath $Directory) -and -not (Test-Path -LiteralPath $Isolated.Directory)) 'honest cleanup changed'
+          # R4: success retains report-only diagnostics; they must be labeled
+          # as such, never as success evidence.
+          Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'diagnostic_status.txt')).TrimEnd([char]10) -ceq 'diagnostics_report_only;capture_succeeded;not_success_evidence') 'outer success diagnostics mislabeled'
         } else {
           Assert-True (-not $State.GetVariable('AfterExit') -and ($null -ne $Failure -or $Exit -ne 0)) "outer workflow failure became success: $Mode"
           if ($Mode -eq 'cleanup-validation') {
@@ -1729,7 +1793,7 @@ function Assert-PreflightOuterLifecycleEvidence {
               $Source = Join-Path $Directory $Name
               if ([IO.File]::Exists($Source)) { Assert-Bytes (Read-Bytes (Join-Path $Diagnostics $Name)) (Read-Bytes $Source) "outer retained bytes: $Mode/$Name" }
             }
-            $Reason = [IO.File]::ReadAllText((Join-Path $Diagnostics 'failure.txt'))
+            $Reason = [IO.File]::ReadAllText((Join-Path $Diagnostics 'result.txt'))
             Assert-True $(if ($null -ne $Failure) { $Reason.Contains($Failure.Exception.Message) } else { $Reason.Contains('child_exit=23') }) 'retained earliest error differs'
           }
           if ($Mode -eq 'reporting-failure') { Assert-True ($null -ne $Failure -and $State.GetVariable('CaptureAttempts') -eq 0) 'reporting failure bypassed retention' }
