@@ -1,6 +1,7 @@
 param(
   [ValidateSet('Language', 'Runtime', 'Compiler', 'Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation')]
-  [string] $EvidenceTier = 'Fast'
+  [string] $EvidenceTier = 'Fast',
+  [string] $PhaseDiagnostics = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,6 +9,77 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $GitRepoRoot = $RepoRoot.Replace([System.IO.Path]::DirectorySeparatorChar, '/')
 $script:Wo25MutationRecords = New-Object 'System.Collections.Generic.List[string]'
+
+# Phase diagnostics: writes timestamped start/end markers to an owned
+# diagnostic directory (NOT the capture directory, which has exact
+# inventory checks). Each marker is a small UTF-8 file named
+# phase-<name>-start.txt or phase-<name>-end.txt containing the UTC
+# timestamp and monotonic tick count. On timeout/interruption, the
+# markers show which phases completed and which was in progress.
+# This is diagnostic data only, distinct from validation evidence.
+function Write-HumPhaseMarker {
+  param([string] $PhaseName, [string] $Event, [string] $Outcome = '')
+  if ([string]::IsNullOrWhiteSpace($PhaseDiagnostics)) { return }
+  if ($Event -notin @('start', 'end')) { throw "phase marker event must be 'start' or 'end': $Event" }
+  # Validate phase name: alphanumeric, hyphen, underscore only (no path traversal)
+  if ($PhaseName -cnotmatch '^[A-Za-z0-9_-]+$') { throw "invalid phase name: $PhaseName" }
+  # Outcome REQUIRED for end events (R3): completed or failed, no empty.
+  if ($Event -eq 'end' -and $Outcome -notin @('completed', 'failed')) { throw "phase marker outcome must be 'completed' or 'failed': $Outcome" }
+  if ($Event -eq 'start' -and -not [string]::IsNullOrWhiteSpace($Outcome)) { throw "phase marker outcome only valid for end events" }
+  try {
+    if (-not (Test-Path -LiteralPath $PhaseDiagnostics)) {
+      $null = [IO.Directory]::CreateDirectory($PhaseDiagnostics)
+    }
+    # R3: Read parent-owned binding. The workflow writes run-binding.txt
+    # before the producer starts. Markers carry the binding GUID so the
+    # consumer can verify they belong to this run.
+    $BindingGuid = ''
+    $BindingPath = Join-Path $PhaseDiagnostics 'run-binding.txt'
+    if (Test-Path -LiteralPath $BindingPath) {
+      $BindingText = [IO.File]::ReadAllText($BindingPath)
+      if ($BindingText -cmatch 'binding_guid=([A-Za-z0-9]+)') { $BindingGuid = $Matches[1] }
+    }
+    $Timestamp = [DateTime]::UtcNow.ToString('o')
+    $Ticks = [Diagnostics.Stopwatch]::GetTimestamp()
+    $Frequency = [Diagnostics.Stopwatch]::Frequency
+    $Content = "phase=$PhaseName`nevent=$Event`nutc=$Timestamp`nticks=$Ticks`nfrequency=$Frequency`n"
+    if (-not [string]::IsNullOrWhiteSpace($BindingGuid)) {
+      $Content += "binding=$BindingGuid`n"
+    }
+    if ($Event -eq 'end') {
+      $Content += "outcome=$Outcome`n"
+    }
+    $FileName = "phase-${PhaseName}-${Event}.txt"
+    $Path = Join-Path $PhaseDiagnostics $FileName
+    # Atomic write via temp file + move to avoid partial reads
+    $TempPath = "$Path.tmp"
+    [IO.File]::WriteAllText($TempPath, $Content, [Text.Encoding]::UTF8)
+    [IO.File]::Move($TempPath, $Path, $true)
+  } catch {
+    # Diagnostic sink failure must not mask validation outcome.
+    # Report as warning and continue; the phase itself still runs.
+    Write-Warning "Phase diagnostic marker failed for $PhaseName/$Event : $($_.Exception.Message)"
+  }
+}
+
+# Wraps a phase invocation with start/end markers. The end marker records
+# outcome=completed on success or outcome=failed on exception (re-thrown).
+# A missing end marker means the phase was started but interrupted
+# (e.g. timeout kill) — incomplete, never a fabricated duration.
+function Invoke-HumPhase {
+  param([string] $PhaseName, [scriptblock] $Action)
+  Write-HumPhaseMarker $PhaseName 'start'
+  try {
+    & $Action
+    Write-HumPhaseMarker $PhaseName 'end' 'completed'
+  } catch {
+    # Write end marker with failed outcome so the record distinguishes
+    # failed phases from completed ones. Re-throw to preserve validation.
+    Write-HumPhaseMarker $PhaseName 'end' 'failed'
+    throw
+  }
+}
+
 function Get-HumRepoRustSources {
   # Every .rs file compiled anywhere in the repository: the hum binary (src/),
   # the workspace crates (crates/), and the experiments (experiments/) that CI
@@ -7049,22 +7121,31 @@ try {
   }
   Invoke-ExactRustSelectorSelfTests $Cargo
   Reset-ExactRustSelectorCredits
-  Invoke-HumCoreCheck 'format' $Cargo
-  Invoke-HumCoreCheck 'check' $Cargo
-  Invoke-HumCoreCheck 'tests' $Cargo
-  Invoke-ExactRustTest 'canonical diagnostic registry/projection test' $Cargo 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid'
-  Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality')
-  Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff')
-  Invoke-HumCoreCheck 'clippy' $Cargo
-  Invoke-Native 'Windows drive locality adapter clippy' $Cargo @('clippy', '-p', 'windows-drive-locality', '--all-targets', '--', '-D', 'warnings')
-  Invoke-HumCoreCheck 'build' $Cargo
+  Invoke-HumPhase 'format' { Invoke-HumCoreCheck 'format' $Cargo }
+  Invoke-HumPhase 'check' { Invoke-HumCoreCheck 'check' $Cargo }
+  Invoke-HumPhase 'tests' { Invoke-HumCoreCheck 'tests' $Cargo }
+  Invoke-HumPhase 'canonical-diagnostic-registry' { Invoke-ExactRustTest 'canonical diagnostic registry/projection test' $Cargo 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid' }
+  Invoke-HumPhase 'windows-drive-locality-tests' { Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality') }
+  Invoke-HumPhase 'effect-bakeoff-tests' { Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff') }
+  Invoke-HumPhase 'clippy' { Invoke-HumCoreCheck 'clippy' $Cargo }
+  Invoke-HumPhase 'windows-drive-locality-clippy' { Invoke-Native 'Windows drive locality adapter clippy' $Cargo @('clippy', '-p', 'windows-drive-locality', '--all-targets', '--', '-D', 'warnings') }
+  Invoke-HumPhase 'build' { Invoke-HumCoreCheck 'build' $Cargo }
 
-  . Invoke-HumCompilerFrontChecks $Cargo $Hum
+  # R1 scope fix: dot-source at main scope to preserve HumName/Hum for
+  # later corpus consumer. Markers written manually around the call.
+  Write-HumPhaseMarker 'compiler-front-checks' 'start'
+  try {
+    . Invoke-HumCompilerFrontChecks $Cargo $Hum
+    Write-HumPhaseMarker 'compiler-front-checks' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-front-checks' 'end' 'failed'
+    throw
+  }
 
-  Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo
-  Invoke-Wo25UnitBFocusedEvidence -Cargo $Cargo
-  Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo
-  Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo
+  Invoke-HumPhase 'wo25-unit-a' { Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo }
+  Invoke-HumPhase 'wo25-unit-b' { Invoke-Wo25UnitBFocusedEvidence -Cargo $Cargo }
+  Invoke-HumPhase 'wo25-unit-c' { Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo }
+  Invoke-HumPhase 'wo25-unit-c-mutation' { Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo }
   $ExactRustSelectorCredits = @(Get-ExactRustSelectorCredits)
   $OlderExactRustSelectorObligations = @(
     'typed_failure::tests::exact_call_spans_and_identifier_ownership_fail_closed',
@@ -7139,9 +7220,17 @@ try {
   foreach ($WorkOrder25UnitBSelector in $WorkOrder25UnitBExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit B selector $WorkOrder25UnitBSelector" } }
   foreach ($WorkOrder25UnitCSelector in $WorkOrder25UnitCExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitCSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit C selector $WorkOrder25UnitCSelector" } }
 
-  . Invoke-HumCompilerCorpusChecks $Cargo $Hum
+  # Dot-source at main scope; markers written manually (see R1 fix above).
+  Write-HumPhaseMarker 'compiler-corpus' 'start'
+  try {
+    . Invoke-HumCompilerCorpusChecks $Cargo $Hum
+    Write-HumPhaseMarker 'compiler-corpus' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-corpus' 'end' 'failed'
+    throw
+  }
 
-  Invoke-HumCoreCheck 'hygiene' $Cargo
+  Invoke-HumPhase 'hygiene' { Invoke-HumCoreCheck 'hygiene' $Cargo }
 
   if (-not [string]::IsNullOrEmpty($env:HUM_EVIDENCE_RECEIPT)) {
     $Receipt = [IO.Path]::GetFullPath($env:HUM_EVIDENCE_RECEIPT); $RunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)

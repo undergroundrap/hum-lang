@@ -327,18 +327,44 @@ jobs:
           $Frequency = [Diagnostics.Stopwatch]::Frequency
           $CaptureDirectory = Join-Path $env:RUNNER_TEMP ('hum-full-capture-' + [Guid]::NewGuid().ToString('N'))
           $DiagnosticDirectory = Join-Path $env:RUNNER_TEMP ('hum-preflight-diagnostics-' + [Guid]::NewGuid().ToString('N'))
+          $PhaseDiagnosticDirectory = Join-Path $env:RUNNER_TEMP ('hum-phase-diagnostics-' + [Guid]::NewGuid().ToString('N'))
+          # R3: Parent-owned run binding. The workflow (parent) creates the
+          # phase directory and writes binding facts BEFORE the producer runs.
+          # R4: This setup is GUARDED — a diagnostic sink failure must not
+          # abort validation. If it fails, diagnostics are marked unavailable
+          # and the real validation/capture result is preserved.
+          $PhaseDiagnosticsAvailable = $false
+          try {
+            $PhaseBindingGuid = [Guid]::NewGuid().ToString('N')
+            $null = [IO.Directory]::CreateDirectory($PhaseDiagnosticDirectory)
+            $BindingContent = "run_id=${env:GITHUB_RUN_ID}`nbinding_guid=$PhaseBindingGuid`ncreated_utc=$([DateTime]::UtcNow.ToString('o'))`n"
+            [IO.File]::WriteAllText((Join-Path $PhaseDiagnosticDirectory 'run-binding.txt'), $BindingContent, [Text.Encoding]::UTF8)
+            $PhaseDiagnosticsAvailable = $true
+            Write-Host 'phase_diagnostics=available'
+          } catch {
+            Write-Warning "Phase diagnostic setup failed (nonfatal): $($_.Exception.Message)"
+            Write-Host 'phase_diagnostics=setup_failed_unavailable'
+          }
           "failure_capture=$DiagnosticDirectory" >> $env:GITHUB_OUTPUT
+          "phase_diagnostics=$PhaseDiagnosticDirectory" >> $env:GITHUB_OUTPUT
           $Executable = if ($IsWindows) { 'target/debug/hum-dev.exe' } else { 'target/debug/hum-dev' }
           . ./tools/run_fast_evidence.ps1
           $Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP 'target'
           function Save-HumPreflightDiagnostics {
-            param([string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $Reason)
+            param([string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $PhaseDiagnosticDirectory, [string] $Reason)
             try {
               if (Test-Path -LiteralPath $DiagnosticDirectory) { throw 'preflight diagnostic directory already exists' }
               $null = [IO.Directory]::CreateDirectory($DiagnosticDirectory)
-              Set-HumDurableText (Join-Path $DiagnosticDirectory 'diagnostic_status.txt') 'unaccepted_diagnostics;not_success_evidence;capture_may_be_partial'
-              Set-HumDurableText (Join-Path $DiagnosticDirectory 'failure.txt') $Reason
-              Write-Host 'Preflight failed: retaining unaccepted diagnostics, not success evidence.'
+              # R4: Honest status label — diagnostics are report-only, never success evidence.
+              $IsSuccess = ($Reason -eq 'capture_succeeded')
+              $StatusLabel = if ($IsSuccess) { 'diagnostics_report_only;capture_succeeded;not_success_evidence' } else { 'unaccepted_diagnostics;not_success_evidence;capture_may_be_partial' }
+              Set-HumDurableText (Join-Path $DiagnosticDirectory 'diagnostic_status.txt') $StatusLabel
+              Set-HumDurableText (Join-Path $DiagnosticDirectory 'result.txt') $Reason
+              if ($IsSuccess) {
+                Write-Host 'Preflight succeeded: retaining validated phase diagnostics (report-only).'
+              } else {
+                Write-Host 'Preflight failed: retaining unaccepted diagnostics, not success evidence.'
+              }
               if (Test-Path -LiteralPath $CaptureDirectory) {
                 $Root = Get-Item -LiteralPath $CaptureDirectory -Force
                 if (-not $Root.PSIsContainer -or ($Root.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'preflight diagnostic capture root is not an ordinary directory' }
@@ -360,21 +386,127 @@ jobs:
                   } catch { Write-Warning "unaccepted capture entry unavailable: $Name; $($_.Exception.Message)" -WarningAction Continue }
                 }
               } else { Write-Host 'unaccepted_capture_missing=directory' }
+              # Copy phase diagnostic markers (if any) into the diagnostic directory.
+              # These are owned diagnostic files, distinct from validation evidence.
+              # R3: Validate content at the consumer boundary — filename alone
+              # is insufficient. Invalid/foreign records are retained with
+              # an explicit invalid marker, never promoted to valid timings.
+              # R3-consumer: Parent-owned binding. The workflow wrote
+              # run-binding.txt before the producer started. Each marker's
+              # binding GUID must match the parent's; foreign-run records fail.
+              if (-not [string]::IsNullOrWhiteSpace($PhaseDiagnosticDirectory) -and (Test-Path -LiteralPath $PhaseDiagnosticDirectory)) {
+                # Read parent-owned binding facts (not re-derived from markers)
+                $ParentBindingGuid = ''
+                $BindingFile = Join-Path $PhaseDiagnosticDirectory 'run-binding.txt'
+                if (Test-Path -LiteralPath $BindingFile) {
+                  $BindingText = [IO.File]::ReadAllText($BindingFile)
+                  if ($BindingText -cmatch 'binding_guid=([A-Za-z0-9]+)') { $ParentBindingGuid = $Matches[1] }
+                }
+                if ([string]::IsNullOrWhiteSpace($ParentBindingGuid)) {
+                  Write-Host 'phase_diagnostics=binding_missing_or_invalid'
+                }
+                $PhaseFiles = @(Get-ChildItem -LiteralPath $PhaseDiagnosticDirectory -File | Where-Object { $_.Name -cmatch '^phase-[A-Za-z0-9_-]+-(start|end)\.txt$' })
+                # First pass: validate individual markers
+                $ValidatedMarkers = @{}
+                foreach ($PhaseFile in $PhaseFiles) {
+                  try {
+                    $Valid = $true
+                    $InvalidReason = ''
+                    if ($PhaseFile.Name -cmatch '^phase-([A-Za-z0-9_-]+)-(start|end)\.txt$') {
+                      $FilePhase = $Matches[1]; $FileEvent = $Matches[2]
+                    } else { $Valid = $false; $InvalidReason = 'filename_pattern' }
+                    if ($Valid) {
+                      try { $Content = [IO.File]::ReadAllText($PhaseFile.FullName) }
+                      catch { $Valid = $false; $InvalidReason = 'unreadable' }
+                    }
+                    $Fields = @{}
+                    if ($Valid) {
+                      foreach ($Line in $Content -split "`n") {
+                        if ($Line -cmatch '^([a-z]+)=(.*)$') { $Fields[$Matches[1]] = $Matches[2].Trim() }
+                      }
+                      foreach ($Req in @('phase', 'event', 'utc', 'ticks', 'frequency', 'binding')) {
+                        if (-not $Fields.ContainsKey($Req) -or [string]::IsNullOrWhiteSpace($Fields[$Req])) {
+                          $Valid = $false; $InvalidReason = "missing_$Req"; break
+                        }
+                      }
+                    }
+                    # R3: binding must match parent-owned facts
+                    if ($Valid -and ($Fields['binding'] -cne $ParentBindingGuid)) { $Valid = $false; $InvalidReason = 'binding_mismatch_foreign_run' }
+                    if ($Valid -and ($Fields['phase'] -cne $FilePhase)) { $Valid = $false; $InvalidReason = 'phase_mismatch' }
+                    if ($Valid -and ($Fields['event'] -cne $FileEvent)) { $Valid = $false; $InvalidReason = 'event_mismatch' }
+                    if ($Valid -and ($Fields['ticks'] -cnotmatch '^\d+$')) { $Valid = $false; $InvalidReason = 'ticks_not_numeric' }
+                    if ($Valid -and ($Fields['frequency'] -cnotmatch '^\d+$')) { $Valid = $false; $InvalidReason = 'frequency_not_numeric' }
+                    # R3: frequency must be usable (>0), not just numeric
+                    if ($Valid -and ([int64]$Fields['frequency'] -le 0)) { $Valid = $false; $InvalidReason = 'frequency_not_usable' }
+                    # R3: outcome REQUIRED on end markers (not optional)
+                    if ($Valid -and $FileEvent -eq 'end') {
+                      if (-not $Fields.ContainsKey('outcome') -or ($Fields['outcome'] -cnotmatch '^(completed|failed)$')) {
+                        $Valid = $false; $InvalidReason = 'missing_or_invalid_outcome'
+                      }
+                    }
+                    $DestName = if ($Valid) { "phases_" + $PhaseFile.Name } else { "phases_INVALID_" + $PhaseFile.Name }
+                    $Dest = Join-Path $DiagnosticDirectory $DestName
+                    [IO.File]::Copy($PhaseFile.FullName, $Dest, $false)
+                    if ($Valid) {
+                      Write-Host "phase_diagnostic_retained=$($PhaseFile.Name)"
+                      # Store for pair ordering check
+                      $ValidatedMarkers["$FilePhase-$FileEvent"] = @{ Ticks = [int64]$Fields['ticks']; Frequency = [int64]$Fields['frequency']; File = $PhaseFile.Name }
+                    } else {
+                      Write-Host "phase_diagnostic_invalid=$($PhaseFile.Name);reason=$InvalidReason"
+                      [IO.File]::WriteAllText("$Dest.invalid_reason.txt", "reason=$InvalidReason`n", [Text.Encoding]::UTF8)
+                    }
+                  } catch { Write-Warning "phase diagnostic copy failed: $($PhaseFile.Name); $($_.Exception.Message)" -WarningAction Continue }
+                }
+                # Second pass: check start/end tick ordering for valid pairs
+                # R3: end tick < start tick is invalid (reversed monotonic order)
+                $CheckedPhases = @{}
+                foreach ($Key in $ValidatedMarkers.Keys) {
+                  if ($Key -cmatch '^(.+)-(start|end)$') {
+                    $PName = $Matches[1]
+                    if (-not $CheckedPhases.ContainsKey($PName)) {
+                      $CheckedPhases[$PName] = $true
+                      $SKey = "$PName-start"; $EKey = "$PName-end"
+                      if ($ValidatedMarkers.ContainsKey($SKey) -and $ValidatedMarkers.ContainsKey($EKey)) {
+                        $S = $ValidatedMarkers[$SKey]; $E = $ValidatedMarkers[$EKey]
+                        if ($S.Frequency -ne $E.Frequency) {
+                          Write-Host "phase_diagnostic_invalid_pair=$PName;reason=frequency_mismatch"
+                        } elseif ($E.Ticks -lt $S.Ticks) {
+                          Write-Host "phase_diagnostic_invalid_pair=$PName;reason=ticks_reversed"
+                        } else {
+                          $ElapsedMs = [math]::Round((($E.Ticks - $S.Ticks) / $S.Frequency) * 1000, 1)
+                          Write-Host "phase_timing=$PName;elapsed_ms=$ElapsedMs"
+                        }
+                      } elseif ($ValidatedMarkers.ContainsKey($SKey)) {
+                        Write-Host "phase_incomplete=$PName;last_event=start"
+                      }
+                    }
+                  }
+                }
+                if ($PhaseFiles.Count -eq 0) { Write-Host 'phase_diagnostics=none_found' }
+              } else { Write-Host 'phase_diagnostics=directory_missing' }
             } catch { Write-Warning "Preflight diagnostic retention failed: $($_.Exception.Message)" -WarningAction Continue }
           }
           function Invoke-HumPreflightCapture {
             param([string] $Executable, [string[]] $Arguments, [string] $WorkingDirectory,
-              [string] $CaptureDirectory, [string] $DiagnosticDirectory, [int] $DeadlineSeconds)
+              [string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $PhaseDiagnosticDirectory, [int] $DeadlineSeconds)
             $Capture = $null
             $Failure = $null
             try {
-              $Capture = Invoke-HumBinaryCapture $Executable $Arguments $WorkingDirectory $CaptureDirectory $DeadlineSeconds -CaseName 'ci-full-preflight'
+              # Append phase diagnostics flag to arguments for retained phase timing
+              $PhaseArgs = $Arguments + @('--phase-diagnostics', $PhaseDiagnosticDirectory)
+              # Wire the live phase-progress observer to the parent-owned directory
+              $Capture = Invoke-HumBinaryCapture $Executable $PhaseArgs $WorkingDirectory $CaptureDirectory $DeadlineSeconds -CaseName 'ci-full-preflight' -PhaseDiagnosticDirectory $PhaseDiagnosticDirectory
               $Capture = Assert-HumCaptureComplete $Capture
             } catch { $Failure = $_ }
             if ($null -ne $Failure -or $Capture.ExitCode -ne 0 -or $Capture.TimedOut) {
               $Reason = if ($null -ne $Failure) { $Failure.ToString() } else { "child_exit=$($Capture.ExitCode);timed_out=$($Capture.TimedOut)" }
-              try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason }
+              try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $Reason }
               catch { Write-Warning "Preflight diagnostic retention also failed: $($_.Exception.Message)" -WarningAction Continue }
+            } else {
+              # R4: Normal success also runs the validated consumer/reporting.
+              # Diagnostics grant no suite credit; this is report-only.
+              try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory 'capture_succeeded' }
+              catch { Write-Warning "Preflight diagnostic reporting also failed: $($_.Exception.Message)" -WarningAction Continue }
             }
             if ($null -ne $Failure) { throw $Failure }
             if ($Capture.TimedOut -and $Capture.ExitCode -eq 0) { throw 'preflight capture exceeded its deadline despite zero primary exit' }
@@ -385,7 +517,7 @@ jobs:
           $ExitCode = 1
           try {
             Assert-HumIsolatedExecutable $Isolated -RequireSource
-            $Capture = Invoke-HumPreflightCapture $Isolated.Executable @('evidence','full','--pwsh',$Pwsh) (Get-Location).Path $CaptureDirectory $DiagnosticDirectory 3000
+            $Capture = Invoke-HumPreflightCapture $Isolated.Executable @('evidence','full','--pwsh',$Pwsh) (Get-Location).Path $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory 3000
             $CaptureAuthenticated = $true
             $Output = $Capture.StdoutPath
             $ErrorOutput = $Capture.StderrPath
@@ -425,7 +557,7 @@ jobs:
                 try {
                   if (-not (Test-Path -LiteralPath $DiagnosticDirectory)) {
                     $Reason = if ($null -ne $PreflightFailure) { $PreflightFailure.ToString() } else { "child_exit=$ExitCode" }
-                    Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason
+                    Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $Reason
                   }
                 } catch { Write-Warning "Final preflight diagnostic retention also failed: $($_.Exception.Message)" -WarningAction Continue }
               }
@@ -442,6 +574,20 @@ jobs:
           path: ${{ steps.full_preflight.outputs.failure_capture }}
           retention-days: 14
           if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
+      - name: Upload phase timing diagnostics
+        # Must run after both success and failure (timeout): the phase
+        # markers are the diagnostic record when the capture times out.
+        # always() overrides the implicit success() gate.
+        if: always() && steps.full_preflight.outputs.phase_diagnostics != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-phase-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}
+          path: ${{ steps.full_preflight.outputs.phase_diagnostics }}
+          retention-days: 14
+          if-no-files-found: warn
           include-hidden-files: false
           overwrite: false
 
