@@ -1496,10 +1496,15 @@ function Assert-PreflightDiagnosticEvidence {
           Assert-True ($Reason -cne 'capture_succeeded') 'failure header for success reason'
         } else {
           # Current production also reports phase diagnostic outcomes. The
-          # fixture's controlled phase directories stay empty, so only
-          # none_found/directory_missing may appear; any marker report would
-          # be an unowned production change.
-          Assert-True ($Text -ceq 'unaccepted_capture_missing=directory' -or $Text -ceq 'unaccepted_capture_missing=completed_utc.txt' -or $Text -ceq 'phase_diagnostics=none_found' -or $Text -ceq 'phase_diagnostics=directory_missing') 'unexpected fixture diagnostic message'
+          # fixture's controlled phase directories stay empty and carry no
+          # run-binding, so the producer truthfully reports
+          # binding_missing_or_invalid for the owned directory without a
+          # valid binding (ci.yml), then none_found for zero markers;
+          # directory_missing covers the absent-directory case. Any marker
+          # report would be an unowned production change. Accepting the
+          # missing-binding report claims no valid binding, markers, timing,
+          # or success evidence.
+          Assert-True ($Text -ceq 'unaccepted_capture_missing=directory' -or $Text -ceq 'unaccepted_capture_missing=completed_utc.txt' -or $Text -ceq 'phase_diagnostics=none_found' -or $Text -ceq 'phase_diagnostics=directory_missing' -or $Text -ceq 'phase_diagnostics=binding_missing_or_invalid') 'unexpected fixture diagnostic message'
         }
       }
       $Reported.Add($Record)
