@@ -1793,13 +1793,24 @@ function Assert-PreflightOuterLifecycleEvidence {
           if ($Mode -in @('primary-and-secondary','nonzero-and-secondary')) {
             Assert-True ($Warnings.Contains('diagnostic retention') -and $Warnings.Contains('Isolated executable cleanup also failed') -and (Test-Path -LiteralPath (Join-Path $Directory 'stdout.bin'))) 'secondary retention/cleanup failure was hidden or bytes lost'
           } else {
-            Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'diagnostic_status.txt')).TrimEnd([char]10) -ceq 'unaccepted_diagnostics;not_success_evidence;capture_may_be_partial') 'outer failure lacks unaccepted diagnostic label'
+            # R7: the producer retains the retention-time outcome; a late outer
+            # failure (cleanup-validation, isolated-failure, reporting-failure)
+            # does not rewrite an existing snapshot. Both the expected status
+            # and the expected saved reason come from the mode's retention-time
+            # outcome, never from the received values, and the saved reason
+            # must equal the complete producer result exactly (only its
+            # trailing newline framing is discounted). Late-outer-failure
+            # evidence stays in the Failure/Exit assertions above.
+            $ActualStatus = [IO.File]::ReadAllText((Join-Path $Diagnostics 'diagnostic_status.txt')).TrimEnd([char]10)
+            $ExpectedStatus = if ($Mode -in @('cleanup-validation','isolated-failure','reporting-failure')) { 'diagnostics_report_only;capture_succeeded;not_success_evidence' } else { 'unaccepted_diagnostics;not_success_evidence;capture_may_be_partial' }
+            Assert-True ($ActualStatus -ceq $ExpectedStatus) 'outer failure lacks unaccepted diagnostic label'
             foreach ($Name in @($script:HumCaptureFiles) + 'manifest.txt') {
               $Source = Join-Path $Directory $Name
               if ([IO.File]::Exists($Source)) { Assert-Bytes (Read-Bytes (Join-Path $Diagnostics $Name)) (Read-Bytes $Source) "outer retained bytes: $Mode/$Name" }
             }
             $Reason = [IO.File]::ReadAllText((Join-Path $Diagnostics 'result.txt'))
-            Assert-True $(if ($null -ne $Failure) { $Reason.Contains($Failure.Exception.Message) } else { $Reason.Contains('child_exit=23') }) 'retained earliest error differs'
+            $ExpectedReason = if ($Mode -in @('cleanup-validation','isolated-failure','reporting-failure')) { 'capture_succeeded' } else { 'child_exit=23;timed_out=False' }
+            Assert-True ($Reason.TrimEnd([char]10) -ceq $ExpectedReason) 'retained earliest error differs'
           }
           if ($Mode -eq 'reporting-failure') { Assert-True ($null -ne $Failure -and $State.GetVariable('CaptureAttempts') -eq 0) 'reporting failure bypassed retention' }
           if ($Mode -eq 'nonzero-reporting') { Assert-True $Warnings.Contains('Preflight reporting also failed') 'secondary reporting failure was hidden' }
