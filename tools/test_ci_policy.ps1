@@ -651,9 +651,83 @@ try {
   Assert-Policy ($Observed.Count -eq 0) 'receipt rejection precedes all work'
 } finally { [Environment]::SetEnvironmentVariable('HUM_EVIDENCE_RECEIPT',$OldReceipt,'Process') }
 
+$SharedTokens=$null;$SharedErrors=$null
+$SharedAst=[Management.Automation.Language.Parser]::ParseInput($Source,[ref]$SharedTokens,[ref]$SharedErrors)
+Assert-Policy ($SharedErrors.Count -eq 0) 'Full shared source syntax'
+$SharedDefinitions=@{}
 foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumLanguageProgramChecks','Invoke-HumCompilerFrontChecks','Invoke-HumCompilerCorpusChecks')) {
-  $null=Import-PolicyTestFunction $Source $Name
-  Assert-Policy ([regex]::Matches($Source,"(?m)^  (?:\. )?$Name ").Count -ge 1) "Full consumes shared $Name"
+  $Definitions=@($SharedAst.FindAll({param($Node)$Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq $Name},$true))
+  $Top=@($SharedAst.EndBlock.Statements|Where-Object{$_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq $Name})
+  Assert-Policy ($Definitions.Count -eq 1 -and $Top.Count -eq 1 -and [object]::ReferenceEquals($Definitions[0],$Top[0])) "Full shared definition ownership: $Name"
+  $SharedDefinitions[$Name]=$Top[0]
+}
+$SharedMain=@($SharedAst.EndBlock.Statements|Where-Object{$_ -is [Management.Automation.Language.TryStatementAst]})
+Assert-Policy ($SharedMain.Count -eq 1) 'Full shared main ownership'
+$SharedStatements=@($SharedMain[0].Body.Statements)
+$SharedReturns=@(
+  'if ($EvidenceTier -eq ''Wo25UnitA'') { Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo; return }',
+  'if ($EvidenceTier -eq ''Wo25UnitB'') { Invoke-Wo25UnitBFocusedEvidence -Cargo $Cargo; return }',
+  'if ($EvidenceTier -eq ''Wo25UnitC'') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo; return }',
+  'if ($EvidenceTier -eq ''Wo25UnitCMutation'') { Initialize-Wo25WindowsToolchain; Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo; return }',
+  'if ($EvidenceTier -cin @(''Language'', ''Runtime'', ''Compiler'')) { Invoke-HumFixedProfile $EvidenceTier $Cargo; return }'
+)
+Assert-Policy ($SharedStatements.Count -ge $SharedReturns.Count) 'Full shared main admission'
+for($Index=0;$Index -lt $SharedReturns.Count;$Index++) {
+  Assert-Policy ($SharedStatements[$Index] -is [Management.Automation.Language.IfStatementAst] -and $SharedStatements[$Index].Extent.Text -ceq $SharedReturns[$Index]) 'Full shared main admission'
+}
+$SharedCommand={param($Statement,[string]$Expected)
+  if($Statement -isnot [Management.Automation.Language.PipelineAst] -or $Statement.PipelineElements.Count -ne 1 -or $Statement.PipelineElements[0] -isnot [Management.Automation.Language.CommandAst]) { return $false }
+  $Call=$Statement.PipelineElements[0];$Dot=$Expected.StartsWith('. ')
+  if($Dot){$Expected=$Expected.Substring(2)};$Parts=$Expected.Split(' ')
+  $Operator=if($Dot){[Management.Automation.Language.TokenKind]::Dot}else{[Management.Automation.Language.TokenKind]::Unknown}
+  if($Call.InvocationOperator -ne $Operator -or $Call.GetCommandName() -cne $Parts[0] -or $Call.CommandElements.Count -ne $Parts.Count) { return $false }
+  for($Part=1;$Part -lt $Parts.Count;$Part++) {
+    $Element=$Call.CommandElements[$Part]
+    if($Parts[$Part].StartsWith('$')) {
+      if($Element -isnot [Management.Automation.Language.VariableExpressionAst] -or $Element.Splatted -or $Element.VariablePath.UserPath -cne $Parts[$Part].Substring(1)) { return $false }
+    } elseif($Element -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $Element.Value -cne $Parts[$Part].Trim([char]39)) { return $false }
+  }
+  $true
+}
+$SharedGroups=@('format','check','tests','clippy','build','hygiene')
+$SharedCore=@($SharedMain[0].Body.FindAll({param($Node)$Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Invoke-HumCoreCheck'},$true))
+Assert-Policy ($SharedCore.Count -eq $SharedGroups.Count) 'Full shared core action ownership'
+$SharedPhaseIndexes=@()
+foreach($Group in $SharedGroups) {
+  $Owned=@($SharedStatements|Where-Object{
+    if($_ -isnot [Management.Automation.Language.PipelineAst] -or $_.PipelineElements.Count -ne 1 -or $_.PipelineElements[0] -isnot [Management.Automation.Language.CommandAst]) { return $false }
+    $Call=$_.PipelineElements[0]
+    $Call.GetCommandName() -ceq 'Invoke-HumPhase' -and $Call.InvocationOperator -eq [Management.Automation.Language.TokenKind]::Unknown -and $Call.CommandElements.Count -eq 3 -and $Call.CommandElements[1] -is [Management.Automation.Language.StringConstantExpressionAst] -and $Call.CommandElements[1].Value -ceq $Group -and $Call.CommandElements[2] -is [Management.Automation.Language.ScriptBlockExpressionAst] -and $Call.CommandElements[2].ScriptBlock.EndBlock.Statements.Count -eq 1 -and (& $SharedCommand $Call.CommandElements[2].ScriptBlock.EndBlock.Statements[0] "Invoke-HumCoreCheck '$Group' `$Cargo")
+  })
+  Assert-Policy ($Owned.Count -eq 1) "Full shared phase ownership: $Group"
+  $SharedPhaseIndexes+= [Array]::IndexOf($SharedStatements,$Owned[0])
+}
+for($Index=1;$Index -lt $SharedPhaseIndexes.Count;$Index++) {
+  Assert-Policy ($SharedPhaseIndexes[$Index] -gt $SharedPhaseIndexes[$Index-1]) 'Full shared phase order'
+}
+$SharedMarkerIndexes=@()
+foreach($Route in @(@('compiler-front-checks','Invoke-HumCompilerFrontChecks'),@('compiler-corpus','Invoke-HumCompilerCorpusChecks'))) {
+  $Phase=$Route[0];$Name=$Route[1]
+  $Starts=@($SharedStatements|Where-Object{& $SharedCommand $_ "Write-HumPhaseMarker '$Phase' 'start'"})
+  $Calls=@($SharedMain[0].Body.FindAll({param($Node)$Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq $Name},$true))
+  Assert-Policy ($Starts.Count -eq 1 -and $Calls.Count -eq 1) "Full shared marker ownership: $Name"
+  $At=[Array]::IndexOf($SharedStatements,$Starts[0]);$SharedMarkerIndexes+=$At
+  Assert-Policy ($At+1 -lt $SharedStatements.Count -and $SharedStatements[$At+1] -is [Management.Automation.Language.TryStatementAst]) "Full shared marker try: $Name"
+  $Owner=$SharedStatements[$At+1]
+  Assert-Policy ($Owner.Body.Statements.Count -eq 2 -and $Owner.CatchClauses.Count -eq 1 -and $null -eq $Owner.Finally -and $Owner.CatchClauses[0].CatchTypes.Count -eq 0 -and $Owner.CatchClauses[0].Body.Statements.Count -eq 2) "Full shared marker shape: $Name"
+  Assert-Policy ((& $SharedCommand $Owner.Body.Statements[0] ". $Name `$Cargo `$Hum") -and (& $SharedCommand $Owner.Body.Statements[1] "Write-HumPhaseMarker '$Phase' 'end' 'completed'") -and (& $SharedCommand $Owner.CatchClauses[0].Body.Statements[0] "Write-HumPhaseMarker '$Phase' 'end' 'failed'") -and $Owner.CatchClauses[0].Body.Statements[1] -is [Management.Automation.Language.ThrowStatementAst] -and $null -eq $Owner.CatchClauses[0].Body.Statements[1].Pipeline) "Full shared marker action: $Name"
+}
+$SharedMarkers=@($SharedMain[0].Body.FindAll({param($Node)$Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Write-HumPhaseMarker' -and $Node.CommandElements.Count -gt 1 -and $Node.CommandElements[1] -is [Management.Automation.Language.StringConstantExpressionAst] -and $Node.CommandElements[1].Value -cin @('compiler-front-checks','compiler-corpus')},$true))
+Assert-Policy ($SharedMarkers.Count -eq 6 -and $SharedPhaseIndexes[4] -lt $SharedMarkerIndexes[0] -and $SharedMarkerIndexes[0] -lt $SharedMarkerIndexes[1] -and $SharedMarkerIndexes[1]+1 -lt $SharedPhaseIndexes[5]) 'Full shared marker order'
+foreach($Route in @(
+  @('Invoke-HumCompilerFrontChecks','Invoke-HumRuntimeProgramChecks','. Invoke-HumRuntimeProgramChecks $Cargo $Hum'),
+  @('Invoke-HumCompilerFrontChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumCompilerPrivacyChecks $Cargo'),
+  @('Invoke-HumCompilerCorpusChecks','Invoke-HumLanguageProgramChecks','Invoke-HumLanguageProgramChecks $Hum')
+)) {
+  $Body=$SharedDefinitions[$Route[0]].Body;$Name=$Route[1]
+  $Calls=@($Body.FindAll({param($Node)$Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq $Name},$true))
+  $Direct=@($Body.EndBlock.Statements|Where-Object{& $SharedCommand $_ $Route[2]})
+  Assert-Policy ($Calls.Count -eq 1 -and $Direct.Count -eq 1 -and [object]::ReferenceEquals($Calls[0],$Direct[0].PipelineElements[0])) "Full shared transitive ownership: $Name"
 }
 # These pins protect the mechanically shared bodies from silent omissions.
 # They are source-closure evidence, never a claim that the full corpus ran.

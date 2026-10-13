@@ -1375,7 +1375,7 @@ function Assert-Wo25EvidenceTierDispatcherContract { param([string] $Source, [sw
     $Total
   }
   $Validate = '[Validate' + 'Set(' + "'Language', 'Runtime', 'Compiler', 'Fast', 'Exhaustive', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation'" + ')]'; $Exhaustive = 'if (' + $Dollar + "EvidenceTier -eq 'Exhaustive') {"; $Dispatch = 'if (' + $Dollar + 'EvidenceTier -notin @(' + "'Language', 'Runtime', 'Compiler', 'Fast', 'Wo25UnitA', 'Wo25UnitB', 'Wo25UnitC', 'Wo25UnitCMutation'" + ')) {'
-  $BoundaryScript = 'test_workorder_' + 'status_boundary.ps1'; $FailClosed = 'throw "unsupported evidence-tier fallthrough: ' + $Dollar + 'EvidenceTier"'; $Wo25Return = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitBReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitB') { Invoke-Wo25UnitBFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitCReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $ToolchainInit='Initialize-Wo25'+'WindowsToolchain';$UnitCMutationCall='Invoke-Wo25UnitC'+'MutationEvidence -Cargo '+$Dollar+'Cargo';$Wo25UnitCMutationReturn='if ('+$Dollar+"EvidenceTier -eq 'Wo25UnitCMutation') { $ToolchainInit; Reset-ExactRustSelectorCredits; $UnitCMutationCall; return }";$UnitCFullOrder="  Invoke-Wo25UnitCFocusedEvidence -Cargo $($Dollar)Cargo`n  $UnitCMutationCall"; $HygieneBoundary = "Invoke-RepoScript 'Work Order status-boundary classifier tests' '$BoundaryScript'"
+  $BoundaryScript = 'test_workorder_' + 'status_boundary.ps1'; $FailClosed = 'throw "unsupported evidence-tier fallthrough: ' + $Dollar + 'EvidenceTier"'; $Wo25Return = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitBReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitB') { Invoke-Wo25UnitBFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $Wo25UnitCReturn = 'if (' + $Dollar + "EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo " + $Dollar + 'Cargo; return }'; $ToolchainInit='Initialize-Wo25'+'WindowsToolchain';$UnitCMutationCall='Invoke-Wo25UnitC'+'MutationEvidence -Cargo '+$Dollar+'Cargo';$Wo25UnitCMutationReturn='if ('+$Dollar+"EvidenceTier -eq 'Wo25UnitCMutation') { $ToolchainInit; Reset-ExactRustSelectorCredits; $UnitCMutationCall; return }";$UnitCFocusedPhaseCall="Invoke-HumPhase 'wo25-unit-c' { Invoke-Wo25UnitCFocusedEvidence -Cargo $($Dollar)Cargo }";$UnitCMutationPhaseCall="Invoke-HumPhase 'wo25-unit-c-mutation' { $UnitCMutationCall }";$UnitCFullOrder="  $UnitCFocusedPhaseCall`n  $UnitCMutationPhaseCall"; $HygieneBoundary = "Invoke-RepoScript 'Work Order status-boundary classifier tests' '$BoundaryScript'"
   $Audit = "'" + $Dispatch.Replace("'", "''") + "',"; $StaleDispatch = 'if (' + $Dollar + "EvidenceTier -ne 'Fast') {"; $StaleAudit = "'" + $StaleDispatch.Replace("'", "''") + "',"
   $Required = @($Validate, $Exhaustive, ($Dollar + "env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'exhaustive'"), "  return`n}`n`n$Dispatch", "$Dispatch`n  $FailClosed`n}", "  $Wo25Return`n  $Wo25UnitBReturn`n  $Wo25UnitCReturn`n  $Wo25UnitCMutationReturn",$UnitCFullOrder, $HygieneBoundary, $Audit, ("Write-" + "Host 'All Hum preflight checks passed.'"))
   foreach ($Needle in $Required) { if ((& $Count $Source $Needle) -ne 1) { throw "Work Order 25 evidence-tier dispatcher contract drifted: $Needle" } }
@@ -1383,6 +1383,12 @@ function Assert-Wo25EvidenceTierDispatcherContract { param([string] $Source, [sw
   $Tokens = $null; $ParseErrors = $null
   $Ast = [Management.Automation.Language.Parser]::ParseInput($Source, [ref] $Tokens, [ref] $ParseErrors)
   if ($ParseErrors.Count -ne 0) { throw "Work Order 25 evidence-tier dispatcher source has $($ParseErrors.Count) parser errors" }
+  $MainDispatch = @($Ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] -and $_.Body.Statements.Count -ge 4 -and $_.Body.Statements[0].Extent.Text -ceq $Wo25Return -and $_.Body.Statements[1].Extent.Text -ceq $Wo25UnitBReturn -and $_.Body.Statements[2].Extent.Text -ceq $Wo25UnitCReturn -and $_.Body.Statements[3].Extent.Text -ceq $Wo25UnitCMutationReturn })
+  if ($MainDispatch.Count -ne 1) { throw 'Work Order 25 Unit C main dispatcher ownership drifted' }
+  $MainStatements = @($MainDispatch[0].Body.Statements)
+  $UnitCPhaseCalls = @($MainStatements | Where-Object { $_ -is [Management.Automation.Language.PipelineAst] -and $_.PipelineElements.Count -eq 1 -and $_.PipelineElements[0] -is [Management.Automation.Language.CommandAst] -and $_.PipelineElements[0].GetCommandName() -ceq 'Invoke-HumPhase' -and $_.PipelineElements[0].CommandElements.Count -ge 2 -and $_.PipelineElements[0].CommandElements[1] -is [Management.Automation.Language.StringConstantExpressionAst] -and $_.PipelineElements[0].CommandElements[1].Value -cin @('wo25-unit-c','wo25-unit-c-mutation') })
+  if ($UnitCPhaseCalls.Count -ne 2) { throw 'Work Order 25 Unit C phase-wrapped dispatch cardinality drifted' }
+  if ($UnitCPhaseCalls[0].Extent.Text -cne $UnitCFocusedPhaseCall -or $UnitCPhaseCalls[1].Extent.Text -cne $UnitCMutationPhaseCall -or [Array]::IndexOf($MainStatements,$UnitCPhaseCalls[1]) -ne ([Array]::IndexOf($MainStatements,$UnitCPhaseCalls[0]) + 1)) { throw 'Work Order 25 Unit C phase-wrapped dispatch action or order drifted' }
   $GetOwnedFunction = {
     param([string] $Name)
     $Definitions = @($Ast.FindAll({ param($Node) $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq $Name }, $true))
@@ -1470,7 +1476,7 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
   $UploadMatches=[regex]::Matches($Normalized,'(?ms)^      - name: Upload failed preflight diagnostics'+$Lf+'.*?(?=^      - name: )')
   if($UploadMatches.Count-ne1-or$UploadMatches[0].Index-ne($Matches[0].Index+$Matches[0].Length)){throw 'Unit B failure-diagnostics upload ownership drifted'}
   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($UploadMatches[0].Value)))-cne'2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa'){throw 'Unit B failure-diagnostics upload positive closure drifted'}
-  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'20b346c44d2e2840c035710ee726e5538043602fc497730161951e7ce59eabea'){throw 'Unit B full-preflight workflow positive closure drifted'}
+  if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($Step)))-cne'5cde31f6070bc550ab83e3782dd9cc211033d3d1aae76c38d0d983e7bba29004'){throw 'Unit B full-preflight workflow positive closure drifted'}
   if((Get-Wo25Sha256 ([Text.UTF8Encoding]::new($false).GetBytes($SummaryStep)))-cne'e4ae140917b9706da4e9a6444dd7fce000b89f1fa6479a500b02ad64ea6a258e'){throw 'Unit B summary workflow positive closure drifted'}
   $Required=@(
     '$RustcStart.RedirectStandardOutput = $true',
@@ -1491,9 +1497,10 @@ function Assert-Wo25UnitBFullPreflightWorkflowRoute {
     '$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"',
     'cargo build -p hum-dev',
     '$Isolated = New-HumIsolatedExecutable $Executable $env:RUNNER_TEMP ''target''',
-    '$Capture = Invoke-HumBinaryCapture $Executable $Arguments $WorkingDirectory $CaptureDirectory $DeadlineSeconds',
+    '$PhaseArgs = $Arguments + @(''--phase-diagnostics'', $PhaseDiagnosticDirectory)',
+    '$Capture = Invoke-HumBinaryCapture $Executable $PhaseArgs $WorkingDirectory $CaptureDirectory $DeadlineSeconds -CaseName ''ci-full-preflight'' -PhaseDiagnosticDirectory $PhaseDiagnosticDirectory',
     '$Capture = Assert-HumCaptureComplete $Capture',
-    'try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason }',
+    'try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $Reason }',
     'Assert-HumIsolatedExecutable $Isolated -RequireSource',
     '$Capture = Invoke-HumPreflightCapture $Isolated.Executable @(''evidence'',''full'',''--pwsh'',$Pwsh)',
     '$OutputBytes = [IO.File]::ReadAllBytes($Output)',
@@ -1604,10 +1611,48 @@ function Assert-Wo25UnitBTransportContract {
     T01='actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a';T02='actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c';T03='hum-dev-executable-transport-v1-';T04='artifact_id=$($Fields[0])';T05='status executable GitHub digest mismatch';T06='status executable byte hash mismatch';T07='status executable raw-archive entry count mismatch';T08='status executable archive traversal mismatch';T09='status executable archive entry is not regular';T10='status executable artifact cardinality mismatch';T11='if ($Match.Count -ne 1)';T12='$Fields[3] -cne ''false''';T14='status executable bit missing';T15='status executable descendants survived';T16='status executable bootstrap cleanup failed'
   }
   foreach($Entry in $WorkflowPredicates.GetEnumerator()){if(([regex]::Matches($Workflow,[regex]::Escape($Entry.Value))).Count -lt 1){throw "Unit B $($Entry.Key) workflow predicate missing: $($Entry.Value)"}}
-  $UploadArtifactSteps=([regex]::Matches($Workflow,'actions/upload-artifact@')).Count
-  foreach($Literal in @('overwrite: false','retention-days: 14','if-no-files-found: error','include-hidden-files: false')){
-    $Found=([regex]::Matches($Workflow,[regex]::Escape($Literal))).Count
-    if($Found -ne $UploadArtifactSteps){throw "Unit B upload configuration drifted: '$Literal' occurs $Found times but .github/workflows/ci.yml declares $UploadArtifactSteps upload-artifact steps. Assert-Wo25UnitBTransportContract in tools/check_all.ps1 expects every upload-artifact step to carry all four literals."}
+  $UploadOwners=@(
+    @('Upload failed normal diagnostics','','failure() && steps.normal_profile.outputs.capture != ''''','hum-normal-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}','${{ steps.normal_profile.outputs.capture }}','error'),
+    @('Upload failed preflight diagnostics','','failure() && steps.full_preflight.outcome == ''failure'' && steps.full_preflight.outputs.failure_capture != ''''','hum-preflight-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}','${{ steps.full_preflight.outputs.failure_capture }}','error'),
+    @('Upload phase timing diagnostics','','always() && steps.full_preflight.outputs.phase_diagnostics != ''''','hum-phase-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}','${{ steps.full_preflight.outputs.phase_diagnostics }}','warn'),
+    @('Upload evidence summary','upload_evidence_summary','steps.classify.outputs.mode == ''full'' && github.event_name == ''push''','${{ steps.generate_evidence_summary.outputs.summary_name }}','${{ steps.generate_evidence_summary.outputs.summary_path }}','error'),
+    @('Upload hum-dev executable','upload_hum_dev_executable','steps.classify.outputs.mode == ''full'' && github.event_name == ''push''','${{ steps.generate_evidence_summary.outputs.executable_name }}','${{ steps.generate_evidence_summary.outputs.executable_path }}','error')
+  )
+  $UploadJobsRoot=@([regex]::Matches($Workflow,'(?ms)^jobs:(?<Header>[^\r\n]*)(?:\r?\n|\z)(?<Jobs>.*?)(?=^[^\s#]|\z)'))
+  if($UploadJobsRoot.Count -ne 1 -or $UploadJobsRoot[0].Groups['Header'].Value.Trim() -cne ''){throw 'Unit B upload configuration drifted: jobs mapping owner must be unique and canonical'}
+  $UploadJob=@([regex]::Matches($UploadJobsRoot[0].Groups['Jobs'].Value,'(?ms)^  preflight:(?<Header>[^\r\n]*)(?:\r?\n|\z)(?<Job>.*?)(?=^  [^\s#]|\z)'))
+  if($UploadJob.Count -ne 1 -or $UploadJob[0].Groups['Header'].Value.Trim() -cne ''){throw 'Unit B upload configuration drifted: preflight job owner must be unique and canonical'}
+  $UploadStepsRoot=@([regex]::Matches($UploadJob[0].Groups['Job'].Value,'(?ms)^    steps:(?<Header>[^\r\n]*)(?:\r?\n|\z)(?<Steps>.*?)(?=^    [^\s#]|\z)'))
+  if($UploadStepsRoot.Count -ne 1 -or $UploadStepsRoot[0].Groups['Header'].Value.Trim() -cne ''){throw 'Unit B upload configuration drifted: steps mapping owner must be unique and canonical'}
+  $UploadArtifactSteps=@([regex]::Matches($UploadStepsRoot[0].Groups['Steps'].Value,'(?ms)^      - (?<Head>[^\r\n]+)\r?\n(?<Body>(?:(?!^      - ).)*)(?=^      - |\z)')|ForEach-Object{'        '+$_.Groups['Head'].Value+"`n"+$_.Groups['Body'].Value}|Where-Object{$_ -cmatch '(?m)^        uses:[ \t]*actions/upload-artifact'})
+  if($UploadArtifactSteps.Count -ne $UploadOwners.Count){throw 'Unit B upload configuration drifted: actual upload step cardinality must be five'}
+  foreach($Owner in $UploadOwners){
+    $Owned=@($UploadArtifactSteps|Where-Object{([regex]::Matches($_,'(?m)^        name:[ \t]*'+[regex]::Escape($Owner[0])+'[ \t]*\r?$')).Count -eq 1})
+    if($Owned.Count -ne 1){throw "Unit B upload configuration drifted: missing or duplicate owner '$($Owner[0])'"}
+    $Step=$Owned[0];$Root=@{}
+    foreach($Field in [regex]::Matches($Step,'(?m)^        (?<Key>[A-Za-z0-9_-]+):[ \t]*(?<Value>[^\r\n]*)\r?$')){
+      $Key=$Field.Groups['Key'].Value
+      if($Root.ContainsKey($Key)){throw "Unit B upload configuration drifted: duplicate step key '$Key' in '$($Owner[0])'"}
+      $Root[$Key]=$Field.Groups['Value'].Value.Trim()
+    }
+    $ExpectedRoot=[ordered]@{name=$Owner[0];if=$Owner[2];uses='actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a';with=''}
+    if($Owner[1] -cne ''){$ExpectedRoot['id']=$Owner[1]}
+    if($Root.Count -ne $ExpectedRoot.Count){throw "Unit B upload configuration drifted: step mapping shape in '$($Owner[0])'"}
+    foreach($Entry in $ExpectedRoot.GetEnumerator()){if(@($Root.Keys) -cnotcontains $Entry.Key -or $Root[$Entry.Key] -cne $Entry.Value){throw "Unit B upload configuration drifted: owned step '$($Entry.Key)' in '$($Owner[0])'"}}
+    $With=@([regex]::Matches($Step,'(?ms)^        with:[ \t]*\r?\n(?<Settings>.*?)(?=^        \S|\z)'))
+    if($With.Count -ne 1){throw "Unit B upload configuration drifted: owned with mapping in '$($Owner[0])'"}
+    $Settings=@{}
+    foreach($Line in [regex]::Split($With[0].Groups['Settings'].Value,'\r?\n')){
+      if($Line -cmatch '^\s*(?:#.*)?$'){continue}
+      $Field=[regex]::Match($Line,'^          (?<Key>[A-Za-z0-9_-]+):[ \t]*(?<Value>.*)$')
+      if(-not $Field.Success){throw "Unit B upload configuration drifted: non-scalar with entry in '$($Owner[0])'"}
+      $Key=$Field.Groups['Key'].Value
+      if($Settings.ContainsKey($Key)){throw "Unit B upload configuration drifted: duplicate with key '$Key' in '$($Owner[0])'"}
+      $Settings[$Key]=$Field.Groups['Value'].Value.Trim()
+    }
+    $ExpectedSettings=[ordered]@{name=$Owner[3];path=$Owner[4];'retention-days'='14';'if-no-files-found'=$Owner[5];'include-hidden-files'='false';overwrite='false'}
+    if($Settings.Count -ne $ExpectedSettings.Count){throw "Unit B upload configuration drifted: with mapping shape in '$($Owner[0])'"}
+    foreach($Entry in $ExpectedSettings.GetEnumerator()){if(@($Settings.Keys) -cnotcontains $Entry.Key -or $Settings[$Entry.Key] -cne $Entry.Value){throw "Unit B upload configuration drifted: owned with '$($Entry.Key)' in '$($Owner[0])'"}}
   }
   $DownloadArtifactSteps=([regex]::Matches($Workflow,'actions/download-artifact@')).Count
   foreach($Literal in @('repository: ${{ github.repository }}','run-id: ${{ steps.classify.outputs.run_id }}','github-token: ${{ github.token }}','skip-decompress: true','digest-mismatch: error')){
@@ -1656,7 +1701,7 @@ function Invoke-Wo25UnitCFocusedEvidence { param([string]$Cargo)
   Initialize-Wo25WindowsToolchain;$Source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'));Assert-Wo25EvidenceTierDispatcherContract -Source $Source
   Assert-Wo25UnitCV2OrchestrationContract
   Assert-Wo25UnitCIsolationContract
-  $MutationCall='  Invoke-Wo25UnitCMutation'+'Evidence -Cargo $Cargo';$MutationCount='mutation_'+'count=8';$HygieneCount='hygiene_'+'file_count=591'
+  $MutationCall='  Invoke-HumPhase ''wo25-unit-c-mutation'' { Invoke-Wo25UnitCMutation'+'Evidence -Cargo $Cargo }';$MutationCount='mutation_'+'count=8';$HygieneCount='hygiene_'+'file_count=591'
   foreach($Required in @($MutationCall,$MutationCount,$HygieneCount)){if(([regex]::Matches($Source,[regex]::Escape($Required))).Count -ne 1){throw "Work Order 25 Unit C integrated evidence drifted: $Required"};$Corrupt=$Source.Replace($Required,'');if(([regex]::Matches($Corrupt,[regex]::Escape($Required))).Count -ne 0){throw "Work Order 25 Unit C corruption did not initialize: $Required"}}
   foreach($Stale in @(('mutation_'+'count=7'),('hygiene_'+'file_count=584'))){if($Source.Contains($Stale)){throw "Work Order 25 Unit C retained stale integrated evidence: $Stale"}}
   $Honest=@(Get-Wo25ExpectedMutationReceiptRecords);Assert-Wo25MutationReceiptRecords $Honest;$Zero='0'*64;$Wrong='1'*64
