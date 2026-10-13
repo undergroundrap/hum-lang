@@ -2898,9 +2898,30 @@ function Invoke-HumCompilerFrontChecks {
   Invoke-ExactRustTest 'Work Order 22 Unit B exact JIT probe matrix' $Cargo 'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact'
   Invoke-ExactRustTest 'Work Order 22 Unit B complete load-bearing row matrix' $Cargo 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Work Order 22 Unit B explicit unsupported targets' $Cargo 'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
+  Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'start'
+  try {
   Invoke-Wo22BackendPredicateMutationEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
+    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'failed'
+    throw
+  }
+  Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'start'
+  try {
   Invoke-Wo23UnitAProductionMutationEvidence $Cargo
+    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'failed'
+    throw
+  }
+  Write-HumPhaseMarker 'compiler-front-wo24-mutation' 'start'
+  try {
   Invoke-Wo24UnitAProductionMutationEvidence $Cargo
+    Write-HumPhaseMarker 'compiler-front-wo24-mutation' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-front-wo24-mutation' 'end' 'failed'
+    throw
+  }
   . Invoke-HumRuntimeProgramChecks $Cargo $Hum
   Invoke-ExactRustTest 'Increment 10B.1b recursive H0010 sealed-consumer matrix and controls' $Cargo 'parser::tests::recursive_h0010_consumer_is_complete_and_load_bearing'
   Invoke-ExactRustTest 'Increment 10B.1b canonical-tree and retained-authority corruption matrix' $Cargo 'parser::tests::h0010_sealed_corruption_and_authority_substitution_fail_closed'
