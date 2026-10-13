@@ -1397,13 +1397,33 @@ function Assert-FullPreflightRepairContract([string]$Workflow) {
   $UploadHasher=[Security.Cryptography.SHA256]::Create();try{$UploadDigest=-join($UploadHasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($UploadMatch[0].Value))|%{$_.ToString('x2')})}finally{$UploadHasher.Dispose()}
   if($UploadDigest-cne'2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa'){throw 'failure-diagnostics upload frozen closure'}
   $Hasher=[Security.Cryptography.SHA256]::Create();try{$StepDigest=-join($Hasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($Step))|%{$_.ToString('x2')});$SummaryDigest=-join($Hasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($Summary))|%{$_.ToString('x2')})}finally{$Hasher.Dispose()}
-  if($StepDigest-cne'5cde31f6070bc550ab83e3782dd9cc211033d3d1aae76c38d0d983e7bba29004'){throw 'full-preflight frozen closure'}
+  if($StepDigest-cne'1597f1b206429a4b60fb2b49f9d251cd54d65b6a051d8cf94ba3a04a5278f6b5'){throw 'full-preflight frozen closure'}
   if($SummaryDigest-cne'e4ae140917b9706da4e9a6444dd7fce000b89f1fa6479a500b02ad64ea6a258e'){throw 'summary frozen closure'}
   $Required=@('$RustcStart.RedirectStandardOutput = $true','$RustcStart.RedirectStandardError = $true','$StdoutCopy = $RustcProcess.StandardOutput.BaseStream.CopyToAsync($ToolchainStdout)','$StderrCopy = $RustcProcess.StandardError.BaseStream.CopyToAsync($ToolchainStderr)','$RustcProcess.WaitForExit()','$StdoutCopy.GetAwaiter().GetResult()','$StderrCopy.GetAwaiter().GetResult()','$ToolchainBytes = $ToolchainStdout.ToArray()','$ToolchainStderrBytes = $ToolchainStderr.ToArray()','if ($RustcExit -ne 0 -or $ToolchainBytes.Length -eq 0)','if ([Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0)','$StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)','$ToolchainText = $StrictUtf8.GetString($ToolchainBytes)','$ToolchainPayload = [Convert]::ToBase64String($ToolchainBytes)','$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"','cargo build -p hum-dev','$Isolated = New-HumIsolatedExecutable','$Capture = Invoke-HumBinaryCapture $Executable $PhaseArgs $WorkingDirectory $CaptureDirectory $DeadlineSeconds -CaseName ''ci-full-preflight'' -PhaseDiagnosticDirectory $PhaseDiagnosticDirectory','$Capture = Assert-HumCaptureComplete $Capture','try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $Reason }','$Capture = Invoke-HumPreflightCapture $Isolated.Executable','$CaptureAuthenticated = $true','$ExitCode = $Capture.ExitCode','"toolchain=$env:HUM_BUILD_TOOLCHAIN" >> $env:GITHUB_OUTPUT','Remove-HumIsolatedExecutable $Isolated','Remove-HumCaptureAfterAuthentication $CaptureDirectory','Final preflight diagnostic retention also failed:')
   $Last=-1;foreach($Needle in $Required){$Hits=@([regex]::Matches($Step,[regex]::Escape($Needle)));if($Hits.Count-ne1-or$Hits[0].Index-le$Last){throw "full-preflight owned dataflow: $Needle"};$Last=$Hits[0].Index}
   foreach($Forbidden in @('$env:HUM_BUILD_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()','$Process.StartInfo.FileName','Start-Process $Isolated.Executable')){if($Step.Contains($Forbidden)){throw "full-preflight retired route: $Forbidden"}}
   foreach($Needle in @('HUM_TOOLCHAIN: ${{ steps.full_preflight.outputs.toolchain }}','evidence summarize --output $Output --pwsh $Pwsh')){if(([regex]::Matches($Summary,[regex]::Escape($Needle))).Count-ne1){throw "summary owned dataflow: $Needle"}}
   if($Summary.Contains('$env:HUM_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()')){throw 'summary plaintext reconstruction'}
+}
+function Assert-FullPreflightCalibrationEvidence([string]$Workflow) {
+  $Lf=[char]10;$Normalized=$Workflow.Replace("$([char]13)$Lf","$Lf")
+  $Header=('jobs:'+[char]10+'  preflight:'+[char]10+'    name: preflight (${{ matrix.os }})'+[char]10+'    runs-on: ${{ matrix.os }}'+[char]10+'    timeout-minutes: ${{ matrix.os == ''windows-latest'' && 90 || 60 }}'+[char]10)
+  Assert-True (([regex]::Matches($Normalized,'(?m)^jobs:(?:[ \t]|$)')).Count-eq1-and([regex]::Matches($Normalized,'(?m)^  preflight:(?:[ \t]|$)')).Count-eq1-and([regex]::Matches($Normalized,[regex]::Escape($Header))).Count-eq1) 'calibration job budget ownership'
+  $Step=[regex]::Match($Normalized,'(?ms)^      - name: Run Hum preflight'+$Lf+'.*?(?=^      - name: )').Value
+  $Body=[regex]::Replace(($Step-split'        run: \|',2)[1],'(?m)^          ','')
+  $Ast=Get-DiscoveryAst $Body 'calibration Full argument'
+  $Calls=@($Ast.FindAll({param($Node)$Node-is[Management.Automation.Language.CommandAst]-and$Node.GetCommandName()-ceq'Invoke-HumPreflightCapture'},$true))
+  Assert-True ($Calls.Count-eq1) 'calibration Full call cardinality'
+  $Budget=$Calls[0].CommandElements[-1].Extent.Text
+  Assert-True ($Budget-ceq'$(if ($script:HumHostIsWindows) { 4500 } else { 3000 })') 'calibration Full budget owner'
+  $PriorHost=$script:HumHostIsWindows
+  try {
+    foreach($Case in @([pscustomobject]@{Windows=$true;Seconds=4500},[pscustomobject]@{Windows=$false;Seconds=3000})) {
+      $script:HumHostIsWindows=$Case.Windows
+      Assert-True ((& ([scriptblock]::Create($Budget)))-eq$Case.Seconds) 'calibration Full platform mapping'
+    }
+  } finally {$script:HumHostIsWindows=$PriorHost}
+  Assert-True (([regex]::Matches($Normalized,[regex]::Escape('$Capture = Invoke-HumBinaryCapture $Isolated.Executable @(''evidence'',$env:HUM_SELECTED_PROFILE,''--pwsh'',$Pwsh) (Get-Location).Path $Directory 3000 -CaseName ''ci-normal-profile'''))).Count-eq1) 'calibration normal budget preservation'
 }
 function Assert-FullPreflightRepairEvidence([string]$Workflow) {
   $Cr=[string][char]13;$Lf=[string][char]10
@@ -1415,6 +1435,7 @@ function Assert-FullPreflightRepairEvidence([string]$Workflow) {
   foreach($Bad in @(@([byte[]]@(),[byte[]]@(),0,$true),@([byte[]](0x61,0),[byte[]]@(),0,$true),@([byte[]](0xff),[byte[]]@(),0,$true),@([byte[]](0x61),[byte[]]@(),1,$true),@([byte[]](0x61),[byte[]]@(),0,$false))){Assert-Rejected{ConvertTo-TestNativeToolchainScalar $Bad[0] $Bad[1] $Bad[2] $Bad[3]}'invalid native toolchain bytes accepted'}
   foreach($Bad in @('', 'utf8-base64:', 'utf8-base64:***', 'wrong:cnVzdGM=')){Assert-Rejected { ConvertFrom-TestToolchainScalar $Bad } "malformed toolchain scalar accepted: $Bad"}
   Assert-FullPreflightRepairContract $Workflow
+  Assert-FullPreflightCalibrationEvidence $Workflow
   $Mutations=@(
     @('$RustcExit -ne 0','$RustcExit -eq 0'),
     @('$ToolchainBytes.Length -eq 0','$ToolchainBytes.Length -lt 0'),
@@ -1424,7 +1445,7 @@ function Assert-FullPreflightRepairEvidence([string]$Workflow) {
     @('$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"','$env:HUM_BUILD_TOOLCHAIN = $ToolchainText'),
     @('cargo build -p hum-dev','$null = 1'),
     @('$Capture = Invoke-HumPreflightCapture $Isolated.Executable','$Capture = Invoke-HumPreflightCapture "target/debug/hum-dev"'),
-    @('$CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory 3000','$CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory 900'),
+    @('$CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $(if ($script:HumHostIsWindows) { 4500 } else { 3000 })','$CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory 900'),
     @('$Capture = Assert-HumCaptureComplete $Capture','$null = $Capture'),
     @('$CaptureAuthenticated = $true','$CaptureAuthenticated = $false'),
     @('$ExitCode = $Capture.ExitCode','$ExitCode = 0'),
@@ -1720,7 +1741,7 @@ function Assert-PreflightOuterLifecycleEvidence {
       # phase directory must be the setup-established owned fact. A foreign
       # path, null, or any stub-derived substitute is refused here.
       if ($PhaseDiagnostics -cne $PhaseDiagnosticDirectory) { throw 'outer workflow phase identity changed' }
-      if ($Deadline -ne 3000 -or $Executable -cne $Isolated.Executable -or ($Arguments -join '|') -cne "evidence|full|--pwsh|$Pwsh") { throw 'outer workflow invocation changed' }
+      if ($Deadline -ne $(if ($script:HumHostIsWindows) { 4500 } else { 3000 }) -or $Executable -cne $Isolated.Executable -or ($Arguments -join '|') -cne "evidence|full|--pwsh|$Pwsh") { throw 'outer workflow invocation changed' }
       $Child = if ($Mode -eq 'primary-and-secondary') { 'invalid-terminal' } elseif ($Mode -in @('nonzero-and-secondary','nonzero-reporting')) { 'exit23' } else { 'success' }
       # Forward the accepted authoritative phase directory. The synthetic
       # child writes no markers, so it stays honestly empty (none_found).

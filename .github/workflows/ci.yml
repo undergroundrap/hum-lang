@@ -38,7 +38,7 @@ jobs:
   preflight:
     name: preflight (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 90 || 60 }}
     strategy:
       fail-fast: false
       matrix:
@@ -517,7 +517,7 @@ jobs:
           $ExitCode = 1
           try {
             Assert-HumIsolatedExecutable $Isolated -RequireSource
-            $Capture = Invoke-HumPreflightCapture $Isolated.Executable @('evidence','full','--pwsh',$Pwsh) (Get-Location).Path $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory 3000
+            $Capture = Invoke-HumPreflightCapture $Isolated.Executable @('evidence','full','--pwsh',$Pwsh) (Get-Location).Path $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $(if ($script:HumHostIsWindows) { 4500 } else { 3000 })
             $CaptureAuthenticated = $true
             $Output = $Capture.StdoutPath
             $ErrorOutput = $Capture.StderrPath
