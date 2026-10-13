@@ -1242,7 +1242,18 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
     [pscustomobject] @{ Label = 'N08 required target admission'; Path = 'src/backend_cranelift.rs'; Selector = 'backend_cranelift::tests::hello_world_lowering_is_source_driven_and_load_bearing'; Needle = '("windows", "msvc") | ("linux", "gnu")'; Replacement = '("windows", "msvc") | ("linux", "gnu") | ("macos", "other")'; AssertionPath = 'src/backend_cranelift.rs'; AssertionMessage = 'unsupported target earned forbidden backend-ready evidence' }
   )
   $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+  $Wo24StageIds = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+  $Wo24StageIds.Add('N01 program-neutral feature identity', 'n01')
+  $Wo24StageIds.Add('N02 exact constant-Text body admission', 'n02')
+  $Wo24StageIds.Add('N03 v2 live artifact equality', 'n03')
+  $Wo24StageIds.Add('N04 verified source literal getter', 'n04')
+  $Wo24StageIds.Add('N05 exact finalized invocation evidence', 'n05')
+  $Wo24StageIds.Add('N06 deny-first operator consent', 'n06')
+  $Wo24StageIds.Add('N07 native rejection cannot fall back', 'n07')
+  $Wo24StageIds.Add('N08 required target admission', 'n08')
   foreach ($Mutation in $Mutations) {
+    if (-not $Wo24StageIds.ContainsKey($Mutation.Label)) { throw 'Work Order 24 stage row identity drifted' }
+    $Wo24StagePrefix = 'compiler-front-wo24-' + $Wo24StageIds[$Mutation.Label]
     $Path = Join-Path $RepoRoot $Mutation.Path
     $OriginalBytes = [System.IO.File]::ReadAllBytes($Path)
     $Original = $Utf8.GetString($OriginalBytes)
@@ -1260,6 +1271,8 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
     if ($AssertionMatches[0].Index - ($AssertionOwner.Index + $AssertionOwner.Length) -gt 512) { throw "Work Order 24 $($Mutation.Label) row-owned assertion is not adjacent to its disposition message" }
     $AssertionStartLine = 1 + [regex]::Matches($AssertionSource.Substring(0, $AssertionOwner.Index), "`n").Count
     $AssertionMessageLine = 1 + [regex]::Matches($AssertionSource.Substring(0, $AssertionMatches[0].Index), "`n").Count
+    Write-HumPhaseMarker ($Wo24StagePrefix + '-before') 'start'
+    try {
     $HonestBeforeLabel = "Work Order 24 $($Mutation.Label) honest selector before mutation"
     $HonestBeforeCredits = @(Get-ExactRustSelectorCredits)
     Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector
@@ -1277,6 +1290,13 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
         [string]::Join("`n", $HonestBeforeRestoredCredits) -cne [string]::Join("`n", $HonestBeforeCredits)) {
       throw "Work Order 24 $($Mutation.Label) honest-before selector credits were not restored exactly"
     }
+      Write-HumPhaseMarker ($Wo24StagePrefix + '-before') 'end' 'completed'
+    } catch {
+      Write-HumPhaseMarker ($Wo24StagePrefix + '-before') 'end' 'failed'
+      throw
+    }
+    Write-HumPhaseMarker ($Wo24StagePrefix + '-mutation') 'start'
+    try {
     $CreditsBefore = @(Get-ExactRustSelectorCredits)
     $Output = New-Object 'System.Collections.Generic.List[string]'
     $Failure = $null
@@ -1306,6 +1326,13 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
       $Output | ForEach-Object { Write-Host $_ }
       throw "Work Order 24 $($Mutation.Label) did not fail its exact selector and restore bytes"
     }
+      Write-HumPhaseMarker ($Wo24StagePrefix + '-mutation') 'end' 'completed'
+    } catch {
+      Write-HumPhaseMarker ($Wo24StagePrefix + '-mutation') 'end' 'failed'
+      throw
+    }
+    Write-HumPhaseMarker ($Wo24StagePrefix + '-after') 'start'
+    try {
     $HonestAfterLabel = "Work Order 24 $($Mutation.Label) honest selector after restoration"
     $HonestAfterCredits = @(Get-ExactRustSelectorCredits)
     Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector
@@ -1323,6 +1350,11 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
         [string]::Join("`n", $HonestAfterRestoredCredits) -cne [string]::Join("`n", $HonestAfterCredits) -or
         -not (Test-Wo22ByteArraysEqual $OriginalBytes ([System.IO.File]::ReadAllBytes($Path)))) {
       throw "Work Order 24 $($Mutation.Label) honest-after selector credits or source bytes were not restored exactly"
+    }
+      Write-HumPhaseMarker ($Wo24StagePrefix + '-after') 'end' 'completed'
+    } catch {
+      Write-HumPhaseMarker ($Wo24StagePrefix + '-after') 'end' 'failed'
+      throw
     }
     Write-Host "ok - Work Order 24 $($Mutation.Label) rejected and restored"
   }

@@ -31,6 +31,188 @@ $PhaseDiagnostics = ''
 Invoke-Expression $MarkerLines
 Invoke-Expression $PhaseLines
 
+function Invoke-OwnedWo24StageTimingControls {
+  param([string]$CheckAllText, [string]$EvidenceText, [ref]$SelectedProgram = $null)
+  # Select current owned statements, not the mutation runner or native helper.
+  function Select-Wo24Function([string]$Text, [string]$Name) {
+    $Tokens = $null; $Errors = $null
+    $Tree = [Management.Automation.Language.Parser]::ParseInput($Text, [ref]$Tokens, [ref]$Errors)
+    if ($Errors.Count -ne 0) { throw 'WO24 focused source parse refused' }
+    $Definitions = @($Tree.FindAll({ param($Node) $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq $Name }, $true))
+    if ($Definitions.Count -ne 1) { throw "WO24 focused definition refused: $Name" }
+    return $Definitions[0]
+  }
+  $Runner = Select-Wo24Function $CheckAllText 'Invoke-Wo24UnitAProductionMutationEvidence'
+  $Rows = @($Runner.Body.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$Mutations' })
+  $Maps = @($Runner.Body.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$Wo24StageIds' })
+  $Loops = @($Runner.Body.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.ForEachStatementAst] -and $_.Variable.Extent.Text -ceq '$Mutation' })
+  if ($Rows.Count -ne 1 -or $Maps.Count -ne 1 -or $Loops.Count -ne 1) { throw 'WO24 focused row/map/loop ownership refused' }
+  $Loop = $Loops[0]
+  $MapText = $CheckAllText.Substring($Maps[0].Extent.StartOffset, $Loop.Extent.StartOffset - $Maps[0].Extent.StartOffset)
+  $Bindings = @($Loop.Body.Statements | Where-Object { ($_.Extent.Text.StartsWith('if (-not $Wo24StageIds.ContainsKey', [StringComparison]::Ordinal)) -or ($_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$Wo24StagePrefix') })
+  if ($Bindings.Count -ne 2) { throw 'WO24 focused exact row binding refused' }
+  $Stages = @($Loop.Body.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] })
+  if ($Stages.Count -ne 3) { throw 'WO24 focused stage owner count refused' }
+  $Commands = @($Runner.Body.FindAll({ param($Node) $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Invoke-ExactRustTest' }, $true))
+  $ExpectedCalls = @('Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector', 'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector', 'Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector')
+  if ($Commands.Count -ne 3) { throw 'WO24 focused guarded call count refused' }
+  $StageText = [Collections.Generic.List[string]]::new()
+  $StageKinds = @('before','mutation','after')
+  for ($Index = 0; $Index -lt 3; $Index++) {
+    $Stage = $Stages[$Index]
+    $ActualCalls = @($Stage.Body.FindAll({ param($Node) $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Invoke-ExactRustTest' }, $true))
+    if ($ActualCalls.Count -ne 1 -or $ActualCalls[0].Extent.Text -cne $ExpectedCalls[$Index]) { throw 'WO24 focused stage action ownership refused' }
+    $StageIndex = [array]::IndexOf($Loop.Body.Statements, $Stage)
+    if ($StageIndex -lt 1) { throw 'WO24 focused start ownership refused' }
+    $Start = $Loop.Body.Statements[$StageIndex - 1]
+    $ExpectedStart = "Write-HumPhaseMarker (`$Wo24StagePrefix + '-$($StageKinds[$Index])') 'start'"
+    $ExpectedEnd = "Write-HumPhaseMarker (`$Wo24StagePrefix + '-$($StageKinds[$Index])') 'end' 'completed'"
+    $ExpectedFailed = "Write-HumPhaseMarker (`$Wo24StagePrefix + '-$($StageKinds[$Index])') 'end' 'failed'"
+    if ($Start.Extent.Text -cne $ExpectedStart -or $Stage.Body.Statements[-1].Extent.Text -cne $ExpectedEnd -or $Stage.CatchClauses.Count -ne 1 -or $Stage.CatchClauses[0].Body.Statements.Count -ne 2 -or $Stage.CatchClauses[0].Body.Statements[0].Extent.Text -cne $ExpectedFailed -or $Stage.CatchClauses[0].Body.Statements[1].Extent.Text -cne 'throw') { throw 'WO24 focused marker/outcome ownership refused' }
+    $StageText.Add($Start.Extent.Text + "`n" + $Stage.Extent.Text)
+  }
+  $ActualMarker = (Select-Wo24Function $CheckAllText 'Write-HumPhaseMarker').Extent.Text
+  $ActualEqual = (Select-Wo24Function $CheckAllText 'Test-Wo22ByteArraysEqual').Extent.Text
+  $ActualObserver = (Select-Wo24Function $EvidenceText 'Update-HumPhaseProgress').Extent.Text
+  $ActualMarker = $ActualMarker.Replace('Test-Path','Test-Wo24OwnedPath').Replace('[IO.Directory]::CreateDirectory($PhaseDiagnostics)','(New-Wo24OwnedDirectory $PhaseDiagnostics)').Replace("[DateTime]::UtcNow.ToString('o')","'2026-10-13T00:00:00.0000000Z'").Replace('[Diagnostics.Stopwatch]::GetTimestamp()','(Get-Wo24OwnedTicks)').Replace('[Diagnostics.Stopwatch]::Frequency','1000').Replace('[IO.File]::ReadAllText($BindingPath)','(Read-Wo24OwnedText $BindingPath)').Replace('Join-Path','Join-Wo24OwnedPath').Replace('[IO.File]::WriteAllText($TempPath, $Content, [Text.Encoding]::UTF8)','Write-Wo24OwnedText $TempPath $Content').Replace('[IO.File]::Move($TempPath, $Path, $true)','Move-Wo24OwnedText $TempPath $Path').Replace('Write-Warning','Write-Wo24OwnedWarning')
+  $ActualObserver = $ActualObserver.Replace('Test-Path','Test-Wo24OwnedPath').Replace('Get-ChildItem','Get-Wo24OwnedChildren').Replace('Join-Path','Join-Wo24OwnedPath').Replace('[IO.File]::ReadAllText($BindingPath)','(Read-Wo24OwnedText $BindingPath)').Replace('[IO.File]::ReadAllText($File.FullName)','(Read-Wo24OwnedText $File.FullName)').Replace('Write-Host','Write-Wo24OwnedHost')
+  $ActualStages = [string]::Join("`n", $StageText).Replace('[System.IO.File]::WriteAllText($Path, $Mutated, $Utf8)','Write-Wo24OwnedMutation $Path $Mutated $Utf8').Replace('[System.IO.File]::WriteAllBytes($Path, $OriginalBytes)','Restore-Wo24OwnedMutation $Path $OriginalBytes').Replace('[System.IO.File]::ReadAllBytes($Path)','(Read-Wo24OwnedMutation $Path)').Replace("New-Object 'System.Collections.Generic.List[string]'",'[Collections.Generic.List[string]]::new()').Replace('$script:ExactRustSelectorCredits','$script:Wo24OwnedCredits').Replace('Write-Host','Write-Wo24OwnedHost')
+  $OwnedHelpers = @'
+function Add-Wo24Hook([string]$Name) { if (-not $script:Wo24Hooks.ContainsKey($Name)) { $script:Wo24Hooks[$Name] = 0 }; $script:Wo24Hooks[$Name]++ }
+function Assert-Wo24Owned([bool]$Ok, [string]$Message) { $script:Wo24Assertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message}); if (-not $Ok) { throw "WO24 focused assertion refused: $Message" } }
+function Test-Wo24OwnedPath { param([string]$LiteralPath) Add-Wo24Hook 'exists'; return $script:Wo24Dirs.Contains($LiteralPath) -or $script:Wo24Files.ContainsKey($LiteralPath) }
+function Join-Wo24OwnedPath([string]$Parent,[string]$Leaf) { Add-Wo24Hook 'join'; return "$Parent/$Leaf" }
+function New-Wo24OwnedDirectory([string]$Path) { Add-Wo24Hook 'mkdir'; $null=$script:Wo24Dirs.Add($Path) }
+function Read-Wo24OwnedText([string]$Path) { Add-Wo24Hook 'read'; if ([string]::Equals($Path,$script:Wo24CorruptPath,[StringComparison]::Ordinal)) { Add-Wo24Hook 'read_corruption'; return $script:Wo24CorruptValue }; return $script:Wo24Files[$Path] }
+function Write-Wo24OwnedText([string]$Path,[string]$Content) { Add-Wo24Hook 'write'; if ($script:Wo24Mode.StartsWith('sink-', [StringComparison]::Ordinal)) { Add-Wo24Hook 'write_refusal'; throw 'owned_marker_sink_refusal' }; $script:Wo24Files[$Path]=$Content }
+function Move-Wo24OwnedText([string]$Source,[string]$Destination) { Add-Wo24Hook 'move'; $script:Wo24Files[$Destination]=$script:Wo24Files[$Source]; $null=$script:Wo24Files.Remove($Source) }
+function Get-Wo24OwnedTicks { Add-Wo24Hook 'ticks'; $script:Wo24Ticks+=1000; return $script:Wo24Ticks }
+function Get-Wo24OwnedChildren { param([string]$LiteralPath,[switch]$File) Add-Wo24Hook 'children'; foreach($Key in $script:Wo24Files.Keys) { if ($Key.StartsWith($LiteralPath+'/',[StringComparison]::Ordinal)) { [pscustomobject]@{Name=$Key.Substring($LiteralPath.Length+1);FullName=$Key} } } }
+function Write-Wo24OwnedWarning([string]$Message) { Add-Wo24Hook 'warning'; $script:Wo24Warnings.Add($Message) }
+function Write-Wo24OwnedHost { param([string]$Message,[switch]$NoNewline) Add-Wo24Hook 'host'; $script:Wo24Messages.Add($Message) }
+function Get-ExactRustSelectorCredits { return @($script:Wo24OwnedCredits) }
+function Write-Wo24OwnedMutation($Path,$Text,$Encoding) { Add-Wo24Hook 'mutate'; $script:Wo24SourceBytes=[Text.Encoding]::UTF8.GetBytes($Text) }
+function Restore-Wo24OwnedMutation($Path,[byte[]]$Bytes) { Add-Wo24Hook 'restore'; $script:Wo24SourceBytes=$Bytes.Clone() }
+function Read-Wo24OwnedMutation($Path) { Add-Wo24Hook 'source_read'; return ,$script:Wo24SourceBytes }
+function Invoke-ExactRustTest([string]$Label,[string]$Cargo,[string]$Selector) {
+  Add-Wo24Hook 'selector'; $script:Wo24Actions.Add("$Label|$Cargo|$Selector")
+  if ($Label.EndsWith('honest selector before mutation',[StringComparison]::Ordinal)) {
+    if ($script:Wo24Mode -cin @('before-refusal','sink-before-refusal')) { throw 'owned_before_refusal' }
+    $script:Wo24OwnedCredits.Add($Selector); return
+  }
+  if ($Label.EndsWith('honest selector after restoration',[StringComparison]::Ordinal)) {
+    if ($script:Wo24Mode -ceq 'after-refusal') { throw 'owned_after_refusal' }
+    if ($script:Wo24Mode -ceq 'after-credit') { $script:Wo24OwnedCredits.Add('wrong::credit'); return }
+    $script:Wo24OwnedCredits.Add($Selector); return
+  }
+  if ($script:Wo24Mode -ceq 'green-mutant') { return }
+  "test $Selector ... FAILED"
+  if ($script:Wo24Mode -ceq 'wrong-disposition') { 'owned wrong disposition' } else { $Mutation.AssertionMessage }
+  "$($Mutation.AssertionPath):10:1"
+  throw "$Label failed with exit code 101"
+}
+'@
+  $OwnedDriver = @'
+function Invoke-Wo24OwnedCase([object]$Mutation,[string]$Mode) {
+  $script:Wo24Mode=$Mode; $script:Wo24Files.Clear(); $script:Wo24Dirs.Clear(); $script:Wo24Actions.Clear(); $script:Wo24Messages.Clear(); $script:Wo24Warnings.Clear()
+  $script:Wo24CorruptPath=''; $script:Wo24CorruptValue=''
+  $null=$script:Wo24Dirs.Add('/wo24'); $script:Wo24Files['/wo24/run-binding.txt']="binding_guid=ownedwo24`n"
+  $script:Wo24OwnedCredits.Clear(); $script:Wo24OwnedCredits.Add('ambient::credit')
+  $OriginalBytes=[byte[]]@(11,22,33); $script:Wo24SourceBytes=$OriginalBytes.Clone()
+  $Path='/owned/source'; $Mutated='owned-mutated'; $Utf8=$null; $Cargo='owned-cargo'; $AssertionStartLine=10; $AssertionMessageLine=10
+  $Caught=''; try { Invoke-Wo24OwnedStages $Mutation } catch { $Caught=$_.Exception.Message }
+  $Prefix='compiler-front-wo24-'+$Wo24StageIds[$Mutation.Label]
+  $ExpectedError = if($Mode -cin @('before-refusal','sink-before-refusal')){'owned_before_refusal'} elseif($Mode -ceq 'after-refusal'){'owned_after_refusal'} elseif($Mode -ceq 'after-credit'){"Work Order 24 $($Mutation.Label) honest-after selector credit append drifted"} elseif($Mode -cin @('green-mutant','wrong-disposition')){"Work Order 24 $($Mutation.Label) did not fail its exact selector and restore bytes"} else {''}
+  Assert-Wo24Owned ($Caught -ceq $ExpectedError) "$Mode/$($Mutation.Label): exact primary outcome"
+  $ExpectedCount=if($Mode -cin @('before-refusal','sink-before-refusal')){1}elseif($Mode -cin @('green-mutant','wrong-disposition')){2}else{3}
+  Assert-Wo24Owned ($script:Wo24Actions.Count -eq $ExpectedCount) "$Mode/$($Mutation.Label): exact action count"
+  $Labels=@("Work Order 24 $($Mutation.Label) honest selector before mutation", "Work Order 24 $($Mutation.Label) initialized mutation", "Work Order 24 $($Mutation.Label) honest selector after restoration")
+  for($Index=0;$Index -lt $ExpectedCount;$Index++){ Assert-Wo24Owned ($script:Wo24Actions[$Index] -ceq "$($Labels[$Index])|owned-cargo|$($Mutation.Selector)") "$Mode/$($Mutation.Label): owned action order $Index" }
+  Assert-Wo24Owned (Test-Wo22ByteArraysEqual $OriginalBytes $script:Wo24SourceBytes) "$Mode/$($Mutation.Label): original bytes restored"
+  $ExpectedCredits=if($Mode -ceq 'after-credit'){'ambient::credit|wrong::credit'}else{'ambient::credit'}
+  Assert-Wo24Owned ([string]::Join('|',$script:Wo24OwnedCredits) -ceq $ExpectedCredits) "$Mode/$($Mutation.Label): original credit behavior"
+  if($Mode.StartsWith('sink-',[StringComparison]::Ordinal)) {
+    Assert-Wo24Owned ($script:Wo24Files.Count -eq 1 -and $script:Wo24Warnings.Count -eq (2*$ExpectedCount)) "${Mode}: marker sink failure is unavailable/nonfatal"
+  } else {
+    for($Index=0;$Index -lt $ExpectedCount;$Index++) {
+      $Name=$Prefix+'-'+@('before','mutation','after')[$Index]
+      $Start=$script:Wo24Files["/wo24/phase-$Name-start.txt"]; $End=$script:Wo24Files["/wo24/phase-$Name-end.txt"]
+      $Outcome=if($Index -eq $ExpectedCount-1 -and $Caught.Length -gt 0){'failed'}else{'completed'}
+      Assert-Wo24Owned ($Start.Contains("phase=$Name`n") -and $Start.Contains("binding=ownedwo24`n") -and $End.Contains("outcome=$Outcome`n")) "$Mode/${Name}: exact bound stage outcome"
+      $ST=[int64]([regex]::Match($Start,'ticks=([0-9]+)').Groups[1].Value); $ET=[int64]([regex]::Match($End,'ticks=([0-9]+)').Groups[1].Value)
+      Assert-Wo24Owned ($ST -lt $ET) "$Mode/${Name}: ordered actual producer ticks"
+    }
+    Assert-Wo24Owned ($script:Wo24Files.Count -eq (1+2*$ExpectedCount)) "$Mode/$($Mutation.Label): no future stage files"
+    Update-HumPhaseProgress '/wo24' @{Binding='';Reported=[Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)}
+    for($Index=0;$Index -lt $ExpectedCount;$Index++) {
+      $Name=$Prefix+'-'+@('before','mutation','after')[$Index]; $Outcome=if($Index -eq $ExpectedCount-1 -and $Caught.Length -gt 0){'failed'}else{'completed'}
+      Assert-Wo24Owned ($script:Wo24Messages.Contains("phase_progress: started $Name") -and $script:Wo24Messages.Contains("phase_progress: $Name $Outcome")) "$Mode/${Name}: actual observer consumes outcome"
+    }
+  }
+  $script:Wo24Cases.Add([pscustomobject]@{Label=$Mutation.Label;Mode=$Mode;Calls=$script:Wo24Actions.Count;Primary=$Caught;MarkerFiles=$script:Wo24Files.Count-1})
+}
+$script:Wo24Files=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+$script:Wo24Dirs=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$script:Wo24Hooks=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+$script:Wo24OwnedCredits=[Collections.Generic.List[string]]::new()
+$script:Wo24Actions=[Collections.Generic.List[string]]::new(); $script:Wo24Warnings=[Collections.Generic.List[string]]::new(); $script:Wo24Messages=[Collections.Generic.List[string]]::new()
+$script:Wo24Assertions=[Collections.Generic.List[object]]::new(); $script:Wo24Cases=[Collections.Generic.List[object]]::new()
+$script:Wo24Ticks=[int64]0; $PhaseDiagnostics='/wo24'
+Assert-Wo24Owned ($Mutations.Count -eq 8 -and $Wo24StageIds.Count -eq 8) 'eight actual rows and exact row bindings'
+$Names=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$Saved=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+for($RowIndex=0;$RowIndex -lt 8;$RowIndex++) {
+  $Mutation=$Mutations[$RowIndex]; $ExpectedId='n'+($RowIndex+1).ToString('00')
+  Assert-Wo24Owned ($Wo24StageIds[$Mutation.Label] -ceq $ExpectedId) 'exact current row-to-phase identity'
+  foreach($Stage in @('before','mutation','after')){ Assert-Wo24Owned ($Names.Add('compiler-front-wo24-'+$ExpectedId+'-'+$Stage)) 'fixed phase name is unique' }
+  Invoke-Wo24OwnedCase $Mutation 'honest'
+  if($RowIndex -eq 0){foreach($Pair in $script:Wo24Files.GetEnumerator()){$Saved[$Pair.Key]=$Pair.Value}}
+}
+Assert-Wo24Owned ($Names.Count -eq 24) 'exactly 24 fixed phase names'
+foreach($Mode in @('before-refusal','green-mutant','wrong-disposition','after-refusal','after-credit','sink-honest','sink-before-refusal')){Invoke-Wo24OwnedCase $Mutations[0] $Mode}
+$script:Wo24Files.Clear();foreach($Pair in $Saved.GetEnumerator()){$script:Wo24Files[$Pair.Key]=$Pair.Value}
+foreach($Fact in @('binding','ticks')) {
+  $script:Wo24Messages.Clear()
+  $script:Wo24CorruptPath=if($Fact -ceq 'binding'){'/wo24/run-binding.txt'}else{'/wo24/phase-compiler-front-wo24-n01-before-end.txt'}
+  $Raw=$script:Wo24Files[$script:Wo24CorruptPath]
+  $script:Wo24CorruptValue=if($Fact -ceq 'binding'){"binding_guid=foreignwo24`n"}else{[regex]::Replace($Raw,'(?m)^ticks=[0-9]+$','ticks=-1')}
+  Assert-Wo24Owned ($script:Wo24CorruptValue -cne $Raw) "${Fact}: authoritative return changed"
+  $Before=if($script:Wo24Hooks.ContainsKey('read_corruption')){$script:Wo24Hooks['read_corruption']}else{0}
+  Update-HumPhaseProgress '/wo24' @{Binding='';Reported=[Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)}
+  $Cause=if($Fact -ceq 'binding'){'binding_mismatch_foreign'}else{'ticks_not_numeric'}
+  Assert-Wo24Owned ($script:Wo24Hooks['read_corruption'] -gt $Before -and $script:Wo24Files[$script:Wo24CorruptPath] -ceq $Raw) "${Fact}: nonzero actual reader corruption/raw preservation"
+  Assert-Wo24Owned ($script:Wo24Messages.Contains("phase_progress: compiler-front-wo24-n01-before invalid ($Cause)") -and -not $script:Wo24Messages.Contains('phase_progress: compiler-front-wo24-n01-before completed')) "${Fact}: actual observer refuses exact public cause"
+}
+[pscustomobject]@{Assertions=$script:Wo24Assertions.ToArray();Cases=$script:Wo24Cases.ToArray();Hooks=$script:Wo24Hooks;UniqueNames=$Names.Count;StageCalls=$script:Wo24Hooks['selector'];ObserverCalls=$script:Wo24Hooks['children'];ProgramConsumer='actual three owned stage blocks plus unchanged actual producer/observer'}
+'@
+  $Program = $OwnedHelpers + "`n" + $ActualMarker + "`n" + $ActualEqual + "`n" + $ActualObserver + "`n" + $Rows[0].Extent.Text + "`n" + $MapText + "`nfunction Invoke-Wo24OwnedStages { param([object]`$Mutation)`n" + [string]::Join("`n", @($Bindings | ForEach-Object { $_.Extent.Text })) + "`n" + $ActualStages + "`n}`n" + $OwnedDriver
+  if($null -ne $SelectedProgram){$SelectedProgram.Value=$Program}
+  # Fatal closed gate over the entire executable projection and every owned helper.
+  $GateTokens=$null; $GateErrors=$null
+  $GateTree=[Management.Automation.Language.Parser]::ParseInput($Program,[ref]$GateTokens,[ref]$GateErrors)
+  if($GateErrors.Count -ne 0){throw 'WO24 whole-program parse gate refused'}
+  $AllowedTypes=@('string','string[]','bool','int','int64','byte[]','object','pscustomobject','hashtable','switch','array','StringComparison','StringComparer','System.StringComparison','regex','Collections.Generic.List[string]','Collections.Generic.List[object]','Collections.Generic.Dictionary[string,string]','Collections.Generic.Dictionary[string,int]','Collections.Generic.Dictionary[string,bool]','Collections.Generic.HashSet[string]','Text.Encoding')
+  $AllowedMethods=@('Add','Contains','ContainsKey','Remove','RemoveAt','Clear','Clone','GetEnumerator','StartsWith','EndsWith','Substring','Equals','Join','IsNullOrWhiteSpace','GetBytes','Match','Matches','Escape','IsMatch','Replace','Trim','ToString','new','IndexOf','ToArray')
+  $AllowedCommands=@('Where-Object','ForEach-Object','Sort-Object') + @($GateTree.FindAll({param($Node)$Node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{$_.Name})
+  foreach($Node in $GateTree.FindAll({param($Node)$true},$true)) {
+    if($Node -is [Management.Automation.Language.VariableExpressionAst] -and ($Node.VariablePath.IsDriveQualified -and $Node.VariablePath.DriveName -cne 'script')){throw 'WO24 whole-program environment/provider gate refused'}
+    if(($Node -is [Management.Automation.Language.TypeExpressionAst] -or $Node -is [Management.Automation.Language.TypeConstraintAst]) -and $Node.TypeName.FullName -cnotin $AllowedTypes){throw "WO24 whole-program closed type gate refused: $($Node.TypeName.FullName)"}
+    if($Node -is [Management.Automation.Language.AttributeAst] -and $Node.TypeName.FullName -cne 'AllowEmptyCollection'){throw 'WO24 whole-program closed attribute gate refused'}
+    if($Node -is [Management.Automation.Language.FileRedirectionAst]){throw 'WO24 whole-program file redirection gate refused'}
+    if($Node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and ($Node.Member -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $Node.Member.Value -cnotin $AllowedMethods)){throw 'WO24 whole-program closed member gate refused'}
+    if($Node -is [Management.Automation.Language.CommandAst]) {
+      $CommandName=$Node.GetCommandName()
+      if($null -eq $CommandName){if($Node.CommandElements[0] -isnot [Management.Automation.Language.ScriptBlockExpressionAst]){throw 'WO24 whole-program dynamic command gate refused'}}
+      elseif($CommandName -cnotin $AllowedCommands){throw "WO24 whole-program closed command gate refused: $CommandName"}
+    }
+  }
+  $Result = . ([scriptblock]::Create($Program))
+  if(@($Result).Count -ne 1){throw 'WO24 focused result cardinality refused'}
+  $Result | Add-Member -NotePropertyName WholeProgramGate -NotePropertyValue 'ZERO real environment/FS/provider/process/native/console/unknown accessors; closed AST types/commands/members'
+  $Result | Add-Member -NotePropertyName SelectedProgram -NotePropertyValue $Program
+  return $Result
+}
+
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ('hum-phase-test-' + [Guid]::NewGuid().ToString('N'))
 $null = [IO.Directory]::CreateDirectory($TestRoot)
 
@@ -745,7 +927,7 @@ try {
 
     function Invoke-OwnedObsUnavailableFramingControls {
       # Actual unavailable reporter under both owned host terminators, including the observed missing-parent path.
-      foreach ($HostNewline in @("`n", "`r`n")) {
+      foreach ($HostNewline in @([string][char]10, ([string][char]13 + [char]10))) {
         Reset-ObsCase; $script:ObsHostNewline = $HostNewline
         $null = $script:ObsDirs.Add('/obs/framing'); $script:LoopState = @{ PrimaryExited = $false }
         $S = @{ Binding = ''; Reported = [Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal) }
@@ -774,6 +956,9 @@ try {
       $ObsCases.Add('unavailable-framing-sink-refusal')
     }
     Invoke-OwnedObsUnavailableFramingControls
+    $Wo24Timing = Invoke-OwnedWo24StageTimingControls $CheckAllText $EvidenceText
+    foreach ($StageAssertion in $Wo24Timing.Assertions) { Test-ObsRequire $StageAssertion.Ok $StageAssertion.Message }
+    $ObsCases.Add('wo24-stage-owned-controls')
     Write-Host ("`nObs selector identities:")
     Write-Host ("  observer UTF16 [{0},{1}) sha256={2}" -f $ObsSel[0].Extent.StartOffset, $ObsSel[0].Extent.EndOffset, $ObsSha)
     Write-Host ("  loop UTF16 [{0},{1}) sha256={2}" -f $MainLoop.Extent.StartOffset, $MainLoop.Extent.EndOffset, $LoopSha)
