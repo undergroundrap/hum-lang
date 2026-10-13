@@ -976,7 +976,8 @@ function Update-HumPhaseProgress {
   function Report-ObsUnavailable([string]$Cause) {
     $Key = "unavailable_$Cause"
     if (-not $ObserverState.Reported.ContainsKey($Key)) {
-      Write-Host "phase_progress: observer unavailable ($Cause)"
+      # Explicit LF with no host-added terminator keeps PS5.1/PS7 framing identical.
+      Write-Host -NoNewline "phase_progress: observer unavailable ($Cause)`n"
       $ObserverState.Reported[$Key] = $true
     }
   }

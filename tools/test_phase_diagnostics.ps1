@@ -449,7 +449,7 @@ try {
     $ActualObs = $ObsSel[0].Extent.Text
     $ObsSha = ([BitConverter]::ToString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($ActualObs))).Replace('-','')).ToLowerInvariant()
     # Pinned expected hash for R3 observer (with unavailable-cause reporting)
-    $ExpectedObsSha = 'd82e2a28c9e26fe4ac9c9888bf93cb7aff6ed6becac9c4958ae7a2d86d2dc034'
+    $ExpectedObsSha = '34c833eb8c61c4994286f59c584908f19e364a472e2dbc45ea8e4e8569673ff7'
     if ($ObsSha -cne $ExpectedObsSha) { Throw-ObsFatal "observer hash mismatch: expected $ExpectedObsSha, got $ObsSha" }
     Write-Host ("  observer [run_fast_evidence.ps1] UTF16 [{0},{1}) line={2} sha256={3}" -f $ObsSel[0].Extent.StartOffset, $ObsSel[0].Extent.EndOffset, $ObsSel[0].Extent.StartLineNumber, $ObsSha)
     Test-ObsRequire ($ObsSha -ceq $ExpectedObsSha) 'observer matches pinned R3 identity'
@@ -507,6 +507,7 @@ try {
     $script:ObsHooks = [Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
     $script:ObsHostOut = [Collections.Generic.List[pscustomobject]]::new()
     $script:ObsReadThrow = $false; $script:ObsPathThrow = $false
+    $script:ObsHostThrow = $false; $script:ObsHostNewline = "`n"
     $script:ObsThrowObserver = $false
     $script:LoopTurns = 0
     $script:LoopMaxTurns = 10
@@ -522,9 +523,11 @@ try {
       if (($script:ObsDelayPath -ceq $Path) -and ($script:LoopTurns -lt $script:ObsDelayUntil)) { Register-ObsHook 'obs_delayed_read'; return '' }
       if ($script:ObsDelayPath -ceq $Path) { Register-ObsHook 'obs_delayed_read' }
       return $script:ObsFiles[$Path] }
-    function Write-OwnedObsHost([string]$Message) { Register-ObsHook 'obs_host'
-      # Record turn and capture-active state at emission for time-sensitive assertions
-      $null = $script:ObsHostOut.Add([pscustomobject]@{ Message = $Message; Turn = $script:LoopTurns; Active = -not $script:LoopState.PrimaryExited })
+    function Write-OwnedObsHost([string]$Message, [switch]$NoNewline) { Register-ObsHook 'obs_host'
+      if ($script:ObsHostThrow) { Register-ObsHook 'obs_host_refusal'; throw 'owned_obs_sink_refusal' }
+      # Record exact framing separately from message/turn/capture-active facts.
+      $Framed = if ($NoNewline) { $Message } else { $Message + $script:ObsHostNewline }
+      $null = $script:ObsHostOut.Add([pscustomobject]@{ Message = $Message; Framed = $Framed; NoNewline = [bool]$NoNewline; Turn = $script:LoopTurns; Active = -not $script:LoopState.PrimaryExited })
     }
     function Update-OwnedCaptureObservation { param($State, $Win, $NP, $MP, $JH, $ST, $ET, $CD) Register-ObsHook 'obs_observe'; $script:LoopTurns++; $Timer.ElapsedTicks += 1000
       # Script-controlled completion: set State flags when turns reached
@@ -541,6 +544,7 @@ try {
     function Reset-ObsCase {
       $script:ObsFiles.Clear(); $script:ObsDirs.Clear(); $script:ObsHostOut.Clear()
       $script:ObsReadThrow = $false; $script:ObsPathThrow = $false
+      $script:ObsHostThrow = $false; $script:ObsHostNewline = "`n"
       $script:ObsCorruptPath = ''; $script:ObsCorruptValue = ''; $script:ObsDelayPath = ''; $script:ObsDelayUntil = 0
       $script:ObsHooks.Clear(); $script:LoopTurns = 0; $script:LoopState = $null
     }
@@ -739,6 +743,37 @@ try {
     $ObsCases.Add('loop-discovery-refusal')
 
 
+    function Invoke-OwnedObsUnavailableFramingControls {
+      # Actual unavailable reporter under both owned host terminators, including the observed missing-parent path.
+      foreach ($HostNewline in @("`n", "`r`n")) {
+        Reset-ObsCase; $script:ObsHostNewline = $HostNewline
+        $null = $script:ObsDirs.Add('/obs/framing'); $script:LoopState = @{ PrimaryExited = $false }
+        $S = @{ Binding = ''; Reported = [Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal) }
+        Update-HumPhaseProgress '/obs/framing' $S; Update-HumPhaseProgress '/obs/framing' $S
+        Test-ObsRequire ($script:ObsHostOut.Count -eq 1) 'framing: missing parent is reported once per cause'
+        Test-ObsRequire ($script:ObsHostOut[0].NoNewline -and $script:ObsHostOut[0].Framed -ceq "phase_progress: observer unavailable (parent_binding_missing)`n") 'framing: explicit LF independent of owned host terminator'
+        Test-ObsRequire ((Get-ObsHookCount 'obs_exists') -eq 4 -and (Get-ObsHookCount 'obs_host') -eq 1) 'framing: actual discovery and output hooks consumed'
+        $ObsCases.Add("unavailable-framing-host-$($HostNewline.Length)")
+      }
+      Reset-ObsCase; New-ObsBinding '/obs/framing-corrupt' 'honestguid'; $script:LoopState = @{ PrimaryExited = $false }
+      $RawBinding = $script:ObsFiles['/obs/framing-corrupt/run-binding.txt']
+      $script:ObsCorruptPath = '/obs/framing-corrupt/run-binding.txt'; $script:ObsCorruptValue = 'binding_guid='
+      $S = @{ Binding = ''; Reported = [Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal) }
+      Update-HumPhaseProgress '/obs/framing-corrupt' $S
+      Test-ObsRequire ((Get-ObsHookCount 'obs_corrupt') -eq 1 -and $script:ObsFiles['/obs/framing-corrupt/run-binding.txt'] -ceq $RawBinding) 'framing: authoritative read corruption consumed with raw binding unchanged'
+      Test-ObsRequire ($script:ObsHostOut.Count -eq 1 -and $script:ObsHostOut[0].NoNewline -and $script:ObsHostOut[0].Framed -ceq "phase_progress: observer unavailable (parent_binding_malformed)`n") 'framing: other sanitized cause retains exact body and LF'
+      $ObsCases.Add('unavailable-framing-parent-corruption')
+      Reset-ObsCase; $null = $script:ObsDirs.Add('/obs/framing-sink'); $script:LoopState = @{ PrimaryExited = $false }
+      $S = @{ Binding = ''; Reported = [Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal) }
+      $script:ObsHostThrow = $true; $Escaped = $false
+      try { Update-HumPhaseProgress '/obs/framing-sink' $S } catch { $Escaped = $true }
+      Test-ObsRequire (-not $Escaped -and (Get-ObsHookCount 'obs_host_refusal') -eq 1 -and $script:ObsHostOut.Count -eq 0) 'framing: sink failure remains nonfatal and does not claim emission'
+      $script:ObsHostThrow = $false
+      Update-HumPhaseProgress '/obs/framing-sink' $S; Update-HumPhaseProgress '/obs/framing-sink' $S
+      Test-ObsRequire ($script:ObsHostOut.Count -eq 1 -and (Get-ObsHookCount 'obs_host') -eq 2 -and $script:ObsHostOut[0].Framed -ceq "phase_progress: observer unavailable (parent_binding_missing)`n") 'framing: recovered sink reports once without changing unavailable body'
+      $ObsCases.Add('unavailable-framing-sink-refusal')
+    }
+    Invoke-OwnedObsUnavailableFramingControls
     Write-Host ("`nObs selector identities:")
     Write-Host ("  observer UTF16 [{0},{1}) sha256={2}" -f $ObsSel[0].Extent.StartOffset, $ObsSel[0].Extent.EndOffset, $ObsSha)
     Write-Host ("  loop UTF16 [{0},{1}) sha256={2}" -f $MainLoop.Extent.StartOffset, $MainLoop.Extent.EndOffset, $LoopSha)
