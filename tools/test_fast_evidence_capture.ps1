@@ -2179,7 +2179,9 @@ try {
   $WindowsCaptures = @()
   $SetupCaptures = @()
   if ($env:OS -eq 'Windows_NT') {
-    $ContainedDescendantDeadlineSeconds = 4
+    # Run 38347038590 attempt 1 refused redirected-parent before process creation at 4 s.
+    # Match the existing inherited-parent 8 s headroom; the survivor still sleeps 12 s.
+    $ContainedDescendantDeadlineSeconds = 8
     # The inherited-parent case runs its absolute deadline against the slowest pre-launch
     # path: job-object creation plus two nested pwsh starts. On loaded Windows runners the
     # setup alone can spend the whole 4 s budget ("absolute deadline expired before process
