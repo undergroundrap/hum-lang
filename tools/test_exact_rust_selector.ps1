@@ -110,28 +110,73 @@ function Invoke-ExactRustTest {
   Write-Host "==> $Label"
   Assert-ExactRustSelectorSyntax $Selector
 
-  $ListResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact', '--list')
-  if ($ListResult.ExitCode -ne 0) {
-    $ListResult.Output | ForEach-Object { Write-Host $_ }
-    throw "$Label could not list '$Selector'; cargo exited $($ListResult.ExitCode)"
+  $SelectorPhasePrefix = ''
+  try {
+    # Only the current WO24 row/role owners receive nested diagnostics.
+    $Rows = @(
+      @('N01 program-neutral feature identity', 'n01', 'native_program::tests::native_feature_discrimination_is_typed_and_load_bearing'),
+      @('N02 exact constant-Text body admission', 'n02', 'backend_input::tests::canonical_hello_world_backend_input_is_exact_and_nonforgeable'),
+      @('N03 v2 live artifact equality', 'n03', 'ir_verify::tests::hello_world_artifact_rejection_matrix_is_complete'),
+      @('N04 verified source literal getter', 'n04', 'backend_cranelift::tests::hello_world_lowering_is_source_driven_and_load_bearing'),
+      @('N05 exact finalized invocation evidence', 'n05', 'backend_cranelift::tests::hello_world_lowering_is_source_driven_and_load_bearing'),
+      @('N06 deny-first operator consent', 'n06', 'main::tests::native_hello_world_run_is_authority_bound_and_platform_exact'),
+      @('N07 native rejection cannot fall back', 'n07', 'native_program::tests::native_feature_discrimination_is_typed_and_load_bearing'),
+      @('N08 required target admission', 'n08', 'backend_cranelift::tests::hello_world_lowering_is_source_driven_and_load_bearing')
+    )
+    $Roles = @(
+      @('honest selector before mutation', 'before'),
+      @('initialized mutation', 'mutation'),
+      @('honest selector after restoration', 'after')
+    )
+    foreach ($Row in $Rows) {
+      foreach ($Role in $Roles) {
+        if ([string]::Equals($Label, ('Work Order 24 ' + $Row[0] + ' ' + $Role[0]), [StringComparison]::Ordinal) -and
+            [string]::Equals($Selector, $Row[2], [StringComparison]::Ordinal)) {
+          $SelectorPhasePrefix = 'compiler-front-wo24-' + $Row[1] + '-' + $Role[1]
+        }
+      }
+    }
+  } catch { $SelectorPhasePrefix = '' }
+  $WriteSelectorPhaseMarker = {
+    param([string] $Part, [string] $Event, [string] $Outcome = '')
+    if ([string]::IsNullOrEmpty($SelectorPhasePrefix)) { return }
+    try { $null = Write-HumPhaseMarker ($SelectorPhasePrefix + '-' + $Part) $Event $Outcome } catch {
+      # Diagnostics are optional, including when this helper is used standalone.
+    }
   }
 
-  $EscapedSelector = [regex]::Escape($Selector)
-  $ListedTests = @($ListResult.Output | Where-Object { $_ -match ': test$' })
-  $ExactListings = @($ListedTests | Where-Object { $_ -match "^${EscapedSelector}: test$" })
-  if ($ListedTests.Count -ne 1 -or $ExactListings.Count -ne 1) {
-    $ListResult.Output | ForEach-Object { Write-Host $_ }
-    throw "$Label must resolve '$Selector' to exactly one test before execution; listed $($ListedTests.Count) total and $($ExactListings.Count) exact"
-  }
+  $ListPhaseOutcome = 'failed'
+  $null = & $WriteSelectorPhaseMarker 'list' 'start'
+  try {
+    $ListResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact', '--list')
+    if ($ListResult.ExitCode -ne 0) {
+      $ListResult.Output | ForEach-Object { Write-Host $_ }
+      throw "$Label could not list '$Selector'; cargo exited $($ListResult.ExitCode)"
+    }
 
-  $RunResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact')
-  $RunResult.Output | ForEach-Object { Write-Host $_ }
-  if ($RunResult.ExitCode -ne 0) {
-    throw "$Label failed with exit code $($RunResult.ExitCode)"
-  }
+    $EscapedSelector = [regex]::Escape($Selector)
+    $ListedTests = @($ListResult.Output | Where-Object { $_ -match ': test$' })
+    $ExactListings = @($ListedTests | Where-Object { $_ -match "^${EscapedSelector}: test$" })
+    if ($ListedTests.Count -ne 1 -or $ExactListings.Count -ne 1) {
+      $ListResult.Output | ForEach-Object { Write-Host $_ }
+      throw "$Label must resolve '$Selector' to exactly one test before execution; listed $($ListedTests.Count) total and $($ExactListings.Count) exact"
+    }
+    $ListPhaseOutcome = 'completed'
+  } finally { $null = & $WriteSelectorPhaseMarker 'list' 'end' $ListPhaseOutcome }
 
-  Assert-ExactRustSelectorEvidence $Selector $ListResult.Output $RunResult.Output
-  $script:ExactRustSelectorCredits.Add($Selector)
+  $RunPhaseOutcome = 'failed'
+  $null = & $WriteSelectorPhaseMarker 'run' 'start'
+  try {
+    $RunResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact')
+    $RunResult.Output | ForEach-Object { Write-Host $_ }
+    if ($RunResult.ExitCode -ne 0) {
+      throw "$Label failed with exit code $($RunResult.ExitCode)"
+    }
+
+    Assert-ExactRustSelectorEvidence $Selector $ListResult.Output $RunResult.Output
+    $script:ExactRustSelectorCredits.Add($Selector)
+    $RunPhaseOutcome = 'completed'
+  } finally { $null = & $WriteSelectorPhaseMarker 'run' 'end' $RunPhaseOutcome }
 }
 
 function Assert-ExactRustSelectorThrows {
