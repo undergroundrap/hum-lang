@@ -2041,10 +2041,10 @@ function Invoke-HumCoreCheck {
     'clippy' { Invoke-Native 'cargo clippy' $Cargo @('clippy', '--all-targets', '--', '-D', 'warnings', '-D', 'clippy::undocumented_unsafe_blocks') }
     'build' { Invoke-Native 'cargo build' $Cargo @('build') }
     'hygiene' {
-      Invoke-Wo25StrictModeContract
-      Invoke-RepoScript 'fixed validation policy controls' 'test_ci_policy.ps1'
-      Invoke-RepoScript 'validation bootstrap probe' 'test_validation_bootstrap.ps1'
-      Invoke-RepoScript 'workorder discovery regression' 'test_workorder_discovery.ps1'
+      Invoke-HumPhase 'hygiene-strictmode-contract' { Invoke-Wo25StrictModeContract }
+      Invoke-HumPhase 'hygiene-ci-policy-controls' { Invoke-RepoScript 'fixed validation policy controls' 'test_ci_policy.ps1' }
+      Invoke-HumPhase 'hygiene-validation-bootstrap' { Invoke-RepoScript 'validation bootstrap probe' 'test_validation_bootstrap.ps1' }
+      Invoke-HumPhase 'hygiene-workorder-discovery' { Invoke-RepoScript 'workorder discovery regression' 'test_workorder_discovery.ps1' }
       # Decision 0025 amendment (2026-09-23, boolean transport): the
       # status-boundary classifier is the consumer that lets workorders/
       # route at language rank. The fixed profiles (language/runtime/compiler)
@@ -2059,13 +2059,13 @@ function Invoke-HumCoreCheck {
       # base policy before this code runs.
       $BoundaryRequired = $env:HUM_CI_BOUNDARY_REQUIRED -cne 'false'
       if ($BoundaryRequired) {
-        Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1'
+        Invoke-HumPhase 'hygiene-status-boundary' { Invoke-RepoScript 'Work Order status-boundary classifier tests' 'test_workorder_status_boundary.ps1' }
       } else {
         Write-Host 'Skipping Work Order status-boundary classifier tests: plan step computed boundary_required=false from the accepted base policy.'
       }
-      Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1'
-      Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1'
-      Invoke-RepoScript 'release readiness' 'check_release_readiness.ps1'
+      Invoke-HumPhase 'hygiene-text' { Invoke-RepoScript 'text hygiene' 'check_text_hygiene.ps1' }
+      Invoke-HumPhase 'hygiene-public-readiness' { Invoke-RepoScript 'public readiness' 'check_public_readiness.ps1' }
+      Invoke-HumPhase 'hygiene-release-readiness' { Invoke-RepoScript 'release readiness' 'check_release_readiness.ps1' }
     }
     default { throw 'ci_profile: unknown core group' }
   }
