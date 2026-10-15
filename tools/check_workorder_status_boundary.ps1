@@ -390,11 +390,8 @@ function Get-RawMarkerLineCount {
   }
 
   $Count = 0
-  for ($Start = 0; $Start -le ($Bytes.Length - $MarkerBytes.Length); $Start += 1) {
-    if ($Start -gt 0 -and $Bytes[$Start - 1] -ne 0x0A) {
-      continue
-    }
-
+  $Start = 0
+  while ($Start -le ($Bytes.Length - $MarkerBytes.Length)) {
     $Matches = $true
     for ($Offset = 0; $Offset -lt $MarkerBytes.Length; $Offset += 1) {
       if ($Bytes[$Start + $Offset] -ne $MarkerBytes[$Offset]) {
@@ -402,15 +399,18 @@ function Get-RawMarkerLineCount {
         break
       }
     }
-    if (-not $Matches) {
-      continue
+    if ($Matches) {
+      $After = $Start + $MarkerBytes.Length
+      if ($After -eq $Bytes.Length -or $Bytes[$After] -eq 0x0A) {
+        $Count += 1
+      }
     }
 
-    $After = $Start + $MarkerBytes.Length
-    if ($After -lt $Bytes.Length -and $Bytes[$After] -ne 0x0A) {
-      continue
-    }
-    $Count += 1
+    # Only BOF and positions after LF can match. Search for the next LF in
+    # Array.IndexOf rather than visiting every intervening byte in PowerShell.
+    $NextLf = [System.Array]::IndexOf($Bytes, [byte]0x0A, $Start)
+    if ($NextLf -lt 0) { break }
+    $Start = $NextLf + 1
   }
   return $Count
 }
