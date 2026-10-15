@@ -168,7 +168,8 @@ function Invoke-BoundaryGit {
 function Invoke-BoundaryGitBytes {
   param(
     [string] $RepoPath,
-    [string[]] $Arguments
+    [string[]] $Arguments,
+    [scriptblock] $BatchAction = $null
   )
 
   foreach ($Argument in $Arguments) {
@@ -184,32 +185,128 @@ function Invoke-BoundaryGitBytes {
     Throw-WorkOrderBoundaryFailure 'repository_trust_invalid'
   }
   $TrustPath = $RepoPath.Replace('\', '/')
-  $StartInfo.Arguments = (@('--no-replace-objects', '-c', "safe.directory=$TrustPath") + $Arguments) -join ' '
+  $NativeArguments = if ($null -eq $BatchAction) { $Arguments } else { @('cat-file', '--batch') }
+  $StartInfo.Arguments = (@('--no-replace-objects', '-c', "safe.directory=$TrustPath") + $NativeArguments) -join ' '
   $StartInfo.UseShellExecute = $false
   $StartInfo.CreateNoWindow = $true
   $StartInfo.RedirectStandardOutput = $true
   $StartInfo.RedirectStandardError = $true
+  if ($null -ne $BatchAction) { $StartInfo.RedirectStandardInput = $true }
 
   $Process = New-Object System.Diagnostics.Process
   $Process.StartInfo = $StartInfo
-  if (-not $Process.Start()) {
-    Throw-WorkOrderBoundaryFailure 'git_byte_read_failed'
-  }
-
-  $ErrorTask = $Process.StandardError.ReadToEndAsync()
-  $Bytes = New-Object System.IO.MemoryStream
-  try {
-    $Process.StandardOutput.BaseStream.CopyTo($Bytes)
-    $Process.WaitForExit()
-    $ErrorText = $ErrorTask.Result
-    if ($Process.ExitCode -ne 0) {
+  if ($null -eq $BatchAction) {
+    if (-not $Process.Start()) {
       Throw-WorkOrderBoundaryFailure 'git_byte_read_failed'
     }
-    return $Bytes.ToArray()
-  } finally {
-    $Bytes.Dispose()
-    $Process.Dispose()
+
+    $ErrorTask = $Process.StandardError.ReadToEndAsync()
+    $Bytes = New-Object System.IO.MemoryStream
+    try {
+      $Process.StandardOutput.BaseStream.CopyTo($Bytes)
+      $Process.WaitForExit()
+      $ErrorText = $ErrorTask.Result
+      if ($Process.ExitCode -ne 0) {
+        Throw-WorkOrderBoundaryFailure 'git_byte_read_failed'
+      }
+      return $Bytes.ToArray()
+    } finally {
+      $Bytes.Dispose()
+      $Process.Dispose()
+    }
   }
+
+  # One request/response at a time keeps both pipes moving without retaining
+  # repository-wide blob output. Git's default --batch flushes each object.
+  $Started = $false
+  $InputClosed = $false
+  $Waited = $false
+  $ErrorSettled = $false
+  $ErrorTask = $null
+  $PrimaryFailure = $null
+  $CleanupFailed = $false
+  $BatchResult = $null
+  try {
+    try {
+      if (-not $Process.Start()) { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+      $Started = $true
+      $ErrorTask = $Process.StandardError.ReadToEndAsync()
+    } catch { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+
+    $ReadBlob = {
+      param([string] $ObjectId)
+      if ($ObjectId -notmatch '^[A-Za-z0-9_./:{}^=+-]+$') {
+        Throw-WorkOrderBoundaryFailure 'git_byte_argument_invalid'
+      }
+      try {
+        [byte[]]$Request = [Text.Encoding]::ASCII.GetBytes($ObjectId + "`n")
+        $Process.StandardInput.BaseStream.Write($Request, 0, $Request.Length)
+        $Process.StandardInput.BaseStream.Flush()
+        $Header = New-Object 'System.Collections.Generic.List[byte]'
+        while ($true) {
+          $Next = $Process.StandardOutput.BaseStream.ReadByte()
+          if ($Next -lt 0 -or $Header.Count -ge 64) { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+          if ($Next -eq 10) { break }
+          if ($Next -gt 127) { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+          $Header.Add([byte]$Next)
+        }
+        $HeaderText = [Text.Encoding]::ASCII.GetString($Header.ToArray())
+        $Prefix = $ObjectId + ' blob '
+        if (-not $HeaderText.StartsWith($Prefix, [StringComparison]::Ordinal)) {
+          Throw-WorkOrderBoundaryFailure 'git_byte_read_failed'
+        }
+        $SizeText = $HeaderText.Substring($Prefix.Length)
+        $Size = 0
+        if ($SizeText -notmatch '^(0|[1-9][0-9]*)$' -or
+            -not [int]::TryParse($SizeText, [ref]$Size)) {
+          Throw-WorkOrderBoundaryFailure 'git_byte_read_failed'
+        }
+        [byte[]]$Payload = New-Object byte[] $Size
+        $Offset = 0
+        while ($Offset -lt $Payload.Length) {
+          $Read = $Process.StandardOutput.BaseStream.Read($Payload, $Offset, $Payload.Length - $Offset)
+          if ($Read -le 0 -or $Read -gt ($Payload.Length - $Offset)) { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+          $Offset += $Read
+        }
+        if ($Process.StandardOutput.BaseStream.ReadByte() -ne 10) { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+        return ,$Payload
+      } catch { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+    }
+    $BatchResult = & $BatchAction $ReadBlob
+    try {
+      $Process.StandardInput.Close()
+      $InputClosed = $true
+      if ($Process.StandardOutput.BaseStream.ReadByte() -ne -1) { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+      $Process.WaitForExit()
+      $Waited = $true
+      $ErrorSettled = $true
+      $ErrorText = $ErrorTask.Result
+      if ($Process.ExitCode -ne 0) { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+    } catch { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+  } catch {
+    $PrimaryFailure = $_
+  } finally {
+    if ($Started) {
+      if (-not $InputClosed) {
+        try { $Process.StandardInput.Close() } catch { $CleanupFailed = $true }
+      }
+      if ($null -ne $PrimaryFailure) {
+        try { $Process.StandardOutput.BaseStream.CopyTo([IO.Stream]::Null) } catch { $CleanupFailed = $true }
+      }
+      if (-not $Waited) {
+        try { $Process.WaitForExit() } catch { $CleanupFailed = $true }
+      }
+      if ($null -ne $ErrorTask -and -not $ErrorSettled) {
+        try { $ErrorText = $ErrorTask.Result } catch { $CleanupFailed = $true }
+      }
+    }
+    try { $Process.Dispose() } catch { $CleanupFailed = $true }
+  }
+  # Settlement is attempted under the existing outer capture lifetime; neither
+  # Dispose nor these unbounded waits claim native termination/quiescence.
+  if ($null -ne $PrimaryFailure) { throw $PrimaryFailure }
+  if ($CleanupFailed) { Throw-WorkOrderBoundaryFailure 'git_byte_read_failed' }
+  return $BatchResult
 }
 
 function Assert-NoHistoryRewriteMetadata {
@@ -421,24 +518,37 @@ function Get-RepositoryMarkerCount {
     [object[]] $Entries
   )
 
-  $Count = 0
-  foreach ($Entry in $Entries) {
+  for ($FirstBlobIndex = 0; $FirstBlobIndex -lt $Entries.Count; $FirstBlobIndex += 1) {
+    $Entry = $Entries[$FirstBlobIndex]
     if ($Entry.Type -ceq 'blob') {
       if (-not @('100644', '100755', '120000').Contains([string]$Entry.Mode)) {
         Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
       }
-      $BlobBytes = Invoke-BoundaryGitBytes $RepoPath @(
-        'cat-file', 'blob', [string]$Entry.ObjectId
-      )
-      $Count += Get-RawMarkerLineCount $BlobBytes
-      continue
+      $FirstObjectId = [string]$Entry.ObjectId
+      return Invoke-BoundaryGitBytes $RepoPath @('cat-file', 'blob', $FirstObjectId) -BatchAction {
+        param([scriptblock] $ReadBlob)
+        [byte[]]$BlobBytes = & $ReadBlob $FirstObjectId
+        $Count = Get-RawMarkerLineCount $BlobBytes
+        for ($EntryIndex = $FirstBlobIndex + 1; $EntryIndex -lt $Entries.Count; $EntryIndex += 1) {
+          $BatchEntry = $Entries[$EntryIndex]
+          if ($BatchEntry.Type -ceq 'blob') {
+            if (-not @('100644', '100755', '120000').Contains([string]$BatchEntry.Mode)) {
+              Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
+            }
+            [byte[]]$BlobBytes = & $ReadBlob ([string]$BatchEntry.ObjectId)
+            $Count += Get-RawMarkerLineCount $BlobBytes
+            continue
+          }
+          if ($BatchEntry.Type -ceq 'commit' -and $BatchEntry.Mode -ceq '160000') { continue }
+          Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
+        }
+        return $Count
+      }
     }
-    if ($Entry.Type -ceq 'commit' -and $Entry.Mode -ceq '160000') {
-      continue
-    }
+    if ($Entry.Type -ceq 'commit' -and $Entry.Mode -ceq '160000') { continue }
     Throw-WorkOrderBoundaryFailure 'workorder_inventory_invalid'
   }
-  return $Count
+  return 0
 }
 
 function Resolve-ActiveWorkOrderBlob {

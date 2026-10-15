@@ -856,6 +856,203 @@ function Assert-ProductionSeamIsClosed {
     Assert-BoundaryTest $ScopeRejected 'classifier topology-scope corruption did not fail closed'
   }
 
+  # Exercise the actual byte transport/marker consumer with owned ordinal facts.
+  # No Git process, repository, filesystem or environment accessor is compiled.
+  $BoundaryBatchChecks = & {
+    param([string] $Source, [string] $Marker)
+    $Tokens = $null; $Errors = $null
+    $Ast = [Management.Automation.Language.Parser]::ParseInput($Source, [ref]$Tokens, [ref]$Errors)
+    if ($Errors.Count -ne 0) { throw 'boundary batch source parse failed' }
+    $Definitions = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($Name in @('Throw-WorkOrderBoundaryFailure', 'Invoke-BoundaryGitBytes', 'Get-RawMarkerLineCount', 'Get-RepositoryMarkerCount')) {
+      $Found = @($Ast.FindAll({ param($Node) $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq $Name }, $true))
+      if ($Found.Count -ne 1) { throw "boundary batch source owner is not unique: $Name" }
+      $Definitions.Add($Found[0].Extent.Text)
+    }
+    $Selected = [string]::Join("`n", $Definitions)
+    $Replacements = @(
+      @('New-Object System.Diagnostics.ProcessStartInfo', 'New-OwnedStartInfo'),
+      @('New-Object System.Diagnostics.Process', 'New-OwnedProcess'),
+      @('Resolve-BoundaryGit', 'Resolve-OwnedGit'),
+      @('[IO.Path]::IsPathFullyQualified($RepoPath)', '(Test-OwnedRepoPath $RepoPath)'),
+      @('$Process.StandardOutput.BaseStream.CopyTo([IO.Stream]::Null)', 'Drain-OwnedStdout'),
+      @('$Process.StandardOutput.BaseStream.CopyTo($Bytes)', 'Copy-OwnedStdout $Bytes'),
+      @('$Process.StandardOutput.BaseStream.Read($Payload, $Offset, $Payload.Length - $Offset)', '(Read-OwnedPayload $Payload $Offset ($Payload.Length - $Offset))'),
+      @('$Process.StandardOutput.BaseStream.ReadByte()', '(Read-OwnedByte)'),
+      @('$Process.StandardInput.BaseStream.Write($Request, 0, $Request.Length)', 'Write-OwnedInput $Request'),
+      @('$Process.StandardInput.BaseStream.Flush()', 'Flush-OwnedInput'),
+      @('$Process.StandardInput.Close()', 'Close-OwnedInput'),
+      @('$Process.StandardError.ReadToEndAsync()', '(Start-OwnedStderr)'),
+      @('$ErrorTask.Result', '(Get-OwnedStderr)'),
+      @('$Process.WaitForExit()', 'Wait-OwnedExit'),
+      @('$Process.ExitCode', '(Get-OwnedExitCode)'),
+      @('$Process.Start()', '(Start-OwnedProcess)'),
+      @('$Process.Dispose()', 'Dispose-OwnedProcess')
+    )
+    $SubstitutionCounts = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($Replacement in $Replacements) {
+      $Hits = [regex]::Matches($Selected, [regex]::Escape($Replacement[0])).Count
+      if ($Hits -lt 1) { throw "boundary batch owned substitution missing: $($Replacement[0])" }
+      $SubstitutionCounts.Add([pscustomobject]@{ Selector = $Replacement[0]; Hits = $Hits })
+      $Selected = $Selected.Replace($Replacement[0], $Replacement[1])
+    }
+    $Owned = @'
+param([string] $OwnedMarker)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$script:WorkOrderBoundaryActiveMarker = $OwnedMarker
+$script:OwnedChecks = 0
+$script:OwnedCalls = 0
+$script:OwnedCaseNames = New-Object 'System.Collections.Generic.List[string]'
+$script:OwnedRows = New-Object 'System.Collections.Generic.List[object]'
+function Assert-Owned { param([bool]$Value,[string]$Label) $script:OwnedChecks++; if (-not $Value) { throw "owned boundary batch: $Label" } }
+function Reset-Owned {
+  param([byte[]]$Response = @(), [string[]]$Faults = @(), [int]$ExitCode = 0)
+  $script:Owned = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+  $script:Owned['Response'] = $Response; $script:Owned['Position'] = 0; $script:Owned['ExitCode'] = $ExitCode
+  $script:Owned['Events'] = New-Object 'System.Collections.Generic.List[string]'
+  $script:Owned['Requests'] = New-Object 'System.Collections.Generic.List[string]'
+  $script:Owned['Faults'] = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($Fault in $Faults) { $null = $script:Owned['Faults'].Add($Fault) }
+  $script:Owned['Hooks'] = [Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+}
+function Step-Owned {
+  param([string]$Stage)
+  $script:Owned['Events'].Add($Stage)
+  if (-not $script:Owned['Hooks'].ContainsKey($Stage)) { $script:Owned['Hooks'][$Stage] = 0 }
+  $script:Owned['Hooks'][$Stage]++
+  if ($script:Owned['Faults'].Contains($Stage)) { throw "owned $Stage fault" }
+}
+function New-OwnedStartInfo {
+  Step-Owned 'info'
+  return [pscustomobject]@{ FileName=''; WorkingDirectory=''; Arguments=''; UseShellExecute=$true; CreateNoWindow=$false; RedirectStandardOutput=$false; RedirectStandardError=$false; RedirectStandardInput=$false }
+}
+function New-OwnedProcess { Step-Owned 'process'; return [pscustomobject]@{ StartInfo=$null } }
+function Resolve-OwnedGit {
+  Step-Owned 'identity'
+  if ($script:Owned['Faults'].Contains('bad_identity')) { Throw-WorkOrderBoundaryFailure 'git_identity_invalid' }
+  return 'owned-git'
+}
+function Test-OwnedRepoPath { param([string]$Path) Step-Owned 'trust'; return -not $script:Owned['Faults'].Contains('bad_trust') }
+function Start-OwnedProcess { Step-Owned 'start'; return -not $script:Owned['Faults'].Contains('false_start') }
+function Start-OwnedStderr { Step-Owned 'stderr_start'; return [pscustomobject]@{ Owned=$true } }
+function Get-OwnedStderr { Step-Owned 'stderr_settle'; return 'owned nonempty stderr is allowed' }
+function Get-OwnedExitCode { Step-Owned 'exit'; return $script:Owned['ExitCode'] }
+function Write-OwnedInput {
+  param([byte[]]$Data)
+  Step-Owned 'write'
+  $script:Owned['Requests'].Add([Text.Encoding]::ASCII.GetString($Data))
+}
+function Flush-OwnedInput { Step-Owned 'flush' }
+function Close-OwnedInput { Step-Owned 'close' }
+function Read-OwnedByte {
+  Step-Owned 'read_byte'
+  $At = [int]$script:Owned['Position']; [byte[]]$Data = $script:Owned['Response']
+  if ($At -ge $Data.Length) { return -1 }
+  $script:Owned['Position'] = $At + 1; return [int]$Data[$At]
+}
+function Read-OwnedPayload {
+  param([byte[]]$Buffer,[int]$Offset,[int]$Count)
+  Step-Owned 'read_payload'
+  [byte[]]$Data = $script:Owned['Response']; $At = [int]$script:Owned['Position']
+  $Take = [Math]::Min(2, [Math]::Min($Count, $Data.Length - $At))
+  if ($Take -gt 0) { [Array]::Copy($Data,$At,$Buffer,$Offset,$Take); $script:Owned['Position'] = $At + $Take }
+  return $Take
+}
+function Copy-OwnedStdout { param([IO.MemoryStream]$Destination) Step-Owned 'copy'; [byte[]]$Data=$script:Owned['Response']; $Destination.Write($Data,0,$Data.Length); $script:Owned['Position']=$Data.Length }
+function Drain-OwnedStdout { Step-Owned 'drain'; $script:Owned['Position']=$script:Owned['Response'].Length }
+function Wait-OwnedExit { Step-Owned 'wait' }
+function Dispose-OwnedProcess { Step-Owned 'dispose' }
+function Frame-Owned { param([string]$Id,[byte[]]$Payload) return ,([Text.Encoding]::ASCII.GetBytes($Id+' blob '+$Payload.Length+"`n") + $Payload + [byte[]]@(10)) }
+function Entry-Owned { param([string]$Id,[string]$Mode='100644',[string]$Type='blob') return [pscustomobject]@{ ObjectId=$Id; Mode=$Mode; Type=$Type; Path='owned' } }
+function Invoke-OwnedCase {
+  param([string]$Name,[object[]]$Entries,[string]$Failure='', [int]$Expected=0)
+  $script:OwnedCalls++; $script:OwnedCaseNames.Add($Name)
+  $Actual=$null; $Caught=''
+  try { $Actual=Get-RepositoryMarkerCount 'owned-repo' $Entries } catch { $Caught=$_.Exception.Message }
+  Assert-Owned ($Caught -ceq $Failure) "$Name public failure: $Caught"
+  if ($Failure -ceq '') { Assert-Owned ($Actual -is [int] -and $Actual -eq $Expected) "$Name count" }
+  else { Assert-Owned ($null -eq $Actual) "$Name partial success" }
+  $script:OwnedRows.Add([pscustomobject]@{ Name=$Name; Failure=$Caught; Count=$Actual; Requests=$script:Owned['Requests'].ToArray(); Events=$script:Owned['Events'].ToArray(); Hooks=$script:Owned['Hooks'] })
+}
+'@
+    $Cases = @'
+$Id='a'*40; $Other='b'*40; $Bad=Entry-Owned $Id '100600'; $Blob=Entry-Owned $Id
+$Gitlink=Entry-Owned $Id '160000' 'commit'; [byte[]]$Mark=[Text.Encoding]::ASCII.GetBytes($OwnedMarker+"`n")
+Reset-Owned -Faults @('bad_identity','start'); Invoke-OwnedCase 'invalid first' @($Bad) 'workorder-boundary:workorder_inventory_invalid'
+Assert-Owned ($script:Owned['Events'].Count -eq 0) 'invalid first touched native facts'
+Reset-Owned; Invoke-OwnedCase 'empty' @(); Assert-Owned ($script:Owned['Events'].Count -eq 0) 'empty launched'
+Reset-Owned; Invoke-OwnedCase 'gitlink only' @($Gitlink); Assert-Owned ($script:Owned['Events'].Count -eq 0) 'gitlink launched'
+foreach ($Mode in @('100644','100755','120000')) {
+  Reset-Owned (Frame-Owned $Id $Mark); Invoke-OwnedCase "mode $Mode" @((Entry-Owned $Id $Mode)) '' 1
+  Assert-Owned ($script:Owned['Hooks']['start'] -eq 1 -and $script:Owned['Requests'][0] -ceq ($Id+"`n")) 'one exact request'
+}
+Reset-Owned ((Frame-Owned $Id $Mark)+(Frame-Owned $Id $Mark)); Invoke-OwnedCase 'duplicate OID' @($Blob,$Gitlink,$Blob) '' 2
+Assert-Owned ($script:Owned['Hooks']['start'] -eq 1 -and $script:Owned['Requests'].Count -eq 2) 'duplicate multiplicity/one start'
+Assert-Owned ($script:Owned['Hooks']['read_payload'] -gt 2) 'partial reads unused'
+foreach ($Tiny in @([byte[]]@(),[byte[]]@(0))) {
+  Reset-Owned (Frame-Owned $Id $Tiny); Invoke-OwnedCase "tiny $($Tiny.Length)" @($Blob) '' 0
+}
+[byte[]]$Binary=[byte[]]@(0,255,13,239,187,191,10)+$Mark+[byte[]]@(255,0,10)+[Text.Encoding]::ASCII.GetBytes($OwnedMarker)
+Reset-Owned (Frame-Owned $Id $Binary); Invoke-OwnedCase 'binary LF EOF' @($Blob) '' 2
+foreach ($Response in @(
+  [Text.Encoding]::ASCII.GetBytes($Id+" missing`n"),
+  (Frame-Owned $Other $Mark),
+  [Text.Encoding]::ASCII.GetBytes($Id+" tree 0`n`n"),
+  [Text.Encoding]::ASCII.GetBytes($Id+" blob x`n"),
+  [Text.Encoding]::ASCII.GetBytes($Id+" blob 2147483648`n"),
+  [Text.Encoding]::ASCII.GetBytes($Id+" blob 2`nA"),
+  [Text.Encoding]::ASCII.GetBytes($Id+" blob 0`nX"),
+  [Text.Encoding]::ASCII.GetBytes($Id+' blob 0')
+)) {
+  Reset-Owned $Response; Invoke-OwnedCase "bad frame $($script:OwnedCalls)" @($Blob,$Bad) 'workorder-boundary:git_byte_read_failed'
+  Assert-Owned ($script:Owned['Requests'].Count -eq 1 -and $script:Owned['Hooks']['read_byte'] -gt 0) 'frame failure advanced'
+}
+Reset-Owned (Frame-Owned $Id $Mark); Invoke-OwnedCase 'missing next frame' @($Blob,$Blob) 'workorder-boundary:git_byte_read_failed'
+Reset-Owned ((Frame-Owned $Id $Mark)+[byte[]]@(88)); Invoke-OwnedCase 'extra terminal byte' @($Blob) 'workorder-boundary:git_byte_read_failed'
+Reset-Owned (Frame-Owned $Id $Mark) -ExitCode 9; Invoke-OwnedCase 'late exit' @($Blob) 'workorder-boundary:git_byte_read_failed'
+Assert-Owned ($script:Owned['Hooks']['exit'] -eq 1) 'exit fact not consumed'
+foreach ($Fault in @('start','write','flush','read_byte','read_payload','close','stderr_settle','wait','dispose')) {
+  Reset-Owned (Frame-Owned $Id $Mark) @($Fault); Invoke-OwnedCase "I/O $Fault" @($Blob) 'workorder-boundary:git_byte_read_failed'
+  Assert-Owned ($script:Owned['Hooks'][$Fault] -gt 0) "fault hook $Fault"
+}
+Reset-Owned (Frame-Owned $Id $Mark) @('close','drain','wait','stderr_settle','dispose')
+Invoke-OwnedCase 'inventory primary cleanup' @($Blob,$Bad) 'workorder-boundary:workorder_inventory_invalid'
+$Order=[string]::Join(',', $script:Owned['Events'])
+Assert-Owned ($Order -match 'close,drain,wait,stderr_settle,dispose$') 'cleanup attempt order'
+Reset-Owned ([Text.Encoding]::ASCII.GetBytes($Id+" missing`n")) @('close','drain','wait','stderr_settle','dispose')
+Invoke-OwnedCase 'frame primary cleanup' @($Blob,$Bad) 'workorder-boundary:git_byte_read_failed'
+Assert-Owned ([string]::Join(',', $script:Owned['Events']) -match 'close,drain,wait,stderr_settle,dispose$') 'frame cleanup order'
+foreach ($Faults in @(@('bad_identity','bad_trust','copy'),@('bad_trust','copy'))) {
+  Reset-Owned -Faults $Faults; $Caught=''
+  try { Invoke-BoundaryGitBytes 'owned-repo' @('cat-file','blob',$Id) | Out-Null } catch { $Caught=$_.Exception.Message }
+  $Want=if($Faults[0] -ceq 'bad_identity'){'git_identity_invalid'}else{'repository_trust_invalid'}
+  Assert-Owned ($Caught -ceq ('workorder-boundary:'+$Want)) 'legacy precedence'
+}
+Reset-Owned ([byte[]]@(0,255,10)); [byte[]]$Legacy=Invoke-BoundaryGitBytes 'owned-repo' @('cat-file','blob',$Id)
+Assert-Owned ($Legacy.Length -eq 3 -and $Legacy[0] -eq 0 -and $Legacy[1] -eq 255 -and $Legacy[2] -eq 10) 'legacy raw bytes'
+Assert-Owned (-not $script:Owned['Hooks'].ContainsKey('write') -and -not $script:Owned['Hooks'].ContainsKey('close')) 'legacy stdin changed'
+Assert-Owned ($script:Owned['Hooks']['stderr_settle'] -eq 1) 'legacy stderr drain'
+[pscustomobject]@{ Calls=$script:OwnedCalls; Assertions=$script:OwnedChecks; Cases=$script:OwnedCaseNames.ToArray(); Rows=$script:OwnedRows.ToArray() }
+'@
+    $Program = $Owned + "`n" + $Selected + "`n" + $Cases
+    $ProgramTokens=$null; $ProgramErrors=$null
+    $ProgramAst=[Management.Automation.Language.Parser]::ParseInput($Program,[ref]$ProgramTokens,[ref]$ProgramErrors)
+    $AllowedCommands=@('Set-StrictMode','New-Object','Out-Null','Assert-Owned','Reset-Owned','Step-Owned','New-OwnedStartInfo','New-OwnedProcess','Resolve-OwnedGit','Test-OwnedRepoPath','Start-OwnedProcess','Start-OwnedStderr','Get-OwnedStderr','Get-OwnedExitCode','Write-OwnedInput','Flush-OwnedInput','Close-OwnedInput','Read-OwnedByte','Read-OwnedPayload','Copy-OwnedStdout','Drain-OwnedStdout','Wait-OwnedExit','Dispose-OwnedProcess','Frame-Owned','Entry-Owned','Invoke-OwnedCase','Throw-WorkOrderBoundaryFailure','Invoke-BoundaryGitBytes','Get-RawMarkerLineCount','Get-RepositoryMarkerCount')
+    $AllowedTypes=@('string','bool','int','byte','char','byte[]','string[]','object[]','scriptblock','ref','pscustomobject','StringComparer','StringComparison','Text.Encoding','System.Text.Encoding','Math','Array','System.Array','IO.MemoryStream','Collections.Generic.Dictionary[string,object]','Collections.Generic.Dictionary[string,int]','Collections.Generic.HashSet[string]','System.InvalidOperationException')
+    $AllowedMethods=@('new','Add','Contains','ContainsKey','GetBytes','GetString','Min','Copy','Write','ToArray','Dispose','Replace','IndexOfAny','StartsWith','Substring','TryParse','IndexOf','Join','IsMatch','Escape','Matches')
+    $UnknownCommands=@($ProgramAst.FindAll({param($Node) $Node -is [Management.Automation.Language.CommandAst] -and (($null -ne $Node.GetCommandName() -and $Node.GetCommandName() -notin $AllowedCommands) -or ($null -eq $Node.GetCommandName() -and ($Node.CommandElements[0] -isnot [Management.Automation.Language.VariableExpressionAst] -or $Node.CommandElements[0].VariablePath.UserPath -notin @('BatchAction','ReadBlob'))))},$true))
+    $UnknownTypes=@($ProgramAst.FindAll({param($Node) ($Node -is [Management.Automation.Language.TypeExpressionAst] -or $Node -is [Management.Automation.Language.TypeConstraintAst]) -and $Node.TypeName.FullName -notin $AllowedTypes},$true))
+    $UnknownMethods=@($ProgramAst.FindAll({param($Node) $Node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and ($Node.Member -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $Node.Member.Value -notin $AllowedMethods)},$true))
+    $BadConstructors=@($ProgramAst.FindAll({param($Node) $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'New-Object' -and ($Node.CommandElements.Count -lt 2 -or $Node.CommandElements[1] -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $Node.CommandElements[1].Value -notin @('System.Collections.Generic.List[string]','System.Collections.Generic.List[object]','System.Collections.Generic.List[byte]','System.IO.MemoryStream','byte[]'))},$true))
+    $RealAccessors=@($ProgramAst.FindAll({param($Node) ($Node -is [Management.Automation.Language.VariableExpressionAst] -and $Node.VariablePath.UserPath -match '^env:') -or ($Node -is [Management.Automation.Language.MemberExpressionAst] -and $Node.Member -is [Management.Automation.Language.StringConstantExpressionAst] -and $Node.Member.Value -in @('StandardInput','StandardOutput','StandardError','WaitForExit','ReadToEndAsync','Start','ExitCode','Result','FileNameGetter'))},$true))
+    $Gate=[pscustomobject]@{ ParseErrors=$ProgramErrors.Count; UnknownCommands=$UnknownCommands.Count; UnknownTypes=$UnknownTypes.Count; UnknownMethods=$UnknownMethods.Count; BadConstructors=$BadConstructors.Count; RealAccessors=$RealAccessors.Count }
+    if ($ProgramErrors.Count -or $UnknownCommands.Count -or $UnknownTypes.Count -or $UnknownMethods.Count -or $BadConstructors.Count -or $RealAccessors.Count) { throw ('boundary batch ZERO gate refused: '+($Gate | ConvertTo-Json -Compress)) }
+    $Result = & ([scriptblock]::Create($Program)) $Marker
+    [pscustomobject]@{ Gate=$Gate; Substitutions=$SubstitutionCounts.ToArray(); Program=$Program; Result=$Result }
+  } $Classifier $script:WorkOrderBoundaryActiveMarker
+  Assert-BoundaryTest ($BoundaryBatchChecks.Result.Calls -ge 30 -and $BoundaryBatchChecks.Result.Assertions -ge 70) 'owned actual batch transport controls did not execute'
+
   $ExactUnitBStatus = Test-StatusOnlyTransition $RepoRoot '4252af3310663785e7ce6bf30e3a32b0b0177373' '8478f23a9d1a0446002f1ca76d5951e9d39f45e1'
   Assert-BoundaryTest $ExactUnitBStatus.IsValid 'exact Unit B publication-status transition was not recognized'
 
