@@ -2764,12 +2764,10 @@ function Invoke-HumCompilerPrivacyChecks {
   Write-Host '==> Work Order 23 VerifiedIntegerSignBackendInput compiler-owned authority proof'
   $Wo23PriorRustFlags = $env:RUSTFLAGS
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_construction'
-    $Wo23ConstructionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability construction proof' $Cargo @('check', '--bin', 'hum')
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_lifetime'
-    $Wo23LifetimeFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability lifetime escape proof' $Cargo @('check', '--bin', 'hum')
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_integer_sign_backend_input_substitution'
-    $Wo23SubstitutionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability substitution proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = ''
+    $Wo23ConstructionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability construction proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_verified_integer_sign_backend_input_construction')
+    $Wo23LifetimeFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability lifetime escape proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_verified_integer_sign_backend_input_lifetime')
+    $Wo23SubstitutionFailure = Read-NativeOutputWithExit 'Work Order 23 forbidden integer-sign capability substitution proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_verified_integer_sign_backend_input_substitution')
   } finally {
     if ($null -eq $Wo23PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo23PriorRustFlags }
   }
