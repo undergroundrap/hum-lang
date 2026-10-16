@@ -45,16 +45,20 @@ function Invoke-OwnedWo24StageTimingControls {
   $Runner = Select-Wo24Function $CheckAllText 'Invoke-Wo24UnitAProductionMutationEvidence'
   $Rows = @($Runner.Body.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$Mutations' })
   $Maps = @($Runner.Body.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$Wo24StageIds' })
-  $Loops = @($Runner.Body.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.ForEachStatementAst] -and $_.Variable.Extent.Text -ceq '$Mutation' })
+  $Lifetimes = @($Runner.Body.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] })
+  if ($Lifetimes.Count -ne 1 -or $Lifetimes[0].Finally.Statements.Count -ne 1 -or $Lifetimes[0].Finally.Statements[0] -isnot [Management.Automation.Language.TryStatementAst]) { throw 'WO24 focused generation lifetime ownership refused' }
+  $Loops = @($Lifetimes[0].Body.Statements | Where-Object { $_ -is [Management.Automation.Language.ForEachStatementAst] -and $_.Variable.Extent.Text -ceq '$Mutation' })
   if ($Rows.Count -ne 1 -or $Maps.Count -ne 1 -or $Loops.Count -ne 1) { throw 'WO24 focused row/map/loop ownership refused' }
   $Loop = $Loops[0]
-  $MapText = $CheckAllText.Substring($Maps[0].Extent.StartOffset, $Loop.Extent.StartOffset - $Maps[0].Extent.StartOffset)
+  $MapAdds = @($Runner.Body.EndBlock.Statements | Where-Object { $_.Extent.Text.StartsWith('$Wo24StageIds.Add(', [StringComparison]::Ordinal) })
+  if ($MapAdds.Count -ne 8) { throw 'WO24 focused stage map count refused' }
+  $MapText = $Maps[0].Extent.Text + "`n" + [string]::Join("`n", @($MapAdds | ForEach-Object { $_.Extent.Text }))
   $Bindings = @($Loop.Body.Statements | Where-Object { ($_.Extent.Text.StartsWith('if (-not $Wo24StageIds.ContainsKey', [StringComparison]::Ordinal)) -or ($_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$Wo24StagePrefix') })
   if ($Bindings.Count -ne 2) { throw 'WO24 focused exact row binding refused' }
   $Stages = @($Loop.Body.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] })
   if ($Stages.Count -ne 3) { throw 'WO24 focused stage owner count refused' }
   $Commands = @($Runner.Body.FindAll({ param($Node) $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Invoke-ExactRustTest' }, $true))
-  $ExpectedCalls = @('Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector', 'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector', 'Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector')
+  $ExpectedCalls = @('Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector -Generation $Wo24Generation', 'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector -Generation $Wo24Generation -MutationPath $Mutation.Path -MutationBytes ($Utf8.GetBytes($Mutated))', 'Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector -Generation $Wo24Generation')
   if ($Commands.Count -ne 3) { throw 'WO24 focused guarded call count refused' }
   $StageText = [Collections.Generic.List[string]]::new()
   $StageKinds = @('before','mutation','after')
@@ -94,7 +98,7 @@ function Get-ExactRustSelectorCredits { return @($script:Wo24OwnedCredits) }
 function Write-Wo24OwnedMutation($Path,$Text,$Encoding) { Add-Wo24Hook 'mutate'; $script:Wo24SourceBytes=[Text.Encoding]::UTF8.GetBytes($Text) }
 function Restore-Wo24OwnedMutation($Path,[byte[]]$Bytes) { Add-Wo24Hook 'restore'; $script:Wo24SourceBytes=$Bytes.Clone() }
 function Read-Wo24OwnedMutation($Path) { Add-Wo24Hook 'source_read'; return ,$script:Wo24SourceBytes }
-function Invoke-ExactRustTest([string]$Label,[string]$Cargo,[string]$Selector) {
+function Invoke-ExactRustTest([string]$Label,[string]$Cargo,[string]$Selector,$Generation,[string]$MutationPath,[byte[]]$MutationBytes) {
   Add-Wo24Hook 'selector'; $script:Wo24Actions.Add("$Label|$Cargo|$Selector")
   if ($Label.EndsWith('honest selector before mutation',[StringComparison]::Ordinal)) {
     if ($script:Wo24Mode -cin @('before-refusal','sink-before-refusal')) { throw 'owned_before_refusal' }
@@ -119,7 +123,7 @@ function Invoke-Wo24OwnedCase([object]$Mutation,[string]$Mode) {
   $null=$script:Wo24Dirs.Add('/wo24'); $script:Wo24Files['/wo24/run-binding.txt']="binding_guid=ownedwo24`n"
   $script:Wo24OwnedCredits.Clear(); $script:Wo24OwnedCredits.Add('ambient::credit')
   $OriginalBytes=[byte[]]@(11,22,33); $script:Wo24SourceBytes=$OriginalBytes.Clone()
-  $Path='/owned/source'; $Mutated='owned-mutated'; $Utf8=$null; $Cargo='owned-cargo'; $AssertionStartLine=10; $AssertionMessageLine=10
+  $Path='/owned/source'; $Mutated='owned-mutated'; $Utf8=[Text.Encoding]::UTF8; $Wo24Generation=$null; $Cargo='owned-cargo'; $AssertionStartLine=10; $AssertionMessageLine=10
   $Caught=''; try { Invoke-Wo24OwnedStages $Mutation } catch { $Caught=$_.Exception.Message }
   $Prefix='compiler-front-wo24-'+$Wo24StageIds[$Mutation.Label]
   $ExpectedError = if($Mode -cin @('before-refusal','sink-before-refusal')){'owned_before_refusal'} elseif($Mode -ceq 'after-refusal'){'owned_after_refusal'} elseif($Mode -ceq 'after-credit'){"Work Order 24 $($Mutation.Label) honest-after selector credit append drifted"} elseif($Mode -cin @('green-mutant','wrong-disposition')){"Work Order 24 $($Mutation.Label) did not fail its exact selector and restore bytes"} else {''}

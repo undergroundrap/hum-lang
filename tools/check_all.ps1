@@ -1251,16 +1251,20 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
   $Wo24StageIds.Add('N06 deny-first operator consent', 'n06')
   $Wo24StageIds.Add('N07 native rejection cannot fall back', 'n07')
   $Wo24StageIds.Add('N08 required target admission', 'n08')
+  $Wo24Generation = New-ExactRustMutationGeneration $RepoRoot $Cargo
+  $Wo24MutationRoot = if ($null -eq $Wo24Generation) { $RepoRoot } else { $Wo24Generation.MutableRoot }
+  $Wo24PrimaryFailure = $null
+  try {
   foreach ($Mutation in $Mutations) {
     if (-not $Wo24StageIds.ContainsKey($Mutation.Label)) { throw 'Work Order 24 stage row identity drifted' }
     $Wo24StagePrefix = 'compiler-front-wo24-' + $Wo24StageIds[$Mutation.Label]
-    $Path = Join-Path $RepoRoot $Mutation.Path
+    $Path = Join-Path $Wo24MutationRoot $Mutation.Path
     $OriginalBytes = [System.IO.File]::ReadAllBytes($Path)
     $Original = $Utf8.GetString($OriginalBytes)
     if ([regex]::Matches($Original, [regex]::Escape($Mutation.Needle)).Count -ne 1) { throw "Work Order 24 $($Mutation.Label) production owner is missing or duplicate" }
     $Mutated = $Original.Replace($Mutation.Needle, $Mutation.Replacement)
     if ([string]::Equals($Mutated, $Original, [System.StringComparison]::Ordinal)) { throw "Work Order 24 $($Mutation.Label) did not initialize" }
-    $AssertionPath = Join-Path $RepoRoot $Mutation.AssertionPath
+    $AssertionPath = Join-Path $Wo24MutationRoot $Mutation.AssertionPath
     $AssertionSource = [System.IO.File]::ReadAllText($AssertionPath)
     $AssertionMatches = [regex]::Matches($AssertionSource, [regex]::Escape($Mutation.AssertionMessage))
     if ($AssertionMatches.Count -ne 1) { throw "Work Order 24 $($Mutation.Label) row-owned disposition message is missing or duplicate" }
@@ -1275,7 +1279,7 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
     try {
     $HonestBeforeLabel = "Work Order 24 $($Mutation.Label) honest selector before mutation"
     $HonestBeforeCredits = @(Get-ExactRustSelectorCredits)
-    Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector
+    Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector -Generation $Wo24Generation
     $HonestBeforeAppendedCredits = @(Get-ExactRustSelectorCredits)
     [string[]] $HonestBeforePrefix = @(if ($HonestBeforeCredits.Count -ne 0) { $HonestBeforeAppendedCredits[0..($HonestBeforeCredits.Count - 1)] })
     if ($HonestBeforeAppendedCredits.Count -ne $HonestBeforeCredits.Count + 1 -or
@@ -1303,7 +1307,7 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
     $MutationExecutionLabel = "Work Order 24 $($Mutation.Label) initialized mutation"
     try {
       [System.IO.File]::WriteAllText($Path, $Mutated, $Utf8)
-      try { & { Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector } 6>&1 | ForEach-Object { $Output.Add($_.ToString()) } } catch { $Failure = $_ }
+      try { & { Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector -Generation $Wo24Generation -MutationPath $Mutation.Path -MutationBytes ($Utf8.GetBytes($Mutated)) } 6>&1 | ForEach-Object { $Output.Add($_.ToString()) } } catch { $Failure = $_ }
     } finally {
       [System.IO.File]::WriteAllBytes($Path, $OriginalBytes)
     }
@@ -1335,7 +1339,7 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
     try {
     $HonestAfterLabel = "Work Order 24 $($Mutation.Label) honest selector after restoration"
     $HonestAfterCredits = @(Get-ExactRustSelectorCredits)
-    Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector
+    Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector -Generation $Wo24Generation
     $HonestAfterAppendedCredits = @(Get-ExactRustSelectorCredits)
     [string[]] $HonestAfterPrefix = @(if ($HonestAfterCredits.Count -ne 0) { $HonestAfterAppendedCredits[0..($HonestAfterCredits.Count - 1)] })
     if ($HonestAfterAppendedCredits.Count -ne $HonestAfterCredits.Count + 1 -or
@@ -1357,6 +1361,15 @@ function Invoke-Wo24UnitAProductionMutationEvidence {
       throw
     }
     Write-Host "ok - Work Order 24 $($Mutation.Label) rejected and restored"
+  }
+  } catch {
+    $Wo24PrimaryFailure = $_
+    throw
+  } finally {
+    try { Remove-ExactRustMutationGeneration $Wo24Generation } catch {
+      if ($null -eq $Wo24PrimaryFailure) { throw }
+      try { Write-Warning ('WO24 generation cleanup also failed: ' + $_.Exception.Message) } catch { }
+    }
   }
 }
 
@@ -7224,9 +7237,9 @@ try {
   $Wo24GuardedMutationCalls = @($Wo24MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustTest' })
   $Wo24BypassMutationCalls = @($Wo24MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustNativeCapture' })
   $Wo24ExpectedGuardedCalls = @(
-    'Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector',
-    'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector',
-    'Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector'
+    'Invoke-ExactRustTest $HonestBeforeLabel $Cargo $Mutation.Selector -Generation $Wo24Generation',
+    'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector -Generation $Wo24Generation -MutationPath $Mutation.Path -MutationBytes ($Utf8.GetBytes($Mutated))',
+    'Invoke-ExactRustTest $HonestAfterLabel $Cargo $Mutation.Selector -Generation $Wo24Generation'
   )
   if ($Wo24GuardedMutationCalls.Count -ne 3 -or $Wo24BypassMutationCalls.Count -ne 0) { throw 'Work Order 24 mutation evidence must use exactly three guarded selector routes and zero native-capture bypasses' }
   foreach ($ExpectedGuardedCall in $Wo24ExpectedGuardedCalls) {

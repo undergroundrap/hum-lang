@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $script:ExactRustSelectorCredits = New-Object 'System.Collections.Generic.List[string]'
+$script:ExactRustMutationGenerationOwner = $null
 
 function Reset-ExactRustSelectorCredits {
   $script:ExactRustSelectorCredits.Clear()
@@ -100,11 +101,122 @@ function Assert-ExactRustSelectorEvidence {
   }
 }
 
+# Cargo still owns every listing, run, target choice, freshness decision and exit.
+# Only WO24 mutations use a private source/target generation; honest calls keep
+# the original working directory and warm target. No executable/result is replayed.
+function Get-ExactRustGenerationDigest {
+  param([byte[]] $Bytes)
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  try { return [BitConverter]::ToString($Hasher.ComputeHash($Bytes)) } finally { $Hasher.Dispose() }
+}
+
+function New-ExactRustMutationGeneration {
+  param([string] $RepoRoot, [string] $Cargo)
+
+  if ($null -ne $script:ExactRustMutationGenerationOwner) { throw 'WO24 Cargo generation is already active' }
+  $OwnedRoot = $null
+  $OwnedCreated = $false
+  try {
+    $Root = [IO.Path]::GetFullPath($RepoRoot)
+    $Comparison = if ([IO.Path]::DirectorySeparatorChar -eq '\') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if (-not [string]::Equals($Root, [IO.Path]::GetFullPath((Get-Location).Path), $Comparison)) { throw 'working directory differs' }
+    $RootInfo = [IO.DirectoryInfo]::new($Root)
+    if (-not $RootInfo.Exists -or ($RootInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'nonordinary source root' }
+    $Git = @(Get-Command git -CommandType Application -ErrorAction Stop)[0].Source
+    $Status = Invoke-ExactRustNativeCapture $Git @('-C', $Root, 'status', '--porcelain=v1', '--untracked-files=all')
+    if ($Status.ExitCode -ne 0 -or @($Status.Output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) { throw 'working tree is not clean' }
+    $Tracked = Invoke-ExactRustNativeCapture $Git @('-C', $Root, '-c', 'core.quotePath=true', 'ls-files', '--stage')
+    if ($Tracked.ExitCode -ne 0 -or $Tracked.Output.Count -eq 0) { throw 'tracked source inventory unavailable' }
+    $Ignored = Invoke-ExactRustNativeCapture $Git @('-C', $Root, 'ls-files', '--others', '--ignored', '--exclude-standard', '--', '.', ':(exclude)target', ':(exclude).cargo-home')
+    if ($Ignored.ExitCode -ne 0 -or @($Ignored.Output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) { throw 'unbound ignored source inputs' }
+
+    $Files = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+    $SourceBytes = [Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::Ordinal)
+    foreach ($Line in $Tracked.Output) {
+      if ($Line -cnotmatch '^100644 [0-9a-f]{40} 0\t(?<path>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)$') { throw 'unsupported source inventory shape' }
+      $Relative = $Matches['path']
+      if ($Relative -match '(^|/)\.\.?(/|$)|(^|/)(?:build\.rs|rust-toolchain(?:\.toml)?)$|^\.cargo/' -or $Relative -match '^(?:target|\.cargo-home|\.git)(?:/|$)' -or $Files.ContainsKey($Relative)) { throw 'unsupported source context' }
+      $Path = Join-Path $Root $Relative
+      $Info = [IO.FileInfo]::new($Path)
+      if (-not $Info.Exists -or ($Info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'nonordinary source input' }
+      $Parent = $Info.Directory
+      while (-not [string]::Equals($Parent.FullName, $Root, $Comparison)) {
+        if (($Parent.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $null -eq $Parent.Parent) { throw 'nonordinary source parent' }
+        $Parent = $Parent.Parent
+      }
+      $Bytes = [IO.File]::ReadAllBytes($Path)
+      $Files.Add($Relative, (Get-ExactRustGenerationDigest $Bytes))
+      $SourceBytes.Add($Relative, $Bytes)
+    }
+    if (-not $Files.ContainsKey('Cargo.toml') -or -not $Files.ContainsKey('Cargo.lock')) { throw 'root Cargo inputs unavailable' }
+    $OwnedRoot = Join-Path ([IO.Path]::GetTempPath()) ('hum-wo24-cargo-' + [Guid]::NewGuid().ToString('N'))
+    if ([IO.Directory]::Exists($OwnedRoot)) { throw 'generation directory already exists' }
+    $null = [IO.Directory]::CreateDirectory($OwnedRoot)
+    $OwnedCreated = $true
+    $MutableRoot = Join-Path $OwnedRoot 'source'
+    foreach ($Relative in $Files.Keys) {
+      $Destination = Join-Path $MutableRoot $Relative
+      $null = [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($Destination))
+      [IO.File]::WriteAllBytes($Destination, $SourceBytes[$Relative])
+    }
+    $Generation = [pscustomobject] @{ Root = $Root; MutableRoot = $MutableRoot; OwnedRoot = $OwnedRoot; Target = (Join-Path $OwnedRoot 'target'); Cargo = $Cargo; Files = $Files; Active = $true }
+    $BoundFiles = [Collections.Generic.Dictionary[string,string]]::new($Files, [StringComparer]::Ordinal)
+    $script:ExactRustMutationGenerationOwner = [pscustomobject] @{ Instance = $Generation; Root = $Root; MutableRoot = $MutableRoot; OwnedRoot = $OwnedRoot; Target = $Generation.Target; Cargo = $Cargo; Files = $BoundFiles }
+    Assert-ExactRustMutationGeneration $Generation $Cargo
+    Write-Host '==> Work Order 24 uses an invocation-local mutable Cargo generation; honest source and target stay in place'
+    return $Generation
+  } catch {
+    $PreparationFailure = $_
+    $script:ExactRustMutationGenerationOwner = $null
+    if ($OwnedCreated) {
+      # A failed cleanup is not permission to hide residue and restart the suite.
+      Remove-Item -LiteralPath $OwnedRoot -Recurse -Force -ErrorAction Stop
+    }
+    Write-Host ("==> Work Order 24 ordinary Cargo route: generation preparation unavailable ({0})" -f $PreparationFailure.Exception.Message)
+    return $null
+  }
+}
+
+function Assert-ExactRustMutationGeneration {
+  param($Generation, [string] $Cargo, [string] $MutationPath = '', [byte[]] $MutationBytes = $null)
+
+  $Owner = $script:ExactRustMutationGenerationOwner
+  $WorkingRoot = [IO.Path]::GetFullPath((Get-Location).Path)
+  $Comparison = if ([IO.Path]::DirectorySeparatorChar -eq '\') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+  if ($null -eq $Owner -or -not [object]::ReferenceEquals($Generation, $Owner.Instance) -or -not $Generation.Active -or $Generation.Cargo -cne $Cargo -or
+      -not [string]::Equals($WorkingRoot, $Owner.Root, $Comparison) -or $Generation.Root -cne $Owner.Root -or $Generation.MutableRoot -cne $Owner.MutableRoot -or $Generation.OwnedRoot -cne $Owner.OwnedRoot -or $Generation.Target -cne $Owner.Target -or $Cargo -cne $Owner.Cargo -or $Generation.Files.Count -ne $Owner.Files.Count) {
+    throw 'WO24 Cargo generation lifetime or context changed'
+  }
+  if (-not [string]::IsNullOrEmpty($MutationPath) -and (-not $Generation.Files.ContainsKey($MutationPath) -or $null -eq $MutationBytes)) { throw 'WO24 Cargo generation mutation owner changed' }
+  foreach ($Relative in $Owner.Files.Keys) {
+    $Expected = $Owner.Files[$Relative]
+    if (-not $Generation.Files.ContainsKey($Relative) -or $Generation.Files[$Relative] -cne $Expected) { throw 'WO24 Cargo generation input binding changed' }
+    if ((Get-ExactRustGenerationDigest ([IO.File]::ReadAllBytes((Join-Path $Generation.Root $Relative)))) -cne $Expected) { throw 'WO24 honest Cargo source changed' }
+    $MutableExpected = if ([string]::Equals($Relative, $MutationPath, [StringComparison]::Ordinal)) { Get-ExactRustGenerationDigest $MutationBytes } else { $Expected }
+    if ((Get-ExactRustGenerationDigest ([IO.File]::ReadAllBytes((Join-Path $Generation.MutableRoot $Relative)))) -cne $MutableExpected) { throw 'WO24 mutable Cargo source changed' }
+  }
+}
+
+function Remove-ExactRustMutationGeneration {
+  param($Generation)
+  if ($null -eq $Generation) { return }
+  $Owner = $script:ExactRustMutationGenerationOwner
+  if ($null -eq $Owner -or -not [object]::ReferenceEquals($Generation, $Owner.Instance)) { throw 'WO24 generation cleanup ownership changed' }
+  $script:ExactRustMutationGenerationOwner = $null
+  $Generation.Active = $false
+  $Info = [IO.DirectoryInfo]::new($Owner.OwnedRoot)
+  if (-not $Info.Exists -or ($Info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'WO24 generation cleanup directory changed' }
+  Remove-Item -LiteralPath $Owner.OwnedRoot -Recurse -Force -ErrorAction Stop
+}
+
 function Invoke-ExactRustTest {
   param(
     [string] $Label,
     [string] $Cargo,
-    [string] $Selector
+    [string] $Selector,
+    $Generation = $null,
+    [string] $MutationPath = '',
+    [byte[]] $MutationBytes = $null
   )
 
   Write-Host "==> $Label"
@@ -148,7 +260,14 @@ function Invoke-ExactRustTest {
   $ListPhaseOutcome = 'failed'
   $null = & $WriteSelectorPhaseMarker 'list' 'start'
   try {
-    $ListResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact', '--list')
+    $CargoArguments = @('test', $Selector)
+    if ($null -ne $Generation) {
+      Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes
+      if (-not [string]::IsNullOrEmpty($MutationPath)) { $CargoArguments += @('--manifest-path', (Join-Path $Generation.MutableRoot 'Cargo.toml'), '--target-dir', $Generation.Target) }
+    }
+    $CargoArguments += @('--', '--exact', '--list')
+    $ListResult = Invoke-ExactRustNativeCapture $Cargo $CargoArguments
+    if ($null -ne $Generation) { Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes }
     if ($ListResult.ExitCode -ne 0) {
       $ListResult.Output | ForEach-Object { Write-Host $_ }
       throw "$Label could not list '$Selector'; cargo exited $($ListResult.ExitCode)"
@@ -167,7 +286,14 @@ function Invoke-ExactRustTest {
   $RunPhaseOutcome = 'failed'
   $null = & $WriteSelectorPhaseMarker 'run' 'start'
   try {
-    $RunResult = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact')
+    $CargoArguments = @('test', $Selector)
+    if ($null -ne $Generation) {
+      Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes
+      if (-not [string]::IsNullOrEmpty($MutationPath)) { $CargoArguments += @('--manifest-path', (Join-Path $Generation.MutableRoot 'Cargo.toml'), '--target-dir', $Generation.Target) }
+    }
+    $CargoArguments += @('--', '--exact')
+    $RunResult = Invoke-ExactRustNativeCapture $Cargo $CargoArguments
+    if ($null -ne $Generation) { Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes }
     $RunResult.Output | ForEach-Object { Write-Host $_ }
     if ($RunResult.ExitCode -ne 0) {
       throw "$Label failed with exit code $($RunResult.ExitCode)"
