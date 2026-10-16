@@ -31,6 +31,179 @@ $PhaseDiagnostics = ''
 Invoke-Expression $MarkerLines
 Invoke-Expression $PhaseLines
 
+function Invoke-OwnedWo22TargetRoutingControls {
+  param([string] $CheckAllText, [string] $SelectorText, [byte[]] $BackendBytes, [ref] $SelectedProgram = $null)
+  function Select-Wo22OwnedFunction([string] $Text, [string] $Name) {
+    $Tokens = $null; $Errors = $null
+    $Ast = [Management.Automation.Language.Parser]::ParseInput($Text,[ref]$Tokens,[ref]$Errors)
+    $Found = @($Ast.FindAll({param($Node) $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq $Name},$true))
+    if ($Errors.Count -ne 0 -or $Found.Count -ne 1) { throw "WO22 owned source selector refused: $Name" }
+    return $Found[0]
+  }
+  $Names = @('Get-ExactRustGenerationDigest','Reset-ExactRustSelectorCredits','Get-ExactRustSelectorCredits','Assert-ExactRustSelectorSyntax','Assert-ExactRustSelectorEvidence','Assert-Wo22RustNamespace','New-Wo22RustTargetAdmission','Assert-Wo22RustTargetAdmission','Close-Wo22RustTargetAdmission','Invoke-ExactRustTest')
+  $Parts = [Collections.Generic.List[string]]::new()
+  $Pins = [Collections.Generic.List[object]]::new()
+  foreach ($Name in $Names + @('Test-Wo22ByteArraysEqual','Invoke-Wo22BackendPredicateMutationEvidence')) {
+    $InputText = if ($Name -cin @('Test-Wo22ByteArraysEqual','Invoke-Wo22BackendPredicateMutationEvidence')) { $CheckAllText } else { $SelectorText }
+    $Function = Select-Wo22OwnedFunction $InputText $Name
+    $Pins.Add([pscustomobject]@{Name=$Name;StartUTF16=$Function.Extent.StartOffset;EndUTF16=$Function.Extent.EndOffset;Text=$Function.Extent.Text})
+    $Text = $Function.Extent.Text
+    if ($Name -ceq 'New-Wo22RustTargetAdmission') {
+      $RootExpression = '[IO.Path]::GetDirectoryName([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($BackendPath)))'
+      if ([regex]::Matches($Text,[regex]::Escape($RootExpression)).Count -ne 1 -or [regex]::Matches($Text,'return \$Admission').Count -ne 1) { throw 'WO22 owned root/return projection refused' }
+      $Text = $Text.Replace($RootExpression,"'owned-root'").Replace('return $Admission','return (Complete-Wo22OwnedAdmission $Admission)')
+    }
+    $Text = $Text.Replace('Read-Wo22RustTargetNamespace','Read-Wo22OwnedNamespace').Replace('Write-Host','Write-Wo22OwnedMessage').Replace('Join-Path','Join-Wo22OwnedPath')
+    $Text = $Text.Replace('[System.IO.File]::ReadAllBytes($BackendPath)','(Read-Wo22OwnedBytes $BackendPath)').Replace('[System.IO.File]::WriteAllText($BackendPath, $Mutated, $Utf8)','Write-Wo22OwnedBytes $BackendPath $Mutated $Utf8').Replace('[System.IO.File]::WriteAllBytes($BackendPath, $OriginalBytes)','Restore-Wo22OwnedBytes $BackendPath $OriginalBytes')
+    $Text = $Text.Replace('New-Object System.Text.UTF8Encoding($false, $true)','[Text.UTF8Encoding]::new($false, $true)').Replace("New-Object 'System.Collections.Generic.List[string]'",'[Collections.Generic.List[string]]::new()')
+    $Parts.Add($Text)
+  }
+  # The source collector remains static-only: its real filesystem/environment
+  # boundary is replaced by an owned namespace return. Native capture is an owned
+  # argv/result sink; the selected admission, list/run, mutation and main guards are real.
+  $Tokens=$null; $Errors=$null
+  $Tree=[Management.Automation.Language.Parser]::ParseInput($CheckAllText,[ref]$Tokens,[ref]$Errors)
+  $Guards=@($Tree.FindAll({param($Node) $Node -is [Management.Automation.Language.IfStatementAst] -and $Node.Extent.Text.Contains("throw 'Work Order 22 mutation selector must use the one guarded exact-selector route'")},$true))
+  $Assignments=@($Tree.FindAll({param($Node) $Node -is [Management.Automation.Language.AssignmentStatementAst] -and $Node.Left.Extent.Text -ceq '$MutationFunctions'},$true))
+  if ($Errors.Count -ne 0 -or $Guards.Count -ne 1 -or $Assignments.Count -ne 1) { throw 'WO22 actual main guard source selector refused' }
+  $MainGuard=$CheckAllText.Substring($Assignments[0].Extent.StartOffset,$Guards[0].Extent.EndOffset-$Assignments[0].Extent.StartOffset)
+  $Owned = @'
+param([byte[]] $BackendBytes,[string] $CheckAllText)
+function Add-Wo22OwnedHook([string] $Name) { if (-not $script:W22Hooks.ContainsKey($Name)) { $script:W22Hooks.Add($Name,0) }; $script:W22Hooks[$Name]++ }
+function Assert-Wo22Owned([bool] $Ok,[string] $Message) { $script:W22Assertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message}); if (-not $Ok) { throw "WO22 owned assertion refused: $Message" } }
+function Read-Wo22OwnedBytes($Path) { Add-Wo22OwnedHook 'read'; return ,([byte[]] $script:W22Bytes.Clone()) }
+function Write-Wo22OwnedBytes($Path,$Text,$Encoding) { Add-Wo22OwnedHook 'write'; $script:W22Bytes=$Encoding.GetBytes($Text); if ($script:W22Mode -ceq 'variant-write-corruption') { $script:W22Bytes[0]=0 } }
+function Restore-Wo22OwnedBytes($Path,[byte[]] $Bytes) { Add-Wo22OwnedHook 'restore'; $script:W22Bytes=[byte[]] $Bytes.Clone() }
+function Write-Wo22OwnedMessage([string] $Message) { Add-Wo22OwnedHook 'public'; $script:W22Messages.Add($Message); return $Message }
+function Join-Wo22OwnedPath($Parent,$Leaf) { Add-Wo22OwnedHook 'join'; return "$Parent/$Leaf" }
+function Write-HumPhaseMarker { param($PhaseName,$Event,$Outcome) Add-Wo22OwnedHook 'marker' }
+function Assert-ExactRustMutationGeneration { throw 'owned unexpected generation route' }
+function Read-Wo22OwnedNamespace($Root,$Cargo) {
+  Add-Wo22OwnedHook 'namespace'
+  $Files=[Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal)
+  foreach($Name in @('Cargo.toml','Cargo.lock','src/main.rs','tests/cli_decision0030.rs','tests/cli_wo29_trust_locality.rs')) { $Files.Add($Name,'owned-'+$Name) }
+  $Files.Add('src/backend_cranelift.rs',(Get-ExactRustGenerationDigest $script:W22Bytes))
+  if($script:W22NamespaceDrift){$Files['tests/cli_decision0030.rs']='changed-test-namespace'}
+  if($script:W22Mode -ceq 'namespace-missing'){ $null=$Files.Remove('Cargo.toml') }
+  return [pscustomobject]@{Root='owned-root';Files=$Files;Context=$script:W22Context;Target=$(if($script:W22Mode -ceq 'owner-return-corruption'){'other'}else{'hum'});TargetSource='src/main.rs'}
+}
+function Complete-Wo22OwnedAdmission($Admission) {
+  Add-Wo22OwnedHook 'admission_return'
+  if($script:W22Mode -ceq 'admission-missing'){return $null}
+  if($script:W22Mode -ceq 'admission-substitution'){return [pscustomobject]@{Active=$true;Root=$Admission.Root;Cargo=$Admission.Cargo;Context=$Admission.Context;Target=$Admission.Target;Selectors=$Admission.Selectors}}
+  if($script:W22Mode -ceq 'admission-fact-corruption'){$Admission.Selectors[$script:W22Selector]=@('wrong::test: test')}
+  if($script:W22Mode -ceq 'admission-target-corruption'){$Admission.Target='other'}
+  return $Admission
+}
+function Invoke-ExactRustNativeCapture([string] $Cargo,[string[]] $Arguments) {
+  Add-Wo22OwnedHook 'capture'
+  $script:W22Calls.Add([pscustomobject]@{Cargo=$Cargo;Arguments=[string[]]$Arguments.Clone()})
+  $Selector=$Arguments[1];$Qualified=$Arguments -ccontains '--bin';$List=$Arguments -ccontains '--list'
+  if($Qualified){Add-Wo22OwnedHook 'qualified'}else{Add-Wo22OwnedHook 'broad'}
+  if($Qualified){
+    $Expected=@('test',$Selector,'--bin','hum','--','--exact');if($List){$Expected+=@('--list')}
+    Assert-Wo22Owned ([string]::Join('|',$Arguments) -ceq [string]::Join('|',$Expected)) 'exact qualified argv'
+  } else {
+    $Expected=@('test',$Selector,'--','--exact');if($List){$Expected+=@('--list')}
+    Assert-Wo22Owned ([string]::Join('|',$Arguments) -ceq [string]::Join('|',$Expected)) 'exact default argv'
+  }
+  if($List){
+    if(-not $Qualified -and $script:W22Mode -cin @('broad-duplicate','generic-duplicate')){return [pscustomobject]@{ExitCode=0;Output=[string[]]@("${Selector}: test","${Selector}: test")}}
+    if($Qualified -and $script:W22Mode -ceq 'qualified-empty'){return [pscustomobject]@{ExitCode=0;Output=[string[]]@()}}
+    if($Qualified -and $script:W22Mode -ceq 'namespace-drift'){$script:W22NamespaceDrift=$true}
+    if($Qualified -and $script:W22Mode -ceq 'context-drift'){$script:W22Context='changed-context'}
+    return [pscustomobject]@{ExitCode=0;Output=[string[]]@("${Selector}: test")}
+  }
+  if($script:W22Generic -or $script:W22Mode -ceq 'green-mutant'){
+    return [pscustomobject]@{ExitCode=0;Output=[string[]]@('running 1 test',"test $Selector ... ok",'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s')}
+  }
+  $Fragment=$Mutation.PSObject.Properties['RequiredFailureFragment'];$Cause=if($null -eq $Fragment){'owned expected assertion'}else{$Fragment.Value}
+  if($script:W22Mode -ceq 'wrong-cause'){$Cause='owned unrelated assertion'}
+  $Name=if($script:W22Mode -ceq 'wrong-test'){'wrong::test'}else{$Selector}
+  $Code=if($script:W22Mode -ceq 'wrong-exit'){1}else{101}
+  return [pscustomobject]@{ExitCode=$Code;Output=[string[]]@('running 1 test',"test $Name ... FAILED",$Cause,'test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s')}
+}
+function Reset-Wo22OwnedCase([string] $Mode) {
+  $script:W22Mode=$Mode;$script:W22Generic=$false;$script:W22NamespaceDrift=$false;$script:W22Context='owned-context';$script:W22Bytes=[byte[]]$BackendBytes.Clone()
+  $script:W22Calls.Clear();$script:W22Messages.Clear();$script:ExactRustSelectorCredits.Clear();$script:ExactRustSelectorCredits.Add('ambient::credit');$script:Wo22RustTargetAdmissionOwner=$null
+}
+'@
+  $Driver = @'
+$script:W22Hooks=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+$script:W22Assertions=[Collections.Generic.List[object]]::new();$script:W22Cases=[Collections.Generic.List[object]]::new();$script:W22Calls=[Collections.Generic.List[object]]::new();$script:W22Messages=[Collections.Generic.List[string]]::new()
+$script:ExactRustSelectorCredits=[Collections.Generic.List[string]]::new();$script:Wo22RustTargetAdmissionOwner=$null
+$script:W22Selector='backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
+foreach($Mode in @('positive-all16','broad-duplicate','namespace-missing','owner-return-corruption','admission-missing','admission-substitution','admission-fact-corruption','admission-target-corruption','variant-write-corruption','namespace-drift','context-drift','qualified-empty','wrong-test','wrong-cause','wrong-exit','green-mutant')) {
+  Reset-Wo22OwnedCase $Mode
+  $Caught='';try{$null=Invoke-Wo22BackendPredicateMutationEvidence 'owned-cargo' 'owned-backend' $(if($Mode -ceq 'positive-all16'){''}else{'B13 ordinary execution'})}catch{$Caught=$_.Exception.Message}
+  $Expected= switch -CaseSensitive ($Mode) {
+    'positive-all16' {''}
+    'broad-duplicate' {'WO22 broad honest singleton admission failed'}
+    'namespace-missing' {'WO22 target admission namespace incomplete'}
+    'owner-return-corruption' {'WO22 target admission ownership changed'}
+    'admission-fact-corruption' {'Work Order 22 B13 ordinary execution did not fail the intended permanent selector'}
+    'variant-write-corruption' {'Work Order 22 B13 ordinary execution did not fail the intended permanent selector'}
+    'wrong-cause' {'Work Order 22 B13 ordinary execution did not reach its required escaped disposition'}
+    default {'Work Order 22 B13 ordinary execution did not fail the intended permanent selector'}
+  }
+  Assert-Wo22Owned ($Caught -ceq $Expected) "$Mode exact public outcome"
+  Assert-Wo22Owned (Test-Wo22ByteArraysEqual $BackendBytes $script:W22Bytes) "$Mode exact byte restoration"
+  Assert-Wo22Owned ($null -eq $script:Wo22RustTargetAdmissionOwner) "$Mode invocation closed"
+  if($Mode -ceq 'positive-all16'){
+    Assert-Wo22Owned ($script:W22Calls.Count -eq 34) 'all16: two broad honest lists plus32 qualified calls'
+    Assert-Wo22Owned (@($script:W22Calls|Where-Object{$_.Arguments -ccontains '--bin'}).Count -eq 32) 'all16 fresh qualified lists and runs'
+    Assert-Wo22Owned (@($script:W22Messages|Where-Object{$_ -cmatch '^ok - Work Order 22 .+ production mutation rejected$'}).Count -eq 16) 'all16 public rejection rows'
+  } elseif($Mode -cin @('broad-duplicate','namespace-missing','owner-return-corruption')) {
+    Assert-Wo22Owned (@($script:W22Calls|Where-Object{$_.Arguments -ccontains '--bin'}).Count -eq 0) "$Mode no mutant capture"
+  }
+  $ExpectedCredit=if($Mode -ceq 'green-mutant'){'ambient::credit|'+$script:W22Selector}else{'ambient::credit'}
+  Assert-Wo22Owned ([string]::Join('|',$script:ExactRustSelectorCredits) -ceq $ExpectedCredit) "$Mode actual credit behavior"
+  $script:W22Cases.Add([pscustomobject]@{Mode=$Mode;Calls=$script:W22Calls.Count;Primary=$Caught;Credits=[string[]]$script:ExactRustSelectorCredits.ToArray()})
+}
+foreach($Mode in @('generic','generic-duplicate')) {
+  Reset-Wo22OwnedCase $Mode;$script:W22Generic=$true;$Caught=''
+  try{$null=Invoke-ExactRustTest 'owned generic default' 'owned-cargo' $script:W22Selector}catch{$Caught=$_.Exception.Message}
+  Assert-Wo22Owned (($Mode -ceq 'generic' -and $Caught -ceq '') -or ($Mode -ceq 'generic-duplicate' -and $Caught.Contains('must resolve'))) "$Mode actual default outcome"
+  Assert-Wo22Owned (@($script:W22Calls|Where-Object{$_.Arguments -ccontains '--bin'}).Count -eq 0) "$Mode keeps unqualified target route"
+  Assert-Wo22Owned ($script:W22Calls.Count -eq $(if($Mode -ceq 'generic'){2}else{1})) "$Mode exact capture count"
+  Assert-Wo22Owned ($script:ExactRustSelectorCredits.Count -eq $(if($Mode -ceq 'generic'){2}else{1})) "$Mode exact credits"
+  $script:W22Cases.Add([pscustomobject]@{Mode=$Mode;Calls=$script:W22Calls.Count;Primary=$Caught})
+}
+$CurrentCall='Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector -Wo22Admission $Wo22Admission -Wo22MutationBytes ($Utf8.GetBytes($Mutated))'
+$At=$CheckAllText.IndexOf($CurrentCall,[StringComparison]::Ordinal)
+Assert-Wo22Owned ($At -ge 0) 'current guarded call exists'
+foreach($Mode in @('current','old','missing','bypass','malformed')) {
+  $Replacement=switch -CaseSensitive($Mode){'current'{$CurrentCall};'old'{'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector'};'missing'{"Write-Host 'missing'"};'bypass'{'Invoke-ExactRustNativeCapture $Cargo @()'};'malformed'{$CurrentCall.Replace('-Wo22Admission','-WrongAdmission')}}
+  $Text=$CheckAllText.Substring(0,$At)+$Replacement+$CheckAllText.Substring($At+$CurrentCall.Length)
+  $Caught='';try{Invoke-Wo22OwnedMainGuard $Text}catch{$Caught=$_.Exception.Message}
+  Assert-Wo22Owned (($Mode -ceq 'current' -and $Caught -ceq '') -or ($Mode -cne 'current' -and $Caught -ceq 'Work Order 22 mutation selector must use the one guarded exact-selector route')) "$Mode actual main guard outcome"
+  $script:W22Cases.Add([pscustomobject]@{Mode='main-'+$Mode;Calls=0;Primary=$Caught})
+}
+foreach($Hook in @('capture','broad','qualified','namespace','admission_return','read','write','restore','public')){Assert-Wo22Owned ($script:W22Hooks.ContainsKey($Hook) -and $script:W22Hooks[$Hook] -gt 0) "$Hook nonzero actual boundary"}
+[pscustomobject]@{Assertions=$script:W22Assertions.ToArray();Cases=$script:W22Cases.ToArray();Hooks=$script:W22Hooks;StaticOnlyCollector='Read-Wo22RustTargetNamespace';NoRealAccessors=$true}
+'@
+  $Program=$Owned+"`n"+[string]::Join("`n",$Parts)+"`nfunction Invoke-Wo22OwnedMainGuard { param([string]`$Text)`n`$CheckAllTokens=`$null;`$CheckAllParseErrors=`$null;`$CheckAllAst=[Management.Automation.Language.Parser]::ParseInput(`$Text,[ref]`$CheckAllTokens,[ref]`$CheckAllParseErrors)`n"+$MainGuard+"`n}`n"+$Driver
+  if($null -ne $SelectedProgram){$SelectedProgram.Value=$Program}
+  $Tokens=$null;$Errors=$null;$Gate=[Management.Automation.Language.Parser]::ParseInput($Program,[ref]$Tokens,[ref]$Errors)
+  $Types=@('byte[]','string','string[]','bool','int','object','object[]','pscustomobject','ref','Text.Encoding','Text.UTF8Encoding','System.StringComparison','StringComparison','StringComparer','regex','string','array','object','BitConverter','Security.Cryptography.SHA256','Collections.Generic.List[string]','Collections.Generic.List[object]','Collections.Generic.Dictionary[string,string]','Collections.Generic.Dictionary[string,int]','Collections.Generic.SortedDictionary[string,string[]]','Collections.Generic.SortedDictionary[string,string]','Management.Automation.Language.Parser','System.Management.Automation.Language.FunctionDefinitionAst','System.Management.Automation.Language.CommandAst','Management.Automation.Language.FunctionDefinitionAst')
+  $Methods=@('Add','ContainsKey','GetEnumerator','Clear','Clone','Equals','ReferenceEquals','Join','IsNullOrEmpty','IsNullOrWhiteSpace','GetBytes','GetString','ToString','Create','ComputeHash','Dispose','Remove','IsMatch','Matches','Escape','Replace','IndexOf','Substring','StartsWith','EndsWith','Contains','ToArray','new','ParseInput','FindAll','GetCommandName')
+  $Properties=@('Length','Count','Key','Value','Root','Cargo','Target','Context','Files','TargetSource','Namespace','Variants','Selectors','Instance','Active','Output','ExitCode','PSObject','Properties','Needle','Replacement','AdditionalNeedle','AdditionalReplacement','AdditionalChanges','OwnedSites','Label','Selector','Exception','Message','Ok','Arguments','Name','Body','Extent','Text','Sum','Keys','MutableRoot')
+  $Commands=@('Where-Object','ForEach-Object','Measure-Object')+@($Gate.FindAll({param($Node)$Node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{$_.Name})
+  $Unknown=[Collections.Generic.List[string]]::new()
+  if($Errors.Count -ne 0){$Unknown.Add('parse')}
+  foreach($Node in $Gate.FindAll({param($Node)$true},$true)) {
+    if($Node -is [Management.Automation.Language.TypeExpressionAst] -or $Node -is [Management.Automation.Language.TypeConstraintAst]){if($Node.TypeName.FullName -cnotin $Types){$Unknown.Add('type:'+$Node.TypeName.FullName)}}
+    if($Node -is [Management.Automation.Language.CommandAst]){ $Name=$Node.GetCommandName();if($null -eq $Name){if($Node.CommandElements[0] -isnot [Management.Automation.Language.ScriptBlockExpressionAst] -and $Node.CommandElements[0].Extent.Text -cne '$WriteSelectorPhaseMarker'){$Unknown.Add('dynamic:'+ $Node.Extent.Text)}}elseif($Name -cnotin $Commands){$Unknown.Add('command:'+$Name)} }
+    if($Node -is [Management.Automation.Language.InvokeMemberExpressionAst]){if($Node.Member.Value -cnotin $Methods){$Unknown.Add('method:'+$Node.Member.Extent.Text)}}
+    elseif($Node -is [Management.Automation.Language.MemberExpressionAst]){if($Node.Static){if($Node.Member.Value -cnotin @('UTF8','Ordinal')){$Unknown.Add('static-property:'+$Node.Member.Extent.Text)}}elseif($Node.Member.Value -cnotin $Properties){$Unknown.Add('property:'+$Node.Member.Extent.Text)}}
+    if($Node -is [Management.Automation.Language.VariableExpressionAst] -and $Node.VariablePath.IsDriveQualified -and -not $Node.VariablePath.UserPath.StartsWith('script:',[StringComparison]::Ordinal)){$Unknown.Add('drive:'+$Node.VariablePath.UserPath)}
+    if($Node -is [Management.Automation.Language.FileRedirectionAst]){$Unknown.Add('file-redirection')}
+  }
+  if($Unknown.Count -ne 0){throw ('WO22 fatal whole-selected-program ZERO gate refused: '+[string]::Join('|',$Unknown))}
+  $Result=& ([scriptblock]::Create($Program)) $BackendBytes $CheckAllText
+  return [pscustomobject]@{Assertions=$Result.Assertions;Cases=$Result.Cases;Hooks=$Result.Hooks;Pins=$Pins.ToArray();Gate=@{Unknown=0;ParseErrors=0;RealAccessors=0;CompiledPrograms=1};StaticOnlyCollector=$Result.StaticOnlyCollector}
+}
+
 function Invoke-OwnedWo24StageTimingControls {
   param([string]$CheckAllText, [string]$EvidenceText, [ref]$SelectedProgram = $null)
   # Select current owned statements, not the mutation runner or native helper.
@@ -960,6 +1133,9 @@ try {
       $ObsCases.Add('unavailable-framing-sink-refusal')
     }
     Invoke-OwnedObsUnavailableFramingControls
+    $Wo22Routing = Invoke-OwnedWo22TargetRoutingControls $CheckAllText ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1'))) ([IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '../src/backend_cranelift.rs')))
+    foreach ($RoutingAssertion in $Wo22Routing.Assertions) { Test-ObsRequire $RoutingAssertion.Ok $RoutingAssertion.Message }
+    $ObsCases.Add('wo22-target-routing-owned-controls')
     $Wo24Timing = Invoke-OwnedWo24StageTimingControls $CheckAllText $EvidenceText
     foreach ($StageAssertion in $Wo24Timing.Assertions) { Test-ObsRequire $StageAssertion.Ok $StageAssertion.Message }
     $ObsCases.Add('wo24-stage-owned-controls')

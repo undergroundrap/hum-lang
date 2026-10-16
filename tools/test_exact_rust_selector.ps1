@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$script:Wo22RustTargetAdmissionOwner = $null
 $script:ExactRustSelectorCredits = New-Object 'System.Collections.Generic.List[string]'
 $script:ExactRustMutationGenerationOwner = $null
 
@@ -209,6 +210,134 @@ function Remove-ExactRustMutationGeneration {
   Remove-Item -LiteralPath $Owner.OwnedRoot -Recurse -Force -ErrorAction Stop
 }
 
+# WO22 alone may qualify a mutant after current broad honest admission. This
+# invocation-local evidence is not a saved test result or a general target catalog.
+function Read-Wo22RustTargetNamespace {
+  param([string] $Root, [string] $Cargo)
+  $Root = [IO.Path]::GetFullPath($Root)
+  if ($Root -cne [IO.Path]::GetFullPath((Get-Location).Path)) { throw 'WO22 target namespace working directory changed' }
+  $Files = [Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal)
+  $Pending = [Collections.Generic.Queue[IO.DirectoryInfo]]::new()
+  $Pending.Enqueue([IO.DirectoryInfo]::new($Root))
+  while ($Pending.Count -gt 0) {
+    $Directory = $Pending.Dequeue()
+    if (-not $Directory.Exists -or ($Directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'WO22 target namespace has nonordinary source directory' }
+    foreach ($Entry in $Directory.EnumerateFileSystemInfos()) {
+      $Relative = $Entry.FullName.Substring($Root.Length + 1).Replace('\','/')
+      if ($Relative -cin @('.git','target','.cargo-home')) { continue }
+      if (($Entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'WO22 target namespace has nonordinary source input' }
+      if (($Entry.Attributes -band [IO.FileAttributes]::Directory) -ne 0) { $Pending.Enqueue([IO.DirectoryInfo] $Entry); continue }
+      $Files.Add($Relative, (Get-ExactRustGenerationDigest ([IO.File]::ReadAllBytes($Entry.FullName))))
+    }
+  }
+  foreach ($Required in @('Cargo.toml','Cargo.lock','src/main.rs','src/backend_cranelift.rs','tests/cli_decision0030.rs','tests/cli_wo29_trust_locality.rs')) {
+    if (-not $Files.ContainsKey($Required)) { throw 'WO22 target namespace is incomplete' }
+  }
+  $Manifest = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes((Join-Path $Root 'Cargo.toml')))
+  if ($Manifest -cnotmatch '(?m)^\[\[bin\]\]\nname = "hum"\npath = "src/main\.rs"\n' -or $Manifest -match '(?m)^\[lib\]|^\[\[test\]\]|^autotests\s*=|^default-members\s*=') { throw 'WO22 target ownership changed' }
+  $Environment = [Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal)
+  foreach ($Pair in [Environment]::GetEnvironmentVariables().GetEnumerator()) { $Environment.Add([string] $Pair.Key, [string] $Pair.Value) }
+  $Context = [Collections.Generic.List[string]]::new()
+  foreach ($Pair in $Environment.GetEnumerator()) { $Context.Add(($Pair.Key.Length.ToString() + ':' + $Pair.Key + $Pair.Value.Length.ToString() + ':' + $Pair.Value)) }
+  $Context.Add((Get-ExactRustGenerationDigest ([IO.File]::ReadAllBytes($Cargo))))
+  $ConfigPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  $Parent = [IO.DirectoryInfo]::new($Root)
+  while ($null -ne $Parent) {
+    foreach ($Leaf in @('.cargo/config','.cargo/config.toml','rust-toolchain','rust-toolchain.toml')) { $null = $ConfigPaths.Add((Join-Path $Parent.FullName $Leaf)) }
+    $Parent = $Parent.Parent
+  }
+  $CargoHome = if ($Environment.ContainsKey('CARGO_HOME')) { $Environment['CARGO_HOME'] } else { '' }
+  if ([string]::IsNullOrEmpty($CargoHome)) { $CargoHome = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.cargo' }
+  foreach ($Leaf in @('config','config.toml')) { $null = $ConfigPaths.Add((Join-Path $CargoHome $Leaf)) }
+  foreach ($Path in @($ConfigPaths | Sort-Object -CaseSensitive)) {
+    $Context.Add($Path)
+    if ([IO.File]::Exists($Path)) {
+      $Bytes = [IO.File]::ReadAllBytes($Path)
+      if ([Text.Encoding]::UTF8.GetString($Bytes) -match '(?m)^\s*include\s*=') { throw 'WO22 target namespace cannot bind included Cargo configuration' }
+      $Context.Add((Get-ExactRustGenerationDigest $Bytes))
+    } else { $Context.Add('absent') }
+  }
+  return [pscustomobject] @{ Root = $Root; Files = $Files; Target = 'hum'; TargetSource = 'src/main.rs'; Context = (Get-ExactRustGenerationDigest ([Text.Encoding]::UTF8.GetBytes([string]::Join("`n", $Context)))) }
+}
+
+function Assert-Wo22RustNamespace {
+  param($Expected, $Actual, [string] $BackendDigest)
+  if ($Actual.Root -cne $Expected.Root -or $Actual.Context -cne $Expected.Context -or $Actual.Target -cne $Expected.Target -or $Actual.TargetSource -cne $Expected.TargetSource -or $Actual.Files.Count -ne $Expected.Files.Count) { throw 'WO22 target namespace or context changed' }
+  foreach ($Pair in $Expected.Files.GetEnumerator()) {
+    $Digest = if ($Pair.Key -ceq 'src/backend_cranelift.rs') { $BackendDigest } else { $Pair.Value }
+    if (-not $Actual.Files.ContainsKey($Pair.Key) -or $Actual.Files[$Pair.Key] -cne $Digest) { throw 'WO22 target namespace source changed' }
+  }
+}
+
+function New-Wo22RustTargetAdmission {
+  param([string] $Cargo, [string] $BackendPath, [byte[]] $OriginalBytes, [object[]] $Mutations)
+  if ($null -ne $script:Wo22RustTargetAdmissionOwner) { throw 'WO22 target admission is already active' }
+  $Root = [IO.Path]::GetDirectoryName([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($BackendPath)))
+  $Namespace = Read-Wo22RustTargetNamespace $Root $Cargo
+  if ($Namespace.Root -cne $Root -or $Namespace.Target -cne 'hum' -or $Namespace.TargetSource -cne 'src/main.rs') { throw 'WO22 target admission ownership changed' }
+  foreach ($Required in @('Cargo.toml','Cargo.lock','src/main.rs','src/backend_cranelift.rs','tests/cli_decision0030.rs','tests/cli_wo29_trust_locality.rs')) {
+    if (-not $Namespace.Files.ContainsKey($Required)) { throw 'WO22 target admission namespace incomplete' }
+  }
+  $OriginalDigest = Get-ExactRustGenerationDigest $OriginalBytes
+  if ($Namespace.Files['src/backend_cranelift.rs'] -cne $OriginalDigest -or $Mutations.Count -ne 16) { throw 'WO22 target admission source or row inventory changed' }
+  $Utf8 = [Text.UTF8Encoding]::new($false, $true)
+  $Original = $Utf8.GetString($OriginalBytes)
+  $Start = $Original.IndexOf('fn probe_with_fault(', [StringComparison]::Ordinal)
+  $End = $Original.IndexOf("`nfn backend_evidence_is_complete(", [StringComparison]::Ordinal)
+  if ($Start -lt 0 -or $End -le $Start) { throw 'WO22 target admission production owner missing' }
+  $Variants = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+  $Selectors = [Collections.Generic.SortedDictionary[string,string[]]]::new([StringComparer]::Ordinal)
+  foreach ($Mutation in $Mutations) {
+    if ($Mutation.Selector -cnotin @('backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact')) { throw 'WO22 target admission selector owner changed' }
+    $Changes = @([pscustomobject] @{ Needle = $Mutation.Needle; Replacement = $Mutation.Replacement })
+    if ($null -ne $Mutation.PSObject.Properties['AdditionalChanges']) { $Changes += @($Mutation.AdditionalChanges) }
+    $Variant = $Original
+    foreach ($Change in $Changes) {
+      $At = $Original.IndexOf($Change.Needle, [StringComparison]::Ordinal)
+      if ($At -lt $Start -or ($At + $Change.Needle.Length) -gt $End -or [regex]::Matches($Original,[regex]::Escape($Change.Needle)).Count -ne 1 -or
+          $Change.Needle -cmatch '#|\b(?:fn|mod|extern|include|include_str|include_bytes|macro_rules|test|cfg)\b' -or $Change.Replacement -cmatch '#|\b(?:fn|mod|extern|include|include_str|include_bytes|macro_rules|test|cfg)\b') { throw 'WO22 mutation can change target or test namespace' }
+      $Variant = $Variant.Replace($Change.Needle, $Change.Replacement)
+    }
+    if ($Variant -ceq $Original -or -not $Variant.StartsWith($Original.Substring(0,$Start),[StringComparison]::Ordinal) -or -not $Variant.EndsWith($Original.Substring($End),[StringComparison]::Ordinal)) { throw 'WO22 mutation namespace envelope changed' }
+    $Key = 'Work Order 22 ' + $Mutation.Label + ' guarded production mutation|' + $Mutation.Selector
+    $Variants.Add($Key, (Get-ExactRustGenerationDigest ($Utf8.GetBytes($Variant))))
+    if (-not $Selectors.ContainsKey($Mutation.Selector)) { $Selectors.Add($Mutation.Selector, [string[]]@()) }
+  }
+  if ($Selectors.Count -ne 2) { throw 'WO22 target admission selector inventory changed' }
+  foreach ($Selector in @($Selectors.Keys)) {
+    $Result = Invoke-ExactRustNativeCapture $Cargo @('test', $Selector, '--', '--exact', '--list')
+    $Listed = @($Result.Output | Where-Object { $_ -match ': test$' })
+    if ($Result.ExitCode -ne 0 -or $Listed.Count -ne 1 -or $Listed[0] -cne ($Selector + ': test')) { throw 'WO22 broad honest singleton admission failed' }
+    $Selectors[$Selector] = [string[]] $Result.Output.Clone()
+    Assert-Wo22RustNamespace $Namespace (Read-Wo22RustTargetNamespace $Root $Cargo) $OriginalDigest
+  }
+  $Admission = [pscustomobject] @{ Active = $true; Root = $Root; Cargo = $Cargo; Context = $Namespace.Context; Target = $Namespace.Target; Selectors = $Selectors }
+  $BoundSelectors = [Collections.Generic.SortedDictionary[string,string[]]]::new([StringComparer]::Ordinal)
+  foreach ($Pair in $Selectors.GetEnumerator()) { $BoundSelectors.Add($Pair.Key,[string[]] $Pair.Value.Clone()) }
+  $script:Wo22RustTargetAdmissionOwner = [pscustomobject] @{ Instance = $Admission; Namespace = $Namespace; Root = $Root; Cargo = $Cargo; Context = $Namespace.Context; Target = $Namespace.Target; Selectors = $BoundSelectors; Variants = $Variants }
+  return $Admission
+}
+
+function Assert-Wo22RustTargetAdmission {
+  param($Admission, [string] $Label, [string] $Cargo, [string] $Selector, [byte[]] $MutationBytes)
+  $Owner = $script:Wo22RustTargetAdmissionOwner
+  if ($null -eq $Owner -or -not [object]::ReferenceEquals($Admission,$Owner.Instance) -or -not $Admission.Active -or $Admission.Root -cne $Owner.Root -or $Admission.Cargo -cne $Cargo -or $Cargo -cne $Owner.Cargo -or $Admission.Context -cne $Owner.Context -or $Admission.Target -cne $Owner.Target -or $Admission.Selectors.Count -ne $Owner.Selectors.Count) { throw 'WO22 target admission lifetime or context changed' }
+  foreach ($Pair in $Owner.Selectors.GetEnumerator()) {
+    if (-not $Admission.Selectors.ContainsKey($Pair.Key) -or [string]::Join("`n",$Admission.Selectors[$Pair.Key]) -cne [string]::Join("`n",$Pair.Value)) { throw 'WO22 broad admission facts changed' }
+  }
+  $Key = $Label + '|' + $Selector
+  if (-not $Owner.Selectors.ContainsKey($Selector) -or -not $Owner.Variants.ContainsKey($Key) -or $null -eq $MutationBytes) { throw 'WO22 target admission mutation owner changed' }
+  $Digest = Get-ExactRustGenerationDigest $MutationBytes
+  if ($Digest -cne $Owner.Variants[$Key]) { throw 'WO22 target admission variant changed' }
+  Assert-Wo22RustNamespace $Owner.Namespace (Read-Wo22RustTargetNamespace $Owner.Root $Cargo) $Digest
+}
+
+function Close-Wo22RustTargetAdmission {
+  param($Admission)
+  if ($null -ne $Admission) { $Admission.Active = $false }
+  $script:Wo22RustTargetAdmissionOwner = $null
+}
+
 function Invoke-ExactRustTest {
   param(
     [string] $Label,
@@ -216,11 +345,14 @@ function Invoke-ExactRustTest {
     [string] $Selector,
     $Generation = $null,
     [string] $MutationPath = '',
-    [byte[]] $MutationBytes = $null
+    [byte[]] $MutationBytes = $null,
+    $Wo22Admission = $null,
+    [byte[]] $Wo22MutationBytes = $null
   )
 
   Write-Host "==> $Label"
   Assert-ExactRustSelectorSyntax $Selector
+  $UseWo22Target = $PSBoundParameters.ContainsKey('Wo22Admission')
 
   $SelectorPhasePrefix = ''
   try {
@@ -261,12 +393,18 @@ function Invoke-ExactRustTest {
   $null = & $WriteSelectorPhaseMarker 'list' 'start'
   try {
     $CargoArguments = @('test', $Selector)
+    if ($UseWo22Target) {
+      if ($null -ne $Generation) { throw 'WO22 target admission cannot mix with another generation' }
+      Assert-Wo22RustTargetAdmission $Wo22Admission $Label $Cargo $Selector $Wo22MutationBytes
+      $CargoArguments += @('--bin', $Wo22Admission.Target)
+    }
     if ($null -ne $Generation) {
       Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes
       if (-not [string]::IsNullOrEmpty($MutationPath)) { $CargoArguments += @('--manifest-path', (Join-Path $Generation.MutableRoot 'Cargo.toml'), '--target-dir', $Generation.Target) }
     }
     $CargoArguments += @('--', '--exact', '--list')
     $ListResult = Invoke-ExactRustNativeCapture $Cargo $CargoArguments
+    if ($UseWo22Target) { Assert-Wo22RustTargetAdmission $Wo22Admission $Label $Cargo $Selector $Wo22MutationBytes }
     if ($null -ne $Generation) { Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes }
     if ($ListResult.ExitCode -ne 0) {
       $ListResult.Output | ForEach-Object { Write-Host $_ }
@@ -287,12 +425,18 @@ function Invoke-ExactRustTest {
   $null = & $WriteSelectorPhaseMarker 'run' 'start'
   try {
     $CargoArguments = @('test', $Selector)
+    if ($UseWo22Target) {
+      if ($null -ne $Generation) { throw 'WO22 target admission cannot mix with another generation' }
+      Assert-Wo22RustTargetAdmission $Wo22Admission $Label $Cargo $Selector $Wo22MutationBytes
+      $CargoArguments += @('--bin', $Wo22Admission.Target)
+    }
     if ($null -ne $Generation) {
       Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes
       if (-not [string]::IsNullOrEmpty($MutationPath)) { $CargoArguments += @('--manifest-path', (Join-Path $Generation.MutableRoot 'Cargo.toml'), '--target-dir', $Generation.Target) }
     }
     $CargoArguments += @('--', '--exact')
     $RunResult = Invoke-ExactRustNativeCapture $Cargo $CargoArguments
+    if ($UseWo22Target) { Assert-Wo22RustTargetAdmission $Wo22Admission $Label $Cargo $Selector $Wo22MutationBytes }
     if ($null -ne $Generation) { Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes }
     $RunResult.Output | ForEach-Object { Write-Host $_ }
     if ($RunResult.ExitCode -ne 0) {

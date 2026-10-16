@@ -1000,7 +1000,9 @@ function Invoke-Wo22BackendPredicateMutationEvidence {
   if (-not (Test-Wo22ByteArraysEqual $OriginalBytes $Utf8.GetBytes($Original))) {
     throw 'Work Order 22 backend mutation source is not canonical BOM-free UTF-8'
   }
+  $Wo22Admission = $null
   try {
+    $Wo22Admission = New-Wo22RustTargetAdmission $Cargo $BackendPath $OriginalBytes $Mutations
     foreach ($Mutation in $SelectedMutations) {
       $Needles = @($Mutation.Needle)
       $Replacements = @($Mutation.Replacement)
@@ -1041,7 +1043,7 @@ function Invoke-Wo22BackendPredicateMutationEvidence {
       try {
         [System.IO.File]::WriteAllText($BackendPath, $Mutated, $Utf8)
         try {
-          & { Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector } 6>&1 |
+          & { Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector -Wo22Admission $Wo22Admission -Wo22MutationBytes ($Utf8.GetBytes($Mutated)) } 6>&1 |
             ForEach-Object { $ResultOutput.Add($_.ToString()) }
         } catch {
           $ResultFailure = $_
@@ -1076,7 +1078,7 @@ function Invoke-Wo22BackendPredicateMutationEvidence {
       Write-Host "ok - Work Order 22 $($Mutation.Label) production mutation rejected"
     }
   } finally {
-    [System.IO.File]::WriteAllBytes($BackendPath, $OriginalBytes)
+    try { [System.IO.File]::WriteAllBytes($BackendPath, $OriginalBytes) } finally { Close-Wo22RustTargetAdmission $Wo22Admission }
   }
 }
 
@@ -7230,7 +7232,7 @@ try {
   $MutationCommands = @($MutationFunctions[0].Body.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.CommandAst] }, $true))
   $GuardedMutationCalls = @($MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustTest' })
   $BypassMutationCalls = @($MutationCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-ExactRustNativeCapture' })
-  if ($GuardedMutationCalls.Count -ne 1 -or $GuardedMutationCalls[0].Extent.Text -cne 'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector' -or $BypassMutationCalls.Count -ne 0) { throw 'Work Order 22 mutation selector must use the one guarded exact-selector route' }
+  if ($GuardedMutationCalls.Count -ne 1 -or $GuardedMutationCalls[0].Extent.Text -cne 'Invoke-ExactRustTest $MutationExecutionLabel $Cargo $Mutation.Selector -Wo22Admission $Wo22Admission -Wo22MutationBytes ($Utf8.GetBytes($Mutated))' -or $BypassMutationCalls.Count -ne 0) { throw 'Work Order 22 mutation selector must use the one guarded exact-selector route' }
   $Wo24MutationFunctions = @($CheckAllAst.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq 'Invoke-Wo24UnitAProductionMutationEvidence' }, $true))
   if ($Wo24MutationFunctions.Count -ne 1) { throw 'Work Order 24 mutation runner identity drifted' }
   $Wo24MutationCommands = @($Wo24MutationFunctions[0].Body.FindAll({ param($Node) $Node -is [System.Management.Automation.Language.CommandAst] }, $true))
