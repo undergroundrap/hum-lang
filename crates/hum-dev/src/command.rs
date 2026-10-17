@@ -54,7 +54,7 @@ pub enum MessageInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Evidence(EvidenceProfile),
-    EvidenceBound(EvidenceProfile, PathBuf),
+    EvidenceBound(EvidenceProfile, PathBuf, Option<PathBuf>),
     EvidenceSummarizeBound(PathBuf, PathBuf),
     CommitMessage(MessageInput),
     CandidateIdentity(PathBuf),
@@ -78,7 +78,12 @@ impl Command {
             [group, profile, flag, pwsh] if group == "evidence" && flag == "--pwsh" => {
                 let profile = EvidenceProfile::parse(profile)?;
                 if profile == EvidenceProfile::Status { return Err("status evidence does not execute PowerShell".into()); }
-                Ok(Self::EvidenceBound(profile, pwsh.into()))
+                Ok(Self::EvidenceBound(profile, pwsh.into(), None))
+            }
+            [group, profile, flag, pwsh, phase_flag, phase_dir] if group == "evidence" && flag == "--pwsh" && phase_flag == "--phase-diagnostics" => {
+                let profile = EvidenceProfile::parse(profile)?;
+                if profile == EvidenceProfile::Status { return Err("status evidence does not execute PowerShell".into()); }
+                Ok(Self::EvidenceBound(profile, pwsh.into(), Some(phase_dir.into())))
             }
             [group, action, flag, subject] if group == "commit-message" && action == "check" && flag == "--subject" =>
                 Ok(Self::CommitMessage(MessageInput::Subject(subject.clone()))),
@@ -99,19 +104,19 @@ impl Command {
 pub struct LegacyInvocation {
     pub executable: &'static str,
     pub script: &'static str,
-    pub arguments: &'static [&'static str],
+    pub arguments: Vec<String>,
 }
 
 #[rustfmt::skip]
 pub fn legacy_invocation(profile: EvidenceProfile) -> LegacyInvocation {
     match profile {
-        EvidenceProfile::Language => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Language"] },
-        EvidenceProfile::Runtime => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Runtime"] },
-        EvidenceProfile::Compiler => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Compiler"] },
-        EvidenceProfile::Focused => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Wo25UnitC"] },
-        EvidenceProfile::Full => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Fast"] },
-        EvidenceProfile::Exhaustive => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: &["-EvidenceTier", "Exhaustive"] },
-        EvidenceProfile::Status => LegacyInvocation { executable: "pwsh", script: "tools/check_workorder_status_boundary.ps1", arguments: &[] },
+        EvidenceProfile::Language => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: vec!["-EvidenceTier".to_string(), "Language".to_string()] },
+        EvidenceProfile::Runtime => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: vec!["-EvidenceTier".to_string(), "Runtime".to_string()] },
+        EvidenceProfile::Compiler => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: vec!["-EvidenceTier".to_string(), "Compiler".to_string()] },
+        EvidenceProfile::Focused => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: vec!["-EvidenceTier".to_string(), "Wo25UnitC".to_string()] },
+        EvidenceProfile::Full => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: vec!["-EvidenceTier".to_string(), "Fast".to_string()] },
+        EvidenceProfile::Exhaustive => LegacyInvocation { executable: "pwsh", script: "tools/check_all.ps1", arguments: vec!["-EvidenceTier".to_string(), "Exhaustive".to_string()] },
+        EvidenceProfile::Status => LegacyInvocation { executable: "pwsh", script: "tools/check_workorder_status_boundary.ps1", arguments: vec![] },
     }
 }
 
@@ -228,43 +233,43 @@ mod tests {
                 EvidenceProfile::Language,
                 "pwsh",
                 "tools/check_all.ps1",
-                &["-EvidenceTier", "Language"][..],
+                vec!["-EvidenceTier".to_string(), "Language".to_string()],
             ),
             (
                 EvidenceProfile::Runtime,
                 "pwsh",
                 "tools/check_all.ps1",
-                &["-EvidenceTier", "Runtime"][..],
+                vec!["-EvidenceTier".to_string(), "Runtime".to_string()],
             ),
             (
                 EvidenceProfile::Compiler,
                 "pwsh",
                 "tools/check_all.ps1",
-                &["-EvidenceTier", "Compiler"][..],
+                vec!["-EvidenceTier".to_string(), "Compiler".to_string()],
             ),
             (
                 EvidenceProfile::Focused,
                 "pwsh",
                 "tools/check_all.ps1",
-                &["-EvidenceTier", "Wo25UnitC"][..],
+                vec!["-EvidenceTier".to_string(), "Wo25UnitC".to_string()],
             ),
             (
                 EvidenceProfile::Full,
                 "pwsh",
                 "tools/check_all.ps1",
-                &["-EvidenceTier", "Fast"][..],
+                vec!["-EvidenceTier".to_string(), "Fast".to_string()],
             ),
             (
                 EvidenceProfile::Exhaustive,
                 "pwsh",
                 "tools/check_all.ps1",
-                &["-EvidenceTier", "Exhaustive"][..],
+                vec!["-EvidenceTier".to_string(), "Exhaustive".to_string()],
             ),
             (
                 EvidenceProfile::Status,
                 "pwsh",
                 "tools/check_workorder_status_boundary.ps1",
-                &[][..],
+                vec![],
             ),
         ] {
             assert_eq!(
@@ -290,7 +295,7 @@ mod tests {
             assert_eq!(profile.name(), name);
             assert_eq!(
                 Command::parse(["evidence", name, "--pwsh", "owned-path"].map(str::to_owned)),
-                Ok(Command::EvidenceBound(profile, "owned-path".into()))
+                Ok(Command::EvidenceBound(profile, "owned-path".into(), None))
             );
             assert!(
                 Command::parse(["evidence", name, "--skip", "anything"].map(str::to_owned))

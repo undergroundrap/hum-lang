@@ -19,6 +19,62 @@ function Read-RepoText {
   return [System.IO.File]::ReadAllText($path).Trim()
 }
 
+function Get-Wo25PreflightBudgetFailure {
+  param([string] $Source)
+  $cr = [char] 13; $lf = [char] 10; $normalized = $Source.Replace([string] $cr + [string] $lf, [string] $lf).Replace([string] $cr, [string] $lf)
+  $jobs = @([regex]::Matches($normalized, '(?ms)^jobs:(?<Header>[^\n]*)(?:\n|\z)(?<Body>.*?)(?=^[^\s#]|\z)'))
+  if ($jobs.Count -ne 1) { return 'budget_jobs_count' }
+  if ($jobs[0].Groups['Header'].Value.Trim() -cne '') { return 'budget_jobs_header' }
+  $preflight = @([regex]::Matches($jobs[0].Groups['Body'].Value, '(?ms)^  preflight:(?<Header>[^\n]*)(?:\n|\z)(?<Body>.*?)(?=^  [^\s#]|\z)'))
+  if ($preflight.Count -ne 1) { return 'budget_preflight_count' }
+  if ($preflight[0].Groups['Header'].Value.Trim() -cne '') { return 'budget_preflight_header' }
+  # Require canonical direct mapping rows: quoted/multiline scalar text cannot own these keys.
+  foreach ($scope in @(@($normalized, '', 'budget_root_shape'), @($jobs[0].Groups['Body'].Value, '  ', 'budget_jobs_shape'), @($preflight[0].Groups['Body'].Value, '    ', 'budget_preflight_shape'))) {
+    foreach ($row in [regex]::Matches($scope[0], '(?m)^' + $scope[1] + '[^\s#][^\n]*$')) {
+      $field = [regex]::Match($row.Value, '^' + $scope[1] + '[A-Za-z_][A-Za-z0-9_-]*:[ \t]*(?<Value>[^\n]*)$')
+      if (-not $field.Success) { return $scope[2] }
+      $value = $field.Groups['Value'].Value.Trim()
+      if ($value.StartsWith('"') -or $value.StartsWith("'")) {
+        if (-not [regex]::IsMatch($value, '^(?:"[^"\\]*"|''[^'']*'')$')) { return $scope[2] }
+      }
+    }
+  }
+  $budgets = @([regex]::Matches($preflight[0].Groups['Body'].Value, '(?m)^    timeout-minutes:(?<Value>[^\n]*)(?:\n|\z)'))
+  if ($budgets.Count -ne 1) { return 'budget_timeout_count' }
+  if ($budgets[0].Groups['Value'].Value.Trim() -cne '${{ matrix.os == ''windows-latest'' && 90 || 60 }}') { return 'budget_timeout_expression' }
+  return $null
+}
+
+function Test-Wo25PreflightBudgetCorruptions {
+  param([string] $Source)
+  $original = $Source; $cr = [string] [char] 13; $lf = [string] [char] 10; $normalized = $Source.Replace($cr + $lf, $lf).Replace($cr, $lf)
+  $budget = '    timeout-minutes: ${{ matrix.os == ''windows-latest'' && 90 || 60 }}'
+  $cases = @(
+    [pscustomobject] @{ Name = 'missing timeout'; Source = $normalized.Replace($budget, ''); Failure = 'budget_timeout_count' },
+    [pscustomobject] @{ Name = 'retired scalar'; Source = $normalized.Replace($budget, '    timeout-minutes: 60'); Failure = 'budget_timeout_expression' },
+    [pscustomobject] @{ Name = 'wrong Windows'; Source = $normalized.Replace('windows-latest'' && 90 || 60', 'windows-latest'' && 60 || 60'); Failure = 'budget_timeout_expression' },
+    [pscustomobject] @{ Name = 'wrong Ubuntu'; Source = $normalized.Replace('windows-latest'' && 90 || 60', 'windows-latest'' && 90 || 90'); Failure = 'budget_timeout_expression' },
+    [pscustomobject] @{ Name = 'swapped OS'; Source = $normalized.Replace('windows-latest'' && 90 || 60', 'ubuntu-latest'' && 90 || 60'); Failure = 'budget_timeout_expression' },
+    [pscustomobject] @{ Name = 'comment compensation'; Source = $normalized.Replace($budget, '    # ' + $budget.Trim()); Failure = 'budget_timeout_count' },
+    [pscustomobject] @{ Name = 'scalar compensation'; Source = $normalized.Replace($budget, '    notes: |' + $lf + '  ' + $budget); Failure = 'budget_timeout_count' },
+    [pscustomobject] @{ Name = 'other job compensation'; Source = $normalized.Replace($budget, '') + $lf + '  budget_decoy:' + $lf + $budget; Failure = 'budget_timeout_count' },
+    [pscustomobject] @{ Name = 'duplicate jobs EOF'; Source = $normalized.TrimEnd([char[]] @(13, 10)) + $lf + 'jobs: {}'; Failure = 'budget_jobs_count' },
+    [pscustomobject] @{ Name = 'duplicate preflight EOF'; Source = $normalized.TrimEnd([char[]] @(13, 10)) + $lf + '  preflight: {}'; Failure = 'budget_preflight_count' },
+    [pscustomobject] @{ Name = 'duplicate timeout'; Source = $normalized.Replace($budget, $budget + $lf + $budget); Failure = 'budget_timeout_count' },
+    [pscustomobject] @{ Name = 'jobs scalar'; Source = $normalized.Replace('jobs:' + $lf, 'jobs: |' + $lf); Failure = 'budget_jobs_header' },
+    [pscustomobject] @{ Name = 'preflight scalar'; Source = $normalized.Replace('  preflight:' + $lf, '  preflight: |' + $lf); Failure = 'budget_preflight_header' }
+  )
+  foreach ($case in $cases) {
+    if ($case.Source -ceq $normalized) { throw "release-readiness budget corruption was not initialized: $($case.Name)" }
+    $failure = Get-Wo25PreflightBudgetFailure $case.Source
+    if ($failure -cne $case.Failure) { throw "release-readiness budget $($case.Name) expected $($case.Failure), got $failure" }
+    Write-Host "ok - release-readiness budget $($case.Name): $failure"
+  }
+  if ($Source -cne $original) { throw 'release-readiness budget corruptions did not restore exact source bytes' }
+}
+
+
+
 function Get-Wo25ExhaustiveWorkflowRouteFailure {
   param([string] $Source)
   $cr = [char] 13; $lf = [char] 10; $normalized = $Source.Replace([string] $cr + [string] $lf, [string] $lf).Replace([string] $cr, [string] $lf)
@@ -327,11 +383,14 @@ foreach ($required in @('hum.doctor.v0', 'hum doctor --format json', 'current_di
 }
 
 $ciWorkflow = Read-RepoText '.github/workflows/ci.yml'
-foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', "cancel-in-progress: `${{ github.event_name == 'pull_request' }}", 'timeout-minutes: 60', 'actions/checkout@v7', 'actions/cache@v6', 'CARGO_HOME:', 'Cache Cargo artifacts', '.cargo-home/registry', '.cargo-home/git', 'target', 'restore-keys:', 'tools/check_all.ps1', 'Run exhaustive canonical-seal evidence', 'continue-on-error: false', 'windows-latest', 'ubuntu-latest')) {
+foreach ($required in @('workflow_dispatch:', 'branches:', '- main', 'tags:', "- 'v*'", 'concurrency:', "cancel-in-progress: `${{ github.event_name == 'pull_request' }}", 'actions/checkout@v7', 'actions/cache@v6', 'CARGO_HOME:', 'Cache Cargo artifacts', '.cargo-home/registry', '.cargo-home/git', 'target', 'restore-keys:', 'tools/check_all.ps1', 'Run exhaustive canonical-seal evidence', 'continue-on-error: false', 'windows-latest', 'ubuntu-latest')) {
   if (-not $ciWorkflow.Contains($required)) {
     Add-Failure ".github/workflows/ci.yml does not mention $required"
   }
 }
+$preflightBudgetFailure = Get-Wo25PreflightBudgetFailure $ciWorkflow
+if ($null -ne $preflightBudgetFailure) { Add-Failure ".github/workflows/ci.yml preflight budget failed: $preflightBudgetFailure" }
+try { Test-Wo25PreflightBudgetCorruptions $ciWorkflow } catch { Add-Failure $_.Exception.Message }
 $exhaustiveRouteFailure = Get-Wo25ExhaustiveWorkflowRouteFailure $ciWorkflow
 if ($null -ne $exhaustiveRouteFailure) { Add-Failure ".github/workflows/ci.yml exhaustive route failed: $exhaustiveRouteFailure" }
 try { Test-Wo25ExhaustiveWorkflowRouteCorruptions $ciWorkflow } catch { Add-Failure $_.Exception.Message }
