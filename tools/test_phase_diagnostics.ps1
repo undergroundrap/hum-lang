@@ -538,6 +538,167 @@ foreach($Name in @('public','context-read','context-write','context-remove','nat
   return [pscustomobject]@{Assertions=$Result.Assertions;Cases=$Result.Cases;Hooks=$Result.Hooks;Pins=$Pins.ToArray();Gate=[pscustomobject]@{ParseErrors=0;Unknown=0;RealAccessors=0;CompiledPrograms=1}}
 }
 
+function Invoke-OwnedWo24AuthorityProofControls {
+  param([string]$CheckAllText, [ref]$SelectedProgram = $null)
+  # Metadata is source text; only the closed, accessor-free projection executes.
+  $Tokens=$null; $Errors=$null
+  $Ast=[Management.Automation.Language.Parser]::ParseInput($CheckAllText,[ref]$Tokens,[ref]$Errors)
+  if($Errors.Count -ne 0){throw 'WO24 authority source parse refused'}
+  $Functions=@($Ast.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst]},$true))
+  $Privacy=@($Functions|Where-Object{$_.Name -ceq 'Invoke-HumCompilerPrivacyChecks'})
+  $Reader=@($Functions|Where-Object{$_.Name -ceq 'Read-NativeOutputWithExit'})
+  if($Privacy.Count -ne 1 -or $Reader.Count -ne 1){throw 'WO24 authority source owner cardinality refused'}
+  $Statements=@($Privacy[0].Body.EndBlock.Statements)
+  $First=@($Statements|Where-Object{$_.Extent.Text -ceq "Write-Host '==> Work Order 24 VerifiedConstantTextBackendInput compiler-owned authority proof'"})
+  $Last=@($Statements|Where-Object{$_.Extent.Text -ceq "Invoke-Native 'Work Order 24 normal compiler check after authority proof' `$Cargo @('check', '--all-targets')"})
+  if($First.Count -ne 1 -or $Last.Count -ne 1){throw 'WO24 authority statement cardinality refused'}
+  $Start=$First[0].Extent.StartOffset; $End=$Last[0].Extent.EndOffset
+  $Actual=$CheckAllText.Substring($Start,$End-$Start)
+  $Pins=[Collections.Generic.List[object]]::new()
+  foreach($Part in @([pscustomobject]@{Name='WO24 authority stanza';Start=$Start;End=$End;Text=$Actual},[pscustomobject]@{Name='Read-NativeOutputWithExit';Start=$Reader[0].Extent.StartOffset;End=$Reader[0].Extent.EndOffset;Text=$Reader[0].Extent.Text})){
+    $Hash=[Security.Cryptography.SHA256]::Create();try{$Digest=[BitConverter]::ToString($Hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Part.Text))).Replace('-','').ToLowerInvariant()}finally{$Hash.Dispose()}
+    $Pins.Add([pscustomobject]@{Name=$Part.Name;StartUTF16=$Part.Start;EndUTF16=$Part.End;UTF8TextSha256=$Digest})
+  }
+  $Projected=$Actual.Replace("`$env:RUSTFLAGS = ''","Set-Wo24OwnedFlags ''").Replace('$env:RUSTFLAGS = $Wo24PriorRustFlags','Set-Wo24OwnedFlags $Wo24PriorRustFlags').Replace('Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue','Remove-Wo24OwnedFlags').Replace('$env:RUSTFLAGS','(Get-Wo24OwnedFlags)')
+  $ActualReader=$Reader[0].Extent.Text.Replace('$Output = & $FilePath @Arguments 2>&1','$Output = Invoke-Wo24OwnedCapture $FilePath $Arguments').Replace('return [pscustomobject] @{','$Fact = [pscustomobject] @{')
+  $ActualReader=$ActualReader.Substring(0,$ActualReader.Length-1)+"  return Complete-Wo24OwnedFact `$Fact`n}"
+  $Owned=@'
+$script:W24Assertions=[Collections.Generic.List[object]]::new()
+$script:W24Cases=[Collections.Generic.List[object]]::new()
+$script:W24Hooks=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+function Hit-Wo24Owned([string]$Name){if(-not $script:W24Hooks.ContainsKey($Name)){$script:W24Hooks.Add($Name,0)};$script:W24Hooks[$Name]++}
+function Assert-Wo24Owned([bool]$Ok,[string]$Message){$script:W24Assertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message});if(-not $Ok){throw ('WO24 owned assertion: '+$Message)}}
+function Write-Host {param([string]$Message) Hit-Wo24Owned 'public'}
+function Get-Wo24OwnedFlags {Hit-Wo24Owned 'context-read';return $script:W24Context['RUSTFLAGS']}
+function Set-Wo24OwnedFlags([AllowEmptyString()][string]$Value){
+  Hit-Wo24Owned 'context-write';$script:W24Writes++
+  if($script:W24Mode -ceq 'clear-throws' -and $script:W24Writes -eq 1){throw 'owned-context-set-failure'}
+  if($script:W24Writes -gt 1 -and $script:W24Mode -ceq 'restore-throws'){throw 'owned-restoration-failure'}
+  $script:W24Context['RUSTFLAGS']=if($script:W24Writes -gt 1 -and $script:W24Mode -ceq 'restore-corruption'){'corrupted-restoration'}else{$Value}
+}
+function Remove-Wo24OwnedFlags {
+  Hit-Wo24Owned 'context-remove'
+  if($script:W24Mode -ceq 'restore-corruption'){$script:W24Context['RUSTFLAGS']='corrupted-restoration'}else{$null=$script:W24Context.Remove('RUSTFLAGS')}
+}
+function Invoke-Wo24OwnedCapture([string]$FilePath,[string[]]$Arguments){
+  Hit-Wo24Owned 'native-request';$script:W24Requests.Add([pscustomobject]@{File=$FilePath;Arguments=$Arguments;Flags=$script:W24Context['RUSTFLAGS']})
+  $Index=$script:W24Requests.Count-1
+  $Roles=@('construction','lifetime','substitution')
+  $Flags=@('hum_compile_fail_verified_constant_text_backend_input_construction','hum_compile_fail_verified_constant_text_backend_input_lifetime','hum_compile_fail_verified_backend_input_cross_substitution')
+  $Expected='rustc|--profile|check|--bin|hum|--|--cfg|'+$Flags[$Index]
+  if($FilePath -cne 'owned-cargo' -or [string]::Join('|',$Arguments) -cne $Expected -or $script:W24Context['RUSTFLAGS'] -cne ''){throw 'owned-route-refusal'}
+  if($script:W24Mode -ceq ('producer-'+[string]$Index) -or ($script:W24Mode -ceq 'restore-throws' -and $Index -eq 0)){throw 'owned-producer-failure'}
+  Hit-Wo24Owned 'capture-output';$global:LASTEXITCODE=101
+  $Text=switch($Index){
+    0 {'prefix error[E0451]: fields `projection` and `_artifact` of struct `VerifiedConstantTextBackendInput` are private; type `VerifiedConstantTextProjection` is private'+"`n"+' projection: None.unwrap() trailing'}
+    1 {'lifetime may not live long enough'+"`n"+'|capability| capability'+"`n"+' return type of closure is VerifiedConstantTextBackendInput'}
+    2 {'error[E0308] first'+"`n"+'expected reference `&VerifiedConstantTextBackendInput'+"`n"+'found reference `&VerifiedIntegerSignBackendInput'+"`n"+'error[E0308] second'+"`n"+'expected reference `&VerifiedIntegerSignBackendInput'+"`n"+'found reference `&VerifiedConstantTextBackendInput'+"`n"+'execute_constant_text execute_integer_sign execute_constant_text execute_integer_sign'}
+  }
+  return $Text -split "`n"
+}
+function Complete-Wo24OwnedFact([object]$Fact){
+  Hit-Wo24Owned 'returned-fact';$Index=$script:W24Requests.Count-1
+  Assert-Wo24Owned ($Fact.Output -is [string] -and $Fact.Output.Contains("`n")) 'actual reader emits scalar joined diagnostic'
+  if($script:W24Mode -ceq 'exit-corruption' -and $Index -eq 0){$Fact.ExitCode=0}
+  if($script:W24Mode -ceq 'construction-cause' -and $Index -eq 0){$Fact.Output=$Fact.Output.Replace('projection: None.unwrap()','wrong span')}
+  if($script:W24Mode -ceq 'construction-type' -and $Index -eq 0){$Fact.Output=$Fact.Output.Replace('type `VerifiedConstantTextProjection` is private','missing private type')}
+  if($script:W24Mode -ceq 'construction-fields' -and $Index -eq 0){$Fact.Output=$Fact.Output.Replace('fields `projection` and `_artifact` of struct `VerifiedConstantTextBackendInput` are private','missing private fields')}
+  if($script:W24Mode -ceq 'construction-code' -and $Index -eq 0){$Fact.Output=$Fact.Output.Replace('error[E0451]','error[E0308]')}
+  if($script:W24Mode -ceq 'lifetime-cause' -and $Index -eq 1){$Fact.Output=$Fact.Output.Replace('lifetime may not live long enough','borrowed data escapes outside of closure error[E0521]')}
+  if($script:W24Mode -ceq 'substitution-count' -and $Index -eq 2){$Fact.Output=$Fact.Output.Replace('error[E0308] second','no second error')}
+  if($script:W24Mode -ceq 'substitution-expected-text' -and $Index -eq 2){$Fact.Output=$Fact.Output.Replace('expected reference `&VerifiedConstantTextBackendInput','wrong expected Text')}
+  if($script:W24Mode -ceq 'substitution-found-integer' -and $Index -eq 2){$Fact.Output=$Fact.Output.Replace('found reference `&VerifiedIntegerSignBackendInput','wrong found Integer')}
+  if($script:W24Mode -ceq 'substitution-expected-integer' -and $Index -eq 2){$Fact.Output=$Fact.Output.Replace('expected reference `&VerifiedIntegerSignBackendInput','wrong expected Integer')}
+  if($script:W24Mode -ceq 'substitution-found-text' -and $Index -eq 2){$Fact.Output=$Fact.Output.Replace('found reference `&VerifiedConstantTextBackendInput','wrong found Text')}
+  if($script:W24Mode -ceq 'substitution-span' -and $Index -eq 2){$Fact.Output=$Fact.Output.Replace('execute_constant_text','missing span')}
+  if($script:W24Mode -ceq 'unrelated-error' -and $Index -eq 2){$Fact.Output+="`nerror[E0433]: unresolved import"}
+  if($script:W24Mode -ceq 'array-output' -and $Index -eq 0){$Fact.Output=@($Fact.Output)}
+  return $Fact
+}
+function Invoke-Native([string]$Label,[string]$FilePath,[string[]]$Arguments){
+  Hit-Wo24Owned 'honest-check'
+  Assert-Wo24Owned ($Label -ceq 'Work Order 24 normal compiler check after authority proof' -and $FilePath -ceq 'owned-cargo' -and [string]::Join('|',$Arguments) -ceq 'check|--all-targets') 'unchanged honest all-target argv'
+  Assert-Wo24Owned ([string]::Equals($script:W24Context['RUSTFLAGS'],$script:W24Prior,[StringComparison]::Ordinal) -and $script:W24Context.ContainsKey('RUSTFLAGS') -eq $script:W24HadPrior) 'honest check sees exact prior context'
+}
+'@
+  $Driver=@'
+foreach($Case in @(
+  @('absent','positive'),@('empty','positive'),@('present','positive'),
+  @('absent','producer-0'),@('absent','producer-1'),@('absent','producer-2'),
+  @('empty','producer-0'),@('empty','producer-1'),@('empty','producer-2'),
+  @('present','producer-0'),@('present','producer-1'),@('present','producer-2'),
+  @('present','clear-throws'),@('present','restore-throws'),
+  @('absent','restore-corruption'),@('empty','restore-corruption'),@('present','restore-corruption'),
+  @('absent','construction-cause'),@('empty','lifetime-cause'),@('present','substitution-count'),
+  @('present','construction-type'),@('present','construction-fields'),@('present','construction-code'),
+  @('present','substitution-expected-text'),@('present','substitution-found-integer'),@('present','substitution-expected-integer'),@('present','substitution-found-text'),@('present','substitution-span'),
+  @('present','exit-corruption'),@('present','unrelated-error'),@('present','array-output'),
+  @('present','wrong-flag'),@('present','extra-argv'),@('present','wrong-target')
+)){
+  $PriorKind=$Case[0];$script:W24Mode=$Case[1]
+  $script:W24Context=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+  $script:W24HadPrior=$PriorKind -cne 'absent';$script:W24Prior=if($PriorKind -ceq 'empty'){''}elseif($PriorKind -ceq 'present'){'--cfg inherited_parent --codegen debuginfo=1'}else{$null}
+  if($script:W24HadPrior){$script:W24Context['RUSTFLAGS']=$script:W24Prior}
+  $script:W24Writes=0;$script:W24Requests=[Collections.Generic.List[object]]::new()
+  $Caught='';$BeforeHonest=if($script:W24Hooks.ContainsKey('honest-check')){$script:W24Hooks['honest-check']}else{0}
+  try{
+    if($script:W24Mode -ceq 'wrong-flag'){Invoke-Wo24OwnedWrongFlag}
+    elseif($script:W24Mode -ceq 'extra-argv'){Invoke-Wo24OwnedExtraArgv}
+    elseif($script:W24Mode -ceq 'wrong-target'){Invoke-Wo24OwnedWrongTarget}
+    else{Invoke-Wo24OwnedActual}
+  }catch{$Caught=$_.Exception.Message}
+  $Expected=switch -CaseSensitive($script:W24Mode){
+    'positive' {''}
+    {$_ -cin @('producer-0','producer-1','producer-2')} {'owned-producer-failure'}
+    'clear-throws' {'owned-context-set-failure'}
+    'restore-throws' {'owned-restoration-failure'}
+    'restore-corruption' {'Work Order 24 constant-Text authority proof did not restore RUSTFLAGS'}
+    {$_ -cin @('construction-cause','construction-type','construction-fields','construction-code','exit-corruption','array-output')} {'Work Order 24 constant-Text construction proof lost its private authority state or primary span'}
+    'lifetime-cause' {'Work Order 24 constant-Text lifetime proof lost its callback-owned escape diagnostic or primary span'}
+    {$_ -cin @('substitution-count','substitution-expected-text','substitution-found-integer','substitution-expected-integer','substitution-found-text','substitution-span')} {'Work Order 24 capability substitution proof lost its two E0308 owner diagnostics or primary spans'}
+    'unrelated-error' {'Work Order 24 constant-Text authority proof failed for an unrelated cfg, import, symbol, or syntax reason'}
+    default {'owned-route-refusal'}
+  }
+  Assert-Wo24Owned ($Caught -ceq $Expected) ($PriorKind+'/'+$script:W24Mode+' exact public outcome')
+  if($script:W24Mode -cnotin @('restore-corruption','restore-throws')){
+    Assert-Wo24Owned ([string]::Equals($script:W24Context['RUSTFLAGS'],$script:W24Prior,[StringComparison]::Ordinal) -and $script:W24Context.ContainsKey('RUSTFLAGS') -eq $script:W24HadPrior) ($PriorKind+'/'+$script:W24Mode+' exact finally restoration')
+  }
+  $AfterHonest=if($script:W24Hooks.ContainsKey('honest-check')){$script:W24Hooks['honest-check']}else{0}
+  Assert-Wo24Owned ($AfterHonest-$BeforeHonest -eq $(if($script:W24Mode -ceq 'positive'){1}else{0})) ($script:W24Mode+' honest check not credited after refusal')
+  $ExpectedCalls=if($script:W24Mode -ceq 'clear-throws'){0}elseif($script:W24Mode -ceq 'producer-0' -or $script:W24Mode -ceq 'restore-throws' -or $script:W24Mode -cin @('wrong-flag','extra-argv','wrong-target')){1}elseif($script:W24Mode -ceq 'producer-1'){2}else{3}
+  Assert-Wo24Owned ($script:W24Requests.Count -eq $ExpectedCalls) ($script:W24Mode+' exact proof request prefix')
+  $script:W24Cases.Add([pscustomobject]@{Prior=$PriorKind;Mode=$script:W24Mode;Primary=$Caught;Requests=$script:W24Requests.ToArray();HonestChecks=$AfterHonest-$BeforeHonest;OutcomeOwner=if($Expected.StartsWith('owned-',[StringComparison]::Ordinal)){'owned boundary sink'}elseif($Expected -ceq ''){'actual complete stanza'}else{'actual production refusal'}})
+}
+foreach($Name in @('public','context-read','context-write','context-remove','native-request','capture-output','returned-fact','honest-check')){Assert-Wo24Owned ($script:W24Hooks.ContainsKey($Name) -and $script:W24Hooks[$Name] -gt 0) ($Name+' nonzero actual boundary')}
+[pscustomobject]@{Assertions=$script:W24Assertions.ToArray();Cases=$script:W24Cases.ToArray();Hooks=$script:W24Hooks}
+'@
+  $FunctionText="function Invoke-Wo24OwnedActual { `$Cargo='owned-cargo'`n"+$Projected+"`n}`n"
+  $WrongFlag=$FunctionText.Replace('Invoke-Wo24OwnedActual','Invoke-Wo24OwnedWrongFlag').Replace('hum_compile_fail_verified_constant_text_backend_input_construction','unowned_cfg')
+  $ExtraArgv=$FunctionText.Replace('Invoke-Wo24OwnedActual','Invoke-Wo24OwnedExtraArgv').Replace("'--cfg', 'hum_compile_fail_verified_constant_text_backend_input_construction'","'--cfg', 'hum_compile_fail_verified_constant_text_backend_input_construction', '--release'")
+  $WrongTarget=$FunctionText.Replace('Invoke-Wo24OwnedActual','Invoke-Wo24OwnedWrongTarget').Replace("'--bin', 'hum'","'--bin', 'other'")
+  $Program=$Owned+"`n"+$ActualReader+"`n"+$FunctionText+$WrongFlag+$ExtraArgv+$WrongTarget+$Driver
+  if($null -ne $SelectedProgram){$SelectedProgram.Value=$Program}
+  $GateTokens=$null;$GateErrors=$null;$Gate=[Management.Automation.Language.Parser]::ParseInput($Program,[ref]$GateTokens,[ref]$GateErrors)
+  $Types=@('string','string[]','object','bool','pscustomobject','StringComparison','StringComparer','System.StringComparison','regex','Collections.Generic.List[object]','Collections.Generic.Dictionary[string,int]','Collections.Generic.Dictionary[string,string]')
+  $Methods=@('Add','ContainsKey','Remove','Contains','Equals','Join','Replace','StartsWith','ToArray','Matches','IsMatch','new')
+  $Properties=@('Count','Output','ExitCode','Exception','Message')
+  $Commands=@($Gate.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{$_.Name})
+  $Unknown=[Collections.Generic.List[string]]::new()
+  if($GateErrors.Count -ne 0){$Unknown.Add('parse')}
+  foreach($N in $Gate.FindAll({param($N)$true},$true)){
+    if(($N -is [Management.Automation.Language.TypeExpressionAst] -or $N -is [Management.Automation.Language.TypeConstraintAst]) -and $N.TypeName.FullName -cnotin $Types){$Unknown.Add('type:'+$N.TypeName.FullName)}
+    if($N -is [Management.Automation.Language.AttributeAst] -and $N.TypeName.FullName -cne 'AllowEmptyString'){$Unknown.Add('attribute:'+$N.TypeName.FullName)}
+    if($N -is [Management.Automation.Language.CommandAst] -and $N.GetCommandName() -cnotin $Commands){$Unknown.Add('command:'+$N.Extent.Text)}
+    if($N -is [Management.Automation.Language.InvokeMemberExpressionAst]){if($N.Member -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $N.Member.Value -cnotin $Methods){$Unknown.Add('method:'+$N.Member.Extent.Text)}}
+    elseif($N -is [Management.Automation.Language.MemberExpressionAst]){if($N.Static){if($N.Member.Value -cne 'Ordinal'){$Unknown.Add('static:'+ $N.Member.Extent.Text)}}elseif($N.Member.Value -cnotin $Properties){$Unknown.Add('property:'+$N.Member.Extent.Text)}}
+    if($N -is [Management.Automation.Language.VariableExpressionAst] -and $N.VariablePath.IsDriveQualified -and -not $N.VariablePath.UserPath.StartsWith('script:',[StringComparison]::Ordinal) -and $N.VariablePath.UserPath -cne 'global:LASTEXITCODE'){$Unknown.Add('drive:'+$N.VariablePath.UserPath)}
+    if($N -is [Management.Automation.Language.FileRedirectionAst]){$Unknown.Add('redirection')}
+  }
+  if($Unknown.Count -ne 0){throw ('WO24 fatal selected-program ZERO gate refused: '+[string]::Join('|',$Unknown))}
+  $Result=& ([scriptblock]::Create($Program))
+  return [pscustomobject]@{Assertions=$Result.Assertions;Cases=$Result.Cases;Hooks=$Result.Hooks;Pins=$Pins.ToArray();Gate=[pscustomobject]@{ParseErrors=0;Unknown=0;RealAccessors=0;CompiledPrograms=1}}
+}
+
 function Invoke-OwnedCaptureStartupAttributionControls {
   param([string]$EvidenceText, [ref]$SelectedProgram = $null)
   $Tokens=$null;$Errors=$null
@@ -1437,6 +1598,9 @@ try {
     $Wo23Authority = Invoke-OwnedWo23AuthorityProofControls $CheckAllText
     foreach ($AuthorityAssertion in $Wo23Authority.Assertions) { Test-ObsRequire $AuthorityAssertion.Ok $AuthorityAssertion.Message }
     $ObsCases.Add('wo23-final-crate-authority-owned-controls')
+    $Wo24Authority = Invoke-OwnedWo24AuthorityProofControls $CheckAllText
+    foreach ($AuthorityAssertion in $Wo24Authority.Assertions) { Test-ObsRequire $AuthorityAssertion.Ok $AuthorityAssertion.Message }
+    $ObsCases.Add('wo24-final-crate-authority-owned-controls')
     $StartupAttribution = Invoke-OwnedCaptureStartupAttributionControls $EvidenceText
     foreach ($StartupAssertion in $StartupAttribution.Assertions) { Test-ObsRequire $StartupAssertion.Ok $StartupAssertion.Message }
     $ObsCases.Add('capture-startup-attribution-owned-controls')

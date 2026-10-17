@@ -2793,12 +2793,10 @@ function Invoke-HumCompilerPrivacyChecks {
   Write-Host '==> Work Order 24 VerifiedConstantTextBackendInput compiler-owned authority proof'
   $Wo24PriorRustFlags = $env:RUSTFLAGS
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_constant_text_backend_input_construction'
-    $Wo24ConstructionFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden constant-Text capability construction proof' $Cargo @('check', '--bin', 'hum')
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_constant_text_backend_input_lifetime'
-    $Wo24LifetimeFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden constant-Text capability lifetime escape proof' $Cargo @('check', '--bin', 'hum')
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_cross_substitution'
-    $Wo24SubstitutionFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden verified-capability cross-substitution proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = ''
+    $Wo24ConstructionFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden constant-Text capability construction proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_verified_constant_text_backend_input_construction')
+    $Wo24LifetimeFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden constant-Text capability lifetime escape proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_verified_constant_text_backend_input_lifetime')
+    $Wo24SubstitutionFailure = Read-NativeOutputWithExit 'Work Order 24 forbidden verified-capability cross-substitution proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_verified_backend_input_cross_substitution')
   } finally {
     if ($null -eq $Wo24PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo24PriorRustFlags }
   }
