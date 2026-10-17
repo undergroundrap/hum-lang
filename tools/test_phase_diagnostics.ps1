@@ -538,6 +538,156 @@ foreach($Name in @('public','context-read','context-write','context-remove','nat
   return [pscustomobject]@{Assertions=$Result.Assertions;Cases=$Result.Cases;Hooks=$Result.Hooks;Pins=$Pins.ToArray();Gate=[pscustomobject]@{ParseErrors=0;Unknown=0;RealAccessors=0;CompiledPrograms=1}}
 }
 
+function Invoke-OwnedCaptureStartupAttributionControls {
+  param([string]$EvidenceText, [ref]$SelectedProgram = $null)
+  $Tokens=$null;$Errors=$null
+  $Ast=[Management.Automation.Language.Parser]::ParseInput($EvidenceText,[ref]$Tokens,[ref]$Errors)
+  if($Errors.Count -ne 0){throw 'startup attribution source parse refused'}
+  function Select-StartupOwner([string]$Name){
+    $Matches=@($Ast.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst] -and $N.Name -ceq $Name},$true))
+    if($Matches.Count -ne 1){throw ('startup attribution unique owner refused: '+$Name)}
+    return $Matches[0]
+  }
+  $Capture=Select-StartupOwner 'Invoke-HumBinaryCapture';$Complete=Select-StartupOwner 'Assert-HumCaptureComplete'
+  $Statements=@($Capture.Body.EndBlock.Statements)
+  function Select-StartupStatement([string]$Pattern){
+    $Matches=@($Statements|Where-Object{$_.Extent.Text -cmatch $Pattern})
+    if($Matches.Count -ne 1){throw ('startup attribution statement refused: '+$Pattern)}
+    return $Matches[0]
+  }
+  $Timer=Select-StartupStatement '^\$Timer = '
+  $Frequency=Select-StartupStatement '^\$Frequency = '
+  $Deadline=Select-StartupStatement '^\$DeadlineTicks = '
+  $Grace=Select-StartupStatement '^\$GraceTicks = '
+  $List=Select-StartupStatement '^\$StartupCheckpoints = '
+  $Sampler=Select-StartupStatement '^\$RecordStartupCheckpoint = '
+  $InitStart=Select-StartupStatement "^& \`$RecordStartupCheckpoint 'record-init-start'$"
+  $Init=Select-StartupStatement '^Initialize-HumCaptureRecord '
+  $InitEnd=Select-StartupStatement "^& \`$RecordStartupCheckpoint 'record-init-end'$"
+  $State=Select-StartupStatement '^\$State = '
+  $ErrorInit=Select-StartupStatement "^\`$CaptureError = ''$"
+  $Append=Select-StartupStatement '^if \(-not \[string\]::IsNullOrEmpty\(\$CaptureError\)\)'
+  $Writer=Select-StartupStatement '^Set-HumDurableBytes .*capture_error.bin.*TrimStart'
+  $Try=@($Statements|Where-Object{$_ -is [Management.Automation.Language.TryStatementAst] -and $_.Body.Extent.Text.Contains('[HumFastJobNative]::CreateSuspended')})
+  if($Try.Count -ne 1){throw 'startup attribution try owner refused'}
+  $Native=@($Try[0].Body.Statements|Where-Object{$_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item2.Extent.Text.Contains('[HumFastJobNative]::CreateSuspended')})
+  if($Native.Count -ne 1){throw 'startup attribution native branch refused'}
+  $Setup=@($Try[0].Body.Statements|Where-Object{$_.Extent.StartOffset -lt $Native[0].Extent.StartOffset}|ForEach-Object{$_.Extent.Text})
+  $Catch=$Try[0].CatchClauses[0].Body.Statements[0].Extent.Text
+  if($Catch -cne '$CaptureError = $_.Exception.ToString()'){throw 'startup attribution original error owner refused'}
+  $Marks=@($Capture.FindAll({param($N)$N -is [Management.Automation.Language.CommandAst] -and $N.CommandElements[0].Extent.Text -ceq '$RecordStartupCheckpoint'},$true))
+  if($Marks.Count -ne 14){throw 'startup attribution checkpoint cardinality refused'}
+  $Pins=[Collections.Generic.List[object]]::new()
+  foreach($Part in @($Timer,$Frequency,$Deadline,$Grace,$List,$Sampler,$InitStart,$Init,$InitEnd,$Native[0],$Append,$Writer,$Complete)){
+    $Hash=[Security.Cryptography.SHA256]::Create();try{$Digest=[BitConverter]::ToString($Hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Part.Extent.Text))).Replace('-','').ToLowerInvariant()}finally{$Hash.Dispose()}
+    $Pins.Add([pscustomobject]@{StartUTF16=$Part.Extent.StartOffset;EndUTF16=$Part.Extent.EndOffset;UTF8TextSha256=$Digest})
+  }
+  $Clock=$Timer.Extent.Text.Replace('[System.Diagnostics.Stopwatch]::StartNew()','(New-StartupOwnedTimer)')+"`n"+$Frequency.Extent.Text.Replace('[System.Diagnostics.Stopwatch]::Frequency','1000')+"`n"+$Deadline.Extent.Text+"`n"+$Grace.Extent.Text
+  $Sample=$Sampler.Extent.Text.Replace('$Timer.ElapsedTicks','(Read-StartupOwnedTicks $Timer)')
+  $NativeBody=$Native[0].Clauses[0].Item2.Extent.Text
+  if(-not $NativeBody.StartsWith('{',[StringComparison]::Ordinal) -or -not $NativeBody.EndsWith('}',[StringComparison]::Ordinal)){throw 'startup attribution native body extent refused'}
+  $Startup=[string]::Join("`n",$Setup)+"`n"+$NativeBody.Substring(1,$NativeBody.Length-2)
+  $Replacements=@(
+    @('[HumFastJobNative]::CreateConfiguredJob()','(New-StartupOwnedJob)'),
+    @('[HumFastJobNative]::ConfigureKillOnClose($JobHandle)','Set-StartupOwnedKillOnClose $JobHandle'),
+    @('[HumFastJobNative]::CreateSuspended($FilePath, $CommandLine, $WorkingDirectory)','(New-StartupOwnedProcess $FilePath $CommandLine $WorkingDirectory)'),
+    @('[HumFastJobNative]::OpenAsyncReadStream($NativeProcess.StdoutReadHandle)',"(Open-StartupOwnedPipe 'stdout')"),
+    @('[HumFastJobNative]::OpenAsyncReadStream($NativeProcess.StderrReadHandle)',"(Open-StartupOwnedPipe 'stderr')"),
+    @('$StdoutRead.CopyToAsync($StdoutCapture)',"(Start-StartupOwnedCopy 'stdout')"),
+    @('$StderrRead.CopyToAsync($StderrCapture)',"(Start-StartupOwnedCopy 'stderr')"),
+    @('[HumFastJobNative]::Assign($JobHandle, $NativeProcess.ProcessHandle)','Set-StartupOwnedAssignment $JobHandle'),
+    @('[HumFastJobNative]::Resume($NativeProcess.ThreadHandle)','Set-StartupOwnedResume $NativeProcess.ThreadHandle'),
+    @('[HumFastJobNative]::CloseHandle($NativeProcess.ThreadHandle)','Close-StartupOwnedHandle $NativeProcess.ThreadHandle'),
+    @('[IntPtr]::Zero','0')
+  )
+  foreach($Pair in $Replacements){if(-not $Startup.Contains($Pair[0])){throw 'startup attribution accessor replacement absent'};$Startup=$Startup.Replace($Pair[0],$Pair[1])}
+  $AppendText=$Append.Extent.Text.Replace("      if (`$StartupAttribution.Length -le 2048)","      `$StartupAttribution = Complete-StartupOwnedAttribution `$StartupAttribution`n      if (`$StartupAttribution.Length -le 2048)")
+  $Owned=@'
+$script:StartupAssertions=[Collections.Generic.List[object]]::new();$script:StartupCases=[Collections.Generic.List[object]]::new();$script:StartupHooks=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+function Hit-StartupOwned([string]$Name){if(-not $script:StartupHooks.ContainsKey($Name)){$script:StartupHooks[$Name]=0};$script:StartupHooks[$Name]++}
+function Require-StartupOwned([bool]$Ok,[string]$Message){$script:StartupAssertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message});if(-not $Ok){throw ('startup owned assertion: '+$Message)}}
+function New-StartupOwnedTimer {Hit-StartupOwned 'timer-fact';$script:StartupTimer=[pscustomobject]@{ElapsedTicks=[int64]0};return $script:StartupTimer}
+function Read-StartupOwnedTicks([object]$Timer){Hit-StartupOwned 'sample-clock';if($script:StartupMode -ceq 'sample-failure'){throw 'owned sample failure'};if($script:StartupMode -ceq 'sample-corruption'){return 'malformed-owned-ticks'};return $Timer.ElapsedTicks}
+function Join-Path([string]$Root,[string]$Name){return $Root+'/'+$Name}
+function ConvertTo-HumNativeArgument([string]$Value){return $Value}
+function Initialize-HumCaptureRecord {param($Directory,$CaseName,$Kind,$Started,$Deadline,$Grace);Hit-StartupOwned 'initialize';$script:StartupTimer.ElapsedTicks=if($script:StartupMode -ceq 'before-create'){8000}else{1000}}
+function Set-HumCaptureFlag {param($Directory,[string]$Name,[bool]$Value);Hit-StartupOwned 'flag';$script:StartupTimer.ElapsedTicks+=50}
+function Set-HumDurableText {param([string]$Path,[string]$Value);Hit-StartupOwned 'text';$script:StartupTimer.ElapsedTicks+=50}
+function Set-HumDurableBytes {param([string]$Path,[byte[]]$Bytes);Hit-StartupOwned 'error-write';$script:StartupErrorBytes=[byte[]]$Bytes.Clone()}
+function New-StartupOwnedJob {Hit-StartupOwned 'job';$script:StartupTimer.ElapsedTicks+=100;return 5}
+function Set-StartupOwnedKillOnClose {param($Handle);Hit-StartupOwned 'job-configure';$script:StartupTimer.ElapsedTicks+=100}
+function New-StartupOwnedProcess {param($File,$Arguments,$Root);Hit-StartupOwned 'create';$script:StartupTimer.ElapsedTicks+=$(if($script:StartupMode -ceq 'before-assignment'){7000}else{1000});return [pscustomobject]@{ProcessId=101;ProcessHandle=1;ThreadHandle=2;StdoutReadHandle=3;StderrReadHandle=4}}
+function Open-StartupOwnedPipe {param($Channel);Hit-StartupOwned 'pipe';$script:StartupTimer.ElapsedTicks+=50;return [pscustomobject]@{Channel=$Channel}}
+function Start-StartupOwnedCopy {param($Channel);Hit-StartupOwned 'copy';$script:StartupTimer.ElapsedTicks+=50;return [pscustomobject]@{Channel=$Channel}}
+function Set-StartupOwnedAssignment {param($Handle);Hit-StartupOwned 'assign';$script:StartupTimer.ElapsedTicks+=$(if($script:StartupMode -ceq 'before-resume'){6000}else{100})}
+function Set-StartupOwnedResume {param($Handle);Hit-StartupOwned 'resume';$script:StartupTimer.ElapsedTicks+=100}
+function Close-StartupOwnedHandle {param($Handle);Hit-StartupOwned 'close'}
+function Complete-StartupOwnedAttribution([string]$Text){Hit-StartupOwned 'attribution-return';switch -CaseSensitive($script:StartupMode){'oversized-attribution'{return ('x'*2049)};'null-attribution'{return $null};'throw-attribution'{throw 'owned attribution failure'};default{return $Text}}}
+function Read-HumCaptureRecord {param($Directory);Hit-StartupOwned 'record-return';return $script:StartupRetained}
+function Get-HumCaptureFailureDiagnostic {param($Result);Hit-StartupOwned 'failure-diagnostic';return 'owned retained diagnostic'}
+'@
+  $Actual="function Invoke-StartupOwnedActual {`n"+@'
+$FilePath='owned-shell';$Arguments=@('owned-argument');$WorkingDirectory='owned-root';$CaptureDirectory='owned-capture';$TimeoutSeconds=8;$TerminationGraceSeconds=2;$StartedUtc='owned-start';$WindowsPlatform=$true
+$InjectedSetupFailure=if($script:StartupMode -ceq 'injected-assignment'){'assignment'}elseif($script:StartupMode -ceq 'injected-resume'){'resume'}else{''}
+$Encoding=[Text.UTF8Encoding]::new($false,$true)
+'@+"`n"+$Clock+"`n"+$List.Extent.Text+"`n"+$Sample+"`n"+$State.Extent.Text+"`n"+$ErrorInit.Extent.Text+"`ntry {`n"+$InitStart.Extent.Text+"`n"+$Init.Extent.Text+"`n"+$InitEnd.Extent.Text+"`n"+$Startup+"`n} catch {`n"+$Catch+"`n}`n"+@'
+if($CaptureError -ceq '' -and $script:StartupMode -cne 'positive'){$CaptureError='original-primary-error'}
+$OriginalError=$CaptureError
+'@+"`n"+$AppendText+"`n"+$Writer.Extent.Text+"`n"+@'
+$script:StartupRetained=[pscustomobject]@{CaptureDirectory=$CaptureDirectory;Launched=$State.ProcessCreated;ExitCode=$(if($State.ProcessCreated){0}else{$null});CompletionCount=1;CaptureErrorBytes=$script:StartupErrorBytes.Length;PrimaryExitObserved=$true;StdoutCompletionObserved=$true;StderrCompletionObserved=$true;JobQuiescenceObserved=$true;ContainmentKind='windows_job';ProcessCreatedSuspended=$true;JobAssignmentSucceeded=$State.Assigned;ResumeSucceeded=$State.Resumed}
+$Primary='';$Credit=0
+try{$null=Assert-HumCaptureComplete $script:StartupRetained;$Credit=1}catch{$Primary=$_.Exception.Message}
+[pscustomobject]@{Original=$OriginalError;Serialized=[Text.Encoding]::UTF8.GetString($script:StartupErrorBytes);Checkpoints=$StartupCheckpoints.ToArray();State=$State;Primary=$Primary;Credit=$Credit;DeadlineTicks=$DeadlineTicks;GraceTicks=$GraceTicks}
+'@+"`n}`n"
+  $Driver=@'
+foreach($Mode in @('positive','preexisting-error','before-create','before-assignment','before-resume','injected-assignment','injected-resume','sample-failure','sample-corruption','oversized-attribution','null-attribution','throw-attribution')){
+  $script:StartupMode=$Mode;$script:StartupErrorBytes=[byte[]]@();$Result=Invoke-StartupOwnedActual
+  Require-StartupOwned ($Result.DeadlineTicks -eq 8000 -and $Result.GraceTicks -eq 2000) "$Mode original deadline/grace"
+  Require-StartupOwned ($Result.Checkpoints.Count -le 14) "$Mode bounded checkpoint count"
+  if($Mode -ceq 'positive'){
+    Require-StartupOwned ($Result.Serialized -ceq '' -and $Result.Primary -ceq '' -and $Result.Credit -eq 1) 'success remains error-free/accepted'
+    Require-StartupOwned ($Result.Checkpoints.Count -eq 14 -and $Result.Checkpoints[0] -ceq 'record-init-start=0' -and $Result.Checkpoints[1] -ceq 'record-init-end=1000') 'actual sampler reads real owned clock transitions'
+    Require-StartupOwned ($Result.State.Assigned -and $Result.State.Resumed) 'positive actual assign/resume path'
+  }else{
+    Require-StartupOwned ($Result.Original.Length -gt 0 -and $Result.Serialized.StartsWith($Result.Original.TrimStart("`r","`n"),[StringComparison]::Ordinal)) "$Mode original error prefix survives attribution"
+    Require-StartupOwned ($Result.Serialized.Length -gt 0 -and $Result.Credit -eq 0) "$Mode no false completion credit"
+    if($Mode -ceq 'before-create'){Require-StartupOwned ($Result.Primary.StartsWith("capture has no launched terminal child`n",[StringComparison]::Ordinal) -and -not $Result.State.ProcessCreated) 'pre-create expiry remains prelaunch refusal'}
+    else{Require-StartupOwned ($Result.Primary -ceq 'capture transport is incomplete') "$Mode actual nonempty-error consumer refusal"}
+  }
+  $Cause=switch -CaseSensitive($Mode){'before-create'{'absolute deadline expired before process creation'};'before-assignment'{'absolute deadline expired before Job assignment'};'before-resume'{'absolute deadline expired before primary-thread resume'};'injected-assignment'{'injected Job assignment failure'};'injected-resume'{'injected primary-thread resume failure'};default{''}}
+  if($Cause -cne ''){Require-StartupOwned ($Result.Original.Contains($Cause)) "$Mode exact unchanged original cause"}
+  if($Mode -cin @('before-assignment','injected-assignment')){Require-StartupOwned (-not $Result.State.Assigned -and -not $Result.State.Resumed) "$Mode assignment/resume never credited"}
+  if($Mode -cin @('before-resume','injected-resume')){Require-StartupOwned ($Result.State.Assigned -and -not $Result.State.Resumed) "$Mode no resume credit"}
+  if($Mode -ceq 'sample-failure'){Require-StartupOwned ($Result.Checkpoints.Count -eq 0) 'sample getter failure is best-effort only'}
+  if($Mode -ceq 'sample-corruption'){Require-StartupOwned ($Result.Serialized.Contains('record-init-start=malformed-owned-ticks')) 'corrupt clock fact reaches diagnostic without granting credit'}
+  if($Mode -cin @('oversized-attribution','throw-attribution')){Require-StartupOwned ($Result.Serialized -ceq $Result.Original) "$Mode malformed diagnostic cannot erase primary"}
+  $script:StartupCases.Add([pscustomobject]@{Mode=$Mode;Original=$Result.Original;Primary=$Result.Primary;Credit=$Result.Credit;Checkpoints=$Result.Checkpoints;Serialized=$Result.Serialized})
+}
+foreach($Name in @('timer-fact','sample-clock','initialize','job','create','flag','text','pipe','copy','assign','resume','close','attribution-return','error-write','record-return','failure-diagnostic')){Require-StartupOwned ($script:StartupHooks.ContainsKey($Name) -and $script:StartupHooks[$Name] -gt 0) ($Name+' nonzero actual boundary')}
+[pscustomobject]@{Assertions=$script:StartupAssertions.ToArray();Cases=$script:StartupCases.ToArray();Hooks=$script:StartupHooks}
+'@
+  $Program=$Owned+"`n"+$Complete.Extent.Text+"`n"+$Actual+"`n"+$Driver
+  if($null -ne $SelectedProgram){$SelectedProgram.Value=$Program}
+  $GT=$null;$GE=$null;$Gate=[Management.Automation.Language.Parser]::ParseInput($Program,[ref]$GT,[ref]$GE)
+  $Types=@('string','string[]','byte[]','bool','int64','Int64','object','pscustomobject','Text.UTF8Encoding','Text.Encoding','StringComparer','StringComparison','Collections.Generic.List[object]','Collections.Generic.List[string]','Collections.Generic.Dictionary[string,int]')
+  $Methods=@('Add','ContainsKey','ToArray','Contains','StartsWith','TrimStart','Join','IsNullOrEmpty','ToString','Clone','GetBytes','GetString','new')
+  $Properties=@('Count','ElapsedTicks','ProcessCreated','Assigned','Resumed','ProcessId','ProcessHandle','ThreadHandle','StdoutReadHandle','StderrReadHandle','CaptureDirectory','Launched','ExitCode','CompletionCount','CaptureErrorBytes','PrimaryExitObserved','StdoutCompletionObserved','StderrCompletionObserved','JobQuiescenceObserved','ContainmentKind','ProcessCreatedSuspended','JobAssignmentSucceeded','ResumeSucceeded','Exception','Message','Original','Serialized','Credit','Primary','Checkpoints','State','DeadlineTicks','GraceTicks','Length')
+  $Commands=@('ForEach-Object','Out-Null')+@($Gate.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{$_.Name})
+  $Unknown=[Collections.Generic.List[string]]::new()
+  if($GE.Count -ne 0){$Unknown.Add('parse')}
+  foreach($N in $Gate.FindAll({param($N)$true},$true)){
+    if(($N -is [Management.Automation.Language.TypeExpressionAst] -or $N -is [Management.Automation.Language.TypeConstraintAst]) -and $N.TypeName.FullName -cnotin $Types){$Unknown.Add('type:'+$N.TypeName.FullName)}
+    if($N -is [Management.Automation.Language.CommandAst]){if($N.GetCommandName() -cnotin $Commands -and $N.CommandElements[0].Extent.Text -cne '$RecordStartupCheckpoint'){$Unknown.Add('command:'+$N.Extent.Text)}}
+    if($N -is [Management.Automation.Language.InvokeMemberExpressionAst]){if($N.Member -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $N.Member.Value -cnotin $Methods){$Unknown.Add('method:'+$N.Member.Extent.Text)}}
+    elseif($N -is [Management.Automation.Language.MemberExpressionAst]){if($N.Static){if($N.Member.Value -cnotin @('UTF8','Ordinal')){$Unknown.Add('static:'+$N.Member.Extent.Text)}}elseif($N.Member.Value -cnotin $Properties){$Unknown.Add('property:'+$N.Member.Extent.Text)}}
+    if($N -is [Management.Automation.Language.VariableExpressionAst] -and $N.VariablePath.IsDriveQualified -and -not $N.VariablePath.UserPath.StartsWith('script:',[StringComparison]::Ordinal)){$Unknown.Add('drive:'+$N.VariablePath.UserPath)}
+    if($N -is [Management.Automation.Language.FileRedirectionAst]){$Unknown.Add('redirection')}
+  }
+  if($Unknown.Count -ne 0){throw ('startup whole-selected-program ZERO refused: '+[string]::Join('|',$Unknown))}
+  $Result=& ([scriptblock]::Create($Program))
+  return [pscustomobject]@{Assertions=$Result.Assertions;Cases=$Result.Cases;Hooks=$Result.Hooks;Pins=$Pins.ToArray();Gate=[pscustomobject]@{ParseErrors=0;RealAccessors=0;Unknown=0;CompiledPrograms=1};Scope='actual startup/sampler/error append/serialization/complete consumer; unchanged native lifecycle/cleanup main excluded and byte-conserved'}
+}
+
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ('hum-phase-test-' + [Guid]::NewGuid().ToString('N'))
 $null = [IO.Directory]::CreateDirectory($TestRoot)
 
@@ -1287,6 +1437,9 @@ try {
     $Wo23Authority = Invoke-OwnedWo23AuthorityProofControls $CheckAllText
     foreach ($AuthorityAssertion in $Wo23Authority.Assertions) { Test-ObsRequire $AuthorityAssertion.Ok $AuthorityAssertion.Message }
     $ObsCases.Add('wo23-final-crate-authority-owned-controls')
+    $StartupAttribution = Invoke-OwnedCaptureStartupAttributionControls $EvidenceText
+    foreach ($StartupAssertion in $StartupAttribution.Assertions) { Test-ObsRequire $StartupAssertion.Ok $StartupAssertion.Message }
+    $ObsCases.Add('capture-startup-attribution-owned-controls')
     $Wo24Timing = Invoke-OwnedWo24StageTimingControls $CheckAllText $EvidenceText
     foreach ($StageAssertion in $Wo24Timing.Assertions) { Test-ObsRequire $StageAssertion.Ok $StageAssertion.Message }
     $ObsCases.Add('wo24-stage-owned-controls')

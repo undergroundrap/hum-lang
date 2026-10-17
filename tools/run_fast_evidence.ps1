@@ -1134,8 +1134,18 @@ function Invoke-HumBinaryCapture {
   $Frequency = [Int64] [System.Diagnostics.Stopwatch]::Frequency
   $DeadlineTicks = [Int64] $TimeoutSeconds * $Frequency
   $GraceTicks = [Int64] $TerminationGraceSeconds * $Frequency
+  # Report-only startup facts use the existing timer and never own acceptance.
+  $StartupCheckpoints = [Collections.Generic.List[string]]::new()
+  $RecordStartupCheckpoint = {
+    param([string] $Stage)
+    try {
+      if ($StartupCheckpoints.Count -lt 14) { $StartupCheckpoints.Add("$Stage=$($Timer.ElapsedTicks)") }
+    } catch { }
+  }
   $WindowsPlatform = $env:OS -eq 'Windows_NT'
+  & $RecordStartupCheckpoint 'record-init-start'
   Initialize-HumCaptureRecord $CaptureDirectory $CaseName $(if ($WindowsPlatform) { 'windows_job' } else { 'process_tree' }) $StartedUtc $DeadlineTicks $GraceTicks
+  & $RecordStartupCheckpoint 'record-init-end'
 
   $Encoding = New-Object System.Text.UTF8Encoding($false, $true)
   $StdoutPath = Join-Path $CaptureDirectory 'stdout.bin'
@@ -1173,6 +1183,7 @@ function Invoke-HumBinaryCapture {
 
   try {
     if ($WindowsPlatform) {
+      & $RecordStartupCheckpoint 'job-setup-start'
       Set-HumCaptureFlag $CaptureDirectory 'job_creation_attempted.txt' $true
       if ($InjectedSetupFailure -ceq 'job_create') { throw 'injected Job creation failure' }
       $JobHandle = [HumFastJobNative]::CreateConfiguredJob()
@@ -1180,6 +1191,7 @@ function Invoke-HumBinaryCapture {
       if ($InjectedSetupFailure -ceq 'job_configure') { throw 'injected Job configuration failure' }
       [HumFastJobNative]::ConfigureKillOnClose($JobHandle)
       Set-HumCaptureFlag $CaptureDirectory 'job_kill_on_close_configured.txt' $true
+      & $RecordStartupCheckpoint 'job-setup-end'
     }
     if ($Timer.ElapsedTicks -ge $DeadlineTicks) { throw 'absolute deadline expired before process creation' }
     Set-HumCaptureFlag $CaptureDirectory 'child_creation_attempted.txt' $true
@@ -1188,18 +1200,25 @@ function Invoke-HumBinaryCapture {
 
     if ($WindowsPlatform) {
       $CommandLine = ((@($FilePath) + $Arguments | ForEach-Object { ConvertTo-HumNativeArgument $_ }) -join ' ')
+      & $RecordStartupCheckpoint 'process-create-start'
       $NativeProcess = [HumFastJobNative]::CreateSuspended($FilePath, $CommandLine, $WorkingDirectory)
       $State.ProcessCreated = $true
+      & $RecordStartupCheckpoint 'process-create-end'
+      & $RecordStartupCheckpoint 'created-status-start'
       Set-HumCaptureFlag $CaptureDirectory 'process_creation_succeeded.txt' $true
       Set-HumCaptureFlag $CaptureDirectory 'process_created_suspended.txt' $true
       Set-HumCaptureFlag $CaptureDirectory 'launch_succeeded.txt' $true
       Set-HumDurableText (Join-Path $CaptureDirectory 'pid.txt') ([string] $NativeProcess.ProcessId)
+      & $RecordStartupCheckpoint 'created-status-end'
+      & $RecordStartupCheckpoint 'pipe-prepare-start'
       $StdoutRead = [HumFastJobNative]::OpenAsyncReadStream($NativeProcess.StdoutReadHandle)
       $NativeProcess.StdoutReadHandle = [IntPtr]::Zero
       $StderrRead = [HumFastJobNative]::OpenAsyncReadStream($NativeProcess.StderrReadHandle)
       $NativeProcess.StderrReadHandle = [IntPtr]::Zero
       $StdoutTask = $StdoutRead.CopyToAsync($StdoutCapture)
       $StderrTask = $StderrRead.CopyToAsync($StderrCapture)
+      & $RecordStartupCheckpoint 'pipe-prepare-end'
+      & $RecordStartupCheckpoint 'job-assignment-start'
 
       if ($Timer.ElapsedTicks -ge $DeadlineTicks) { throw 'absolute deadline expired before Job assignment' }
       Set-HumCaptureFlag $CaptureDirectory 'job_assignment_attempted.txt' $true
@@ -1207,12 +1226,15 @@ function Invoke-HumBinaryCapture {
       [HumFastJobNative]::Assign($JobHandle, $NativeProcess.ProcessHandle)
       $State.Assigned = $true
       Set-HumCaptureFlag $CaptureDirectory 'job_assignment_succeeded.txt' $true
+      & $RecordStartupCheckpoint 'job-assignment-end'
+      & $RecordStartupCheckpoint 'primary-resume-start'
       if ($Timer.ElapsedTicks -ge $DeadlineTicks) { throw 'absolute deadline expired before primary-thread resume' }
       Set-HumCaptureFlag $CaptureDirectory 'resume_attempted.txt' $true
       if ($InjectedSetupFailure -ceq 'resume') { throw 'injected primary-thread resume failure' }
       [HumFastJobNative]::Resume($NativeProcess.ThreadHandle)
       $State.Resumed = $true
       Set-HumCaptureFlag $CaptureDirectory 'resume_succeeded.txt' $true
+      & $RecordStartupCheckpoint 'primary-resume-end'
       [HumFastJobNative]::CloseHandle($NativeProcess.ThreadHandle) | Out-Null
       $NativeProcess.ThreadHandle = [IntPtr]::Zero
     } else {
@@ -1397,6 +1419,12 @@ function Invoke-HumBinaryCapture {
   Set-HumDurableText (Join-Path $CaptureDirectory 'kill_attempt_count.txt') ([string] $State.TerminationCount)
   Set-HumDurableText (Join-Path $CaptureDirectory 'final_descendant_tree.txt') $FinalTree
   Set-HumDurableText (Join-Path $CaptureDirectory 'completion_count.txt') $(if ($State.PrimaryExited) { '1' } else { '0' })
+  if (-not [string]::IsNullOrEmpty($CaptureError)) {
+    try {
+      $StartupAttribution = 'startup attribution (report-only): frequency=' + $Frequency + ';deadline_ticks=' + $DeadlineTicks + ';checkpoints=' + [string]::Join(';', $StartupCheckpoints)
+      if ($StartupAttribution.Length -le 2048) { $CaptureError += "`n" + $StartupAttribution }
+    } catch { }
+  }
   Set-HumDurableBytes (Join-Path $CaptureDirectory 'capture_error.bin') $Encoding.GetBytes($CaptureError.TrimStart("`r", "`n"))
 
   try {
