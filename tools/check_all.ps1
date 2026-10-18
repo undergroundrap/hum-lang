@@ -2700,8 +2700,8 @@ function Invoke-HumCompilerPrivacyChecks {
   Invoke-Native 'Work Order 22 normal compiler check before authority proof' $Cargo @('check', '--all-targets')
   $Wo22PriorRustFlags = $env:RUSTFLAGS
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_construction'
-    $Wo22ConstructionFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden capability/request construction proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = ''
+    $Wo22ConstructionFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden capability/request construction proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_verified_backend_input_construction')
   } finally {
     if ($null -eq $Wo22PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22PriorRustFlags }
   }
@@ -2715,8 +2715,8 @@ function Invoke-HumCompilerPrivacyChecks {
   if ([regex]::IsMatch($Wo22ConstructionFailure.Output, 'unexpected `cfg`|unresolved import|cannot find (?:type|struct|module|function)|expected item, found')) { throw 'Work Order 22 construction proof failed for an unrelated cfg, import, symbol, or syntax reason' }
   $Wo22PriorRustFlags = $env:RUSTFLAGS
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_backend_input_authority'
-    $Wo22AuthorityFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden production authority substitutions' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = ''
+    $Wo22AuthorityFailure = Read-NativeOutputWithExit 'Work Order 22 forbidden production authority substitutions' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_verified_backend_input_authority')
   } finally {
     if ($null -eq $Wo22PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22PriorRustFlags }
   }
@@ -2741,8 +2741,8 @@ function Invoke-HumCompilerPrivacyChecks {
   Write-Host '==> Work Order 22 Unit B verified-only adapter compile proofs'
   $Wo22UnitBPriorRustFlags = $env:RUSTFLAGS
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_backend_adapter_raw_inputs'
-    $Wo22UnitBRawFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B raw-input rejection proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = ''
+    $Wo22UnitBRawFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B raw-input rejection proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_backend_adapter_raw_inputs')
   } finally {
     if ($null -eq $Wo22UnitBPriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22UnitBPriorRustFlags }
   }
@@ -2752,8 +2752,8 @@ function Invoke-HumCompilerPrivacyChecks {
   }
   if (-not [string]::Equals($env:RUSTFLAGS, $Wo22UnitBPriorRustFlags, [System.StringComparison]::Ordinal)) { throw 'Work Order 22 Unit B raw-input proof did not restore RUSTFLAGS' }
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_backend_fault_seam_in_production'
-    $Wo22UnitBFaultFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B production fault-seam absence proof' $Cargo @('check', '--bin', 'hum')
+    $env:RUSTFLAGS = ''
+    $Wo22UnitBFaultFailure = Read-NativeOutputWithExit 'Work Order 22 Unit B production fault-seam absence proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_backend_fault_seam_in_production')
   } finally {
     if ($null -eq $Wo22UnitBPriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo22UnitBPriorRustFlags }
   }
