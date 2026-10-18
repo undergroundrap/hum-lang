@@ -2621,8 +2621,8 @@ function Invoke-HumCompilerPrivacyChecks {
   Invoke-Native 'Replacement F4 normal compiler check before construction proof' $Cargo @('check', '--all-targets')
   $F4PriorRustFlags = $env:RUSTFLAGS
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_validated_body_grammar_construction'
-    $F4CompileFailure = Read-NativeOutputWithExit 'Replacement F4 forbidden construction compiler proof' $Cargo @('check', '--all-targets')
+    $env:RUSTFLAGS = ''
+    $F4CompileFailure = Read-NativeOutputWithExit 'Replacement F4 forbidden construction compiler proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_validated_body_grammar_construction')
   } finally {
     if ($null -eq $F4PriorRustFlags) {
       Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
@@ -2651,8 +2651,8 @@ function Invoke-HumCompilerPrivacyChecks {
   Invoke-Native 'Work Order 17 normal compiler check before lifetime proof' $Cargo @('check', '--all-targets')
   $Wo17PriorRustFlags = $env:RUSTFLAGS
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_verified_canonical_minimal_add_type_escape'
-    $Wo17CompileFailure = Read-NativeOutputWithExit 'Work Order 17 forbidden verified-type escape proof' $Cargo @('check', '--all-targets')
+    $env:RUSTFLAGS = ''
+    $Wo17CompileFailure = Read-NativeOutputWithExit 'Work Order 17 forbidden verified-type escape proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_verified_canonical_minimal_add_type_escape')
   } finally {
     if ($null -eq $Wo17PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo17PriorRustFlags }
   }
@@ -2675,8 +2675,8 @@ function Invoke-HumCompilerPrivacyChecks {
   Invoke-Native 'Work Order 19 normal compiler check before combined proof' $Cargo @('check', '--all-targets')
   $Wo19PriorRustFlags = $env:RUSTFLAGS
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_canonical_minimal_add_backend_facts_escape'
-    $Wo19CompileFailure = Read-NativeOutputWithExit 'Work Order 19 forbidden backend facts escape and wrapper construction proof' $Cargo @('check', '--all-targets')
+    $env:RUSTFLAGS = ''
+    $Wo19CompileFailure = Read-NativeOutputWithExit 'Work Order 19 forbidden backend facts escape and wrapper construction proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_canonical_minimal_add_backend_facts_escape')
   } finally {
     if ($null -eq $Wo19PriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo19PriorRustFlags }
   }
@@ -2825,8 +2825,8 @@ function Invoke-HumCompilerPrivacyChecks {
   Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'
   $Wo17OutcomePriorRustFlags = $env:RUSTFLAGS
   try {
-    $env:RUSTFLAGS = '--cfg hum_compile_fail_canonical_minimal_add_type_outcome_foreign_issue'
-    $Wo17OutcomeFailure = Read-NativeOutputWithExit 'Work Order 17 foreign outcome issuance compiler proof' $Cargo @('check', '--all-targets')
+    $env:RUSTFLAGS = ''
+    $Wo17OutcomeFailure = Read-NativeOutputWithExit 'Work Order 17 foreign outcome issuance compiler proof' $Cargo @('rustc', '--profile', 'check', '--bin', 'hum', '--', '--cfg', 'hum_compile_fail_canonical_minimal_add_type_outcome_foreign_issue')
   } finally {
     if ($null -eq $Wo17OutcomePriorRustFlags) { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue } else { $env:RUSTFLAGS = $Wo17OutcomePriorRustFlags }
   }

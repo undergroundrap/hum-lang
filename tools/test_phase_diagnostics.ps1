@@ -31,8 +31,92 @@ $PhaseDiagnostics = ''
 Invoke-Expression $MarkerLines
 Invoke-Expression $PhaseLines
 
+function Invoke-OwnedRetainedHelperBindingControls {
+  param([string]$TestText)
+  # Binding-only: keep current param/caller/export-hook AST text, replace all other body work.
+  $Tokens=$null;$Errors=$null
+  $Ast=[Management.Automation.Language.Parser]::ParseInput($TestText,[ref]$Tokens,[ref]$Errors)
+  if($Errors.Count -ne 0){throw 'retained binding source parse refused'}
+  $Assertions=[Collections.Generic.List[object]]::new();$Cases=[Collections.Generic.List[object]]::new();$Pins=[Collections.Generic.List[object]]::new()
+  function Require-RetainedBinding([bool]$Ok,[string]$Message){$Assertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message});if(-not $Ok){throw ('retained binding assertion: '+$Message)}}
+  function Pin-RetainedBinding($Node){
+    $Hash=[Security.Cryptography.SHA256]::Create();try{$Digest=[BitConverter]::ToString($Hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Node.Extent.Text))).Replace('-','').ToLowerInvariant()}finally{$Hash.Dispose()}
+    return [pscustomobject]@{StartUTF16=$Node.Extent.StartOffset;EndUTF16=$Node.Extent.EndOffset;UTF8TextSha256=$Digest;Text=$Node.Extent.Text}
+  }
+  foreach($Pair in @(
+    @('Invoke-OwnedWo24StageTimingControls','Invoke-OwnedWo24StageTimingControls $CheckAllText $EvidenceText'),
+    @('Invoke-OwnedWo23AuthorityProofControls','Invoke-OwnedWo23AuthorityProofControls $CheckAllText'),
+    @('Invoke-OwnedWo22AuthorityProofControls','Invoke-OwnedWo22AuthorityProofControls $CheckAllText'),
+    @('Invoke-OwnedWo24AuthorityProofControls','Invoke-OwnedWo24AuthorityProofControls $CheckAllText'),
+    @('Invoke-OwnedCaptureStartupAttributionControls','Invoke-OwnedCaptureStartupAttributionControls $EvidenceText'),
+    @('Invoke-OwnedWo22TargetRoutingControls','Invoke-OwnedWo22TargetRoutingControls $CheckAllText ([IO.File]::ReadAllText((Join-Path $PSScriptRoot ''test_exact_rust_selector.ps1''))) ([IO.File]::ReadAllBytes((Join-Path $PSScriptRoot ''../src/backend_cranelift.rs'')))')
+  )){
+    $Name=$Pair[0];$Call=$Pair[1]
+    $Functions=@($Ast.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst] -and $N.Name -ceq $Name},$true))
+    $Calls=@($Ast.FindAll({param($N)$N -is [Management.Automation.Language.CommandAst] -and $N.GetCommandName() -ceq $Name},$true))
+    if($Functions.Count -ne 1 -or $Calls.Count -ne 1 -or $Calls[0].Extent.Text -cne $Call){throw ('retained binding unique current function/caller refused: '+$Name)}
+    $Function=$Functions[0];$ParamBlock=$Function.Body.ParamBlock
+    $Selected=@($ParamBlock.Parameters|Where-Object{$_.Name.VariablePath.UserPath -ceq 'SelectedProgram'})
+    if($Selected.Count -ne 1 -or $Selected[0].Attributes.Count -ne 0 -or $Selected[0].Extent.Text -cne '$SelectedProgram = $null'){throw ('retained binding current optional parameter refused: '+$Name)}
+    $Exports=@($Function.Body.EndBlock.Statements|Where-Object{$_ -is [Management.Automation.Language.IfStatementAst] -and [regex]::IsMatch($_.Extent.Text,'\$SelectedProgram\.Value\s*=\s*\$Program')})
+    if($Exports.Count -ne 1){throw ('retained binding actual export-hook cardinality refused: '+$Name)}
+    $CurrentParams=$ParamBlock.Extent.Text
+    $ProjectedCall=$Call;$InputSubstitutions=0
+    if($Name -ceq 'Invoke-OwnedWo22TargetRoutingControls'){
+      $TextRead='([IO.File]::ReadAllText((Join-Path $PSScriptRoot ''test_exact_rust_selector.ps1'')))'
+      $BytesRead='([IO.File]::ReadAllBytes((Join-Path $PSScriptRoot ''../src/backend_cranelift.rs'')))'
+      if($Calls[0].CommandElements.Count -ne 4 -or $Calls[0].CommandElements[2].Extent.Text -cne $TextRead -or $Calls[0].CommandElements[3].Extent.Text -cne $BytesRead){throw 'last binding exact source argument projection refused'}
+      $ProjectedCall=$Call.Replace($TextRead,'$SelectorText').Replace($BytesRead,'$BackendBytes');$InputSubstitutions=2
+    }
+    $RefPrefix=if($Name -ceq 'Invoke-OwnedWo22TargetRoutingControls'){'[ref] '}else{'[ref]'}
+    $BaselineParams=$CurrentParams.Replace($Selected[0].Extent.Text,$RefPrefix+$Selected[0].Extent.Text)
+    $Inputs=[Collections.Generic.List[string]]::new();$ExpectedInputs=[Collections.Generic.List[string]]::new()
+    foreach($Parameter in $ParamBlock.Parameters){
+      $InputName=$Parameter.Name.VariablePath.UserPath
+      if($InputName -ceq 'SelectedProgram'){continue}
+      if($InputName -cnotin @('CheckAllText','EvidenceText','SelectorText','BackendBytes')){throw 'retained binding unexpected input parameter'}
+      $Inputs.Add('$'+$InputName);$ExpectedInputs.Add('owned-'+$InputName)
+    }
+    $Pins.Add([pscustomobject]@{Name=$Name;ParameterBlock=(Pin-RetainedBinding $ParamBlock);OmittedCaller=(Pin-RetainedBinding $Calls[0]);ActualExport=(Pin-RetainedBinding $Exports[0]);BaselineParameterProjection=$BaselineParams})
+    foreach($Mode in @('baseline-refusal','omitted-argument','explicit-reference-export')){
+      $Params=if($Mode -ceq 'baseline-refusal'){$BaselineParams}else{$CurrentParams}
+      $Invocation=$ProjectedCall+$(if($Mode -ceq 'explicit-reference-export'){' ([ref]$Export)'}else{''})
+      $Sentinel="`$script:BindingSentinelHits++`n`$Program='owned-selected-program'`n"+$Exports[0].Extent.Text+"`n[pscustomobject]@{Name='"+$Name+"';Public='owned-binding-ok';Inputs=@("+[string]::Join(',',$Inputs)+")}`n"
+      $Program="`$CheckAllText='owned-CheckAllText';`$EvidenceText='owned-EvidenceText';`$SelectorText='owned-SelectorText';`$BackendBytes=[byte[]]@(17,29);`$Export='';`$script:BindingSentinelHits=0`nfunction "+$Name+" {`n"+$Params+"`n"+$Sentinel+"}`n`$Fact=`$null;`$Caught=''`ntry{`$Fact="+$Invocation+"}catch{`$Caught=`$_.Exception.Message}`n[pscustomobject]@{Fact=`$Fact;Caught=`$Caught;SentinelHits=`$script:BindingSentinelHits;Export=`$Export}"
+      $GT=$null;$GE=$null;$GA=[Management.Automation.Language.Parser]::ParseInput($Program,[ref]$GT,[ref]$GE)
+      $Unknown=[Collections.Generic.List[string]]::new()
+      if($GE.Count -ne 0){$Unknown.Add('parse')}
+      foreach($N in $GA.FindAll({param($N)$true},$true)){
+        if(($N -is [Management.Automation.Language.TypeExpressionAst] -or $N -is [Management.Automation.Language.TypeConstraintAst]) -and $N.TypeName.FullName -cnotin @('string','ref','pscustomobject','byte[]')){$Unknown.Add('type:'+$N.TypeName.FullName)}
+        if($N -is [Management.Automation.Language.CommandAst] -and $N.GetCommandName() -cne $Name){$Unknown.Add('command:'+$N.Extent.Text)}
+        if($N -is [Management.Automation.Language.InvokeMemberExpressionAst]){$Unknown.Add('method:'+$N.Member.Extent.Text)}
+        elseif($N -is [Management.Automation.Language.MemberExpressionAst] -and ($N.Static -or $N.Member -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $N.Member.Value -cnotin @('Value','Exception','Message'))){$Unknown.Add('property:'+$N.Member.Extent.Text)}
+        if($N -is [Management.Automation.Language.VariableExpressionAst] -and $N.VariablePath.IsDriveQualified -and $N.VariablePath.UserPath -cne 'script:BindingSentinelHits'){$Unknown.Add('drive:'+$N.VariablePath.UserPath)}
+        if($N -is [Management.Automation.Language.FileRedirectionAst]){$Unknown.Add('redirection')}
+      }
+      if($Unknown.Count -ne 0){throw ('retained binding fatal selected ZERO refused: '+[string]::Join('|',$Unknown))}
+      $Observed=& ([scriptblock]::Create($Program))
+      if($Mode -ceq 'baseline-refusal'){
+        Require-RetainedBinding ($Observed.Caught.Contains('Reference type is expected in argument.')) ($Name+' baseline public binding refusal')
+        Require-RetainedBinding ($Observed.SentinelHits -eq 0 -and $null -eq $Observed.Fact) ($Name+' baseline refuses before sentinel')
+      }else{
+        Require-RetainedBinding ($Observed.Caught -ceq '' -and $Observed.SentinelHits -eq 1) ($Name+'/'+$Mode+' reaches exactly one sentinel')
+        Require-RetainedBinding ($Observed.Fact.Name -ceq $Name -and $Observed.Fact.Public -ceq 'owned-binding-ok') ($Name+'/'+$Mode+' correct public returned fact')
+        if($Name -ceq 'Invoke-OwnedWo22TargetRoutingControls'){
+          Require-RetainedBinding ($Observed.Fact.Inputs.Count -eq 3 -and $Observed.Fact.Inputs[0] -ceq 'owned-CheckAllText' -and $Observed.Fact.Inputs[1] -ceq 'owned-SelectorText' -and $Observed.Fact.Inputs[2] -is [byte[]] -and [string]::Join(',',$Observed.Fact.Inputs[2]) -ceq '17,29') ($Name+'/'+$Mode+' actual ordered string/string/byte-array inputs consumed')
+        }else{
+        Require-RetainedBinding ([string]::Join('|',$Observed.Fact.Inputs) -ceq [string]::Join('|',$ExpectedInputs)) ($Name+'/'+$Mode+' actual parameter inputs consumed')
+        }
+      }
+      Require-RetainedBinding ($Observed.Export -ceq $(if($Mode -ceq 'explicit-reference-export'){'owned-selected-program'}else{''})) ($Name+'/'+$Mode+' actual export hook result')
+      $Cases.Add([pscustomobject]@{Name=$Name;Mode=$Mode;SourceCaller=$Call;Caller=$Invocation;OwnedReadArgumentSubstitutions=$InputSubstitutions;Caught=$Observed.Caught;SentinelHits=$Observed.SentinelHits;Fact=$Observed.Fact;Export=$Observed.Export;Zero=[pscustomobject]@{Unknown=0;RealAccessors=0;BeforeCreate=$true};Projection='actual params/caller/optional export hook; all remaining body replaced by pure sentinel'})
+    }
+  }
+  return [pscustomobject]@{Assertions=$Assertions.ToArray();Cases=$Cases.ToArray();Pins=$Pins.ToArray();Gate=[pscustomobject]@{CompiledBindingPrograms=$Cases.Count;RealAccessors=0;FullHelperBodiesExecuted=0};EvidenceKind='binding-only owned sentinel projections'}
+}
+
 function Invoke-OwnedWo22TargetRoutingControls {
-  param([string] $CheckAllText, [string] $SelectorText, [byte[]] $BackendBytes, [ref] $SelectedProgram = $null)
+  param([string] $CheckAllText, [string] $SelectorText, [byte[]] $BackendBytes, $SelectedProgram = $null)
   function Select-Wo22OwnedFunction([string] $Text, [string] $Name) {
     $Tokens = $null; $Errors = $null
     $Ast = [Management.Automation.Language.Parser]::ParseInput($Text,[ref]$Tokens,[ref]$Errors)
@@ -205,7 +289,7 @@ foreach($Hook in @('capture','broad','qualified','namespace','admission_return',
 }
 
 function Invoke-OwnedWo24StageTimingControls {
-  param([string]$CheckAllText, [string]$EvidenceText, [ref]$SelectedProgram = $null)
+  param([string]$CheckAllText, [string]$EvidenceText, $SelectedProgram = $null)
   # Select current owned statements, not the mutation runner or native helper.
   function Select-Wo24Function([string]$Text, [string]$Name) {
     $Tokens = $null; $Errors = $null
@@ -391,7 +475,7 @@ foreach($Fact in @('binding','ticks')) {
 }
 
 function Invoke-OwnedWo23AuthorityProofControls {
-  param([string]$CheckAllText, [ref]$SelectedProgram = $null)
+  param([string]$CheckAllText, $SelectedProgram = $null)
   # Metadata is source text; only the closed, accessor-free projection executes.
   $Tokens=$null; $Errors=$null
   $Ast=[Management.Automation.Language.Parser]::ParseInput($CheckAllText,[ref]$Tokens,[ref]$Errors)
@@ -539,7 +623,7 @@ foreach($Name in @('public','context-read','context-write','context-remove','nat
 }
 
 function Invoke-OwnedWo22AuthorityProofControls {
-  param([string]$CheckAllText, [ref]$SelectedProgram = $null)
+  param([string]$CheckAllText, $SelectedProgram = $null)
   # Metadata is source text; only the closed, accessor-free projection executes.
   $Tokens=$null; $Errors=$null
   $Ast=[Management.Automation.Language.Parser]::ParseInput($CheckAllText,[ref]$Tokens,[ref]$Errors)
@@ -700,8 +784,186 @@ foreach($Name in @('public','context-read','context-clear','context-restore','co
   return [pscustomobject]@{Assertions=$Result.Assertions;Cases=$Result.Cases;Hooks=$Result.Hooks;Pins=$Pins.ToArray();Gate=[pscustomobject]@{ParseErrors=0;Unknown=0;RealAccessors=0;CompiledPrograms=1}}
 }
 
+function Invoke-OwnedRemainingAuthorityProofControls {
+  param([string]$CheckAllText, $SelectedProgram = $null)
+  # Select only the four changed source stanzas; metadata parsing/hashing is pure.
+  $Tokens=$null; $Errors=$null
+  $Ast=[Management.Automation.Language.Parser]::ParseInput($CheckAllText,[ref]$Tokens,[ref]$Errors)
+  if($Errors.Count -ne 0){throw 'remaining authority source parse refused'}
+  $Functions=@($Ast.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst]},$true))
+  $Privacy=@($Functions|Where-Object{$_.Name -ceq 'Invoke-HumCompilerPrivacyChecks'})
+  $Reader=@($Functions|Where-Object{$_.Name -ceq 'Read-NativeOutputWithExit'})
+  if($Privacy.Count -ne 1 -or $Reader.Count -ne 1){throw 'remaining authority source owner cardinality refused'}
+  $Statements=@($Privacy[0].Body.EndBlock.Statements)
+  $Actual='';$Pins=[Collections.Generic.List[object]]::new()
+  foreach($Range in @(
+    @("Write-Host '==> Replacement F4 compiler-enforced validated body construction proof'","Invoke-Native 'Work Order 19 normal compiler check after combined proof' `$Cargo @('check', '--all-targets')"),
+    @("Write-Host '==> Work Order 17 sole minimal-add outcome producer proof'","Invoke-Native 'Work Order 17 normal compiler check after sole-producer proof' `$Cargo @('check', '--all-targets')")
+  )){
+    $First=@($Statements|Where-Object{$_.Extent.Text -ceq $Range[0]});$Last=@($Statements|Where-Object{$_.Extent.Text -ceq $Range[1]})
+    if($First.Count -ne 1 -or $Last.Count -ne 1 -or $First[0].Extent.StartOffset -ge $Last[0].Extent.EndOffset){throw 'remaining authority statement cardinality refused'}
+    $Start=$First[0].Extent.StartOffset;$End=$Last[0].Extent.EndOffset
+    $Part=$CheckAllText.Substring($Start,$End-$Start);$Actual+=$Part+"`n"
+    $Hash=[Security.Cryptography.SHA256]::Create();try{$Digest=[BitConverter]::ToString($Hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Part))).Replace('-','').ToLowerInvariant()}finally{$Hash.Dispose()}
+    $Pins.Add([pscustomobject]@{Name=$Range[0];StartUTF16=$Start;EndUTF16=$End;UTF8TextSha256=$Digest})
+  }
+  $Hash=[Security.Cryptography.SHA256]::Create();try{$Digest=[BitConverter]::ToString($Hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Reader[0].Extent.Text))).Replace('-','').ToLowerInvariant()}finally{$Hash.Dispose()}
+  $Pins.Add([pscustomobject]@{Name='Read-NativeOutputWithExit';StartUTF16=$Reader[0].Extent.StartOffset;EndUTF16=$Reader[0].Extent.EndOffset;UTF8TextSha256=$Digest})
+  $Projected=$Actual.Replace("`$env:RUSTFLAGS = ''","Set-RemainingOwnedFlags ''")
+  foreach($Name in @('F4PriorRustFlags','Wo17PriorRustFlags','Wo19PriorRustFlags','Wo17OutcomePriorRustFlags')){$Projected=$Projected.Replace('$env:RUSTFLAGS = $'+$Name,'Restore-RemainingOwnedFlags $'+$Name)}
+  $Projected=$Projected.Replace('Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue','Remove-RemainingOwnedFlags').Replace('$env:RUSTFLAGS','(Get-RemainingOwnedFlags)')
+  $ActualReader=$Reader[0].Extent.Text.Replace('$Output = & $FilePath @Arguments 2>&1','$Output = Invoke-RemainingOwnedCapture $FilePath $Arguments').Replace('return [pscustomobject] @{','$Fact = [pscustomobject] @{')
+  $ActualReader=$ActualReader.Substring(0,$ActualReader.Length-1)+"  return Complete-RemainingOwnedFact `$Fact`n}"
+  $Owned=@'
+$script:R4Assertions=[Collections.Generic.List[object]]::new()
+$script:R4Cases=[Collections.Generic.List[object]]::new()
+$script:R4Hooks=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+function Hit-RemainingOwned([string]$Name){if(-not $script:R4Hooks.ContainsKey($Name)){$script:R4Hooks.Add($Name,0)};$script:R4Hooks[$Name]++}
+function Assert-RemainingOwned([bool]$Ok,[string]$Message){$script:R4Assertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message});if(-not $Ok){throw ('remaining proof owned assertion: '+$Message)}}
+function Write-Host {param([string]$Message) Hit-RemainingOwned 'public'}
+function Get-RemainingOwnedFlags {Hit-RemainingOwned 'context-read';return $script:R4Context['RUSTFLAGS']}
+function Set-RemainingOwnedFlags([AllowEmptyString()][string]$Value){
+  Hit-RemainingOwned 'context-clear'
+  if($script:R4Mode -ceq 'clear-throws'){throw 'owned-context-set-failure'}
+  Assert-RemainingOwned ($Value -ceq '') 'proof-local flags overwrite empty'
+  $script:R4Context['RUSTFLAGS']=$Value
+}
+function Restore-RemainingOwnedFlags([AllowEmptyString()][string]$Value){
+  Hit-RemainingOwned 'context-restore'
+  if($script:R4Mode -ceq 'restore-throws'){throw 'owned-restoration-failure'}
+  $script:R4Context['RUSTFLAGS']=if($script:R4Mode -ceq 'restore-corruption'){'corrupted-restoration'}else{$Value}
+}
+function Remove-RemainingOwnedFlags {Hit-RemainingOwned 'context-remove';$null=$script:R4Context.Remove('RUSTFLAGS')}
+function Invoke-RemainingOwnedCapture([string]$FilePath,[string[]]$Arguments){
+  Hit-RemainingOwned 'native-request';$script:R4Requests.Add([pscustomobject]@{File=$FilePath;Arguments=$Arguments;Flags=$script:R4Context['RUSTFLAGS']})
+  $Index=$script:R4Requests.Count-1
+  $Flags=@('hum_compile_fail_validated_body_grammar_construction','hum_compile_fail_verified_canonical_minimal_add_type_escape','hum_compile_fail_canonical_minimal_add_backend_facts_escape','hum_compile_fail_canonical_minimal_add_type_outcome_foreign_issue')
+  $Expected='rustc|--profile|check|--bin|hum|--|--cfg|'+$Flags[$Index]
+  if($FilePath -cne 'owned-cargo' -or [string]::Join('|',$Arguments) -cne $Expected -or $script:R4Context['RUSTFLAGS'] -cne ''){throw 'owned-route-refusal'}
+  if($script:R4Mode -ceq ('producer-'+[string]$Index) -or $script:R4Mode -ceq 'restore-throws'){throw 'owned-producer-failure'}
+  Hit-RemainingOwned 'capture-output';$global:LASTEXITCODE=101
+  $Text=switch($Index){
+    0 {'prefix body_grammar_report_foreign_literal_must_not_compile canonical_body_grammar_report_foreign_literal_must_not_compile canonical_body_statement_foreign_literal_must_not_compile validated_body_grammar_permit_from_raw_section_must_not_compile'+"`n"+'cannot construct `BodyGrammarReport` with struct literal syntax due to private fields'+"`n"+'cannot construct `CanonicalBodyGrammarReport` with struct literal syntax due to private fields'+"`n"+'cannot construct `CanonicalBodyStatement` with struct literal syntax due to private fields'+"`n"+'error[E0308] expected `ValidatedCoreSection<''_>` found `&Section` trailing'}
+    1 {'prefix verified_canonical_minimal_add_access_cannot_outlive_verify_artifact verified_canonical_minimal_add_result_cannot_be_collected verified_canonical_minimal_add_result_cannot_become_static core_verify_full_type_report_access_cannot_escape core_verify_diagnostic_occurrence_access_cannot_escape'+"`n"+'lifetime may not live long enough trailing'}
+    2 {'prefix no `CanonicalMinimalAddBackendFactsAccess` in `backend_input`'+"`n"+'cannot find function `with_canonical_minimal_add_backend_facts`'+"`n"+'cannot find function `issue_assembled`'+"`n"+'error[E0603]: tuple struct constructor `VerifiedMinimalAddFullType` is private'+"`n"+'error[E0603]: tuple struct constructor `VerifiedMinimalAddEffect` is private'+"`n"+'error[E0603]: tuple struct constructor `VerifiedMinimalAddOwnership` is private'+"`n"+'error[E0603]: tuple struct constructor `VerifiedMinimalAddResource` is private'+"`n"+'error[E0603]: tuple struct constructor `VerifiedMinimalAddProfile` is private trailing'}
+    3 {'prefix canonical_minimal_add_type_outcome_foreign_issue_must_not_compile'+"`n"+'error[E0624] associated function `non_target` is private trailing'}
+  }
+  return $Text -split "`n"
+}
+function Complete-RemainingOwnedFact([object]$Fact){
+  Hit-RemainingOwned 'returned-fact';$Index=$script:R4Requests.Count-1
+  Assert-RemainingOwned ($Fact.Output -is [string] -and $Fact.Output.Contains("`n")) 'actual reader emits scalar joined diagnostic'
+  if($script:R4Corruptions.ContainsKey($script:R4Mode)){
+    $Mutation=$script:R4Corruptions[$script:R4Mode]
+    if($Index -eq $Mutation[0]){
+      if($Mutation[1] -ceq 'exit'){$Fact.ExitCode=0}
+      elseif($Mutation[1] -ceq 'append'){$Fact.Output+=$Mutation[2]}
+      elseif($Mutation[1] -ceq 'array'){$Fact.Output=@($Fact.Output)}
+      else{$Fact.Output=$Fact.Output.Replace($Mutation[1],$Mutation[2])}
+    }
+  }
+  return $Fact
+}
+function Invoke-Native([string]$Label,[string]$FilePath,[string[]]$Arguments){
+  Hit-RemainingOwned 'honest-check'
+  $Labels=@('Replacement F4 normal compiler check before construction proof','Replacement F4 normal compiler check after construction proof','Work Order 17 normal compiler check before lifetime proof','Work Order 17 normal compiler check after lifetime proof','Work Order 19 normal compiler check before combined proof','Work Order 19 normal compiler check after combined proof','Work Order 17 normal compiler check after sole-producer proof')
+  Assert-RemainingOwned ($Label -ceq $Labels[$script:R4Honest.Count] -and $FilePath -ceq 'owned-cargo' -and [string]::Join('|',$Arguments) -ceq 'check|--all-targets') 'unchanged seven honest all-target argv and order'
+  Assert-RemainingOwned ([string]::Equals($script:R4Context['RUSTFLAGS'],$script:R4Prior,[StringComparison]::Ordinal) -and $script:R4Context.ContainsKey('RUSTFLAGS') -eq $script:R4HadPrior) 'honest check sees exact prior context'
+  $script:R4Honest.Add($Label)
+}
+'@
+  $Driver=@'
+$Cases=[Collections.Generic.List[object]]::new()
+$HonestPrefixes=@(1,3,5,6)
+foreach($Kind in @('absent','empty','present')){
+  $Cases.Add(@($Kind,'positive',4,7,''))
+  foreach($Index in @(0,1,2,3)){$Cases.Add(@($Kind,('producer-'+$Index),($Index+1),$HonestPrefixes[$Index],'owned-producer-failure'))}
+}
+$script:R4Corruptions=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+foreach($Mutation in @(
+  @('f4-exit',0,'exit','','Replacement F4 forbidden construction compiler proof must exit 101, found 0'),
+  @('f4-probe',0,'canonical_body_statement_foreign_literal_must_not_compile','missing','Replacement F4 forbidden construction compiler proof did not identify canonical_body_statement_foreign_literal_must_not_compile'),
+  @('f4-private',0,'cannot construct `BodyGrammarReport` with struct literal syntax due to private fields','missing','Replacement F4 compiler proof did not reject foreign BodyGrammarReport construction through Rust privacy'),
+  @('f4-substitution',0,'found `&Section`','missing','Replacement F4 compiler proof did not reject raw Section substitution for the validated capability'),
+  @('f4-unrelated',0,'append',' error[E0432] unresolved import','Replacement F4 forbidden construction proof failed for an unrelated symbol, cfg, import, or syntax reason'),
+  @('lifetime-exit',1,'exit','','Work Order 17 lifetime proof must exit 101, found 0'),
+  @('lifetime-probe',1,'core_verify_diagnostic_occurrence_access_cannot_escape','missing','Work Order 17 lifetime proof did not identify core_verify_diagnostic_occurrence_access_cannot_escape'),
+  @('lifetime-cause',1,'lifetime may not live long enough','missing','Work Order 17 lifetime proof did not fail for a borrow-check lifetime reason'),
+  @('lifetime-unrelated',1,'append',' error[E0603] private struct','Work Order 17 lifetime proof failed for an unrelated privacy, symbol, cfg, or import reason'),
+  @('wo19-exit',2,'exit','','Work Order 19 combined proof must exit 101, found 0'),
+  @('wo19-retired',2,'cannot find function `issue_assembled`','missing','Work Order 19 proof did not establish removal of every retired backend-facts authority route'),
+  @('wo19-wrapper',2,'tuple struct constructor `VerifiedMinimalAddProfile` is private','missing','Work Order 19 combined proof did not reject sibling construction of VerifiedMinimalAddProfile'),
+  @('wo19-count',2,'append',' error[E0603]: tuple struct constructor `VerifiedMinimalAddEffect` is private','Work Order 19 combined proof must contain exactly five wrapper-constructor privacy failures'),
+  @('wo19-unrelated',2,'append',' error[E0382]','Work Order 19 combined proof failed for an unrelated move, symbol, cfg, import, or syntax reason'),
+  @('outcome-exit',3,'exit','','Work Order 17 foreign outcome issuance proof must exit 101, found 0'),
+  @('outcome-cause',3,'associated function `non_target` is private','missing','Work Order 17 foreign outcome issuance proof did not fail at the private sole-producer constructor'),
+  @('outcome-unrelated',3,'append',' error[E0433]','Work Order 17 foreign outcome issuance proof failed for an unrelated symbol, cfg, import, privacy-type, or syntax reason'),
+  @('array-output',0,'array','','Replacement F4 forbidden construction compiler proof did not identify body_grammar_report_foreign_literal_must_not_compile')
+)){
+  $script:R4Corruptions.Add($Mutation[0],@($Mutation[1],$Mutation[2],$Mutation[3]))
+  $Cases.Add(@('present',$Mutation[0],($Mutation[1]+1),$HonestPrefixes[$Mutation[1]],$Mutation[4]))
+}
+foreach($Case in @(
+  @('present','clear-throws',0,1,'owned-context-set-failure'),
+  @('present','restore-throws',1,1,'owned-restoration-failure'),
+  @('present','restore-corruption',1,1,'Replacement F4 compiler proof did not restore RUSTFLAGS'),
+  @('present','wrong-flag',1,1,'owned-route-refusal'),
+  @('present','extra-argv',1,1,'owned-route-refusal'),
+  @('present','wrong-target',1,1,'owned-route-refusal')
+)){$Cases.Add($Case)}
+foreach($Case in $Cases){
+  $PriorKind=$Case[0];$script:R4Mode=$Case[1]
+  $script:R4Context=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+  $script:R4HadPrior=$PriorKind -cne 'absent';$script:R4Prior=if($PriorKind -ceq 'empty'){''}elseif($PriorKind -ceq 'present'){'--cfg inherited_parent --codegen debuginfo=1'}else{$null}
+  if($script:R4HadPrior){$script:R4Context['RUSTFLAGS']=$script:R4Prior}
+  $script:R4Requests=[Collections.Generic.List[object]]::new();$script:R4Honest=[Collections.Generic.List[object]]::new();$Caught=''
+  try{
+    if($script:R4Mode -ceq 'wrong-flag'){Invoke-RemainingOwnedWrongFlag}
+    elseif($script:R4Mode -ceq 'extra-argv'){Invoke-RemainingOwnedExtraArgv}
+    elseif($script:R4Mode -ceq 'wrong-target'){Invoke-RemainingOwnedWrongTarget}
+    else{Invoke-RemainingOwnedActual}
+  }catch{$Caught=$_.Exception.Message}
+  $Expected=$Case[4]
+  Assert-RemainingOwned ($Caught -ceq $Expected) ($PriorKind+'/'+$script:R4Mode+' exact public outcome: '+$Caught)
+  if($script:R4Mode -cnotin @('restore-corruption','restore-throws')){
+    Assert-RemainingOwned ([string]::Equals($script:R4Context['RUSTFLAGS'],$script:R4Prior,[StringComparison]::Ordinal) -and $script:R4Context.ContainsKey('RUSTFLAGS') -eq $script:R4HadPrior) ($PriorKind+'/'+$script:R4Mode+' exact finally restoration')
+  }
+  Assert-RemainingOwned ($script:R4Honest.Count -eq $Case[3]) ($script:R4Mode+' exact honest prefix')
+  Assert-RemainingOwned ($script:R4Requests.Count -eq $Case[2]) ($script:R4Mode+' exact proof request prefix')
+  $script:R4Cases.Add([pscustomobject]@{Prior=$PriorKind;Mode=$script:R4Mode;Primary=$Caught;Requests=$script:R4Requests.ToArray();HonestChecks=$script:R4Honest.Count;OutcomeOwner=if($Expected.StartsWith('owned-',[StringComparison]::Ordinal)){'owned boundary sink'}elseif($Expected -ceq ''){'actual complete selected stanzas'}else{'actual production refusal'}})
+}
+foreach($Name in @('public','context-read','context-clear','context-restore','context-remove','native-request','capture-output','returned-fact','honest-check')){Assert-RemainingOwned ($script:R4Hooks.ContainsKey($Name) -and $script:R4Hooks[$Name] -gt 0) ($Name+' nonzero actual boundary')}
+[pscustomobject]@{Assertions=$script:R4Assertions.ToArray();Cases=$script:R4Cases.ToArray();Hooks=$script:R4Hooks}
+'@
+  $FunctionText="function Invoke-RemainingOwnedActual { `$Cargo='owned-cargo'`n"+$Projected+"`n}`n"
+  $WrongFlag=$FunctionText.Replace('Invoke-RemainingOwnedActual','Invoke-RemainingOwnedWrongFlag').Replace('hum_compile_fail_validated_body_grammar_construction','unowned_cfg')
+  $ExtraArgv=$FunctionText.Replace('Invoke-RemainingOwnedActual','Invoke-RemainingOwnedExtraArgv').Replace("'--cfg', 'hum_compile_fail_validated_body_grammar_construction'","'--cfg', 'hum_compile_fail_validated_body_grammar_construction', '--release'")
+  $WrongTarget=$FunctionText.Replace('Invoke-RemainingOwnedActual','Invoke-RemainingOwnedWrongTarget').Replace("'--bin', 'hum'","'--bin', 'other'")
+  $Program=$Owned+"`n"+$ActualReader+"`n"+$FunctionText+$WrongFlag+$ExtraArgv+$WrongTarget+$Driver
+  if($null -ne $SelectedProgram){$SelectedProgram.Value=$Program}
+  $GateTokens=$null;$GateErrors=$null;$Gate=[Management.Automation.Language.Parser]::ParseInput($Program,[ref]$GateTokens,[ref]$GateErrors)
+  $Types=@('string','string[]','object','bool','pscustomobject','StringComparison','StringComparer','System.StringComparison','regex','Collections.Generic.List[object]','Collections.Generic.Dictionary[string,int]','Collections.Generic.Dictionary[string,string]','Collections.Generic.Dictionary[string,object]')
+  $Methods=@('Add','ContainsKey','Remove','Contains','Equals','Join','Replace','StartsWith','ToArray','Matches','IsMatch','new')
+  $Properties=@('Count','Output','ExitCode','Exception','Message')
+  $Commands=@($Gate.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{$_.Name})
+  $Unknown=[Collections.Generic.List[string]]::new()
+  if($GateErrors.Count -ne 0){$Unknown.Add('parse')}
+  foreach($N in $Gate.FindAll({param($N)$true},$true)){
+    if(($N -is [Management.Automation.Language.TypeExpressionAst] -or $N -is [Management.Automation.Language.TypeConstraintAst]) -and $N.TypeName.FullName -cnotin $Types){$Unknown.Add('type:'+$N.TypeName.FullName)}
+    if($N -is [Management.Automation.Language.AttributeAst] -and $N.TypeName.FullName -cne 'AllowEmptyString'){$Unknown.Add('attribute:'+$N.TypeName.FullName)}
+    if($N -is [Management.Automation.Language.CommandAst] -and $N.GetCommandName() -cnotin $Commands){$Unknown.Add('command:'+$N.Extent.Text)}
+    if($N -is [Management.Automation.Language.InvokeMemberExpressionAst]){if($N.Member -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $N.Member.Value -cnotin $Methods){$Unknown.Add('method:'+$N.Member.Extent.Text)}}
+    elseif($N -is [Management.Automation.Language.MemberExpressionAst]){if($N.Static){if($N.Member.Value -cne 'Ordinal'){$Unknown.Add('static:'+ $N.Member.Extent.Text)}}elseif($N.Member.Value -cnotin $Properties){$Unknown.Add('property:'+$N.Member.Extent.Text)}}
+    if($N -is [Management.Automation.Language.VariableExpressionAst] -and $N.VariablePath.IsDriveQualified -and -not $N.VariablePath.UserPath.StartsWith('script:',[StringComparison]::Ordinal) -and $N.VariablePath.UserPath -cne 'global:LASTEXITCODE'){$Unknown.Add('drive:'+$N.VariablePath.UserPath)}
+    if($N -is [Management.Automation.Language.FileRedirectionAst]){$Unknown.Add('redirection')}
+  }
+  if($Unknown.Count -ne 0){throw ('remaining authority fatal selected-program ZERO gate refused: '+[string]::Join('|',$Unknown))}
+  $Result=& ([scriptblock]::Create($Program))
+  return [pscustomobject]@{Assertions=$Result.Assertions;Cases=$Result.Cases;Hooks=$Result.Hooks;Pins=$Pins.ToArray();Gate=[pscustomobject]@{ParseErrors=0;Unknown=0;RealAccessors=0;CompiledPrograms=1}}
+}
+
 function Invoke-OwnedWo24AuthorityProofControls {
-  param([string]$CheckAllText, [ref]$SelectedProgram = $null)
+  param([string]$CheckAllText, $SelectedProgram = $null)
   # Metadata is source text; only the closed, accessor-free projection executes.
   $Tokens=$null; $Errors=$null
   $Ast=[Management.Automation.Language.Parser]::ParseInput($CheckAllText,[ref]$Tokens,[ref]$Errors)
@@ -862,7 +1124,7 @@ foreach($Name in @('public','context-read','context-write','context-remove','nat
 }
 
 function Invoke-OwnedCaptureStartupAttributionControls {
-  param([string]$EvidenceText, [ref]$SelectedProgram = $null)
+  param([string]$EvidenceText, $SelectedProgram = $null)
   $Tokens=$null;$Errors=$null
   $Ast=[Management.Automation.Language.Parser]::ParseInput($EvidenceText,[ref]$Tokens,[ref]$Errors)
   if($Errors.Count -ne 0){throw 'startup attribution source parse refused'}
@@ -1754,6 +2016,9 @@ try {
       $ObsCases.Add('unavailable-framing-sink-refusal')
     }
     Invoke-OwnedObsUnavailableFramingControls
+    $RetainedBindings = Invoke-OwnedRetainedHelperBindingControls ([IO.File]::ReadAllText($PSCommandPath))
+    foreach ($BindingAssertion in $RetainedBindings.Assertions) { Test-ObsRequire $BindingAssertion.Ok $BindingAssertion.Message }
+    $ObsCases.Add('retained-six-optional-binding-owned-controls')
     $Wo22Routing = Invoke-OwnedWo22TargetRoutingControls $CheckAllText ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1'))) ([IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '../src/backend_cranelift.rs')))
     foreach ($RoutingAssertion in $Wo22Routing.Assertions) { Test-ObsRequire $RoutingAssertion.Ok $RoutingAssertion.Message }
     $ObsCases.Add('wo22-target-routing-owned-controls')
@@ -1763,6 +2028,9 @@ try {
     $Wo22ProofAuthority = Invoke-OwnedWo22AuthorityProofControls $CheckAllText
     foreach ($AuthorityAssertion in $Wo22ProofAuthority.Assertions) { Test-ObsRequire $AuthorityAssertion.Ok $AuthorityAssertion.Message }
     $ObsCases.Add('wo22-four-final-crate-authority-owned-controls')
+    $RemainingAuthority = Invoke-OwnedRemainingAuthorityProofControls $CheckAllText
+    foreach ($AuthorityAssertion in $RemainingAuthority.Assertions) { Test-ObsRequire $AuthorityAssertion.Ok $AuthorityAssertion.Message }
+    $ObsCases.Add('remaining-four-final-crate-authority-owned-controls')
     $Wo24Authority = Invoke-OwnedWo24AuthorityProofControls $CheckAllText
     foreach ($AuthorityAssertion in $Wo24Authority.Assertions) { Test-ObsRequire $AuthorityAssertion.Ok $AuthorityAssertion.Message }
     $ObsCases.Add('wo24-final-crate-authority-owned-controls')
