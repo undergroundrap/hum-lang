@@ -961,6 +961,152 @@ function Request-HumCaptureTermination {
   $Succeeded
 }
 
+function Update-HumPhaseProgress {
+  # Live phase-progress observer for the active capture loop.
+  # Reads phase markers from the parent-owned phase directory and reports
+  # validated progress to the console while capture is active.
+  # NONFATAL: any failure returns silently; never throws, never affects capture.
+  # Reuses retained-record validity semantics: binding/phase/event/outcome and
+  # usable frequency/ordered start-end facts required before declaring completion.
+  # Invalid facts yield a bounded sanitized cause once (never valid completion).
+  # Logical ordering: start before end per phase (not lexicographic filename).
+  # Only reports each phase state once; sanitizes output (no raw marker text).
+  param([string] $PhaseDiagnosticDirectory, [hashtable] $ObserverState)
+  # Helper: report a bounded sanitized unavailable cause once (no raw paths).
+  function Report-ObsUnavailable([string]$Cause) {
+    $Key = "unavailable_$Cause"
+    if (-not $ObserverState.Reported.ContainsKey($Key)) {
+      # Explicit LF with no host-added terminator keeps PS5.1/PS7 framing identical.
+      Write-Host -NoNewline "phase_progress: observer unavailable ($Cause)`n"
+      $ObserverState.Reported[$Key] = $true
+    }
+  }
+  try {
+    if ([string]::IsNullOrWhiteSpace($PhaseDiagnosticDirectory)) { return }
+    # Directory discovery: Test-Path refusal is an unavailable cause, not silent.
+    try { $DirExists = Test-Path -LiteralPath $PhaseDiagnosticDirectory }
+    catch { Report-ObsUnavailable 'directory_discovery_failed'; return }
+    if (-not $DirExists) { Report-ObsUnavailable 'directory_missing'; return }
+    $BindingPath = Join-Path $PhaseDiagnosticDirectory 'run-binding.txt'
+    try { $BindingExists = Test-Path -LiteralPath $BindingPath }
+    catch { Report-ObsUnavailable 'parent_discovery_failed'; return }
+    if (-not $BindingExists) { Report-ObsUnavailable 'parent_binding_missing'; return }
+    try { $BindingText = [IO.File]::ReadAllText($BindingPath) }
+    catch { Report-ObsUnavailable 'parent_read_failed'; return }
+    if ($BindingText -cnotmatch 'binding_guid=([A-Za-z0-9]+)') { Report-ObsUnavailable 'parent_binding_malformed'; return }
+    $ExpectedBinding = $Matches[1]
+    if ($ObserverState.Binding -cne $ExpectedBinding) {
+      $ObserverState.Binding = $ExpectedBinding
+      $ObserverState.Reported = @{}
+    }
+    # Collect and validate markers, grouped by phase
+    $Phases = @{}
+    try {
+      $Files = @(Get-ChildItem -LiteralPath $PhaseDiagnosticDirectory -File -ErrorAction Stop |
+        Where-Object { $_.Name -cmatch '^phase-([A-Za-z0-9_-]+)-(start|end)\.txt$' })
+    } catch { Report-ObsUnavailable 'listing_failed'; return }
+    # Track phases with unreadable markers (reported as unavailable, not end_without_start)
+    $UnreadablePhases = @{}
+    foreach ($File in $Files) {
+      try {
+        if ($File.Name -cmatch '^phase-([A-Za-z0-9_-]+)-(start|end)\.txt$') {
+          $PhaseName = $Matches[1]; $Event = $Matches[2]
+        } else { continue }
+        if ($PhaseName -cnotmatch '^[A-Za-z0-9_-]+$') { continue }
+        try { $Content = [IO.File]::ReadAllText($File.FullName) }
+        catch {
+          # Marker read failure: record phase as unreadable (unavailable cause),
+          # not as end_without_start. Reported once in the emit phase below.
+          $UnreadablePhases[$PhaseName] = $true
+          continue
+        }
+        $Fields = @{}
+        foreach ($Line in $Content -split "`n") {
+          if ($Line -cmatch '^([a-z]+)=(.*)$') { $Fields[$Matches[1]] = $Matches[2].Trim() }
+        }
+        # Validate required fields and binding (retained-record semantics)
+        $Valid = $true; $Reason = ''
+        foreach ($Req in @('phase','event','utc','ticks','frequency','binding')) {
+          if (-not $Fields.ContainsKey($Req) -or [string]::IsNullOrWhiteSpace($Fields[$Req])) { $Valid = $false; $Reason = "missing_$Req"; break }
+        }
+        if ($Valid -and $Fields['binding'] -cne $ExpectedBinding) { $Valid = $false; $Reason = 'binding_mismatch_foreign' }
+        if ($Valid -and ($Fields['phase'] -cne $PhaseName -or $Fields['event'] -cne $Event)) { $Valid = $false; $Reason = 'name_event_mismatch' }
+        if ($Valid -and $Fields['ticks'] -cnotmatch '^\d+$') { $Valid = $false; $Reason = 'ticks_not_numeric' }
+        if ($Valid -and $Fields['frequency'] -cnotmatch '^\d+$') { $Valid = $false; $Reason = 'frequency_not_numeric' }
+        if ($Valid -and [int64]$Fields['frequency'] -le 0) { $Valid = $false; $Reason = 'frequency_not_usable' }
+        if ($Valid -and $Event -eq 'end') {
+          if (-not $Fields.ContainsKey('outcome') -or $Fields['outcome'] -cnotmatch '^(completed|failed)$') { $Valid = $false; $Reason = 'missing_or_invalid_outcome' }
+        }
+        if (-not $Phases.ContainsKey($PhaseName)) { $Phases[$PhaseName] = @{} }
+        $Phases[$PhaseName][$Event] = @{ Valid = $Valid; Reason = $Reason; Fields = $Fields }
+      } catch { continue }
+    }
+    # Emit logically ordered progress per phase (start before end)
+    # Report unreadable phases first (marker read failures are unavailable,
+    # never mislabeled as end_without_start).
+    foreach ($PhaseName in ($UnreadablePhases.Keys | Sort-Object)) {
+      $UKey = "$PhaseName-unreadable"
+      if (-not $ObserverState.Reported.ContainsKey($UKey)) {
+        Write-Host "phase_progress: $PhaseName unavailable (marker_read_failed)"
+        $ObserverState.Reported[$UKey] = $true
+      }
+    }
+    foreach ($PhaseName in ($Phases.Keys | Sort-Object)) {
+      # Skip phases already reported unreadable
+      if ($UnreadablePhases.ContainsKey($PhaseName)) { continue }
+      $P = $Phases[$PhaseName]
+      $StartKey = "$PhaseName-started"; $EndKey = "$PhaseName-ended"; $InvalidKey = "$PhaseName-invalid"
+      $HasStart = $P.ContainsKey('start') -and $P['start'].Valid
+      $HasEnd = $P.ContainsKey('end') -and $P['end'].Valid
+      # Check for invalid markers first (report once)
+      $InvalidReason = $null
+      foreach ($Ev in @('start','end')) {
+        if ($P.ContainsKey($Ev) -and -not $P[$Ev].Valid) { $InvalidReason = $P[$Ev].Reason; break }
+      }
+      if ($null -ne $InvalidReason -and -not $ObserverState.Reported.ContainsKey($InvalidKey)) {
+        Write-Host "phase_progress: $PhaseName invalid ($InvalidReason)"
+        $ObserverState.Reported[$InvalidKey] = $true
+        continue
+      }
+      # Logical order: report start before end
+      if ($HasStart -and -not $ObserverState.Reported.ContainsKey($StartKey)) {
+        Write-Host "phase_progress: started $PhaseName"
+        $ObserverState.Reported[$StartKey] = $true
+      }
+      if ($HasEnd -and -not $ObserverState.Reported.ContainsKey($EndKey)) {
+        if ($HasStart) {
+          # Validate pair: ordered ticks, matching frequency
+          $STicks = [int64]$P['start'].Fields['ticks']; $ETicks = [int64]$P['end'].Fields['ticks']
+          $SFreq = [int64]$P['start'].Fields['frequency']; $EFreq = [int64]$P['end'].Fields['frequency']
+          if ($SFreq -ne $EFreq) {
+            if (-not $ObserverState.Reported.ContainsKey($InvalidKey)) {
+              Write-Host "phase_progress: $PhaseName invalid (frequency_mismatch)"
+              $ObserverState.Reported[$InvalidKey] = $true
+            }
+          } elseif ($ETicks -lt $STicks) {
+            if (-not $ObserverState.Reported.ContainsKey($InvalidKey)) {
+              Write-Host "phase_progress: $PhaseName invalid (ticks_reversed)"
+              $ObserverState.Reported[$InvalidKey] = $true
+            }
+          } else {
+            $Outcome = $P['end'].Fields['outcome']
+            Write-Host "phase_progress: $PhaseName $Outcome"
+            $ObserverState.Reported[$EndKey] = $true
+          }
+        } else {
+          # End without valid start: report as incomplete, not completion
+          if (-not $ObserverState.Reported.ContainsKey($InvalidKey)) {
+            Write-Host "phase_progress: $PhaseName incomplete (end_without_start)"
+            $ObserverState.Reported[$InvalidKey] = $true
+          }
+        }
+      } elseif ($HasStart -and -not $HasEnd -and -not $ObserverState.Reported.ContainsKey("$PhaseName-incomplete-noted")) {
+        # Start-only: already reported as started; no further action until end arrives
+      }
+    }
+  } catch { }
+}
+
 function Invoke-HumBinaryCapture {
   param(
     [Parameter(Mandatory = $true)][string] $FilePath,
@@ -973,7 +1119,11 @@ function Invoke-HumBinaryCapture {
     [string] $InjectedSetupFailure = '',
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[a-z0-9][a-z0-9_-]{0,63}$')]
-    [string] $CaseName
+    [string] $CaseName,
+    # Optional live phase-progress observer. When set, the capture loop
+    # reports phase starts/completions from this parent-owned directory.
+    # Absent by default; existing callers unchanged.
+    [string] $PhaseDiagnosticDirectory = ''
   )
   if ([System.IO.Directory]::Exists($CaptureDirectory) -or [System.IO.File]::Exists($CaptureDirectory)) {
     throw "capture path already exists: $CaptureDirectory"
@@ -984,8 +1134,18 @@ function Invoke-HumBinaryCapture {
   $Frequency = [Int64] [System.Diagnostics.Stopwatch]::Frequency
   $DeadlineTicks = [Int64] $TimeoutSeconds * $Frequency
   $GraceTicks = [Int64] $TerminationGraceSeconds * $Frequency
+  # Report-only startup facts use the existing timer and never own acceptance.
+  $StartupCheckpoints = [Collections.Generic.List[string]]::new()
+  $RecordStartupCheckpoint = {
+    param([string] $Stage)
+    try {
+      if ($StartupCheckpoints.Count -lt 14) { $StartupCheckpoints.Add("$Stage=$($Timer.ElapsedTicks)") }
+    } catch { }
+  }
   $WindowsPlatform = $env:OS -eq 'Windows_NT'
+  & $RecordStartupCheckpoint 'record-init-start'
   Initialize-HumCaptureRecord $CaptureDirectory $CaseName $(if ($WindowsPlatform) { 'windows_job' } else { 'process_tree' }) $StartedUtc $DeadlineTicks $GraceTicks
+  & $RecordStartupCheckpoint 'record-init-end'
 
   $Encoding = New-Object System.Text.UTF8Encoding($false, $true)
   $StdoutPath = Join-Path $CaptureDirectory 'stdout.bin'
@@ -1023,6 +1183,7 @@ function Invoke-HumBinaryCapture {
 
   try {
     if ($WindowsPlatform) {
+      & $RecordStartupCheckpoint 'job-setup-start'
       Set-HumCaptureFlag $CaptureDirectory 'job_creation_attempted.txt' $true
       if ($InjectedSetupFailure -ceq 'job_create') { throw 'injected Job creation failure' }
       $JobHandle = [HumFastJobNative]::CreateConfiguredJob()
@@ -1030,6 +1191,7 @@ function Invoke-HumBinaryCapture {
       if ($InjectedSetupFailure -ceq 'job_configure') { throw 'injected Job configuration failure' }
       [HumFastJobNative]::ConfigureKillOnClose($JobHandle)
       Set-HumCaptureFlag $CaptureDirectory 'job_kill_on_close_configured.txt' $true
+      & $RecordStartupCheckpoint 'job-setup-end'
     }
     if ($Timer.ElapsedTicks -ge $DeadlineTicks) { throw 'absolute deadline expired before process creation' }
     Set-HumCaptureFlag $CaptureDirectory 'child_creation_attempted.txt' $true
@@ -1038,18 +1200,25 @@ function Invoke-HumBinaryCapture {
 
     if ($WindowsPlatform) {
       $CommandLine = ((@($FilePath) + $Arguments | ForEach-Object { ConvertTo-HumNativeArgument $_ }) -join ' ')
+      & $RecordStartupCheckpoint 'process-create-start'
       $NativeProcess = [HumFastJobNative]::CreateSuspended($FilePath, $CommandLine, $WorkingDirectory)
       $State.ProcessCreated = $true
+      & $RecordStartupCheckpoint 'process-create-end'
+      & $RecordStartupCheckpoint 'created-status-start'
       Set-HumCaptureFlag $CaptureDirectory 'process_creation_succeeded.txt' $true
       Set-HumCaptureFlag $CaptureDirectory 'process_created_suspended.txt' $true
       Set-HumCaptureFlag $CaptureDirectory 'launch_succeeded.txt' $true
       Set-HumDurableText (Join-Path $CaptureDirectory 'pid.txt') ([string] $NativeProcess.ProcessId)
+      & $RecordStartupCheckpoint 'created-status-end'
+      & $RecordStartupCheckpoint 'pipe-prepare-start'
       $StdoutRead = [HumFastJobNative]::OpenAsyncReadStream($NativeProcess.StdoutReadHandle)
       $NativeProcess.StdoutReadHandle = [IntPtr]::Zero
       $StderrRead = [HumFastJobNative]::OpenAsyncReadStream($NativeProcess.StderrReadHandle)
       $NativeProcess.StderrReadHandle = [IntPtr]::Zero
       $StdoutTask = $StdoutRead.CopyToAsync($StdoutCapture)
       $StderrTask = $StderrRead.CopyToAsync($StderrCapture)
+      & $RecordStartupCheckpoint 'pipe-prepare-end'
+      & $RecordStartupCheckpoint 'job-assignment-start'
 
       if ($Timer.ElapsedTicks -ge $DeadlineTicks) { throw 'absolute deadline expired before Job assignment' }
       Set-HumCaptureFlag $CaptureDirectory 'job_assignment_attempted.txt' $true
@@ -1057,12 +1226,15 @@ function Invoke-HumBinaryCapture {
       [HumFastJobNative]::Assign($JobHandle, $NativeProcess.ProcessHandle)
       $State.Assigned = $true
       Set-HumCaptureFlag $CaptureDirectory 'job_assignment_succeeded.txt' $true
+      & $RecordStartupCheckpoint 'job-assignment-end'
+      & $RecordStartupCheckpoint 'primary-resume-start'
       if ($Timer.ElapsedTicks -ge $DeadlineTicks) { throw 'absolute deadline expired before primary-thread resume' }
       Set-HumCaptureFlag $CaptureDirectory 'resume_attempted.txt' $true
       if ($InjectedSetupFailure -ceq 'resume') { throw 'injected primary-thread resume failure' }
       [HumFastJobNative]::Resume($NativeProcess.ThreadHandle)
       $State.Resumed = $true
       Set-HumCaptureFlag $CaptureDirectory 'resume_succeeded.txt' $true
+      & $RecordStartupCheckpoint 'primary-resume-end'
       [HumFastJobNative]::CloseHandle($NativeProcess.ThreadHandle) | Out-Null
       $NativeProcess.ThreadHandle = [IntPtr]::Zero
     } else {
@@ -1084,8 +1256,23 @@ function Invoke-HumBinaryCapture {
       $StderrTask = $ManagedProcess.StandardError.BaseStream.CopyToAsync($StderrCapture)
     }
 
+    # Live phase-progress observer state. Bound to the parent-owned directory;
+    # absent by default (existing callers unchanged).
+    $PhaseObserverState = @{ Binding = ''; Reported = @{} }
+
     while ($true) {
       Update-HumCaptureObservation $State $WindowsPlatform $NativeProcess $ManagedProcess $JobHandle $StdoutTask $StderrTask $CaptureDirectory
+      # Report live phase progress while capture is active. Caller-side nonfatal
+      # boundary: observer invocation failure is isolated here so it cannot
+      # enter the capture error/termination path. Reports unavailable once.
+      try {
+        Update-HumPhaseProgress $PhaseDiagnosticDirectory $PhaseObserverState
+      } catch {
+        if (-not $PhaseObserverState.Reported.ContainsKey('observer_unavailable')) {
+          Write-Host 'phase_progress: observer unavailable'
+          $PhaseObserverState.Reported['observer_unavailable'] = $true
+        }
+      }
       if ($State.PrimaryExited -and $State.StdoutCompleted -and $State.StderrCompleted -and $State.JobQuiescent) {
         $DeadlineDisposition = 'completed_before_deadline'
         $FinalTree = 'quiescent'
@@ -1232,6 +1419,12 @@ function Invoke-HumBinaryCapture {
   Set-HumDurableText (Join-Path $CaptureDirectory 'kill_attempt_count.txt') ([string] $State.TerminationCount)
   Set-HumDurableText (Join-Path $CaptureDirectory 'final_descendant_tree.txt') $FinalTree
   Set-HumDurableText (Join-Path $CaptureDirectory 'completion_count.txt') $(if ($State.PrimaryExited) { '1' } else { '0' })
+  if (-not [string]::IsNullOrEmpty($CaptureError)) {
+    try {
+      $StartupAttribution = 'startup attribution (report-only): frequency=' + $Frequency + ';deadline_ticks=' + $DeadlineTicks + ';checkpoints=' + [string]::Join(';', $StartupCheckpoints)
+      if ($StartupAttribution.Length -le 2048) { $CaptureError += "`n" + $StartupAttribution }
+    } catch { }
+  }
   Set-HumDurableBytes (Join-Path $CaptureDirectory 'capture_error.bin') $Encoding.GetBytes($CaptureError.TrimStart("`r", "`n"))
 
   try {

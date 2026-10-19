@@ -89,8 +89,12 @@ fn run_legacy(profile: EvidenceProfile) -> Result<i32, String> {
 }
 
 #[rustfmt::skip]
-fn run_legacy_bound(profile: EvidenceProfile, pwsh: &Path) -> Result<i32, String> {
-    let invocation = legacy_invocation(profile);
+fn run_legacy_bound(profile: EvidenceProfile, pwsh: &Path, phase_diagnostics: Option<&Path>) -> Result<i32, String> {
+    let mut invocation = legacy_invocation(profile);
+    if let Some(pd) = phase_diagnostics {
+        invocation.arguments.push("-PhaseDiagnostics".to_string());
+        invocation.arguments.push(pd.to_string_lossy().into_owned());
+    }
     let output = launch_legacy(pwsh.as_os_str(), &invocation)?;
     io::stdout().write_all(&output.stdout).map_err(|error| error.to_string())?; io::stderr().write_all(&output.stderr).map_err(|error| error.to_string())?;
     Ok(output.status.code().unwrap_or(130))
@@ -123,7 +127,9 @@ fn execute(command: Command) -> Result<i32, String> {
             Ok(0)
         }
         Command::Evidence(profile) => run_legacy(profile),
-        Command::EvidenceBound(profile, pwsh) => run_legacy_bound(profile, &pwsh),
+        Command::EvidenceBound(profile, pwsh, phase_diagnostics) => {
+            run_legacy_bound(profile, &pwsh, phase_diagnostics.as_deref())
+        }
         Command::EvidenceSummarizeBound(output, pwsh) => {
             let pwsh = shell::ExecutableBinding::authenticate(pwsh, "pwsh_executable")?;
             let _unit_a_opacity = summary::summarize_without_authenticated_records;
@@ -228,18 +234,18 @@ mod cli {
     #[test]
     fn legacy_equivalence_preserves_exit_stages_and_stream_hashes() {
         fixed_profiles_map_to_the_shared_production_dispatcher();
-        let mappings = [(EvidenceProfile::Focused, "tools/check_all.ps1", &["-EvidenceTier", "Wo25UnitC"][..]), (EvidenceProfile::Full, "tools/check_all.ps1", &["-EvidenceTier", "Fast"][..]), (EvidenceProfile::Exhaustive, "tools/check_all.ps1", &["-EvidenceTier", "Exhaustive"][..]), (EvidenceProfile::Status, "tools/check_workorder_status_boundary.ps1", &[][..])];
-        for (profile, script, arguments) in mappings { assert_eq!(legacy_invocation(profile), LegacyInvocation { executable: "pwsh", script, arguments }); }
+        let mappings = [(EvidenceProfile::Focused, "tools/check_all.ps1", vec!["-EvidenceTier".to_string(), "Wo25UnitC".to_string()]), (EvidenceProfile::Full, "tools/check_all.ps1", vec!["-EvidenceTier".to_string(), "Fast".to_string()]), (EvidenceProfile::Exhaustive, "tools/check_all.ps1", vec!["-EvidenceTier".to_string(), "Exhaustive".to_string()]), (EvidenceProfile::Status, "tools/check_workorder_status_boundary.ps1", vec![])];
+        for (profile, script, arguments) in &mappings { assert_eq!(legacy_invocation(*profile), LegacyInvocation { executable: "pwsh", script: *script, arguments: arguments.clone() }); }
         let production = include_str!("main.rs").split_once("#[cfg(test)]").unwrap().0;
         assert!(!production.contains(concat!("HUM_DEV_LEGACY_", "EQUIVALENCE_PROBE")));
         assert!(!production.contains("var_os("));
         assert!(production.contains("production_environment"), "legacy environment must be production-owned");
         let probe = concat!("HUM_DEV_LEGACY_", "EQUIVALENCE_PROBE");
-        if std::env::var_os(probe).is_some() { for (profile, script, arguments) in mappings { assert_eq!(legacy_invocation(profile), LegacyInvocation { executable: "pwsh", script, arguments }); } return; }
+        if std::env::var_os(probe).is_some() { for (profile, script, arguments) in &mappings { assert_eq!(legacy_invocation(*profile), LegacyInvocation { executable: "pwsh", script: *script, arguments: arguments.clone() }); } return; }
         let poisoned = Command::new(std::env::current_exe().unwrap()).args(["--exact", "cli::legacy_equivalence_preserves_exit_stages_and_stream_hashes", "--nocapture"]).env(probe, "1").output().unwrap();
         assert!(poisoned.status.success(), "{}", String::from_utf8_lossy(&poisoned.stderr));
         let executable = pwsh(OsStr::new("pwsh"));
-        let injected = LegacyInvocation { executable: "pwsh", script: "tools/check_alpha_claims.ps1", arguments: &[] };
+        let injected = LegacyInvocation { executable: "pwsh", script: "tools/check_alpha_claims.ps1", arguments: vec![] };
         assert!(launch_legacy(root().join("Cargo.toml").as_os_str(), &injected).unwrap_err().starts_with("pwsh_version"));
         let mut old_samples = Vec::new(); let mut new_samples = Vec::new();
         for _ in 0..4 { let start = Instant::now(); let old = record(direct(&executable, injected.script)); old_samples.push((old, start.elapsed())); let start = Instant::now(); let new = record(launch_legacy(executable.as_os_str(), &injected).unwrap()); new_samples.push((new, start.elapsed())); }

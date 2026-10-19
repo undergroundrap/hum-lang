@@ -214,7 +214,37 @@ $InvalidFixtureRejected = $false
 try { $null = $Utf8Strict.GetString($InvalidFixtureBytes) } catch { $InvalidFixtureRejected = $true }
 if (-not $InvalidFixtureRejected) { throw 'Invalid Cargo cache fixture did not exercise UTF-8 rejection' }
 
-$files = Get-ChildItem -LiteralPath $RepoRoot -Recurse -File -Force | Where-Object { Test-TextFile $_ }
+function Get-HygieneCandidateFiles {
+  # Preserve the provider's raw subtree order; its directory projection is sorted.
+  $Directories = @()
+  $UseOriginalTraversal = $false
+  try {
+    $Directories = @(([System.IO.DirectoryInfo]::new($RepoRoot)).EnumerateDirectories())
+    foreach ($Directory in $Directories) {
+      if (Test-ExcludedPath $Directory) { continue }
+      $Attributes = $Directory.Attributes
+      if ($Attributes -isnot [System.IO.FileAttributes] -or
+          ($Attributes -band [System.IO.FileAttributes]::Directory) -eq 0 -or
+          ($Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        $UseOriginalTraversal = $true
+        break
+      }
+    }
+  } catch { $UseOriginalTraversal = $true }
+  if ($UseOriginalTraversal) {
+    # Keep native tag-aware link admission and provider errors for uncertain roots.
+    Get-ChildItem -LiteralPath $RepoRoot -Recurse -File -Force
+    return
+  }
+
+  Get-ChildItem -LiteralPath $RepoRoot -File -Force
+  foreach ($Directory in $Directories) {
+    if (Test-ExcludedPath $Directory) { continue }
+    Get-ChildItem -LiteralPath $Directory.FullName -Recurse -File -Force
+  }
+}
+
+$files = Get-HygieneCandidateFiles | Where-Object { Test-TextFile $_ }
 
 foreach ($file in $files) {
   $bytes = [System.IO.File]::ReadAllBytes($file.FullName)

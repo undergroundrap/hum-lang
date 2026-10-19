@@ -1303,7 +1303,7 @@ function Assert-PwshConsumerContracts {
     Assert-PwshMutationRejected $Case[0] $Case[1] $Case[2] $Case[3] $Case[4] -Last:$Case[5] -Workflow:$Case[6]
   }
   $BypassOld='if ([string]::IsNullOrEmpty($Source) -or';$BypassNew='if ($($Other = $Candidates.Item(1); $false) -or [string]::IsNullOrEmpty($Source) -or';$Bypass=$CheckAll.Replace($BypassOld,$BypassNew);$Failure=$null;try{Assert-FirstPwshOwner $Bypass}catch{$Failure=$_};Assert-True ($null-ne$Failure -and $Failure.Exception.Message.Contains('frozen function seal')) 'reviewer hidden Item bypass owner';Assert-FirstPwshBehavior $Bypass;Assert-True ($CheckAll.IndexOf($BypassNew,[StringComparison]::Ordinal)-lt 0) 'honest source restoration after hidden Item bypass'
-  $CheckAst=Get-DiscoveryAst $CheckAll 'function mutation';$Definition=@($CheckAst.EndBlock.Statements|Where-Object{$_-is[Management.Automation.Language.FunctionDefinitionAst]-and$_.Name-ceq'Select-FirstApplicationSource'})[0];$Before=$CheckAll.Substring(0,$Definition.Extent.StartOffset);$After=$CheckAll.Substring($Definition.Extent.EndOffset);$FunctionMutations=@($Before+$After,$Before+$Definition.Extent.Text+"`n"+$Definition.Extent.Text+$After,$Before+"function Invoke-Nested {`n$($Definition.Extent.Text)`n}`n"+$After,$Before+$Definition.Extent.Text.Replace('Select-FirstApplicationSource','Select-SecondApplicationSource')+$After);foreach($Mutation in $FunctionMutations){$null=Get-DiscoveryAst $Mutation 'function seal mutation';$Failure=$null;try{Assert-FirstPwshOwner $Mutation}catch{$Failure=$_};Assert-True ($null-ne$Failure) 'removed, duplicated, nested, or renamed function earned seal credit'}
+  $CheckAst=Get-DiscoveryAst $CheckAll 'function mutation';$Definition=@($CheckAst.EndBlock.Statements|Where-Object{$_-is[Management.Automation.Language.FunctionDefinitionAst]-and$_.Name-ceq'Select-FirstApplicationSource'})[0];$Before=$CheckAll.Substring(0,$Definition.Extent.StartOffset);$After=$CheckAll.Substring($Definition.Extent.EndOffset);$FunctionMutations=@(($Before+$After),($Before+$Definition.Extent.Text+"`n"+$Definition.Extent.Text+$After),($Before+"function Invoke-Nested {`n$($Definition.Extent.Text)`n}`n"+$After),($Before+$Definition.Extent.Text.Replace('Select-FirstApplicationSource','Select-SecondApplicationSource')+$After));if($FunctionMutations.Count-ne4){throw 'function seal mutation recipe must construct exactly 4 distinct inputs, got '+$FunctionMutations.Count};$MutationSet=@{};foreach($M in $FunctionMutations){if([string]::IsNullOrEmpty($M)){throw 'function seal mutation input must be initialized'};$H=[Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($M));$K=-join($H|ForEach-Object{$_.ToString('x2')});if($MutationSet.ContainsKey($K)){throw 'function seal mutation inputs must be distinct'};$MutationSet[$K]=$true};foreach($Mutation in $FunctionMutations){$null=Get-DiscoveryAst $Mutation 'function seal mutation';$Failure=$null;try{Assert-FirstPwshOwner $Mutation}catch{$Failure=$_};Assert-True ($null-ne$Failure) 'removed, duplicated, nested, or renamed function earned seal credit'}
   $Seal='673aefad81342ed9b2d4ff2070e2929d57b5a79e079756803d3624a2ecd6a3e7';$CorruptSeal=${function:Assert-FirstPwshOwner}.ToString().Replace($Seal,('0'*64));Assert-True ($CorruptSeal-cne${function:Assert-FirstPwshOwner}.ToString()) 'frozen digest corruption initialization';$Failure=$null;try{& ([scriptblock]::Create($CorruptSeal)) $CheckAll}catch{$Failure=$_};Assert-True ($null-ne$Failure) 'corrupted frozen digest earned credit'
   $RealCall='Assert-PwshConsumerContracts $RunnerSource $CaptureSource $CheckAllSource $WorkflowSource $ReleaseSource';$Removed=$Capture.Substring(0,$Capture.LastIndexOf($RealCall,[StringComparison]::Ordinal))+'Write-Output $RunnerSource'+$Capture.Substring($Capture.LastIndexOf($RealCall,[StringComparison]::Ordinal)+$RealCall.Length);$Spoofs=@($Removed.Insert($Removed.IndexOf('Set-StrictMode',[StringComparison]::Ordinal),"$RealCall`n"),"$Removed`nfunction Invoke-Spoof { $RealCall }","$Removed`n'$RealCall'","$Removed`n# $RealCall","$Removed`n@'`n$RealCall`n'@","$Capture`n$RealCall")
   foreach($Spoof in $Spoofs){$null=Get-DiscoveryAst $Spoof 'invocation spoof';$Failure=$null;try{Assert-HarnessPwshOwner $Spoof}catch{$Failure=$_};Assert-True ($null-ne$Failure) 'relocated, nested, inert, or duplicate invocation earned credit'}
@@ -1397,13 +1397,33 @@ function Assert-FullPreflightRepairContract([string]$Workflow) {
   $UploadHasher=[Security.Cryptography.SHA256]::Create();try{$UploadDigest=-join($UploadHasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($UploadMatch[0].Value))|%{$_.ToString('x2')})}finally{$UploadHasher.Dispose()}
   if($UploadDigest-cne'2ce7a17058f37c9b65ee18e5024d4d6c880118ba0780a3ed3012add01673a6fa'){throw 'failure-diagnostics upload frozen closure'}
   $Hasher=[Security.Cryptography.SHA256]::Create();try{$StepDigest=-join($Hasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($Step))|%{$_.ToString('x2')});$SummaryDigest=-join($Hasher.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($Summary))|%{$_.ToString('x2')})}finally{$Hasher.Dispose()}
-  if($StepDigest-cne'20b346c44d2e2840c035710ee726e5538043602fc497730161951e7ce59eabea'){throw 'full-preflight frozen closure'}
+  if($StepDigest-cne'1597f1b206429a4b60fb2b49f9d251cd54d65b6a051d8cf94ba3a04a5278f6b5'){throw 'full-preflight frozen closure'}
   if($SummaryDigest-cne'e4ae140917b9706da4e9a6444dd7fce000b89f1fa6479a500b02ad64ea6a258e'){throw 'summary frozen closure'}
-  $Required=@('$RustcStart.RedirectStandardOutput = $true','$RustcStart.RedirectStandardError = $true','$StdoutCopy = $RustcProcess.StandardOutput.BaseStream.CopyToAsync($ToolchainStdout)','$StderrCopy = $RustcProcess.StandardError.BaseStream.CopyToAsync($ToolchainStderr)','$RustcProcess.WaitForExit()','$StdoutCopy.GetAwaiter().GetResult()','$StderrCopy.GetAwaiter().GetResult()','$ToolchainBytes = $ToolchainStdout.ToArray()','$ToolchainStderrBytes = $ToolchainStderr.ToArray()','if ($RustcExit -ne 0 -or $ToolchainBytes.Length -eq 0)','if ([Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0)','$StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)','$ToolchainText = $StrictUtf8.GetString($ToolchainBytes)','$ToolchainPayload = [Convert]::ToBase64String($ToolchainBytes)','$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"','cargo build -p hum-dev','$Isolated = New-HumIsolatedExecutable','$Capture = Invoke-HumBinaryCapture $Executable $Arguments $WorkingDirectory $CaptureDirectory $DeadlineSeconds','$Capture = Assert-HumCaptureComplete $Capture','try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason }','$Capture = Invoke-HumPreflightCapture $Isolated.Executable','$CaptureAuthenticated = $true','$ExitCode = $Capture.ExitCode','"toolchain=$env:HUM_BUILD_TOOLCHAIN" >> $env:GITHUB_OUTPUT','Remove-HumIsolatedExecutable $Isolated','Remove-HumCaptureAfterAuthentication $CaptureDirectory','Final preflight diagnostic retention also failed:')
+  $Required=@('$RustcStart.RedirectStandardOutput = $true','$RustcStart.RedirectStandardError = $true','$StdoutCopy = $RustcProcess.StandardOutput.BaseStream.CopyToAsync($ToolchainStdout)','$StderrCopy = $RustcProcess.StandardError.BaseStream.CopyToAsync($ToolchainStderr)','$RustcProcess.WaitForExit()','$StdoutCopy.GetAwaiter().GetResult()','$StderrCopy.GetAwaiter().GetResult()','$ToolchainBytes = $ToolchainStdout.ToArray()','$ToolchainStderrBytes = $ToolchainStderr.ToArray()','if ($RustcExit -ne 0 -or $ToolchainBytes.Length -eq 0)','if ([Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0)','$StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)','$ToolchainText = $StrictUtf8.GetString($ToolchainBytes)','$ToolchainPayload = [Convert]::ToBase64String($ToolchainBytes)','$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"','cargo build -p hum-dev','$Isolated = New-HumIsolatedExecutable','$Capture = Invoke-HumBinaryCapture $Executable $PhaseArgs $WorkingDirectory $CaptureDirectory $DeadlineSeconds -CaseName ''ci-full-preflight'' -PhaseDiagnosticDirectory $PhaseDiagnosticDirectory','$Capture = Assert-HumCaptureComplete $Capture','try { Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $Reason }','$Capture = Invoke-HumPreflightCapture $Isolated.Executable','$CaptureAuthenticated = $true','$ExitCode = $Capture.ExitCode','"toolchain=$env:HUM_BUILD_TOOLCHAIN" >> $env:GITHUB_OUTPUT','Remove-HumIsolatedExecutable $Isolated','Remove-HumCaptureAfterAuthentication $CaptureDirectory','Final preflight diagnostic retention also failed:')
   $Last=-1;foreach($Needle in $Required){$Hits=@([regex]::Matches($Step,[regex]::Escape($Needle)));if($Hits.Count-ne1-or$Hits[0].Index-le$Last){throw "full-preflight owned dataflow: $Needle"};$Last=$Hits[0].Index}
   foreach($Forbidden in @('$env:HUM_BUILD_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()','$Process.StartInfo.FileName','Start-Process $Isolated.Executable')){if($Step.Contains($Forbidden)){throw "full-preflight retired route: $Forbidden"}}
   foreach($Needle in @('HUM_TOOLCHAIN: ${{ steps.full_preflight.outputs.toolchain }}','evidence summarize --output $Output --pwsh $Pwsh')){if(([regex]::Matches($Summary,[regex]::Escape($Needle))).Count-ne1){throw "summary owned dataflow: $Needle"}}
   if($Summary.Contains('$env:HUM_TOOLCHAIN = (& rustc -Vv | Out-String).Trim()')){throw 'summary plaintext reconstruction'}
+}
+function Assert-FullPreflightCalibrationEvidence([string]$Workflow) {
+  $Lf=[char]10;$Normalized=$Workflow.Replace("$([char]13)$Lf","$Lf")
+  $Header=('jobs:'+[char]10+'  preflight:'+[char]10+'    name: preflight (${{ matrix.os }})'+[char]10+'    runs-on: ${{ matrix.os }}'+[char]10+'    timeout-minutes: ${{ matrix.os == ''windows-latest'' && 90 || 60 }}'+[char]10)
+  Assert-True (([regex]::Matches($Normalized,'(?m)^jobs:(?:[ \t]|$)')).Count-eq1-and([regex]::Matches($Normalized,'(?m)^  preflight:(?:[ \t]|$)')).Count-eq1-and([regex]::Matches($Normalized,[regex]::Escape($Header))).Count-eq1) 'calibration job budget ownership'
+  $Step=[regex]::Match($Normalized,'(?ms)^      - name: Run Hum preflight'+$Lf+'.*?(?=^      - name: )').Value
+  $Body=[regex]::Replace(($Step-split'        run: \|',2)[1],'(?m)^          ','')
+  $Ast=Get-DiscoveryAst $Body 'calibration Full argument'
+  $Calls=@($Ast.FindAll({param($Node)$Node-is[Management.Automation.Language.CommandAst]-and$Node.GetCommandName()-ceq'Invoke-HumPreflightCapture'},$true))
+  Assert-True ($Calls.Count-eq1) 'calibration Full call cardinality'
+  $Budget=$Calls[0].CommandElements[-1].Extent.Text
+  Assert-True ($Budget-ceq'$(if ($script:HumHostIsWindows) { 4500 } else { 3000 })') 'calibration Full budget owner'
+  $PriorHost=$script:HumHostIsWindows
+  try {
+    foreach($Case in @([pscustomobject]@{Windows=$true;Seconds=4500},[pscustomobject]@{Windows=$false;Seconds=3000})) {
+      $script:HumHostIsWindows=$Case.Windows
+      Assert-True ((& ([scriptblock]::Create($Budget)))-eq$Case.Seconds) 'calibration Full platform mapping'
+    }
+  } finally {$script:HumHostIsWindows=$PriorHost}
+  Assert-True (([regex]::Matches($Normalized,[regex]::Escape('$Capture = Invoke-HumBinaryCapture $Isolated.Executable @(''evidence'',$env:HUM_SELECTED_PROFILE,''--pwsh'',$Pwsh) (Get-Location).Path $Directory 3000 -CaseName ''ci-normal-profile'''))).Count-eq1) 'calibration normal budget preservation'
 }
 function Assert-FullPreflightRepairEvidence([string]$Workflow) {
   $Cr=[string][char]13;$Lf=[string][char]10
@@ -1415,6 +1435,7 @@ function Assert-FullPreflightRepairEvidence([string]$Workflow) {
   foreach($Bad in @(@([byte[]]@(),[byte[]]@(),0,$true),@([byte[]](0x61,0),[byte[]]@(),0,$true),@([byte[]](0xff),[byte[]]@(),0,$true),@([byte[]](0x61),[byte[]]@(),1,$true),@([byte[]](0x61),[byte[]]@(),0,$false))){Assert-Rejected{ConvertTo-TestNativeToolchainScalar $Bad[0] $Bad[1] $Bad[2] $Bad[3]}'invalid native toolchain bytes accepted'}
   foreach($Bad in @('', 'utf8-base64:', 'utf8-base64:***', 'wrong:cnVzdGM=')){Assert-Rejected { ConvertFrom-TestToolchainScalar $Bad } "malformed toolchain scalar accepted: $Bad"}
   Assert-FullPreflightRepairContract $Workflow
+  Assert-FullPreflightCalibrationEvidence $Workflow
   $Mutations=@(
     @('$RustcExit -ne 0','$RustcExit -eq 0'),
     @('$ToolchainBytes.Length -eq 0','$ToolchainBytes.Length -lt 0'),
@@ -1424,7 +1445,7 @@ function Assert-FullPreflightRepairEvidence([string]$Workflow) {
     @('$env:HUM_BUILD_TOOLCHAIN = "utf8-base64:$ToolchainPayload"','$env:HUM_BUILD_TOOLCHAIN = $ToolchainText'),
     @('cargo build -p hum-dev','$null = 1'),
     @('$Capture = Invoke-HumPreflightCapture $Isolated.Executable','$Capture = Invoke-HumPreflightCapture "target/debug/hum-dev"'),
-    @('$CaptureDirectory $DiagnosticDirectory 3000','$CaptureDirectory $DiagnosticDirectory 900'),
+    @('$CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $(if ($script:HumHostIsWindows) { 4500 } else { 3000 })','$CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory 900'),
     @('$Capture = Assert-HumCaptureComplete $Capture','$null = $Capture'),
     @('$CaptureAuthenticated = $true','$CaptureAuthenticated = $false'),
     @('$ExitCode = $Capture.ExitCode','$ExitCode = 0'),
@@ -1444,7 +1465,7 @@ function Assert-FullPreflightRepairEvidence([string]$Workflow) {
     @('path: ${{ steps.full_preflight.outputs.failure_capture }}','path: ${{ runner.temp }}'),
     @('if ($null -ne $Failure) { throw $Failure }','if ($null -ne $Failure) { return }'),
     @('foreach ($Name in @($script:HumCaptureFiles) + ''manifest.txt'')','foreach ($Name in @(Get-ChildItem -Recurse))'),
-    @('Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $Reason','$null = $Reason'),
+    @('Save-HumPreflightDiagnostics $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $Reason','$null = $Reason'),
     @('if ($null -ne $PreflightFailure) { throw $PreflightFailure }','$PreflightFailure = $null'),
     @('if ($null -ne $PreflightFailure -or $ExitCode -ne 0) {','if ($false) {')
   )){
@@ -1468,10 +1489,10 @@ function Assert-PreflightDiagnosticEvidence {
   $Reported = [Collections.Generic.List[object]]::new()
   $ReportingFailures = [Collections.Generic.List[object]]::new()
   function Save-HumPreflightDiagnostics {
-    param([string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $Reason)
+    param([string] $CaptureDirectory, [string] $DiagnosticDirectory, [string] $PhaseDiagnosticDirectory, [string] $Reason)
     # Production reporting contains per-child PID, timing and digest facts.
     # Consume those fixture reports here, not in the caller's stable stdout.
-    try { foreach ($Record in @(& $NativeSave $CaptureDirectory $DiagnosticDirectory $Reason 3>&1 6>&1)) {
+    try { foreach ($Record in @(& $NativeSave $CaptureDirectory $DiagnosticDirectory $PhaseDiagnosticDirectory $Reason 3>&1 6>&1)) {
       if ($Record -is [Management.Automation.WarningRecord]) {
         Assert-True ($Record.Message -ceq 'Preflight diagnostic retention failed: preflight diagnostic directory already exists') 'unexpected fixture retention warning'
       } else {
@@ -1486,8 +1507,25 @@ function Assert-PreflightDiagnosticEvidence {
           $Name = $Text.Substring(26).Split(';')[0]
           Assert-True ($Name -cin @('exit.txt','deadline_disposition.txt','termination_disposition.txt','final_active_process_count.txt','capture_error.bin','launch_error.bin')) 'fixture scalar report named an unowned file'
           Assert-True ($Text -ceq "unaccepted_capture_record=$Name;base64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $DiagnosticDirectory $Name))))") 'fixture scalar report differs from retained bytes'
+        } elseif ($Text -ceq 'Preflight succeeded: retaining validated phase diagnostics (report-only).') {
+          # The success header is only truthful for the success reason; a
+          # failure reason behind it is a corrupted producer report.
+          Assert-True ($Reason -ceq 'capture_succeeded') 'success header for failure reason'
+        } elseif ($Text -ceq 'Preflight failed: retaining unaccepted diagnostics, not success evidence.') {
+          # The failure header is only truthful for a non-success reason; a
+          # success reason behind it is a corrupted producer report.
+          Assert-True ($Reason -cne 'capture_succeeded') 'failure header for success reason'
         } else {
-          Assert-True ($Text -ceq 'Preflight failed: retaining unaccepted diagnostics, not success evidence.' -or $Text -ceq 'unaccepted_capture_missing=directory' -or $Text -ceq 'unaccepted_capture_missing=completed_utc.txt') 'unexpected fixture diagnostic message'
+          # Current production also reports phase diagnostic outcomes. The
+          # fixture's controlled phase directories stay empty and carry no
+          # run-binding, so the producer truthfully reports
+          # binding_missing_or_invalid for the owned directory without a
+          # valid binding (ci.yml), then none_found for zero markers;
+          # directory_missing covers the absent-directory case. Any marker
+          # report would be an unowned production change. Accepting the
+          # missing-binding report claims no valid binding, markers, timing,
+          # or success evidence.
+          Assert-True ($Text -ceq 'unaccepted_capture_missing=directory' -or $Text -ceq 'unaccepted_capture_missing=completed_utc.txt' -or $Text -ceq 'phase_diagnostics=none_found' -or $Text -ceq 'phase_diagnostics=directory_missing' -or $Text -ceq 'phase_diagnostics=binding_missing_or_invalid') 'unexpected fixture diagnostic message'
         }
       }
       $Reported.Add($Record)
@@ -1498,6 +1536,38 @@ function Assert-PreflightDiagnosticEvidence {
   Assert-True (-not (Test-Path -LiteralPath $Root)) 'diagnostic test root already exists'
   $null = [IO.Directory]::CreateDirectory($Root)
   $NativeCapture = ${function:Invoke-HumBinaryCapture}
+  # Fixture-owned adapter: prove the producer's exact phase forwarding BEFORE
+  # any capture effect. The appended --phase-diagnostics path must equal the
+  # named PhaseDiagnosticDirectory, which must equal the fixture's owned
+  # per-case fact; the controlled deadline and CaseName are bound too. Only
+  # then is the unchanged argv handed to the real capture. The controlled
+  # synthetic child takes no such parameter but tolerates it in $args;
+  # stripping the pair would hide the real argv under test.
+  $AdapterExpectedPhase = ''
+  $AdapterExpectedDeadline = 0
+  $CorruptValidationInventory = $false
+  function Invoke-HumBinaryCapture {
+    param(
+      [string] $FilePath,
+      [string[]] $Arguments,
+      [string] $WorkingDirectory,
+      [string] $CaptureDirectory,
+      [int] $TimeoutSeconds,
+      [string] $CaseName,
+      [string] $PhaseDiagnosticDirectory
+    )
+    Assert-True ($Arguments.Count -ge 2 -and $Arguments[-2] -ceq '--phase-diagnostics') 'producer phase argv pair not forwarded'
+    Assert-True ($Arguments[-1] -ceq $PhaseDiagnosticDirectory) 'argv phase path differs from named phase'
+    Assert-True ($PhaseDiagnosticDirectory -ceq $AdapterExpectedPhase) 'named phase differs from owned case phase'
+    Assert-True ($TimeoutSeconds -eq $AdapterExpectedDeadline) 'capture deadline differs from owned case deadline'
+    Assert-True ($CaseName -ceq 'ci-full-preflight') 'capture case name changed'
+    $Result = & $NativeCapture $FilePath $Arguments $WorkingDirectory $CaptureDirectory -TimeoutSeconds $TimeoutSeconds -CaseName $CaseName -PhaseDiagnosticDirectory $PhaseDiagnosticDirectory
+    if ($CorruptValidationInventory) {
+      Remove-Item -LiteralPath (Join-Path $Result.CaptureDirectory 'completed_utc.txt')
+    }
+    $Result
+  }
+  $AdapterCapture = ${function:Invoke-HumBinaryCapture}
   $Shell = (Get-Process -Id $PID).Path
   $Base = @('-NoLogo','-NoProfile','-NonInteractive','-File',$script:HumCaptureTestPath,'-SyntheticChild')
   $BeforeWorkflow = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($Workflow))
@@ -1505,22 +1575,26 @@ function Assert-PreflightDiagnosticEvidence {
     foreach ($Mode in @('success','exit23','timeout','invalid-terminal','validation-failure')) {
       $Directory = Join-Path $Root $Mode
       $Diagnostics = Join-Path $Root ($Mode + '-diagnostics')
+      $PhaseDiagnostics = Join-Path $Root ($Mode + '-phase-diagnostics')
+      $null = [IO.Directory]::CreateDirectory($PhaseDiagnostics)
       $Child = if ($Mode -eq 'validation-failure') { 'success' } else { $Mode }
       $Result = $null; $Failure = $null
       try {
-        if ($Mode -eq 'validation-failure') {
-          function Invoke-HumBinaryCapture {
-            $Result = & $NativeCapture @args
-            Remove-Item -LiteralPath (Join-Path $Result.CaptureDirectory 'completed_utc.txt')
-            $Result
-          }
-        }
-        $Result = Invoke-HumPreflightCapture $Shell ($Base + $Child) (Get-Location).Path $Directory $Diagnostics $(if ($Mode -eq 'timeout') { 10 } else { 30 })
-      } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
-      Assert-True (${function:Invoke-HumBinaryCapture}.ToString() -ceq $NativeCapture.ToString()) 'native capture test seam did not restore'
+        $AdapterExpectedPhase = $PhaseDiagnostics
+        $AdapterExpectedDeadline = $(if ($Mode -eq 'timeout') { 10 } else { 30 })
+        $CorruptValidationInventory = ($Mode -eq 'validation-failure')
+        $Result = Invoke-HumPreflightCapture $Shell ($Base + $Child) (Get-Location).Path $Directory $Diagnostics $PhaseDiagnostics $(if ($Mode -eq 'timeout') { 10 } else { 30 })
+      } catch { $Failure = $_ } finally {
+        $CorruptValidationInventory = $false
+        Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $AdapterCapture
+      }
+      Assert-True (${function:Invoke-HumBinaryCapture}.ToString() -ceq $AdapterCapture.ToString()) 'native capture test seam did not restore'
       if ($Mode -eq 'success') {
         Assert-True ($null -eq $Failure -and $Result.ExitCode -eq 0 -and -not $Result.TimedOut) 'honest preflight capture failed'
-        Assert-True (-not (Test-Path -LiteralPath $Diagnostics)) 'honest completion fabricated failure diagnostics'
+        # R4: success also runs the report-only consumer. The diagnostics must
+        # exist and be labeled report-only, never success evidence.
+        Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'diagnostic_status.txt')).TrimEnd([char]10) -ceq 'diagnostics_report_only;capture_succeeded;not_success_evidence') 'success diagnostics mislabeled'
+        Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'result.txt')).TrimEnd([char]10) -ceq 'capture_succeeded') 'success result mislabeled'
       } else {
         if ($Mode -eq 'exit23') { Assert-True ($null -eq $Failure -and $Result.ExitCode -eq 23) 'original nonzero child exit changed' }
         if ($Mode -eq 'timeout') {
@@ -1556,7 +1630,7 @@ function Assert-PreflightDiagnosticEvidence {
           $Source = Join-Path $Directory $Name
           if ([IO.File]::Exists($Source)) { Assert-Bytes (Read-Bytes (Join-Path $Diagnostics $Name)) (Read-Bytes $Source) "retained diagnostic bytes: $Mode/$Name" }
         }
-        if ($null -ne $Failure) { Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'failure.txt')).Contains($Failure.Exception.Message)) 'original failure lost during retention' }
+        if ($null -ne $Failure) { Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'result.txt')).Contains($Failure.Exception.Message)) 'original failure lost during retention' }
       }
       if ($null -ne $Result -and $null -ne $Result.Pid) {
         # PID-reuse flake fix: a process with this PID whose StartTime is later
@@ -1568,18 +1642,20 @@ function Assert-PreflightDiagnosticEvidence {
     }
     $Missing = Join-Path $Root 'absent-capture'
     $Diagnostics = Join-Path $Root 'missing-diagnostics'
+    $MissingPhaseDiagnostics = Join-Path $Root 'missing-phase-diagnostics'
+    $null = [IO.Directory]::CreateDirectory($MissingPhaseDiagnostics)
     $Failure = $null
     function Invoke-HumBinaryCapture { throw 'controlled capture missing before creation' }
-    try { Invoke-HumPreflightCapture $Shell ($Base + 'success') (Get-Location).Path $Missing $Diagnostics 30 } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
+    try { Invoke-HumPreflightCapture $Shell ($Base + 'success') (Get-Location).Path $Missing $Diagnostics $MissingPhaseDiagnostics 30 } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
     Assert-True ($null -ne $Failure -and $Failure.Exception.Message -ceq 'controlled capture missing before creation') 'missing capture became success'
     Assert-True ((@(Get-ChildItem -LiteralPath $Diagnostics)).Count -eq 2) 'missing capture fabricated records'
     function Invoke-HumBinaryCapture { throw 'controlled capture missing before creation' }
     $Failure = $null
-    try { Invoke-HumPreflightCapture $Shell ($Base + 'success') (Get-Location).Path $Missing $Diagnostics 30 } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
+    try { Invoke-HumPreflightCapture $Shell ($Base + 'success') (Get-Location).Path $Missing $Diagnostics $MissingPhaseDiagnostics 30 } catch { $Failure = $_ } finally { Set-Item -LiteralPath Function:Invoke-HumBinaryCapture -Value $NativeCapture }
     Assert-True ($null -ne $Failure -and $Failure.Exception.Message -ceq 'controlled capture missing before creation') 'diagnostic retention failure masked original failure'
     $Foreign = Join-Path (Join-Path $Root 'exit23') 'unrelated.txt'
     Set-HumDurableText $Foreign 'must not be collected'
-    Save-HumPreflightDiagnostics (Split-Path $Foreign) (Join-Path $Root 'allowlist-diagnostics') 'controlled allowlist probe'
+    Save-HumPreflightDiagnostics (Split-Path $Foreign) (Join-Path $Root 'allowlist-diagnostics') (Join-Path $Root 'allowlist-phase-diagnostics') 'controlled allowlist probe'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Root 'allowlist-diagnostics/unrelated.txt'))) 'unrelated file collected'
     Assert-True ([Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($Workflow)) -ceq $BeforeWorkflow) 'workflow bytes changed during diagnostics controls'
     Assert-True ($ReportingFailures.Count -eq 0) 'fixture reporting validation failed'
@@ -1645,6 +1721,11 @@ function Assert-PreflightOuterLifecycleEvidence {
     $NativeIsolatedCleanup = ${function:Remove-HumIsolatedExecutable}
     $CaptureDirectory = Join-Path $CaseRoot 'capture'
     $DiagnosticDirectory = Join-Path $CaseRoot 'diagnostics'
+    # Owned per-case phase fact, mirroring the production step prelude that
+    # creates the parent-owned phase directory before the producer runs. The
+    # actual workflow call below passes this; the stub must accept exactly it.
+    $PhaseDiagnosticDirectory = Join-Path $CaseRoot 'workflow-phase-diagnostics'
+    $null = [IO.Directory]::CreateDirectory($PhaseDiagnosticDirectory)
     $Target = Join-Path $Repository 'target'
     $Source = Join-Path $Target $(if ($script:HumHostIsWindows) { 'debug/hum-dev.exe' } else { 'debug/hum-dev' })
     $Isolated = New-HumIsolatedExecutable $Source $CaseRoot $Target
@@ -1655,10 +1736,16 @@ function Assert-PreflightOuterLifecycleEvidence {
       & $NativeSave @args
     }
     function Invoke-HumPreflightCapture {
-      param($Executable, $Arguments, $WorkingDirectory, $Directory, $Diagnostics, $Deadline)
-      if ($Deadline -ne 3000 -or $Executable -cne $Isolated.Executable -or ($Arguments -join '|') -cne "evidence|full|--pwsh|$Pwsh") { throw 'outer workflow invocation changed' }
+      param($Executable, $Arguments, $WorkingDirectory, $Directory, $Diagnostics, $PhaseDiagnostics, $Deadline)
+      # Validate the actual producer inputs BEFORE any effect: the incoming
+      # phase directory must be the setup-established owned fact. A foreign
+      # path, null, or any stub-derived substitute is refused here.
+      if ($PhaseDiagnostics -cne $PhaseDiagnosticDirectory) { throw 'outer workflow phase identity changed' }
+      if ($Deadline -ne $(if ($script:HumHostIsWindows) { 4500 } else { 3000 }) -or $Executable -cne $Isolated.Executable -or ($Arguments -join '|') -cne "evidence|full|--pwsh|$Pwsh") { throw 'outer workflow invocation changed' }
       $Child = if ($Mode -eq 'primary-and-secondary') { 'invalid-terminal' } elseif ($Mode -in @('nonzero-and-secondary','nonzero-reporting')) { 'exit23' } else { 'success' }
-      & $NativeInvoke $Shell @('-NoLogo','-NoProfile','-NonInteractive','-File',$TestPath,'-SyntheticChild',$Child) $WorkingDirectory $Directory $Diagnostics 30
+      # Forward the accepted authoritative phase directory. The synthetic
+      # child writes no markers, so it stays honestly empty (none_found).
+      & $NativeInvoke $Shell @('-NoLogo','-NoProfile','-NonInteractive','-File',$TestPath,'-SyntheticChild',$Child) $WorkingDirectory $Directory $Diagnostics $PhaseDiagnostics 30
     }
     function Remove-HumIsolatedExecutable {
       $script:IsolatedAttempts++
@@ -1711,7 +1798,10 @@ function Assert-PreflightOuterLifecycleEvidence {
         Assert-True ($State.GetVariable('IsolatedAttempts') -eq 1) "isolated cleanup was not attempted exactly once: $Mode"
         if ($Mode -eq 'success') {
           Assert-True ($null -eq $Failure -and $Exit -eq 0 -and $State.GetVariable('AfterExit')) 'honest outer workflow failed'
-          Assert-True ($State.GetVariable('CaptureAttempts') -eq 1 -and -not (Test-Path -LiteralPath $Directory) -and -not (Test-Path -LiteralPath $Diagnostics) -and -not (Test-Path -LiteralPath $Isolated.Directory)) 'honest cleanup or diagnostic absence changed'
+          Assert-True ($State.GetVariable('CaptureAttempts') -eq 1 -and -not (Test-Path -LiteralPath $Directory) -and -not (Test-Path -LiteralPath $Isolated.Directory)) 'honest cleanup changed'
+          # R4: success retains report-only diagnostics; they must be labeled
+          # as such, never as success evidence.
+          Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'diagnostic_status.txt')).TrimEnd([char]10) -ceq 'diagnostics_report_only;capture_succeeded;not_success_evidence') 'outer success diagnostics mislabeled'
         } else {
           Assert-True (-not $State.GetVariable('AfterExit') -and ($null -ne $Failure -or $Exit -ne 0)) "outer workflow failure became success: $Mode"
           if ($Mode -eq 'cleanup-validation') {
@@ -1724,13 +1814,24 @@ function Assert-PreflightOuterLifecycleEvidence {
           if ($Mode -in @('primary-and-secondary','nonzero-and-secondary')) {
             Assert-True ($Warnings.Contains('diagnostic retention') -and $Warnings.Contains('Isolated executable cleanup also failed') -and (Test-Path -LiteralPath (Join-Path $Directory 'stdout.bin'))) 'secondary retention/cleanup failure was hidden or bytes lost'
           } else {
-            Assert-True ([IO.File]::ReadAllText((Join-Path $Diagnostics 'diagnostic_status.txt')).TrimEnd([char]10) -ceq 'unaccepted_diagnostics;not_success_evidence;capture_may_be_partial') 'outer failure lacks unaccepted diagnostic label'
+            # R7: the producer retains the retention-time outcome; a late outer
+            # failure (cleanup-validation, isolated-failure, reporting-failure)
+            # does not rewrite an existing snapshot. Both the expected status
+            # and the expected saved reason come from the mode's retention-time
+            # outcome, never from the received values, and the saved reason
+            # must equal the complete producer result exactly (only its
+            # trailing newline framing is discounted). Late-outer-failure
+            # evidence stays in the Failure/Exit assertions above.
+            $ActualStatus = [IO.File]::ReadAllText((Join-Path $Diagnostics 'diagnostic_status.txt')).TrimEnd([char]10)
+            $ExpectedStatus = if ($Mode -in @('cleanup-validation','isolated-failure','reporting-failure')) { 'diagnostics_report_only;capture_succeeded;not_success_evidence' } else { 'unaccepted_diagnostics;not_success_evidence;capture_may_be_partial' }
+            Assert-True ($ActualStatus -ceq $ExpectedStatus) 'outer failure lacks unaccepted diagnostic label'
             foreach ($Name in @($script:HumCaptureFiles) + 'manifest.txt') {
               $Source = Join-Path $Directory $Name
               if ([IO.File]::Exists($Source)) { Assert-Bytes (Read-Bytes (Join-Path $Diagnostics $Name)) (Read-Bytes $Source) "outer retained bytes: $Mode/$Name" }
             }
-            $Reason = [IO.File]::ReadAllText((Join-Path $Diagnostics 'failure.txt'))
-            Assert-True $(if ($null -ne $Failure) { $Reason.Contains($Failure.Exception.Message) } else { $Reason.Contains('child_exit=23') }) 'retained earliest error differs'
+            $Reason = [IO.File]::ReadAllText((Join-Path $Diagnostics 'result.txt'))
+            $ExpectedReason = if ($Mode -in @('cleanup-validation','isolated-failure','reporting-failure')) { 'capture_succeeded' } else { 'child_exit=23;timed_out=False' }
+            Assert-True ($Reason.TrimEnd([char]10) -ceq $ExpectedReason) 'retained earliest error differs'
           }
           if ($Mode -eq 'reporting-failure') { Assert-True ($null -ne $Failure -and $State.GetVariable('CaptureAttempts') -eq 0) 'reporting failure bypassed retention' }
           if ($Mode -eq 'nonzero-reporting') { Assert-True $Warnings.Contains('Preflight reporting also failed') 'secondary reporting failure was hidden' }
@@ -2099,7 +2200,9 @@ try {
   $WindowsCaptures = @()
   $SetupCaptures = @()
   if ($env:OS -eq 'Windows_NT') {
-    $ContainedDescendantDeadlineSeconds = 4
+    # Run 38347038590 attempt 1 refused redirected-parent before process creation at 4 s.
+    # Match the existing inherited-parent 8 s headroom; the survivor still sleeps 12 s.
+    $ContainedDescendantDeadlineSeconds = 8
     # The inherited-parent case runs its absolute deadline against the slowest pre-launch
     # path: job-object creation plus two nested pwsh starts. On loaded Windows runners the
     # setup alone can spend the whole 4 s budget ("absolute deadline expired before process
