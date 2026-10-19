@@ -181,6 +181,379 @@ mod cli {
         String::from_utf8(output.stdout).unwrap()
     }
 
+    // These helpers drive the public command. They do not replace its Git,
+    // candidate, executable, PowerShell, canonical writer, or input validation.
+    fn summary_field<'a>(source: &'a str, name: &str) -> &'a str {
+        let prefix = format!("\"{name}\":");
+        let value = source.split_once(&prefix).unwrap().1;
+        if let Some(value) = value.strip_prefix('"') {
+            value.split_once('"').unwrap().0
+        } else {
+            value.split([',', '}']).next().unwrap()
+        }
+    }
+
+    fn replace_summary_field(source: &mut String, name: &str, value: &str) {
+        let prefix = format!("\"{name}\":");
+        let start = source.find(&prefix).unwrap() + prefix.len();
+        let quoted = source.as_bytes()[start] == b'"';
+        let start = start + usize::from(quoted);
+        let old = summary_field(source, name);
+        let end = start + old.len();
+        source.replace_range(start..end, value);
+    }
+
+    fn git_stdout(repository: &Path, arguments: &[&str]) -> String {
+        let output = Command::new(std::env::var_os("HUM_DEV_GIT").unwrap_or_else(|| "git".into()))
+            .current_dir(repository)
+            .arg("-c")
+            .arg(format!(
+                "safe.directory={}",
+                repository.to_string_lossy().replace('\\', "/")
+            ))
+            .args(arguments)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .trim_end_matches(['\r', '\n'])
+            .to_string()
+    }
+
+    fn merge_summary_command_controls() {
+        let repository = scratch("summary-command");
+        init(&repository, true);
+        fs::write(repository.join("Cargo.lock"), b"controlled lock\n").unwrap();
+        git(&repository, &["add", "--", "Cargo.lock"]);
+        git(
+            &repository,
+            &[
+                "-c",
+                "user.name=Hum Test",
+                "-c",
+                "user.email=hum-test@example.invalid",
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "lock",
+            ],
+        );
+        let outside = scratch("summary-transport");
+        fs::create_dir(&*outside).unwrap();
+        let output_path = outside.join("summary.json");
+        let rows = outside.join("jobs.tsv");
+        let calls = outside.join("calls");
+        let gh = outside.join(if cfg!(windows) { "gh.cmd" } else { "gh" });
+        #[cfg(windows)]
+        fs::write(
+            &gh,
+            format!(
+                "@echo off\r\nif not \"%~1\"==\"api\" exit /b 9\r\nif not \"%~2\"==\"repos/example/hum-lang/actions/runs/71/jobs?per_page=100\" exit /b 9\r\nif not \"%~3\"==\"--paginate\" exit /b 9\r\nif not \"%~4\"==\"--jq\" exit /b 9\r\n@echo call>>\"{}\"\r\n@type \"{}\"\r\n",
+                calls.display(), rows.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::write(
+                &gh,
+                format!(
+                    "#!/bin/sh\n[ \"$1\" = api ] && [ \"$2\" = 'repos/example/hum-lang/actions/runs/71/jobs?per_page=100' ] && [ \"$3\" = --paginate ] && [ \"$4\" = --jq ] || exit 9\nprintf 'call\\n' >> '{}'\ncat '{}'\n",
+                    calls.display(), rows.display()
+                ),
+            )
+            .unwrap();
+            fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let pwsh = pwsh();
+        let fixture = if cfg!(windows) {
+            include_str!("../../../fixtures/evidence/job_summary_windows.v2.json")
+        } else {
+            include_str!("../../../fixtures/evidence/job_summary_ubuntu.v2.json")
+        };
+        let platform = summary_field(fixture, "platform");
+        let job = summary_field(fixture, "job_id");
+        let run = |repo: &Path| {
+            let candidate = identity(repo);
+            let sha = summary_field(&candidate, "commit");
+            fs::write(
+                &rows,
+                format!("{job}\t2\t{sha}\tin_progress\tpreflight ({platform}-latest)\n"),
+            )
+            .unwrap();
+            let mut command = Command::new(binary());
+            command
+                .current_dir(repo)
+                .args(["evidence", "summarize", "--output"])
+                .arg(&output_path)
+                .arg("--pwsh")
+                .arg(&pwsh)
+                .env("HUM_GH_PATH", &gh)
+                .env("GITHUB_REPOSITORY", "example/hum-lang")
+                .env("GITHUB_SHA", sha);
+            for (name, field) in [
+                ("HUM_STARTED_TICKS", "started_ticks"),
+                ("HUM_COMPLETED_TICKS", "completed_ticks"),
+                ("HUM_TIMER_FREQUENCY", "timer_frequency"),
+                ("HUM_PLATFORM", "platform"),
+                ("HUM_TARGET", "target"),
+                ("HUM_TOOLCHAIN", "toolchain"),
+                ("HUM_COMPILER_SHA256", "compiler_sha256"),
+                ("HUM_DEPENDENCY_CLOSURE_SHA256", "dependency_closure_sha256"),
+                ("HUM_CONFIGURATION_SHA256", "configuration_sha256"),
+                ("HUM_WORKFLOW", "workflow"),
+                ("GITHUB_EVENT_NAME", "event"),
+                ("GITHUB_RUN_ID", "run_id"),
+                ("GITHUB_RUN_ATTEMPT", "run_attempt"),
+                ("HUM_CLASSIFIER_MODE", "classifier_mode"),
+                ("HUM_CLASSIFIER_REASON", "classifier_reason"),
+                ("HUM_CLASSIFIER_ANCHOR", "anchor"),
+                ("HUM_CLASSIFIER_TRANSITIONS", "transitions"),
+                ("HUM_SELECTOR_LEDGER_SHA256", "selector_ledger_sha256"),
+                ("HUM_SELECTOR_COUNT", "selector_count"),
+                ("HUM_MUTATION_LEDGER_SHA256", "mutation_ledger_sha256"),
+                ("HUM_MUTATION_COUNT", "mutation_count"),
+                ("HUM_SUITE_COUNT", "suite_count"),
+                ("HUM_READINESS", "readiness"),
+                ("HUM_HYGIENE_FILE_COUNT", "hygiene_file_count"),
+                ("HUM_CLAIMS", "claims"),
+                ("HUM_RELEASE_VERSION", "release_version"),
+                ("HUM_STDOUT_SHA256", "stdout_sha256"),
+                ("HUM_STDERR_SHA256", "stderr_sha256"),
+                ("HUM_EVENT_SHA256", "event_sha256"),
+            ] {
+                command.env(name, summary_field(fixture, field));
+            }
+            command.output().unwrap()
+        };
+        let positive = |repo: &Path, first: &str| {
+            let candidate = identity(repo);
+            let output = run(repo);
+            assert_eq!(
+                output.status.code(),
+                Some(0),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output.stderr.is_empty());
+            let bytes = fs::read(&output_path).unwrap();
+            let actual = String::from_utf8(bytes.clone()).unwrap();
+            let mut expected = fixture.to_string();
+            for (field, value) in [
+                ("commit", summary_field(&candidate, "commit").to_string()),
+                ("parent", first.to_string()),
+                ("tree", summary_field(&candidate, "tree").to_string()),
+                (
+                    "candidate_manifest",
+                    summary_field(&candidate, "state_sha256").to_string(),
+                ),
+                (
+                    "checkout_sha",
+                    summary_field(&candidate, "commit").to_string(),
+                ),
+                (
+                    "cargo_lock_sha256",
+                    hum_sha256::digest_hex(b"controlled lock\n"),
+                ),
+                (
+                    "producer_executable_sha256",
+                    hum_sha256::digest_hex(&fs::read(binary()).unwrap()),
+                ),
+                (
+                    "orchestration_version",
+                    summary_field(&actual, "orchestration_version").to_string(),
+                ),
+                (
+                    "orchestration_executable_sha256",
+                    hum_sha256::digest_hex(&fs::read(&pwsh).unwrap()),
+                ),
+            ] {
+                replace_summary_field(&mut expected, field, &value);
+            }
+            assert!(summary_field(&actual, "orchestration_version").starts_with("7."));
+            let binding_fields = [
+                "policy",
+                "generator",
+                "commit",
+                "parent",
+                "tree",
+                "candidate_manifest",
+                "raw_additions",
+                "raw_deletions",
+                "whitespace_additions",
+                "whitespace_deletions",
+                "cargo_lock_sha256",
+                "dependency_closure_sha256",
+                "configuration_sha256",
+                "platform",
+                "target",
+                "toolchain",
+                "compiler_sha256",
+                "producer_executable_sha256",
+                "orchestration_runtime",
+                "orchestration_version",
+                "orchestration_executable_sha256",
+                "profile",
+                "workflow",
+                "event",
+                "run_id",
+                "run_attempt",
+                "job_id",
+                "checkout_sha",
+                "classifier_mode",
+                "classifier_reason",
+                "anchor",
+                "transitions",
+                "selector_ledger_sha256",
+                "selector_count",
+                "mutation_ledger_sha256",
+                "mutation_count",
+                "suite_count",
+                "readiness",
+                "hygiene_file_count",
+                "claims",
+                "nonclaims",
+                "release_version",
+                "terminal",
+                "exit",
+                "started_ticks",
+                "completed_ticks",
+                "timer_frequency",
+                "duration_ms",
+                "stdout_sha256",
+                "stderr_sha256",
+                "event_sha256",
+                "cleanup",
+            ];
+            let stream: String = binding_fields
+                .iter()
+                .map(|name| summary_field(&expected, name).to_string() + "\n")
+                .collect();
+            let binding = hum_sha256::digest_hex(stream.as_bytes());
+            let old_binding = summary_field(fixture, "binding");
+            expected = expected.replace(
+                &format!("\"binding\":\"{old_binding}\""),
+                &format!("\"binding\":\"{binding}\""),
+            );
+            for stage in [
+                "classifier",
+                "workspace",
+                "selectors",
+                "mutations",
+                "backend",
+                "readiness",
+                "hygiene",
+                "claims",
+                "release",
+            ] {
+                let old =
+                    hum_sha256::digest_hex(format!("{stage}|passed|{old_binding}\n").as_bytes());
+                let new = hum_sha256::digest_hex(format!("{stage}|passed|{binding}\n").as_bytes());
+                expected = expected.replace(&old, &new);
+            }
+            assert_eq!(bytes, expected.as_bytes(), "public V2 canonical bytes");
+            assert_eq!(
+                output.stdout,
+                format!("summary_artifact=hum-evidence-summary-v2-71-2-{job}-{platform}\nexecutable_artifact=hum-dev-executable-transport-v1-71-2-{job}-{platform}-{}\n", summary_field(&actual, "producer_executable_sha256")).as_bytes()
+            );
+            fs::remove_file(&output_path).unwrap();
+            let repeat = run(repo);
+            assert!(
+                repeat.status.success(),
+                "{}",
+                String::from_utf8_lossy(&repeat.stderr)
+            );
+            assert!(repeat.stderr.is_empty());
+            assert_eq!(repeat.stdout, output.stdout);
+            assert_eq!(fs::read(&output_path).unwrap(), bytes);
+            fs::remove_file(&output_path).unwrap();
+            bytes
+        };
+        let linear = git_stdout(&repository, &["rev-parse", "HEAD"]);
+        let first = git_stdout(&repository, &["rev-parse", "HEAD^1"]);
+        let linear_bytes = positive(&repository, &first);
+        let tree = git_stdout(&repository, &["rev-parse", "HEAD^{tree}"]);
+        let make_commit = |parents: &[&str], message: &str| {
+            let mut args = vec![
+                "-c",
+                "user.name=Hum Test",
+                "-c",
+                "user.email=hum-test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                &tree,
+            ];
+            for parent in parents {
+                args.extend(["-p", *parent]);
+            }
+            args.extend(["-m", message]);
+            git_stdout(&repository, &args)
+        };
+        let side = make_commit(&[&first], "side");
+        let merge = make_commit(&[&linear, &side], "merge");
+        git(&repository, &["update-ref", "HEAD", &merge]);
+        let merged_bytes = positive(&repository, &linear);
+        assert_ne!(merged_bytes, linear_bytes);
+        let reject = |repo: &Path, cause: &str| {
+            let before = fs::read(&calls).unwrap();
+            let rejected = run(repo);
+            assert_eq!(rejected.status.code(), Some(2));
+            assert!(rejected.stdout.is_empty());
+            assert_eq!(rejected.stderr, format!("hum-dev: {cause}\n").as_bytes());
+            assert!(!output_path.exists());
+            assert_eq!(
+                fs::read(&calls).unwrap(),
+                before,
+                "refused candidate queried current job"
+            );
+        };
+        let root = scratch("summary-root");
+        init(&root, false);
+        reject(
+            &root,
+            "summary producer candidate must have one or two parents",
+        );
+        let third = make_commit(&[&first], "third");
+        let octopus = make_commit(&[&linear, &side, &third], "octopus");
+        git(&repository, &["update-ref", "HEAD", &octopus]);
+        reject(
+            &repository,
+            "summary producer candidate must have one or two parents",
+        );
+        git(&repository, &["update-ref", "HEAD", &merge]);
+        fs::write(repository.join("tracked.txt"), b"dirty index\n").unwrap();
+        git(&repository, &["add", "--", "tracked.txt"]);
+        reject(&repository, "summary producer candidate index is not clean");
+        git(&repository, &["reset", "--hard", "HEAD"]);
+        fs::write(repository.join("tracked.txt"), b"dirty worktree\n").unwrap();
+        reject(
+            &repository,
+            "summary producer candidate worktree is not clean",
+        );
+        git(&repository, &["reset", "--hard", "HEAD"]);
+        fs::write(repository.join("untracked.txt"), b"dirty untracked\n").unwrap();
+        reject(
+            &repository,
+            "summary producer candidate has untracked files",
+        );
+        fs::remove_file(repository.join("untracked.txt")).unwrap();
+        assert_eq!(
+            positive(&repository, &linear),
+            merged_bytes,
+            "honest recovery"
+        );
+    }
+
     #[test]
     fn normal_profiles_reject_unbound_or_narrowed_execution() {
         for profile in ["language", "runtime", "compiler"] {
@@ -259,6 +632,7 @@ mod cli {
         assert_eq!(help.status.code(), Some(2));
         assert!(help.stdout.is_empty());
         assert_eq!(help.stderr, b"hum-dev: usage: hum-dev evidence <language|runtime|compiler|focused|full|exhaustive> --pwsh ABSOLUTE_PATH | evidence status | evidence summarize --output PATH --pwsh ABSOLUTE_PATH | commit-message check <--subject TEXT|--file PATH> | candidate identity [--repository PATH] | cleanup verify | workorder status-facts --input PATH --base-sha256 HASH --status-body-file PATH --gate-body-file PATH --output PATH\n");
+        merge_summary_command_controls();
     }
 
     #[test]

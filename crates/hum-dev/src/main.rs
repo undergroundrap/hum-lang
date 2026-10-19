@@ -136,13 +136,7 @@ fn execute(command: Command) -> Result<i32, String> {
             let executable = fs::read(std::env::current_exe().map_err(|error| error.to_string())?)
                 .map_err(|error| error.to_string())?;
             let candidate = CandidateIdentity::read(Path::new("."))?;
-            if !candidate.index_clean
-                || !candidate.worktree_clean
-                || !candidate.untracked_clean
-                || candidate.parents.len() != 1
-            {
-                return Err("summary producer candidate is not one clean linear commit".into());
-            }
+            summary::producer_parent(&candidate)?;
             let cargo_lock = fs::read("Cargo.lock").map_err(|error| error.to_string())?;
             let repository = fs::canonicalize(".").map_err(|error| error.to_string())?;
             let environment = command::production_environment(&repository)?;
@@ -235,13 +229,13 @@ mod cli {
     fn legacy_equivalence_preserves_exit_stages_and_stream_hashes() {
         fixed_profiles_map_to_the_shared_production_dispatcher();
         let mappings = [(EvidenceProfile::Focused, "tools/check_all.ps1", vec!["-EvidenceTier".to_string(), "Wo25UnitC".to_string()]), (EvidenceProfile::Full, "tools/check_all.ps1", vec!["-EvidenceTier".to_string(), "Fast".to_string()]), (EvidenceProfile::Exhaustive, "tools/check_all.ps1", vec!["-EvidenceTier".to_string(), "Exhaustive".to_string()]), (EvidenceProfile::Status, "tools/check_workorder_status_boundary.ps1", vec![])];
-        for (profile, script, arguments) in &mappings { assert_eq!(legacy_invocation(*profile), LegacyInvocation { executable: "pwsh", script: *script, arguments: arguments.clone() }); }
+        for (profile, script, arguments) in &mappings { assert_eq!(legacy_invocation(*profile), LegacyInvocation { executable: "pwsh", script, arguments: arguments.clone() }); }
         let production = include_str!("main.rs").split_once("#[cfg(test)]").unwrap().0;
         assert!(!production.contains(concat!("HUM_DEV_LEGACY_", "EQUIVALENCE_PROBE")));
         assert!(!production.contains("var_os("));
         assert!(production.contains("production_environment"), "legacy environment must be production-owned");
         let probe = concat!("HUM_DEV_LEGACY_", "EQUIVALENCE_PROBE");
-        if std::env::var_os(probe).is_some() { for (profile, script, arguments) in &mappings { assert_eq!(legacy_invocation(*profile), LegacyInvocation { executable: "pwsh", script: *script, arguments: arguments.clone() }); } return; }
+        if std::env::var_os(probe).is_some() { for (profile, script, arguments) in &mappings { assert_eq!(legacy_invocation(*profile), LegacyInvocation { executable: "pwsh", script, arguments: arguments.clone() }); } return; }
         let poisoned = Command::new(std::env::current_exe().unwrap()).args(["--exact", "cli::legacy_equivalence_preserves_exit_stages_and_stream_hashes", "--nocapture"]).env(probe, "1").output().unwrap();
         assert!(poisoned.status.success(), "{}", String::from_utf8_lossy(&poisoned.stderr));
         let executable = pwsh(OsStr::new("pwsh"));
