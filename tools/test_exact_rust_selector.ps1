@@ -400,7 +400,7 @@ function Invoke-ExactRustTest {
     }
     if ($null -ne $Generation) {
       Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes
-      if (-not [string]::IsNullOrEmpty($MutationPath)) { $CargoArguments += @('--manifest-path', (Join-Path $Generation.MutableRoot 'Cargo.toml'), '--target-dir', $Generation.Target) }
+      if (-not [string]::IsNullOrEmpty($MutationPath)) { $CargoArguments += @('--manifest-path', (Join-Path $Generation.MutableRoot 'Cargo.toml'), '--target-dir', $Generation.Target, '--config', 'build.incremental=true') }
     }
     $CargoArguments += @('--', '--exact', '--list')
     $ListResult = Invoke-ExactRustNativeCapture $Cargo $CargoArguments
@@ -432,7 +432,7 @@ function Invoke-ExactRustTest {
     }
     if ($null -ne $Generation) {
       Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes
-      if (-not [string]::IsNullOrEmpty($MutationPath)) { $CargoArguments += @('--manifest-path', (Join-Path $Generation.MutableRoot 'Cargo.toml'), '--target-dir', $Generation.Target) }
+      if (-not [string]::IsNullOrEmpty($MutationPath)) { $CargoArguments += @('--manifest-path', (Join-Path $Generation.MutableRoot 'Cargo.toml'), '--target-dir', $Generation.Target, '--config', 'build.incremental=true') }
     }
     $CargoArguments += @('--', '--exact')
     $RunResult = Invoke-ExactRustNativeCapture $Cargo $CargoArguments
