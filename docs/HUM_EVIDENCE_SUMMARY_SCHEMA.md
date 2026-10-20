@@ -138,11 +138,20 @@ commit hook. Those obligations remain assigned to later WO25 units.
 ## Full-anchor producer
 
 Only a terminal-green `full` job may run `hum-dev evidence summarize --output
-<owned-path>`. The producer derives its commit, sole parent, tree, clean
+<owned-path>`. The producer derives its commit, first parent, tree, clean
 candidate state, Cargo lock hash, running executable hash, and numeric current
 job identity from repository bytes and authenticated current-run metadata. It
 does not accept a caller-supplied numeric job ID. Fast jobs never generate a
 replacement summary.
+
+For newly produced V2 summaries, the candidate must have exactly one or two
+ordered Git parents and a clean index, worktree, and untracked-file set, with
+zero raw and whitespace change accounting. Root commits and candidates with
+more than two parents refuse before selecting a parent. `parent` is exactly
+the first parent; `candidate_manifest` continues to bind the complete ordered
+parent list through the existing candidate identity, including the second
+parent and its position. No field, count, stage, or artifact grammar changes.
+Historical V1 fixtures and their linear-parent meaning remain unchanged.
 
 The Unit B policy is `wo25.unit_b.v1`. In addition to the V1 identity fields,
 its ordered canonical object binds `parent`, `cargo_lock_sha256`,
@@ -220,6 +229,13 @@ mixed V1/V2 pair earns no Unit C status credit. Future load-bearing fields
 require a new explicit schema version and migration fixtures; V1 and V2 are
 never reinterpreted as one another.
 
+The V2 clean one-or-two-parent producer admission and first-parent meaning
+above are authorized by Ocean's 2026-10-19 five-file merge-summary repair and
+one-session scope ruling (approval `call_bc25104e39e048319a84157b9628803b`).
+That ruling applies only to this correction; it does not amend closed WO25,
+active WO29, or standing governance. It adds no schema field or evidence
+waiver and does not reinterpret the frozen V1/V2 fixture bytes.
+
 The canonical V2 payload is exactly:
 
 ```text
@@ -255,6 +271,16 @@ and terminal disposition. Each platform separately binds its job, target,
 toolchain, producer executable, streams, timing, and artifact transport. The
 running executable must match its own platform summary; it is not required to
 match the other platform binary.
+
+The producer owns Git-parent admission and the complete ordered-parent
+candidate binding. Status authenticates the retained summaries and requires
+exact cross-platform agreement on `parent` and `candidate_manifest`; it does
+not independently query Git parents or reconstruct their list. A one-sided
+change to either field must refuse even if its stage bindings were freshly
+recomputed. A merge transition still selects Full under the unchanged
+classifier. Only a later eligible linear status suffix may consume an exact,
+authenticated terminal-green full anchor; merge-summary admission grants no
+status-routing shortcut or publication authority.
 
 Status consumption never downloads full logs and never invokes Cargo, rustc,
 the Hum compiler, Fast, Exhaustive, cache restore, local-copy reuse, build,

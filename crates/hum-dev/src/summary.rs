@@ -153,6 +153,30 @@ const JOB_STAGES: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct JobSummary { pub(crate) schema: String, pub(crate) generator: String, pub(crate) commit: String, pub(crate) parent: String, pub(crate) tree: String, pub(crate) candidate_manifest: String, pub(crate) raw_additions: u64, pub(crate) raw_deletions: u64, pub(crate) whitespace_additions: u64, pub(crate) whitespace_deletions: u64, pub(crate) cargo_lock_sha256: String, pub(crate) dependency_closure_sha256: String, pub(crate) configuration_sha256: String, pub(crate) platform: String, pub(crate) target: String, pub(crate) toolchain: String, pub(crate) compiler_sha256: String, pub(crate) producer_executable_sha256: String, pub(crate) orchestration_runtime: String, pub(crate) orchestration_version: String, pub(crate) orchestration_executable_sha256: String, pub(crate) profile: String, pub(crate) workflow: String, pub(crate) event: String, pub(crate) run_id: u64, pub(crate) run_attempt: u64, pub(crate) job_id: u64, pub(crate) checkout_sha: String, pub(crate) classifier_mode: String, pub(crate) classifier_reason: String, pub(crate) anchor: String, pub(crate) transitions: String, pub(crate) selector_ledger_sha256: String, pub(crate) selector_count: u64, pub(crate) mutation_ledger_sha256: String, pub(crate) mutation_count: u64, pub(crate) suite_count: u64, pub(crate) readiness: String, pub(crate) hygiene_file_count: u64, pub(crate) claims: String, pub(crate) nonclaims: String, pub(crate) release_version: String, pub(crate) expected_stages: Vec<String>, pub(crate) stages: Vec<StageRecord>, pub(crate) terminal: String, pub(crate) exit: i32, pub(crate) started_ticks: u64, pub(crate) completed_ticks: u64, pub(crate) timer_frequency: u64, pub(crate) duration_ms: u64, pub(crate) stdout_sha256: String, pub(crate) stderr_sha256: String, pub(crate) event_sha256: String, pub(crate) cleanup: String }
 
+pub(crate) fn producer_parent(candidate: &CandidateIdentity) -> Result<&str, String> {
+    let parent = match candidate.parents.as_slice() {
+        [first] | [first, _] => first,
+        _ => return Err("summary producer candidate must have one or two parents".into()),
+    };
+    if !candidate.index_clean {
+        return Err("summary producer candidate index is not clean".into());
+    }
+    if !candidate.worktree_clean {
+        return Err("summary producer candidate worktree is not clean".into());
+    }
+    if !candidate.untracked_clean {
+        return Err("summary producer candidate has untracked files".into());
+    }
+    if candidate.raw_additions != 0
+        || candidate.raw_deletions != 0
+        || candidate.whitespace_additions != 0
+        || candidate.whitespace_deletions != 0
+    {
+        return Err("summary producer candidate change accounting is not zero".into());
+    }
+    Ok(parent)
+}
+
 #[rustfmt::skip]
 impl JobSummary {
     pub fn validate(&self) -> Result<(), String> {
@@ -226,7 +250,10 @@ impl JobSummary {
         let profile=s!("profile"); let workflow=s!("workflow"); let event=s!("event"); let run_id=p!("run_id"); let run_attempt=p!("run_attempt"); let job_id=p!("job_id"); let checkout_sha=s!("checkout_sha"); let classifier_mode=s!("classifier_mode"); let classifier_reason=s!("classifier_reason"); let anchor=s!("anchor"); let transitions=s!("transitions"); let selector_ledger_sha256=s!("selector_ledger_sha256"); let selector_count=p!("selector_count"); let mutation_ledger_sha256=s!("mutation_ledger_sha256"); let mutation_count=p!("mutation_count"); let suite_count=p!("suite_count"); let readiness=s!("readiness"); let claims=s!("claims"); let nonclaims=s!("nonclaims"); let release_version=s!("release_version"); let hygiene_file_count=p!("hygiene_file_count"); r.expect(b",\"expected_stages\":")?; let expected_stages=r.strings()?; r.expect(b",\"stages\":")?; let stages=r.stages()?; let terminal=s!("terminal"); r.expect(b",\"exit\":")?; let exit=r.number()?; let started_ticks=p!("started_ticks"); let completed_ticks=p!("completed_ticks"); let timer_frequency=p!("timer_frequency"); let duration_ms=p!("duration_ms"); let stdout_sha256=s!("stdout_sha256"); let stderr_sha256=s!("stderr_sha256"); let event_sha256=s!("event_sha256"); let cleanup=s!("cleanup"); r.expect(b"}\n")?; if r.at!=bytes.len(){return Err("trailing summary bytes".into())}
         let value=Self{schema,generator,commit,parent,tree,candidate_manifest,raw_additions,raw_deletions,whitespace_additions,whitespace_deletions,cargo_lock_sha256,dependency_closure_sha256,configuration_sha256,platform,target,toolchain,compiler_sha256,producer_executable_sha256,orchestration_runtime,orchestration_version,orchestration_executable_sha256,profile,workflow,event,run_id,run_attempt,job_id,checkout_sha,classifier_mode,classifier_reason,anchor,transitions,selector_ledger_sha256,selector_count,mutation_ledger_sha256,mutation_count,suite_count,readiness,hygiene_file_count,claims,nonclaims,release_version,expected_stages,stages,terminal,exit,started_ticks,completed_ticks,timer_frequency,duration_ms,stdout_sha256,stderr_sha256,event_sha256,cleanup}; value.validate()?; if value.canonical_bytes()?!=bytes{return Err("summary is valid JSON but not canonical bytes".into())} Ok(value)
     }
-    pub fn from_environment(executable:&[u8],job_id:u64,candidate:&CandidateIdentity,cargo_lock_sha256:String,orchestration:&crate::shell::PwshIdentity)->Result<Self,String>{let env=|name:&str|std::env::var(name).map_err(|_|format!("missing authenticated summary input `{name}`"));let n=|name:&str|env(name)?.parse::<u64>().map_err(|_|format!("invalid summary input `{name}`"));let started_ticks=n("HUM_STARTED_TICKS")?;let completed_ticks=n("HUM_COMPLETED_TICKS")?;let timer_frequency=n("HUM_TIMER_FREQUENCY")?;let platform=env("HUM_PLATFORM")?;let expected=if cfg!(windows){"windows"}else{"ubuntu"};if platform!=expected{return Err("summary orchestration platform mismatch".into())}let mut value=Self{schema:JOB_SCHEMA_V2.into(),generator:env!("CARGO_PKG_NAME").to_string()+" "+env!("CARGO_PKG_VERSION"),commit:candidate.commit.clone(),parent:candidate.parents[0].clone(),tree:candidate.tree.clone(),candidate_manifest:candidate.binding().state_sha256,raw_additions:candidate.raw_additions,raw_deletions:candidate.raw_deletions,whitespace_additions:candidate.whitespace_additions,whitespace_deletions:candidate.whitespace_deletions,cargo_lock_sha256,dependency_closure_sha256:env("HUM_DEPENDENCY_CLOSURE_SHA256")?,configuration_sha256:env("HUM_CONFIGURATION_SHA256")?,platform,target:env("HUM_TARGET")?,toolchain:env("HUM_TOOLCHAIN")?,compiler_sha256:env("HUM_COMPILER_SHA256")?,producer_executable_sha256:digest_hex(executable),orchestration_runtime:"powershell-core".into(),orchestration_version:orchestration.version.clone(),orchestration_executable_sha256:orchestration.sha256.clone(),profile:"full".into(),workflow:env("HUM_WORKFLOW")?,event:env("GITHUB_EVENT_NAME")?,run_id:n("GITHUB_RUN_ID")?,run_attempt:n("GITHUB_RUN_ATTEMPT")?,job_id,checkout_sha:env("GITHUB_SHA")?,classifier_mode:env("HUM_CLASSIFIER_MODE")?,classifier_reason:env("HUM_CLASSIFIER_REASON")?,anchor:env("HUM_CLASSIFIER_ANCHOR").unwrap_or_default(),transitions:env("HUM_CLASSIFIER_TRANSITIONS").unwrap_or_default(),selector_ledger_sha256:env("HUM_SELECTOR_LEDGER_SHA256")?,selector_count:n("HUM_SELECTOR_COUNT")?,mutation_ledger_sha256:env("HUM_MUTATION_LEDGER_SHA256")?,mutation_count:n("HUM_MUTATION_COUNT")?,suite_count:n("HUM_SUITE_COUNT")?,readiness:env("HUM_READINESS")?,hygiene_file_count:n("HUM_HYGIENE_FILE_COUNT")?,claims:env("HUM_CLAIMS")?,nonclaims:"no_semantic_or_publication_authority".into(),release_version:env("HUM_RELEASE_VERSION")?,expected_stages:JOB_STAGES.iter().map(|v|(*v).into()).collect(),stages:Vec::new(),terminal:"success".into(),exit:0,started_ticks,completed_ticks,timer_frequency,duration_ms:(completed_ticks-started_ticks).saturating_mul(1000)/timer_frequency,stdout_sha256:env("HUM_STDOUT_SHA256")?,stderr_sha256:env("HUM_STDERR_SHA256")?,event_sha256:env("HUM_EVENT_SHA256")?,cleanup:"closed".into()};let binding=value.binding();value.stages=JOB_STAGES.iter().map(|name|StageRecord{name:(*name).into(),disposition:StageDisposition::Passed,skip_reason:None,skip_predicate:None,binding:binding.clone(),evidence_sha256:stage_hash(name,&binding)}).collect();value.validate()?;Ok(value)}
+    pub fn from_environment(executable:&[u8],job_id:u64,candidate:&CandidateIdentity,cargo_lock_sha256:String,orchestration:&crate::shell::PwshIdentity)->Result<Self,String>{
+        Self::from_inputs(executable,job_id,candidate,cargo_lock_sha256,orchestration,|name|std::env::var(name).map_err(|_|format!("missing authenticated summary input `{name}`")))
+    }
+    fn from_inputs(executable:&[u8],job_id:u64,candidate:&CandidateIdentity,cargo_lock_sha256:String,orchestration:&crate::shell::PwshIdentity,env:impl Fn(&str)->Result<String,String>)->Result<Self,String>{let parent=producer_parent(candidate)?;let n=|name:&str|env(name)?.parse::<u64>().map_err(|_|format!("invalid summary input `{name}`"));let started_ticks=n("HUM_STARTED_TICKS")?;let completed_ticks=n("HUM_COMPLETED_TICKS")?;let timer_frequency=n("HUM_TIMER_FREQUENCY")?;let platform=env("HUM_PLATFORM")?;let expected=if cfg!(windows){"windows"}else{"ubuntu"};if platform!=expected{return Err("summary orchestration platform mismatch".into())}let mut value=Self{schema:JOB_SCHEMA_V2.into(),generator:env!("CARGO_PKG_NAME").to_string()+" "+env!("CARGO_PKG_VERSION"),commit:candidate.commit.clone(),parent:parent.to_string(),tree:candidate.tree.clone(),candidate_manifest:candidate.binding().state_sha256,raw_additions:candidate.raw_additions,raw_deletions:candidate.raw_deletions,whitespace_additions:candidate.whitespace_additions,whitespace_deletions:candidate.whitespace_deletions,cargo_lock_sha256,dependency_closure_sha256:env("HUM_DEPENDENCY_CLOSURE_SHA256")?,configuration_sha256:env("HUM_CONFIGURATION_SHA256")?,platform,target:env("HUM_TARGET")?,toolchain:env("HUM_TOOLCHAIN")?,compiler_sha256:env("HUM_COMPILER_SHA256")?,producer_executable_sha256:digest_hex(executable),orchestration_runtime:"powershell-core".into(),orchestration_version:orchestration.version.clone(),orchestration_executable_sha256:orchestration.sha256.clone(),profile:"full".into(),workflow:env("HUM_WORKFLOW")?,event:env("GITHUB_EVENT_NAME")?,run_id:n("GITHUB_RUN_ID")?,run_attempt:n("GITHUB_RUN_ATTEMPT")?,job_id,checkout_sha:env("GITHUB_SHA")?,classifier_mode:env("HUM_CLASSIFIER_MODE")?,classifier_reason:env("HUM_CLASSIFIER_REASON")?,anchor:env("HUM_CLASSIFIER_ANCHOR").unwrap_or_default(),transitions:env("HUM_CLASSIFIER_TRANSITIONS").unwrap_or_default(),selector_ledger_sha256:env("HUM_SELECTOR_LEDGER_SHA256")?,selector_count:n("HUM_SELECTOR_COUNT")?,mutation_ledger_sha256:env("HUM_MUTATION_LEDGER_SHA256")?,mutation_count:n("HUM_MUTATION_COUNT")?,suite_count:n("HUM_SUITE_COUNT")?,readiness:env("HUM_READINESS")?,hygiene_file_count:n("HUM_HYGIENE_FILE_COUNT")?,claims:env("HUM_CLAIMS")?,nonclaims:"no_semantic_or_publication_authority".into(),release_version:env("HUM_RELEASE_VERSION")?,expected_stages:JOB_STAGES.iter().map(|v|(*v).into()).collect(),stages:Vec::new(),terminal:"success".into(),exit:0,started_ticks,completed_ticks,timer_frequency,duration_ms:(completed_ticks-started_ticks).saturating_mul(1000)/timer_frequency,stdout_sha256:env("HUM_STDOUT_SHA256")?,stderr_sha256:env("HUM_STDERR_SHA256")?,event_sha256:env("HUM_EVENT_SHA256")?,cleanup:"closed".into()};let binding=value.binding();value.stages=JOB_STAGES.iter().map(|name|StageRecord{name:(*name).into(),disposition:StageDisposition::Passed,skip_reason:None,skip_predicate:None,binding:binding.clone(),evidence_sha256:stage_hash(name,&binding)}).collect();value.validate()?;Ok(value)}
 }
 
 pub fn authenticate_platform_pair(ubuntu: &JobSummary, windows: &JobSummary) -> Result<(), String> {
@@ -360,6 +387,228 @@ pub fn summarize_without_authenticated_records() -> Result<Vec<u8>, String> {
     let _intake: fn(&[u8], &EvidenceSummary) -> Result<EvidenceSummary, String> =
         EvidenceSummary::authenticate_canonical_input;
     Err("authenticated underlying selector, mutation, and stage evidence is required; Unit A cannot synthesize success".into())
+}
+
+#[cfg(test)]
+pub(crate) mod merge_tests {
+    use super::*;
+
+    fn fixtures() -> (JobSummary, JobSummary) {
+        (
+            JobSummary::parse_canonical(include_bytes!(
+                "../../../fixtures/evidence/job_summary_ubuntu.v2.json"
+            ))
+            .unwrap(),
+            JobSummary::parse_canonical(include_bytes!(
+                "../../../fixtures/evidence/job_summary_windows.v2.json"
+            ))
+            .unwrap(),
+        )
+    }
+
+    fn candidate(template: &JobSummary) -> CandidateIdentity {
+        CandidateIdentity {
+            commit: template.commit.clone(),
+            parents: vec![template.parent.clone()],
+            tree: template.tree.clone(),
+            head_ref: Some("refs/heads/main".into()),
+            refs: vec![],
+            index_entries: vec![],
+            paths: vec![],
+            index_clean: true,
+            worktree_clean: true,
+            untracked_clean: true,
+            raw_additions: 0,
+            raw_deletions: 0,
+            whitespace_additions: 0,
+            whitespace_deletions: 0,
+        }
+    }
+
+    fn produce(template: &JobSummary, candidate: &CandidateIdentity) -> JobSummary {
+        let mut inputs = std::collections::BTreeMap::new();
+        macro_rules! input {
+            ($name:literal, $field:ident) => {
+                inputs.insert($name, template.$field.to_string());
+            };
+        }
+        input!("HUM_STARTED_TICKS", started_ticks);
+        input!("HUM_COMPLETED_TICKS", completed_ticks);
+        input!("HUM_TIMER_FREQUENCY", timer_frequency);
+        input!("HUM_PLATFORM", platform);
+        input!("HUM_TARGET", target);
+        input!("HUM_TOOLCHAIN", toolchain);
+        input!("HUM_COMPILER_SHA256", compiler_sha256);
+        input!("HUM_DEPENDENCY_CLOSURE_SHA256", dependency_closure_sha256);
+        input!("HUM_CONFIGURATION_SHA256", configuration_sha256);
+        input!("HUM_WORKFLOW", workflow);
+        input!("GITHUB_EVENT_NAME", event);
+        input!("GITHUB_RUN_ID", run_id);
+        input!("GITHUB_RUN_ATTEMPT", run_attempt);
+        input!("GITHUB_SHA", checkout_sha);
+        input!("HUM_CLASSIFIER_MODE", classifier_mode);
+        input!("HUM_CLASSIFIER_REASON", classifier_reason);
+        input!("HUM_CLASSIFIER_ANCHOR", anchor);
+        input!("HUM_CLASSIFIER_TRANSITIONS", transitions);
+        input!("HUM_SELECTOR_LEDGER_SHA256", selector_ledger_sha256);
+        input!("HUM_SELECTOR_COUNT", selector_count);
+        input!("HUM_MUTATION_LEDGER_SHA256", mutation_ledger_sha256);
+        input!("HUM_MUTATION_COUNT", mutation_count);
+        input!("HUM_SUITE_COUNT", suite_count);
+        input!("HUM_READINESS", readiness);
+        input!("HUM_HYGIENE_FILE_COUNT", hygiene_file_count);
+        input!("HUM_CLAIMS", claims);
+        input!("HUM_RELEASE_VERSION", release_version);
+        input!("HUM_STDOUT_SHA256", stdout_sha256);
+        input!("HUM_STDERR_SHA256", stderr_sha256);
+        input!("HUM_EVENT_SHA256", event_sha256);
+        JobSummary::from_inputs(
+            b"controlled producer executable",
+            template.job_id,
+            candidate,
+            template.cargo_lock_sha256.clone(),
+            &PwshIdentity {
+                version: template.orchestration_version.clone(),
+                sha256: template.orchestration_executable_sha256.clone(),
+            },
+            |name| {
+                inputs
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("missing controlled summary input `{name}`"))
+            },
+        )
+        .unwrap()
+    }
+
+    pub(crate) fn rebind(value: &mut JobSummary) {
+        let binding = value.binding();
+        for stage in &mut value.stages {
+            stage.binding = binding.clone();
+            stage.evidence_sha256 = stage_hash(&stage.name, &binding);
+        }
+    }
+
+    pub(crate) fn pair() -> (JobSummary, JobSummary) {
+        let (mut ubuntu, mut windows) = fixtures();
+        let template = if cfg!(windows) { &windows } else { &ubuntu };
+        let mut candidate = candidate(template);
+        candidate.parents.push("f".repeat(40));
+        let produced = produce(template, &candidate);
+        for value in [&mut ubuntu, &mut windows] {
+            value.parent = candidate.parents[0].clone();
+            value.candidate_manifest = candidate.binding().state_sha256;
+            rebind(value);
+        }
+        // The current platform is constructed by the actual production body.
+        // The peer is an explicitly rebound controlled fixture, not a second
+        // platform execution or a new claim about status querying Git.
+        if cfg!(windows) {
+            windows = produced;
+        } else {
+            ubuntu = produced;
+        }
+        authenticate_platform_pair(&ubuntu, &windows).unwrap();
+        (ubuntu, windows)
+    }
+
+    pub(super) fn controls() {
+        let (ubuntu, windows) = fixtures();
+        let template = if cfg!(windows) { &windows } else { &ubuntu };
+        let linear = candidate(template);
+        let produced = produce(template, &linear);
+        let mut expected = template.clone();
+        expected.candidate_manifest = linear.binding().state_sha256;
+        expected.producer_executable_sha256 = digest_hex(b"controlled producer executable");
+        rebind(&mut expected);
+        assert_eq!(
+            produced.canonical_bytes().unwrap(),
+            expected.canonical_bytes().unwrap()
+        );
+        assert_eq!(produced, expected);
+
+        let mut merge = linear.clone();
+        merge.parents.push("f".repeat(40));
+        let merged = produce(template, &merge);
+        assert_eq!(merged.parent, merge.parents[0]);
+        assert_eq!(merged.candidate_manifest, merge.binding().state_sha256);
+        assert_ne!(merged.candidate_manifest, produced.candidate_manifest);
+        let bytes = merged.canonical_bytes().unwrap();
+        assert_eq!(JobSummary::parse_canonical(&bytes).unwrap(), merged);
+        let mut changed = merge.clone();
+        changed.parents[1] = "e".repeat(40);
+        assert_ne!(changed.binding(), merge.binding());
+        changed = merge.clone();
+        changed.parents.reverse();
+        assert_ne!(changed.binding(), merge.binding());
+        assert_eq!(produce(template, &changed).parent, changed.parents[0]);
+
+        for (case, cause) in [
+            (
+                "root",
+                "summary producer candidate must have one or two parents",
+            ),
+            (
+                "octopus",
+                "summary producer candidate must have one or two parents",
+            ),
+            ("index", "summary producer candidate index is not clean"),
+            (
+                "worktree",
+                "summary producer candidate worktree is not clean",
+            ),
+            (
+                "untracked",
+                "summary producer candidate has untracked files",
+            ),
+            (
+                "accounting",
+                "summary producer candidate change accounting is not zero",
+            ),
+        ] {
+            let mut invalid = merge.clone();
+            match case {
+                "root" => invalid.parents.clear(),
+                "octopus" => invalid.parents.push("d".repeat(40)),
+                "index" => invalid.index_clean = false,
+                "worktree" => invalid.worktree_clean = false,
+                "untracked" => invalid.untracked_clean = false,
+                _ => invalid.raw_additions = 1,
+            }
+            let reads = std::cell::Cell::new(0);
+            let rejected = JobSummary::from_inputs(
+                b"controlled producer executable",
+                template.job_id,
+                &invalid,
+                template.cargo_lock_sha256.clone(),
+                &PwshIdentity {
+                    version: template.orchestration_version.clone(),
+                    sha256: template.orchestration_executable_sha256.clone(),
+                },
+                |_| {
+                    reads.set(reads.get() + 1);
+                    Err("unexpected producer input access".into())
+                },
+            );
+            assert_eq!(rejected.unwrap_err(), cause, "{case}");
+            assert_eq!(reads.get(), 0, "{case} read inputs before admission");
+        }
+        let (ubuntu, windows) = pair();
+        for field in ["parent", "candidate"] {
+            let mut changed = windows.clone();
+            if field == "parent" {
+                changed.parent = "e".repeat(40);
+            } else {
+                changed.candidate_manifest = "0".repeat(64);
+            }
+            rebind(&mut changed);
+            changed.validate().unwrap();
+            assert_eq!(
+                authenticate_platform_pair(&ubuntu, &changed).unwrap_err(),
+                format!("cross-platform `{field}` disagreement")
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -585,6 +834,7 @@ mod count_tests {
     }
     fn job(platform:&str)->JobSummary { let mut value=JobSummary{schema:JOB_SCHEMA_V2.into(),generator:"hum-dev 0.0.1".into(),commit:"a".repeat(40),parent:"b".repeat(40),tree:"c".repeat(40),candidate_manifest:"8".repeat(64),raw_additions:0,raw_deletions:0,whitespace_additions:0,whitespace_deletions:0,cargo_lock_sha256:"d".repeat(64),dependency_closure_sha256:"e".repeat(64),configuration_sha256:"9".repeat(64),platform:platform.into(),target:if platform=="ubuntu"{"x86_64-unknown-linux-gnu"}else{"x86_64-pc-windows-msvc"}.into(),toolchain:if platform=="ubuntu"{"rustc linux"}else{"rustc windows"}.into(),compiler_sha256:"0".repeat(64),producer_executable_sha256:if platform=="ubuntu"{"1"}else{"2"}.repeat(64),orchestration_runtime:"powershell-core".into(),orchestration_version:if platform=="ubuntu"{"7.4.7"}else{"7.6.4"}.into(),orchestration_executable_sha256:if platform=="ubuntu"{"a"}else{"b"}.repeat(64),profile:"full".into(),workflow:"ci".into(),event:"push".into(),run_id:71,run_attempt:2,job_id:if platform=="ubuntu"{81}else{82},checkout_sha:"a".repeat(40),classifier_mode:"full".into(),classifier_reason:"no_status_transition".into(),anchor:String::new(),transitions:String::new(),selector_ledger_sha256:"3".repeat(64),selector_count:131,mutation_ledger_sha256:"4".repeat(64),mutation_count:8,suite_count:200,readiness:"ir_ready=1;backend_ready=1".into(),hygiene_file_count:584,claims:"passed".into(),nonclaims:"no_semantic_or_publication_authority".into(),release_version:"0.0.1".into(),expected_stages:JOB_STAGES.iter().map(|v|(*v).into()).collect(),stages:Vec::new(),terminal:"success".into(),exit:0,started_ticks:100,completed_ticks:1100,timer_frequency:1000,duration_ms:1000,stdout_sha256:"5".repeat(64),stderr_sha256:"6".repeat(64),event_sha256:"7".repeat(64),cleanup:"closed".into()};let binding=value.binding();value.stages=JOB_STAGES.iter().map(|name|StageRecord{name:(*name).into(),disposition:StageDisposition::Passed,skip_reason:None,skip_predicate:None,binding:binding.clone(),evidence_sha256:stage_hash(name,&binding)}).collect();value }
     #[test] fn cross_platform_status_agreement_is_exact(){
+        super::merge_tests::controls();
         let ubuntu=job("ubuntu");let windows=job("windows");authenticate_platform_pair(&ubuntu,&windows).unwrap();
         for field in ["generator","commit","parent","tree","candidate","accounting","lock","closure","configuration","platform","target","toolchain","compiler","producer","profile","workflow","event","run","attempt","job","checkout","classifier","selector_order","selector_hash","selector_count","mutation_order","mutation_hash","suite","readiness","hygiene","claims","nonclaims","release","expected_stages","terminal","timing","stdout","stderr","event_stream","cleanup"]{
             let mut changed=windows.clone();match field{
