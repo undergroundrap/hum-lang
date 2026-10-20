@@ -288,6 +288,169 @@ foreach($Hook in @('capture','broad','qualified','namespace','admission_return',
   return [pscustomobject]@{Assertions=$Result.Assertions;Cases=$Result.Cases;Hooks=$Result.Hooks;Pins=$Pins.ToArray();Gate=@{Unknown=0;ParseErrors=0;RealAccessors=0;CompiledPrograms=1};StaticOnlyCollector=$Result.StaticOnlyCollector}
 }
 
+function Invoke-OwnedWo24IncrementalRequestControls {
+  param([string] $SelectorText, $SelectedProgram = $null)
+  function Select-W24I([string] $Name) {
+    $T=$null;$E=$null;$A=[Management.Automation.Language.Parser]::ParseInput($SelectorText,[ref]$T,[ref]$E)
+    $F=@($A.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst] -and $N.Name -ceq $Name},$true))
+    if($E.Count -ne 0 -or $F.Count -ne 1){throw ('WO24 incremental source selector refused: '+$Name)}
+    return $F[0]
+  }
+  function Assert-W24IZero([string] $Text) {
+    $T=$null;$E=$null;$A=[Management.Automation.Language.Parser]::ParseInput($Text,[ref]$T,[ref]$E)
+    $Types=@('string','string[]','byte[]','bool','int','object','object[]','pscustomobject','ref','regex','StringComparison','StringComparer','Text.Encoding','BitConverter','Security.Cryptography.SHA256','Collections.Generic.List[string]','Collections.Generic.List[object]','Collections.Generic.Dictionary[string,byte[]]','Collections.Generic.SortedDictionary[string,string]','Management.Automation.Language.Parser','Management.Automation.Language.FunctionDefinitionAst','Management.Automation.Language.CommandAst','Management.Automation.Language.ScriptBlockExpressionAst','Management.Automation.Language.TypeExpressionAst','Management.Automation.Language.TypeConstraintAst','Management.Automation.Language.InvokeMemberExpressionAst','Management.Automation.Language.MemberExpressionAst','Management.Automation.Language.StringConstantExpressionAst','Management.Automation.Language.VariableExpressionAst','Management.Automation.Language.FileRedirectionAst','Management.Automation.Language.UsingExpressionAst','Management.Automation.Language.TypeDefinitionAst')
+    $Methods=@('new','Add','Clear','Clone','Contains','ContainsKey','GetEnumerator','ToArray','Join','Equals','ReferenceEquals','IsNullOrEmpty','IsNullOrWhiteSpace','Escape','IsMatch','Matches','Replace','StartsWith','GetBytes','ToString','ComputeHash','Create','Dispose','ParseInput','FindAll','GetCommandName')
+    $Properties=@('Count','Length','Keys','Key','Value','Name','Root','MutableRoot','OwnedRoot','Target','Cargo','Files','Active','Instance','Output','ExitCode','Arguments','Exception','Message','Sum','Passed','Failed','Ignored','Measured','Ok','Assertions','Cases','Hooks','Calls','Credits','Caught','Route','Mode','PSObject','Properties','TypeName','FullName','Extent','Text','CommandElements','Member','Static','VariablePath','IsDriveQualified','UserPath')
+    # PowerShell variables are case-insensitive: admit only these owned bindings/safe automatic values.
+    $Variables=@('_','A','ArgvOk','ExpectedPoison','Admission','Arguments','Baseline','Bound','Bytes','Canonical','CanonicalContents','Cargo','CargoArguments','Cases','Caught','Commands','Comparison','Config','Digest','Driver','E','EscapedSelector','Event','ExactListings','ExactResults','Expected','F','Failed','false','Files','Gate','Generation','Hasher','Ignored','IncrementalAssertion','Isolated','Label','Leaf','List','ListedTests','ListOutput','ListPhaseOutcome','ListResult','Matches','Measured','Message','Methods','Mode','MutableExpected','MutationBytes','MutationPath','N','Name','NamedResults','null','ObsCases','Ok','Original','Outcome','Output','Owned','Owner','Pair','Parent','Part','Parts','Passed','Path','PhaseName','Pins','Program','Properties','PSBoundParameters','Relative','Result','Role','Roles','Route','Row','Rows','RunningCounts','RunOutput','RunPhaseOutcome','RunResult','SavedGenerationOwner','script:ExactRustMutationGenerationOwner','script:ExactRustSelectorCredits','script:W24IAssertions','script:W24IBytes','script:W24ICalls','script:W24IGeneration','script:W24IHooks','script:W24IMode','script:W24IMutation','script:W24IRoute','script:W24ISelector','script:W24ISeparator','script:W24IWo22','script:W24IWorkingRoot','SelectedProgram','Selector','SelectorPhasePrefix','SelectorText','Spec','SummaryCounts','T','Text','Total','true','Types','Unknown','UseWo22Target','V','Variables','Wo22Admission','Wo22MutationBytes','Wo24Incremental','WorkingRoot','WriteSelectorPhaseMarker','Wrong')
+    $Commands=@('Where-Object','ForEach-Object','Measure-Object')+@($A.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{$_.Name})
+    $Unknown=[Collections.Generic.List[string]]::new()
+    if($E.Count -ne 0){$Unknown.Add('parse')}
+    foreach($N in $A.FindAll({param($N)$true},$true)) {
+      if(($N -is [Management.Automation.Language.TypeExpressionAst] -or $N -is [Management.Automation.Language.TypeConstraintAst]) -and $N.TypeName.FullName -cnotin $Types){$Unknown.Add('type:'+$N.TypeName.FullName)}
+      if($N -is [Management.Automation.Language.CommandAst]) {
+        $Name=$N.GetCommandName()
+        if($null -eq $Name){if($N.CommandElements[0].Extent.Text -cne '$WriteSelectorPhaseMarker'){$Unknown.Add('dynamic:'+$N.Extent.Text)}}
+        elseif($Name -cnotin $Commands){$Unknown.Add('command:'+$Name)}
+      }
+      if($N -is [Management.Automation.Language.InvokeMemberExpressionAst]){if($N.Member -isnot [Management.Automation.Language.StringConstantExpressionAst] -or $N.Member.Value -cnotin $Methods){$Unknown.Add('method:'+$N.Member.Extent.Text)}}
+      elseif($N -is [Management.Automation.Language.MemberExpressionAst]){
+        if($N.Member -isnot [Management.Automation.Language.StringConstantExpressionAst]){$Unknown.Add('dynamic-member')}
+        elseif($N.Static){if($N.Member.Value -cnotin @('UTF8','Ordinal','OrdinalIgnoreCase')){$Unknown.Add('static-property:'+$N.Member.Value)}}
+        elseif($N.Member.Value -cnotin $Properties){$Unknown.Add('property:'+$N.Member.Value)}
+      }
+      if($N -is [Management.Automation.Language.VariableExpressionAst]) {
+        $V=$N.VariablePath.UserPath
+        if($V -notin $Variables){$Unknown.Add('variable:'+$V)}
+      }
+      if($N -is [Management.Automation.Language.FileRedirectionAst] -or $N -is [Management.Automation.Language.UsingExpressionAst] -or $N -is [Management.Automation.Language.TypeDefinitionAst]){$Unknown.Add('boundary-node:'+$N.GetType().Name)}
+    }
+    if($Unknown.Count -ne 0){throw ('WO24 incremental fatal whole-program ZERO refused: '+[string]::Join('|',$Unknown))}
+    return [pscustomobject]@{Unknown=0;ParseErrors=0;RealAccessors=0;BeforeCreate=$true}
+  }
+  $Parts=[Collections.Generic.List[string]]::new();$Pins=[Collections.Generic.List[object]]::new()
+  foreach($Name in @('Get-ExactRustGenerationDigest','Assert-ExactRustSelectorSyntax','Assert-ExactRustSelectorEvidence','Assert-ExactRustMutationGeneration','Invoke-ExactRustTest')) {
+    $F=Select-W24I $Name;$Text=$F.Extent.Text
+    $Pins.Add([pscustomobject]@{Name=$Name;StartUTF16=$F.Extent.StartOffset;EndUTF16=$F.Extent.EndOffset;Text=$Text})
+    if($Name -ceq 'Assert-ExactRustMutationGeneration') {
+      foreach($Pair in @(
+        @('[IO.Path]::GetFullPath((Get-Location).Path)','$script:W24IWorkingRoot'),
+        @('[IO.Path]::DirectorySeparatorChar','$script:W24ISeparator'),
+        @('[IO.File]::ReadAllBytes((Join-Path $Generation.Root $Relative))','(Read-W24IBytes (Join-W24IPath $Generation.Root $Relative))'),
+        @('[IO.File]::ReadAllBytes((Join-Path $Generation.MutableRoot $Relative))','(Read-W24IBytes (Join-W24IPath $Generation.MutableRoot $Relative))')
+      )){if([regex]::Matches($Text,[regex]::Escape($Pair[0])).Count -ne 1){throw 'WO24 incremental exact generation accessor projection refused'};$Text=$Text.Replace($Pair[0],$Pair[1])}
+    }
+    if($Name -ceq 'Invoke-ExactRustTest') {
+      $Config=", '--config', 'build.incremental=true'"
+      if([regex]::Matches($Text,[regex]::Escape($Config)).Count -ne 2){throw 'WO24 incremental fixed request sites refused'}
+      $Baseline=$Text.Replace('function Invoke-ExactRustTest {','function Invoke-W24IBaselineTest {').Replace($Config,'')
+      $Wrong=$Text.Replace('function Invoke-ExactRustTest {','function Invoke-W24IWrongConfigTest {').Replace('build.incremental=true','build.incremental=false')
+      $Parts.Add($Baseline.Replace('Write-Host','Write-W24IMessage').Replace('Join-Path','Join-W24IPath'))
+      $Parts.Add($Wrong.Replace('Write-Host','Write-W24IMessage').Replace('Join-Path','Join-W24IPath'))
+    }
+    $Parts.Add($Text.Replace('Write-Host','Write-W24IMessage').Replace('Join-Path','Join-W24IPath'))
+  }
+  $Owned=@'
+function Require-W24I([bool]$Ok,[string]$Message){$script:W24IAssertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message});if(-not $Ok){throw ('WO24 incremental assertion refused: '+$Message)}}
+function Hook-W24I([string]$Name){if(-not $script:W24IHooks.ContainsKey($Name)){$script:W24IHooks[$Name]=0};$script:W24IHooks[$Name]++}
+function Write-W24IMessage([string]$Message){Hook-W24I 'message'}
+function Write-HumPhaseMarker {param($PhaseName,$Event,$Outcome) Hook-W24I 'marker'}
+function Join-W24IPath([string]$Parent,[string]$Leaf){Hook-W24I 'join';if($Parent -cnotin @('owned-a','owned-b')){throw 'owned join refused'};return ($Parent+'/'+$Leaf)}
+function Read-W24IBytes([string]$Path){Hook-W24I 'read';if(-not $script:W24IBytes.ContainsKey($Path)){throw 'owned byte fact absent'};return ,([byte[]]$script:W24IBytes[$Path].Clone())}
+function Assert-Wo22RustTargetAdmission {param($Admission,$Label,$Cargo,$Selector,$MutationBytes) Hook-W24I 'wo22-admission';if(-not [object]::ReferenceEquals($Admission,$script:W24IWo22) -or $Cargo -cne 'owned-cargo' -or $Selector -cne $script:W24ISelector){throw 'owned WO22 admission refused'}}
+function Invoke-ExactRustNativeCapture([string]$Cargo,[string[]]$Arguments) {
+  Hook-W24I 'capture';$script:W24ICalls.Add([pscustomobject]@{Cargo=$Cargo;Arguments=[string[]]$Arguments.Clone()})
+  $List=$Arguments -ccontains '--list';$Expected=@('test',$script:W24ISelector)
+  if($script:W24IRoute -ceq 'b'){$Expected+=@('--manifest-path','owned-b/Cargo.toml','--target-dir','owned-target','--config','build.incremental=true')}
+  if($script:W24IRoute -ceq 'wo22'){$Expected+=@('--bin','hum')}
+  $Expected+=@('--','--exact');if($List){$Expected+=@('--list')}
+  $ArgvOk=$Cargo -ceq 'owned-cargo' -and [string]::Join('|',$Arguments) -ceq [string]::Join('|',$Expected)
+  if(-not $ArgvOk){Hook-W24I 'argv-refusal';throw 'WO24 incremental actual exact scoped argv refused'}
+  Require-W24I $ArgvOk 'actual exact scoped argv'
+  if($script:W24IMode -ceq 'capture-throw' -and -not $List){throw 'owned capture refused'}
+  if($List){
+    if($script:W24IMode -ceq 'post-list-context'){$script:W24IWorkingRoot='foreign-root'}
+    $Output=@($script:W24ISelector+': test');if($script:W24IMode -ceq 'list-duplicate'){$Output+=@('foreign::test: test')}
+    return [pscustomobject]@{ExitCode=$(if($script:W24IMode -ceq 'list-exit'){9}else{0});Output=[string[]]$Output}
+  }
+  $Output=@('running 1 test',('test '+$script:W24ISelector+' ... ok'),'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s')
+  if($script:W24IMode -ceq 'run-footer'){$Output[0]='running 0 tests'}
+  return [pscustomobject]@{ExitCode=$(if($script:W24IMode -ceq 'run-exit'){101}else{0});Output=[string[]]$Output}
+}
+function Reset-W24IFacts([string]$Route,[string]$Mode) {
+  $script:W24IRoute=$Route;$script:W24IMode=$Mode;$script:W24IWorkingRoot='owned-a';$script:W24ISeparator='/'
+  $script:W24ICalls=[Collections.Generic.List[object]]::new();$script:W24IHooks=@{}
+  $Original=[byte[]]@(1,2,3);$script:W24IMutation=[byte[]]@(1,2,4);$Digest=Get-ExactRustGenerationDigest $Original
+  $Files=[Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal);$Files.Add('src/owned.rs',$Digest)
+  $Bound=[Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal);$Bound.Add('src/owned.rs',$Digest)
+  $script:W24IGeneration=[pscustomobject]@{Active=$true;Root='owned-a';MutableRoot='owned-b';OwnedRoot='owned-root';Target='owned-target';Cargo='owned-cargo';Files=$Files}
+  $script:ExactRustMutationGenerationOwner=[pscustomobject]@{Instance=$script:W24IGeneration;Root='owned-a';MutableRoot='owned-b';OwnedRoot='owned-root';Target='owned-target';Cargo='owned-cargo';Files=$Bound}
+  $script:W24IBytes=[Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::Ordinal);$script:W24IBytes.Add('owned-a/src/owned.rs',$Original);$script:W24IBytes.Add('owned-b/src/owned.rs',$(if($Route -ceq 'b'){$script:W24IMutation}else{$Original}))
+  $script:W24IWo22=[pscustomobject]@{Target='hum'}
+  if($Mode -ceq 'foreign-context'){$script:W24IWorkingRoot='foreign-root'}
+  if($Mode -ceq 'inactive'){$script:W24IGeneration.Active=$false}
+  if($Mode -ceq 'foreign-owner'){$script:ExactRustMutationGenerationOwner.Instance=[pscustomobject]@{Active=$true}}
+  if($Mode -ceq 'source-drift'){$script:W24IBytes['owned-b/src/owned.rs']=[byte[]]@(9)}
+}
+function Invoke-W24ISelection {
+  if($script:W24IMode -ceq 'baseline-config'){Invoke-W24IBaselineTest 'owned B mutation' 'owned-cargo' $script:W24ISelector -Generation $script:W24IGeneration -MutationPath 'src/owned.rs' -MutationBytes $script:W24IMutation;return}
+  if($script:W24IMode -ceq 'wrong-config'){Invoke-W24IWrongConfigTest 'owned B mutation' 'owned-cargo' $script:W24ISelector -Generation $script:W24IGeneration -MutationPath 'src/owned.rs' -MutationBytes $script:W24IMutation;return}
+  if($script:W24IRoute -ceq 'b'){Invoke-ExactRustTest 'Work Order 24 N01 program-neutral feature identity initialized mutation' 'owned-cargo' $script:W24ISelector -Generation $script:W24IGeneration -MutationPath 'src/owned.rs' -MutationBytes $script:W24IMutation;return}
+  if($script:W24IRoute -cin @('a-before','a-after')){Invoke-ExactRustTest ('owned '+$script:W24IRoute) 'owned-cargo' $script:W24ISelector -Generation $script:W24IGeneration;return}
+  if($script:W24IRoute -ceq 'wo22'){Invoke-ExactRustTest 'owned WO22 mutation' 'owned-cargo' $script:W24ISelector -Wo22Admission $script:W24IWo22 -Wo22MutationBytes ([byte[]]@(7));return}
+  Invoke-ExactRustTest 'owned ordinary fallback' 'owned-cargo' $script:W24ISelector
+}
+'@
+  $Driver=@'
+$script:W24ISelector='native_program::tests::native_feature_discrimination_is_typed_and_load_bearing'
+$script:W24IAssertions=[Collections.Generic.List[object]]::new();$Cases=[Collections.Generic.List[object]]::new()
+$Canonical=$script:ExactRustSelectorCredits;$CanonicalContents=if($null -eq $Canonical){@()}else{[string[]]$Canonical.ToArray()}
+$SavedGenerationOwner=$script:ExactRustMutationGenerationOwner
+try {
+  foreach($Spec in @(
+    @('b','honest','',2,1),@('a-before','honest','',2,1),@('a-after','honest','',2,1),@('null','honest','',2,1),@('wo22','honest','',2,1),
+    @('b','foreign-context','WO24 Cargo generation lifetime or context changed',0,0),@('b','inactive','WO24 Cargo generation lifetime or context changed',0,0),@('b','foreign-owner','WO24 Cargo generation lifetime or context changed',0,0),
+    @('b','source-drift','WO24 mutable Cargo source changed',0,0),@('b','post-list-context','WO24 Cargo generation lifetime or context changed',1,0),
+    @('b','list-duplicate','must resolve',1,0),@('b','list-exit','cargo exited 9',1,0),@('b','run-exit','failed with exit code 101',2,0),@('b','run-footer','must run exactly one test',2,0),@('b','capture-throw','owned capture refused',2,0),
+    @('b','baseline-config','WO24 incremental actual exact scoped argv refused',1,0),@('b','wrong-config','WO24 incremental actual exact scoped argv refused',1,0)
+  )) {
+    Reset-W24IFacts $Spec[0] $Spec[1];$Isolated=[Collections.Generic.List[string]]::new();$Isolated.Add('owned-ambient-credit');$script:ExactRustSelectorCredits=$Isolated;$Caught=''
+    try{Invoke-W24ISelection}catch{$Caught=$_.Exception.Message}finally{$script:ExactRustSelectorCredits=$Canonical}
+    Require-W24I (($Spec[2] -ceq '' -and $Caught -ceq '') -or ($Spec[2] -cne '' -and $Caught.Contains($Spec[2]))) ($Spec[1]+' actual public cause')
+    Require-W24I ($script:W24ICalls.Count -eq $Spec[3] -and $Isolated.Count -eq (1+$Spec[4])) ($Spec[1]+' fail-first capture/real-credit counts')
+    Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) ($Spec[1]+' canonical credit identity/order restored')
+    if($Spec[1] -ceq 'honest' -and $Spec[0] -ceq 'b'){Require-W24I ($script:W24IHooks['read'] -eq 8 -and $script:W24IHooks['capture'] -eq 2 -and $script:W24IHooks['marker'] -gt 0) 'actual four generation guards and phase calls reached'}
+    if($Spec[1] -cin @('baseline-config','wrong-config')) {
+      $ExpectedPoison=@('test',$script:W24ISelector,'--manifest-path','owned-b/Cargo.toml','--target-dir','owned-target')
+      if($Spec[1] -ceq 'wrong-config'){$ExpectedPoison+=@('--config','build.incremental=false')}
+      $ExpectedPoison+=@('--','--exact','--list')
+      Require-W24I ($Caught -ceq 'WO24 incremental actual exact scoped argv refused' -and $script:W24IHooks['argv-refusal'] -eq 1) ($Spec[1]+' expected actual argv-consumer refusal')
+      Require-W24I ($script:W24ICalls[0].Cargo -ceq 'owned-cargo' -and [string]::Join('|',$script:W24ICalls[0].Arguments) -ceq [string]::Join('|',$ExpectedPoison)) ($Spec[1]+' exact single config corruption reached actual consumer')
+    }
+    $Cases.Add([pscustomobject]@{Route=$Spec[0];Mode=$Spec[1];Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Hooks=$script:W24IHooks})
+  }
+  foreach($Mode in @('partial-credit','recovery')) {
+    Reset-W24IFacts 'b' 'honest';$Isolated=[Collections.Generic.List[string]]::new();$Isolated.Add('owned-ambient-credit');$script:ExactRustSelectorCredits=$Isolated;$Caught=''
+    try {
+      if($Mode -ceq 'partial-credit'){Invoke-W24ISelection;$script:W24IMode='run-exit';try{Invoke-W24ISelection}catch{$Caught=$_.Exception.Message}}
+      else{$script:W24IMode='list-duplicate';try{Invoke-W24ISelection}catch{$Caught=$_.Exception.Message};$script:W24IMode='honest';Invoke-W24ISelection}
+    }finally{$script:ExactRustSelectorCredits=$Canonical}
+    Require-W24I ($Caught.Contains($(if($Mode -ceq 'partial-credit'){'failed with exit code 101'}else{'must resolve'})) -and $Isolated.Count -eq 2 -and $Isolated[1] -ceq $script:W24ISelector) ($Mode+' actual failure/success/credit consumption')
+    Require-W24I ($script:W24ICalls.Count -eq $(if($Mode -ceq 'partial-credit'){4}else{3})) ($Mode+' no extra requests')
+    Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) ($Mode+' canonical identity/order restored')
+    $Cases.Add([pscustomobject]@{Route='b';Mode=$Mode;Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Hooks=$script:W24IHooks})
+  }
+}finally{$script:ExactRustSelectorCredits=$Canonical;$script:ExactRustMutationGenerationOwner=$SavedGenerationOwner}
+[pscustomobject]@{Assertions=$script:W24IAssertions.ToArray();Cases=$Cases.ToArray()}
+'@
+  $Program=$Owned+"`n"+[string]::Join("`n",$Parts)+"`n"+$Driver
+  if($null -ne $SelectedProgram){$SelectedProgram.Value=$Program}
+  $Gate=Assert-W24IZero $Program
+  $Result=& ([scriptblock]::Create($Program))
+  return [pscustomobject]@{Assertions=$Result.Assertions;Cases=$Result.Cases;Pins=$Pins.ToArray();Gate=$Gate;EvidenceKind='closed owned scalar/argv/source-guard evidence; no real native diagnostics';Wo22Limit='unchanged WO22 admission uses typed owned stand-in; no new WO22 admission credit'}
+}
+
+
 function Invoke-OwnedWo24StageTimingControls {
   param([string]$CheckAllText, [string]$EvidenceText, $SelectedProgram = $null)
   # Select current owned statements, not the mutation runner or native helper.
@@ -2037,6 +2200,9 @@ try {
     $StartupAttribution = Invoke-OwnedCaptureStartupAttributionControls $EvidenceText
     foreach ($StartupAssertion in $StartupAttribution.Assertions) { Test-ObsRequire $StartupAssertion.Ok $StartupAssertion.Message }
     $ObsCases.Add('capture-startup-attribution-owned-controls')
+    $Wo24Incremental = Invoke-OwnedWo24IncrementalRequestControls ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1')))
+    foreach ($IncrementalAssertion in $Wo24Incremental.Assertions) { Test-ObsRequire $IncrementalAssertion.Ok $IncrementalAssertion.Message }
+    $ObsCases.Add('wo24-incremental-request-owned-controls')
     $Wo24Timing = Invoke-OwnedWo24StageTimingControls $CheckAllText $EvidenceText
     foreach ($StageAssertion in $Wo24Timing.Assertions) { Test-ObsRequire $StageAssertion.Ok $StageAssertion.Message }
     $ObsCases.Add('wo24-stage-owned-controls')
