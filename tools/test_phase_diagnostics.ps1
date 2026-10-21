@@ -354,7 +354,7 @@ function Invoke-OwnedWo24IncrementalRequestControls {
 function Require-W24I([bool]$Ok,[string]$Message){$script:W24IAssertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message});if(-not $Ok){throw ('WO24 incremental assertion refused: '+$Message)}}
 function Hook-W24I([string]$Name){if(-not $script:W24IHooks.ContainsKey($Name)){$script:W24IHooks[$Name]=0};$script:W24IHooks[$Name]++}
 function Write-W24IMessage([string]$Message){Hook-W24I 'message'}
-function Write-HumPhaseMarker {param($PhaseName,$Event,$Outcome) Hook-W24I 'marker'}
+function Write-HumPhaseMarker {param($PhaseName,$Event,$Outcome) Hook-W24I 'marker';Hook-W24I ('phase|'+$PhaseName+'|'+$Event+'|'+$Outcome);if(($script:W24IMode -ceq 'writer-start' -and $Event -ceq 'start') -or ($script:W24IMode -ceq 'writer-end' -and $Event -ceq 'end')){throw 'owned optional marker failure'}}
 function Join-W24IPath([string]$Parent,[string]$Leaf){Hook-W24I 'join';if($Parent -cnotin @('owned-a','owned-b')){throw 'owned join refused'};return ($Parent+'/'+$Leaf)}
 function Read-W24IBytes([string]$Path){Hook-W24I 'read';if(-not $script:W24IBytes.ContainsKey($Path)){throw 'owned byte fact absent'};return ,([byte[]]$script:W24IBytes[$Path].Clone())}
 function Assert-Wo22RustTargetAdmission {param($Admission,$Label,$Cargo,$Selector,$MutationBytes) Hook-W24I 'wo22-admission';if(-not [object]::ReferenceEquals($Admission,$script:W24IWo22) -or $Cargo -cne 'owned-cargo' -or $Selector -cne $script:W24ISelector){throw 'owned WO22 admission refused'}}
@@ -369,6 +369,7 @@ function Invoke-ExactRustNativeCapture([string]$Cargo,[string[]]$Arguments) {
   Require-W24I $ArgvOk 'actual exact scoped argv'
   if($script:W24IMode -ceq 'capture-throw' -and -not $List){throw 'owned capture refused'}
   if($List){
+    if($script:W24IMode -ceq 'list-throw'){throw 'owned list capture refused'}
     if($script:W24IMode -ceq 'post-list-context'){$script:W24IWorkingRoot='foreign-root'}
     $Output=@($script:W24ISelector+': test');if($script:W24IMode -ceq 'list-duplicate'){$Output+=@('foreign::test: test')}
     return [pscustomobject]@{ExitCode=$(if($script:W24IMode -ceq 'list-exit'){9}else{0});Output=[string[]]$Output}
@@ -439,6 +440,100 @@ try {
     Require-W24I ($script:W24ICalls.Count -eq $(if($Mode -ceq 'partial-credit'){4}else{3})) ($Mode+' no extra requests')
     Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) ($Mode+' canonical identity/order restored')
     $Cases.Add([pscustomobject]@{Route='b';Mode=$Mode;Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Hooks=$script:W24IHooks})
+  }
+
+  # These are exact guarded owners, not WO24 before/after role projections.
+  $Rows = @(
+  @('Work Order 22 B01 capability admission guarded production mutation','compiler-front-wo22-b01','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B02 pinned versions guarded production mutation','compiler-front-wo22-b02','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B03 declaration plan guarded production mutation','compiler-front-wo22-b03','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B04 ABI facts guarded production mutation','compiler-front-wo22-b04','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B05 checked-add selection guarded production mutation','compiler-front-wo22-b05','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B06 overflow edge guarded production mutation','compiler-front-wo22-b06','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B07 source location guarded production mutation','compiler-front-wo22-b07','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B08 host target predicate guarded production mutation','compiler-front-wo22-b08','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B09 CLIF verifier disposition guarded production mutation','compiler-front-wo22-b09','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B10 declaration disposition guarded production mutation','compiler-front-wo22-b10','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B11 definition disposition guarded production mutation','compiler-front-wo22-b11','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B12 finalization disposition guarded production mutation','compiler-front-wo22-b12','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B13 ordinary execution guarded production mutation','compiler-front-wo22-b13','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B14 overflow execution guarded production mutation','compiler-front-wo22-b14-overflow-execution','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B15 aggregate evidence guarded production mutation','compiler-front-wo22-b15','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','wo22'),
+  @('Work Order 22 B14 overflow store ordering guarded production mutation','compiler-front-wo22-b14-overflow-store-ordering','backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact','wo22'),
+  @('Work Order 23 M01 live artifact identity guarded production mutation','compiler-front-wo23-m01','ir_verify::tests::integer_sign_artifact_rejection_matrix_is_complete','null'),
+  @('Work Order 23 M02 signed condition guarded production mutation','compiler-front-wo23-m02','backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing','null'),
+  @('Work Order 23 M03 source literal getter guarded production mutation','compiler-front-wo23-m03','backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing','null'),
+  @('Work Order 23 M04 operator consent guarded production mutation','compiler-front-wo23-m04','main::tests::native_integer_sign_run_is_authority_bound_and_platform_exact','null'),
+  @('Work Order 23 M05 required target guarded production mutation','compiler-front-wo23-m05','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','null'),
+  @('Work Order 23 M06 finalized one-store evidence guarded production mutation','compiler-front-wo23-m06','backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing','null'),
+  @('Work Order 23 M07 module count guarded production mutation','compiler-front-wo23-m07','app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing','null'),
+  @('Work Order 23 M08 module first guarded production mutation','compiler-front-wo23-m08','app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing','null'),
+  @('Work Order 23 M09 type before app guarded production mutation','compiler-front-wo23-m09','app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing','null'),
+  @('Work Order 23 M10 app finality guarded production mutation','compiler-front-wo23-m10','app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing','null'),
+  @('Work Order 23 M11 first entry task guarded production mutation','compiler-front-wo23-m11','app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing','null'),
+  @('Work Order 23 M12 path module app identity guarded production mutation','compiler-front-wo23-m12','app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing','null'),
+  @('Work Order 23 M13 exhaustive pre-app kinds guarded production mutation','compiler-front-wo23-m13','app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing','null')
+  )
+  $Files=[Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal)
+  foreach($Row in $Rows) {
+    Require-W24I (-not $Files.ContainsKey($Row[1])) ('timing unique phase ID: '+$Row[1])
+    $Files.Add($Row[1],$Row[0])
+    Reset-W24IFacts $Row[3] 'honest';$script:W24ISelector=$Row[2]
+    $Isolated=[Collections.Generic.List[string]]::new();$Isolated.Add('owned-ambient-credit');$script:ExactRustSelectorCredits=$Isolated;$Caught=''
+    try {
+      if($Row[3] -ceq 'wo22'){Invoke-ExactRustTest $Row[0] 'owned-cargo' $Row[2] -Wo22Admission $script:W24IWo22 -Wo22MutationBytes ([byte[]]@(7))}
+      else{Invoke-ExactRustTest $Row[0] 'owned-cargo' $Row[2]}
+    }catch{$Caught=$_.Exception.Message}finally{$script:ExactRustSelectorCredits=$Canonical}
+    Require-W24I ($Caught -ceq '' -and $script:W24ICalls.Count -eq 2 -and $Isolated.Count -eq 2) ('timing actual exact owner success: '+$Row[0])
+    Require-W24I ($script:W24IHooks['marker'] -eq 4 -and $script:W24IHooks[('phase|'+$Row[1]+'-list|start|')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-list|end|completed')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-run|start|')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-run|end|completed')] -eq 1) ('timing exact list/run envelope: '+$Row[1])
+    Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) ('timing canonical credit identity/order restored: '+$Row[1])
+    $Cases.Add([pscustomobject]@{Route=$Row[3];Mode='timing-map';Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Hooks=$script:W24IHooks})
+  }
+  Require-W24I ($Files.Count -eq 29) 'timing all 16 WO22 and 13 WO23 IDs are unique'
+  # Same real selector and argv sink; these poisons must not select diagnostics.
+  foreach($Spec in @(
+    @('work Order 22 B01 capability admission guarded production mutation',$Rows[0][2],'wo22'),
+    @('Work Order 22 B01 capability admission initialized mutation',$Rows[0][2],'wo22'),
+    @($Rows[0][0],'owned::other','wo22'),
+    @($Rows[13][0],$Rows[15][2],'wo22'),
+    @($Rows[15][0],$Rows[13][2],'wo22'),
+    @('Work Order 23 M01 live artifact identity initialized mutation',$Rows[16][2],'null'),
+    @($Rows[16][0],'owned::other','null')
+  )) {
+    Reset-W24IFacts $Spec[2] 'honest';$script:W24ISelector=$Spec[1]
+    $Isolated=[Collections.Generic.List[string]]::new();$Isolated.Add('owned-ambient-credit');$script:ExactRustSelectorCredits=$Isolated;$Caught=''
+    try {
+      if($Spec[2] -ceq 'wo22'){Invoke-ExactRustTest $Spec[0] 'owned-cargo' $Spec[1] -Wo22Admission $script:W24IWo22 -Wo22MutationBytes ([byte[]]@(7))}
+      else{Invoke-ExactRustTest $Spec[0] 'owned-cargo' $Spec[1]}
+    }catch{$Caught=$_.Exception.Message}finally{$script:ExactRustSelectorCredits=$Canonical}
+    Require-W24I ($Caught -ceq '' -and $script:W24ICalls.Count -eq 2 -and $Isolated.Count -eq 2 -and -not $script:W24IHooks.ContainsKey('marker')) ('timing nonmatch has no diagnostic owner: '+$Spec[0]+' / '+$Spec[1])
+    Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) 'timing nonmatch canonical credit identity/order restored'
+    $Cases.Add([pscustomobject]@{Route=$Spec[2];Mode='timing-nonmatch';Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Hooks=$script:W24IHooks})
+  }
+  $Row=$Rows[0]
+  foreach($Spec in @(
+    @('list-exit','cargo exited 9',1,0,2,'list'),
+    @('list-duplicate','must resolve',1,0,2,'list'),
+    @('list-throw','owned list capture refused',1,0,2,'list'),
+    @('run-exit','failed with exit code 101',2,0,4,'run'),
+    @('run-footer','must run exactly one test',2,0,4,'run'),
+    @('capture-throw','owned capture refused',2,0,4,'run'),
+    @('writer-start','',2,1,4,'completed'),
+    @('writer-end','',2,1,4,'completed')
+  )) {
+    Reset-W24IFacts 'wo22' $Spec[0];$script:W24ISelector=$Row[2]
+    $Isolated=[Collections.Generic.List[string]]::new();$Isolated.Add('owned-ambient-credit');$script:ExactRustSelectorCredits=$Isolated;$Caught=''
+    try{Invoke-ExactRustTest $Row[0] 'owned-cargo' $Row[2] -Wo22Admission $script:W24IWo22 -Wo22MutationBytes ([byte[]]@(7))}catch{$Caught=$_.Exception.Message}finally{$script:ExactRustSelectorCredits=$Canonical}
+    Require-W24I (($Spec[1] -ceq '' -and $Caught -ceq '') -or ($Spec[1] -cne '' -and $Caught.Contains($Spec[1]))) ('timing actual failure/writer disposition: '+$Spec[0])
+    Require-W24I ($script:W24ICalls.Count -eq $Spec[2] -and $Isolated.Count -eq (1+$Spec[3]) -and $script:W24IHooks['marker'] -eq $Spec[4]) ('timing no extra requests/credits/marker attempts: '+$Spec[0])
+    if($Spec[5] -ceq 'completed'){
+      Require-W24I ($script:W24IHooks[('phase|'+$Row[1]+'-list|end|completed')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-run|end|completed')] -eq 1) ('timing optional writer does not change success: '+$Spec[0])
+    }else{
+      Require-W24I ($script:W24IHooks[('phase|'+$Row[1]+'-'+$Spec[5]+'|end|failed')] -eq 1) ('timing actual failed finally marker: '+$Spec[0])
+      if($Spec[5] -ceq 'run'){Require-W24I ($script:W24IHooks[('phase|'+$Row[1]+'-list|end|completed')] -eq 1) ('timing list completes before run failure: '+$Spec[0])}
+    }
+    Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) ('timing failure/writer canonical credit identity/order restored: '+$Spec[0])
+    $Cases.Add([pscustomobject]@{Route='wo22';Mode=('timing-'+$Spec[0]);Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Hooks=$script:W24IHooks})
   }
 }finally{$script:ExactRustSelectorCredits=$Canonical;$script:ExactRustMutationGenerationOwner=$SavedGenerationOwner}
 [pscustomobject]@{Assertions=$script:W24IAssertions.ToArray();Cases=$Cases.ToArray()}
@@ -2203,6 +2298,7 @@ try {
     $Wo24Incremental = Invoke-OwnedWo24IncrementalRequestControls ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1')))
     foreach ($IncrementalAssertion in $Wo24Incremental.Assertions) { Test-ObsRequire $IncrementalAssertion.Ok $IncrementalAssertion.Message }
     $ObsCases.Add('wo24-incremental-request-owned-controls')
+    $ObsCases.Add('wo22-wo23-request-timing-owned-controls')
     $Wo24Timing = Invoke-OwnedWo24StageTimingControls $CheckAllText $EvidenceText
     foreach ($StageAssertion in $Wo24Timing.Assertions) { Test-ObsRequire $StageAssertion.Ok $StageAssertion.Message }
     $ObsCases.Add('wo24-stage-owned-controls')

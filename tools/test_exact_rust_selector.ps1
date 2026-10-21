@@ -356,7 +356,7 @@ function Invoke-ExactRustTest {
 
   $SelectorPhasePrefix = ''
   try {
-    # Only the current WO24 row/role owners receive nested diagnostics.
+    # Existing WO24 row/role owners retain their nested diagnostics.
     $Rows = @(
       @('N01 program-neutral feature identity', 'n01', 'native_program::tests::native_feature_discrimination_is_typed_and_load_bearing'),
       @('N02 exact constant-Text body admission', 'n02', 'backend_input::tests::canonical_hello_world_backend_input_is_exact_and_nonforgeable'),
@@ -378,6 +378,44 @@ function Invoke-ExactRustTest {
             [string]::Equals($Selector, $Row[2], [StringComparison]::Ordinal)) {
           $SelectorPhasePrefix = 'compiler-front-wo24-' + $Row[1] + '-' + $Role[1]
         }
+      }
+    }
+    # WO22/WO23 have one guarded mutation request owner, without WO24 roles.
+    $Rows = @(
+      @('Work Order 22 B01 capability admission guarded production mutation', 'compiler-front-wo22-b01', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B02 pinned versions guarded production mutation', 'compiler-front-wo22-b02', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B03 declaration plan guarded production mutation', 'compiler-front-wo22-b03', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B04 ABI facts guarded production mutation', 'compiler-front-wo22-b04', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B05 checked-add selection guarded production mutation', 'compiler-front-wo22-b05', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B06 overflow edge guarded production mutation', 'compiler-front-wo22-b06', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B07 source location guarded production mutation', 'compiler-front-wo22-b07', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B08 host target predicate guarded production mutation', 'compiler-front-wo22-b08', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B09 CLIF verifier disposition guarded production mutation', 'compiler-front-wo22-b09', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B10 declaration disposition guarded production mutation', 'compiler-front-wo22-b10', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B11 definition disposition guarded production mutation', 'compiler-front-wo22-b11', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B12 finalization disposition guarded production mutation', 'compiler-front-wo22-b12', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B13 ordinary execution guarded production mutation', 'compiler-front-wo22-b13', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B14 overflow execution guarded production mutation', 'compiler-front-wo22-b14-overflow-execution', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B15 aggregate evidence guarded production mutation', 'compiler-front-wo22-b15', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 22 B14 overflow store ordering guarded production mutation', 'compiler-front-wo22-b14-overflow-store-ordering', 'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact'),
+      @('Work Order 23 M01 live artifact identity guarded production mutation', 'compiler-front-wo23-m01', 'ir_verify::tests::integer_sign_artifact_rejection_matrix_is_complete'),
+      @('Work Order 23 M02 signed condition guarded production mutation', 'compiler-front-wo23-m02', 'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing'),
+      @('Work Order 23 M03 source literal getter guarded production mutation', 'compiler-front-wo23-m03', 'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing'),
+      @('Work Order 23 M04 operator consent guarded production mutation', 'compiler-front-wo23-m04', 'main::tests::native_integer_sign_run_is_authority_bound_and_platform_exact'),
+      @('Work Order 23 M05 required target guarded production mutation', 'compiler-front-wo23-m05', 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'),
+      @('Work Order 23 M06 finalized one-store evidence guarded production mutation', 'compiler-front-wo23-m06', 'backend_cranelift::tests::integer_sign_lowering_is_source_driven_and_load_bearing'),
+      @('Work Order 23 M07 module count guarded production mutation', 'compiler-front-wo23-m07', 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing'),
+      @('Work Order 23 M08 module first guarded production mutation', 'compiler-front-wo23-m08', 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing'),
+      @('Work Order 23 M09 type before app guarded production mutation', 'compiler-front-wo23-m09', 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing'),
+      @('Work Order 23 M10 app finality guarded production mutation', 'compiler-front-wo23-m10', 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing'),
+      @('Work Order 23 M11 first entry task guarded production mutation', 'compiler-front-wo23-m11', 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing'),
+      @('Work Order 23 M12 path module app identity guarded production mutation', 'compiler-front-wo23-m12', 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing'),
+      @('Work Order 23 M13 exhaustive pre-app kinds guarded production mutation', 'compiler-front-wo23-m13', 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing')
+    )
+    foreach ($Row in $Rows) {
+      if ([string]::Equals($Label, $Row[0], [StringComparison]::Ordinal) -and
+          [string]::Equals($Selector, $Row[2], [StringComparison]::Ordinal)) {
+        $SelectorPhasePrefix = $Row[1]
       }
     }
   } catch { $SelectorPhasePrefix = '' }
