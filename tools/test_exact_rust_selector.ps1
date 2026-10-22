@@ -355,6 +355,7 @@ function Invoke-ExactRustTest {
   $UseWo22Target = $PSBoundParameters.ContainsKey('Wo22Admission')
 
   $SelectorPhasePrefix = ''
+  $TraceWo22Wo23ListCapture = $false
   try {
     # Existing WO24 row/role owners retain their nested diagnostics.
     $Rows = @(
@@ -416,9 +417,10 @@ function Invoke-ExactRustTest {
       if ([string]::Equals($Label, $Row[0], [StringComparison]::Ordinal) -and
           [string]::Equals($Selector, $Row[2], [StringComparison]::Ordinal)) {
         $SelectorPhasePrefix = $Row[1]
+        $TraceWo22Wo23ListCapture = $true
       }
     }
-  } catch { $SelectorPhasePrefix = '' }
+  } catch { $SelectorPhasePrefix = ''; $TraceWo22Wo23ListCapture = $false }
   $WriteSelectorPhaseMarker = {
     param([string] $Part, [string] $Event, [string] $Outcome = '')
     if ([string]::IsNullOrEmpty($SelectorPhasePrefix)) { return }
@@ -441,7 +443,18 @@ function Invoke-ExactRustTest {
       if (-not [string]::IsNullOrEmpty($MutationPath)) { $CargoArguments += @('--manifest-path', (Join-Path $Generation.MutableRoot 'Cargo.toml'), '--target-dir', $Generation.Target, '--config', 'build.incremental=true') }
     }
     $CargoArguments += @('--', '--exact', '--list')
-    $ListResult = Invoke-ExactRustNativeCapture $Cargo $CargoArguments
+    # Optional child of <owner>-list; reuse its marker clock/run binding.
+    # This measures the complete native capture call, not isolated compiler time.
+    $ListCapturePhaseOutcome = 'failed'
+    if ($TraceWo22Wo23ListCapture) { $null = & $WriteSelectorPhaseMarker 'list-cargo-capture' 'start' }
+    try {
+      $ListResult = Invoke-ExactRustNativeCapture $Cargo $CargoArguments
+      # A returned capture can carry a nonzero exit. The original checks below
+      # still own list acceptance; this outcome describes only call completion.
+      $ListCapturePhaseOutcome = 'completed'
+    } finally {
+      if ($TraceWo22Wo23ListCapture) { $null = & $WriteSelectorPhaseMarker 'list-cargo-capture' 'end' $ListCapturePhaseOutcome }
+    }
     if ($UseWo22Target) { Assert-Wo22RustTargetAdmission $Wo22Admission $Label $Cargo $Selector $Wo22MutationBytes }
     if ($null -ne $Generation) { Assert-ExactRustMutationGeneration $Generation $Cargo $MutationPath $MutationBytes }
     if ($ListResult.ExitCode -ne 0) {
