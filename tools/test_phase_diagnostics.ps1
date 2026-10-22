@@ -303,6 +303,9 @@ function Invoke-OwnedWo24IncrementalRequestControls {
     $Properties=@('Count','Length','Keys','Key','Value','Name','Root','MutableRoot','OwnedRoot','Target','Cargo','Files','Active','Instance','Output','ExitCode','Arguments','Exception','Message','Sum','Passed','Failed','Ignored','Measured','Ok','Assertions','Cases','Hooks','Calls','Credits','Caught','Route','Mode','PSObject','Properties','TypeName','FullName','Extent','Text','CommandElements','Member','Static','VariablePath','IsDriveQualified','UserPath')
     # PowerShell variables are case-insensitive: admit only these owned bindings/safe automatic values.
     $Variables=@('_','A','ArgvOk','ExpectedPoison','Admission','Arguments','Baseline','Bound','Bytes','Canonical','CanonicalContents','Cargo','CargoArguments','Cases','Caught','Commands','Comparison','Config','Digest','Driver','E','EscapedSelector','Event','ExactListings','ExactResults','Expected','F','Failed','false','Files','Gate','Generation','Hasher','Ignored','IncrementalAssertion','Isolated','Label','Leaf','List','ListedTests','ListOutput','ListPhaseOutcome','ListResult','Matches','Measured','Message','Methods','Mode','MutableExpected','MutationBytes','MutationPath','N','Name','NamedResults','null','ObsCases','Ok','Original','Outcome','Output','Owned','Owner','Pair','Parent','Part','Parts','Passed','Path','PhaseName','Pins','Program','Properties','PSBoundParameters','Relative','Result','Role','Roles','Route','Row','Rows','RunningCounts','RunOutput','RunPhaseOutcome','RunResult','SavedGenerationOwner','script:ExactRustMutationGenerationOwner','script:ExactRustSelectorCredits','script:W24IAssertions','script:W24IBytes','script:W24ICalls','script:W24IGeneration','script:W24IHooks','script:W24IMode','script:W24IMutation','script:W24IRoute','script:W24ISelector','script:W24ISeparator','script:W24IWo22','script:W24IWorkingRoot','SelectedProgram','Selector','SelectorPhasePrefix','SelectorText','Spec','SummaryCounts','T','Text','Total','true','Types','Unknown','UseWo22Target','V','Variables','Wo22Admission','Wo22MutationBytes','Wo24Incremental','WorkingRoot','WriteSelectorPhaseMarker','Wrong')
+    # Only owned in-memory bindings for the nested list/capture controls.
+    $Variables+=@('TraceWo22Wo23ListCapture','ListCapturePhaseOutcome','Nested','CaptureEvents','ExpectedCaptureEvents','ParentOutcome','GuardSpec','script:W24IEvents','script:W24IMarkers')
+    $Properties+=@('PhaseName','Event','Outcome')
     $Commands=@('Where-Object','ForEach-Object','Measure-Object')+@($A.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{$_.Name})
     $Unknown=[Collections.Generic.List[string]]::new()
     if($E.Count -ne 0){$Unknown.Add('parse')}
@@ -352,12 +355,28 @@ function Invoke-OwnedWo24IncrementalRequestControls {
   }
   $Owned=@'
 function Require-W24I([bool]$Ok,[string]$Message){$script:W24IAssertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message});if(-not $Ok){throw ('WO24 incremental assertion refused: '+$Message)}}
-function Hook-W24I([string]$Name){if(-not $script:W24IHooks.ContainsKey($Name)){$script:W24IHooks[$Name]=0};$script:W24IHooks[$Name]++}
+function Hook-W24I([string]$Name){$script:W24IEvents.Add($Name);if(-not $script:W24IHooks.ContainsKey($Name)){$script:W24IHooks[$Name]=0};$script:W24IHooks[$Name]++}
 function Write-W24IMessage([string]$Message){Hook-W24I 'message'}
-function Write-HumPhaseMarker {param($PhaseName,$Event,$Outcome) Hook-W24I 'marker';Hook-W24I ('phase|'+$PhaseName+'|'+$Event+'|'+$Outcome);if(($script:W24IMode -ceq 'writer-start' -and $Event -ceq 'start') -or ($script:W24IMode -ceq 'writer-end' -and $Event -ceq 'end')){throw 'owned optional marker failure'}}
+function Write-HumPhaseMarker {
+  param($PhaseName,$Event,$Outcome)
+  Hook-W24I 'marker';Hook-W24I ('phase|'+$PhaseName+'|'+$Event+'|'+$Outcome)
+  $Nested=$PhaseName -clike '*-list-cargo-capture'
+  if(($script:W24IMode -ceq 'writer-start' -and $Event -ceq 'start') -or
+     ($script:W24IMode -ceq 'writer-end' -and $Event -ceq 'end') -or
+     ($Nested -and $Event -ceq 'start' -and $script:W24IMode -cin @('capture-writer-start','capture-writer-both')) -or
+     ($Nested -and $Event -ceq 'end' -and $script:W24IMode -cin @('capture-writer-end','capture-writer-both','capture-writer-end-list-throw'))){throw 'owned optional marker failure'}
+  # A failed sink leaves no invented persisted record, even if a later write works.
+  $script:W24IMarkers.Add([pscustomobject]@{PhaseName=$PhaseName;Event=$Event;Outcome=$Outcome})
+}
 function Join-W24IPath([string]$Parent,[string]$Leaf){Hook-W24I 'join';if($Parent -cnotin @('owned-a','owned-b')){throw 'owned join refused'};return ($Parent+'/'+$Leaf)}
 function Read-W24IBytes([string]$Path){Hook-W24I 'read';if(-not $script:W24IBytes.ContainsKey($Path)){throw 'owned byte fact absent'};return ,([byte[]]$script:W24IBytes[$Path].Clone())}
-function Assert-Wo22RustTargetAdmission {param($Admission,$Label,$Cargo,$Selector,$MutationBytes) Hook-W24I 'wo22-admission';if(-not [object]::ReferenceEquals($Admission,$script:W24IWo22) -or $Cargo -cne 'owned-cargo' -or $Selector -cne $script:W24ISelector){throw 'owned WO22 admission refused'}}
+function Assert-Wo22RustTargetAdmission {
+  param($Admission,$Label,$Cargo,$Selector,$MutationBytes)
+  Hook-W24I 'wo22-admission'
+  if(-not [object]::ReferenceEquals($Admission,$script:W24IWo22) -or $Cargo -cne 'owned-cargo' -or $Selector -cne $script:W24ISelector){throw 'owned WO22 admission refused'}
+  if(($script:W24IMode -ceq 'pre-list-admission' -and $script:W24IHooks['wo22-admission'] -eq 1) -or
+     ($script:W24IMode -ceq 'post-list-admission' -and $script:W24IHooks['wo22-admission'] -eq 2)){throw 'owned WO22 admission refused'}
+}
 function Invoke-ExactRustNativeCapture([string]$Cargo,[string[]]$Arguments) {
   Hook-W24I 'capture';$script:W24ICalls.Add([pscustomobject]@{Cargo=$Cargo;Arguments=[string[]]$Arguments.Clone()})
   $List=$Arguments -ccontains '--list';$Expected=@('test',$script:W24ISelector)
@@ -369,9 +388,11 @@ function Invoke-ExactRustNativeCapture([string]$Cargo,[string[]]$Arguments) {
   Require-W24I $ArgvOk 'actual exact scoped argv'
   if($script:W24IMode -ceq 'capture-throw' -and -not $List){throw 'owned capture refused'}
   if($List){
-    if($script:W24IMode -ceq 'list-throw'){throw 'owned list capture refused'}
+    Hook-W24I 'capture-list-enter'
+    if($script:W24IMode -cin @('list-throw','capture-writer-end-list-throw')){throw 'owned list capture refused'}
     if($script:W24IMode -ceq 'post-list-context'){$script:W24IWorkingRoot='foreign-root'}
     $Output=@($script:W24ISelector+': test');if($script:W24IMode -ceq 'list-duplicate'){$Output+=@('foreign::test: test')}
+    Hook-W24I 'capture-list-return'
     return [pscustomobject]@{ExitCode=$(if($script:W24IMode -ceq 'list-exit'){9}else{0});Output=[string[]]$Output}
   }
   $Output=@('running 1 test',('test '+$script:W24ISelector+' ... ok'),'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s')
@@ -381,6 +402,7 @@ function Invoke-ExactRustNativeCapture([string]$Cargo,[string[]]$Arguments) {
 function Reset-W24IFacts([string]$Route,[string]$Mode) {
   $script:W24IRoute=$Route;$script:W24IMode=$Mode;$script:W24IWorkingRoot='owned-a';$script:W24ISeparator='/'
   $script:W24ICalls=[Collections.Generic.List[object]]::new();$script:W24IHooks=@{}
+  $script:W24IEvents=[Collections.Generic.List[string]]::new();$script:W24IMarkers=[Collections.Generic.List[object]]::new()
   $Original=[byte[]]@(1,2,3);$script:W24IMutation=[byte[]]@(1,2,4);$Digest=Get-ExactRustGenerationDigest $Original
   $Files=[Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal);$Files.Add('src/owned.rs',$Digest)
   $Bound=[Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal);$Bound.Add('src/owned.rs',$Digest)
@@ -421,6 +443,7 @@ try {
     Require-W24I ($script:W24ICalls.Count -eq $Spec[3] -and $Isolated.Count -eq (1+$Spec[4])) ($Spec[1]+' fail-first capture/real-credit counts')
     Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) ($Spec[1]+' canonical credit identity/order restored')
     if($Spec[1] -ceq 'honest' -and $Spec[0] -ceq 'b'){Require-W24I ($script:W24IHooks['read'] -eq 8 -and $script:W24IHooks['capture'] -eq 2 -and $script:W24IHooks['marker'] -gt 0) 'actual four generation guards and phase calls reached'}
+    Require-W24I (@($script:W24IMarkers|Where-Object{$_.PhaseName -clike '*-list-cargo-capture'}).Count -eq 0) ($Spec[0]+'/'+$Spec[1]+' existing WO24/fallback routes have no new child span')
     if($Spec[1] -cin @('baseline-config','wrong-config')) {
       $ExpectedPoison=@('test',$script:W24ISelector,'--manifest-path','owned-b/Cargo.toml','--target-dir','owned-target')
       if($Spec[1] -ceq 'wrong-config'){$ExpectedPoison+=@('--config','build.incremental=false')}
@@ -485,7 +508,10 @@ try {
       else{Invoke-ExactRustTest $Row[0] 'owned-cargo' $Row[2]}
     }catch{$Caught=$_.Exception.Message}finally{$script:ExactRustSelectorCredits=$Canonical}
     Require-W24I ($Caught -ceq '' -and $script:W24ICalls.Count -eq 2 -and $Isolated.Count -eq 2) ('timing actual exact owner success: '+$Row[0])
-    Require-W24I ($script:W24IHooks['marker'] -eq 4 -and $script:W24IHooks[('phase|'+$Row[1]+'-list|start|')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-list|end|completed')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-run|start|')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-run|end|completed')] -eq 1) ('timing exact list/run envelope: '+$Row[1])
+    Require-W24I ($script:W24IHooks['marker'] -eq 6 -and $script:W24IHooks[('phase|'+$Row[1]+'-list|start|')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-list|end|completed')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-run|start|')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-run|end|completed')] -eq 1) ('timing exact list/run envelope: '+$Row[1])
+    $CaptureEvents=@($script:W24IEvents|Where-Object{$_.StartsWith('phase|',[StringComparison]::Ordinal) -or $_.StartsWith('capture-list-',[StringComparison]::Ordinal)})
+    $ExpectedCaptureEvents=@(('phase|'+$Row[1]+'-list|start|'),('phase|'+$Row[1]+'-list-cargo-capture|start|'),'capture-list-enter','capture-list-return',('phase|'+$Row[1]+'-list-cargo-capture|end|completed'),('phase|'+$Row[1]+'-list|end|completed'),('phase|'+$Row[1]+'-run|start|'),('phase|'+$Row[1]+'-run|end|completed'))
+    Require-W24I ([string]::Join(';',$CaptureEvents) -ceq [string]::Join(';',$ExpectedCaptureEvents)) ('timing named parent/child encloses only capture: '+$Row[1])
     Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) ('timing canonical credit identity/order restored: '+$Row[1])
     $Cases.Add([pscustomobject]@{Route=$Row[3];Mode='timing-map';Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Hooks=$script:W24IHooks})
   }
@@ -512,20 +538,21 @@ try {
   }
   $Row=$Rows[0]
   foreach($Spec in @(
-    @('list-exit','cargo exited 9',1,0,2,'list'),
-    @('list-duplicate','must resolve',1,0,2,'list'),
-    @('list-throw','owned list capture refused',1,0,2,'list'),
-    @('run-exit','failed with exit code 101',2,0,4,'run'),
-    @('run-footer','must run exactly one test',2,0,4,'run'),
-    @('capture-throw','owned capture refused',2,0,4,'run'),
-    @('writer-start','',2,1,4,'completed'),
-    @('writer-end','',2,1,4,'completed')
+    @('list-exit','cargo exited 9',1,0,4,'list'),
+    @('list-duplicate','must resolve',1,0,4,'list'),
+    @('list-throw','owned list capture refused',1,0,4,'list'),
+    @('run-exit','failed with exit code 101',2,0,6,'run'),
+    @('run-footer','must run exactly one test',2,0,6,'run'),
+    @('capture-throw','owned capture refused',2,0,6,'run'),
+    @('writer-start','',2,1,6,'completed'),
+    @('writer-end','',2,1,6,'completed')
   )) {
     Reset-W24IFacts 'wo22' $Spec[0];$script:W24ISelector=$Row[2]
     $Isolated=[Collections.Generic.List[string]]::new();$Isolated.Add('owned-ambient-credit');$script:ExactRustSelectorCredits=$Isolated;$Caught=''
     try{Invoke-ExactRustTest $Row[0] 'owned-cargo' $Row[2] -Wo22Admission $script:W24IWo22 -Wo22MutationBytes ([byte[]]@(7))}catch{$Caught=$_.Exception.Message}finally{$script:ExactRustSelectorCredits=$Canonical}
     Require-W24I (($Spec[1] -ceq '' -and $Caught -ceq '') -or ($Spec[1] -cne '' -and $Caught.Contains($Spec[1]))) ('timing actual failure/writer disposition: '+$Spec[0])
     Require-W24I ($script:W24ICalls.Count -eq $Spec[2] -and $Isolated.Count -eq (1+$Spec[3]) -and $script:W24IHooks['marker'] -eq $Spec[4]) ('timing no extra requests/credits/marker attempts: '+$Spec[0])
+    Require-W24I ($script:W24IHooks[('phase|'+$Row[1]+'-list-cargo-capture|end|'+$(if($Spec[0] -ceq 'list-throw'){'failed'}else{'completed'}))] -eq 1) ('timing child describes returned capture, not list acceptance: '+$Spec[0])
     if($Spec[5] -ceq 'completed'){
       Require-W24I ($script:W24IHooks[('phase|'+$Row[1]+'-list|end|completed')] -eq 1 -and $script:W24IHooks[('phase|'+$Row[1]+'-run|end|completed')] -eq 1) ('timing optional writer does not change success: '+$Spec[0])
     }else{
@@ -534,6 +561,40 @@ try {
     }
     Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) ('timing failure/writer canonical credit identity/order restored: '+$Spec[0])
     $Cases.Add([pscustomobject]@{Route='wo22';Mode=('timing-'+$Spec[0]);Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Hooks=$script:W24IHooks})
+  }
+  # Incomplete child diagnostics remain explicit in the retained record inventory.
+  # They never synthesize an end, excuse a missing start or alter request credit.
+  foreach($Row in @($Rows[0],$Rows[16])) {
+    foreach($Spec in @(
+      @('capture-writer-start','',2,1,0,1),
+      @('capture-writer-end','',2,1,1,0),
+      @('capture-writer-both','',2,1,0,0),
+      @('capture-writer-end-list-throw','owned list capture refused',1,0,1,0)
+    )) {
+      Reset-W24IFacts $Row[3] $Spec[0];$script:W24ISelector=$Row[2]
+      $Isolated=[Collections.Generic.List[string]]::new();$Isolated.Add('owned-ambient-credit');$script:ExactRustSelectorCredits=$Isolated;$Caught=''
+      try{
+        if($Row[3] -ceq 'wo22'){Invoke-ExactRustTest $Row[0] 'owned-cargo' $Row[2] -Wo22Admission $script:W24IWo22 -Wo22MutationBytes ([byte[]]@(7))}
+        else{Invoke-ExactRustTest $Row[0] 'owned-cargo' $Row[2]}
+      }catch{$Caught=$_.Exception.Message}finally{$script:ExactRustSelectorCredits=$Canonical}
+      Require-W24I ($Caught -ceq $Spec[1] -and $script:W24ICalls.Count -eq $Spec[2] -and $Isolated.Count -eq (1+$Spec[3])) ('timing optional child sink preserves exact result/requests/credits: '+$Row[1]+'/'+$Spec[0])
+      Require-W24I (@($script:W24IMarkers|Where-Object{$_.PhaseName -ceq ($Row[1]+'-list-cargo-capture') -and $_.Event -ceq 'start'}).Count -eq $Spec[4] -and @($script:W24IMarkers|Where-Object{$_.PhaseName -ceq ($Row[1]+'-list-cargo-capture') -and $_.Event -ceq 'end'}).Count -eq $Spec[5]) ('timing missing child start/end stays unavailable: '+$Row[1]+'/'+$Spec[0])
+      $ParentOutcome=if($Spec[1] -ceq ''){'completed'}else{'failed'}
+      Require-W24I (@($script:W24IMarkers|Where-Object{$_.PhaseName -ceq ($Row[1]+'-list') -and $_.Event -ceq 'end' -and $_.Outcome -ceq $ParentOutcome}).Count -eq 1) ('timing actual parent disposition survives missing child: '+$Row[1]+'/'+$Spec[0])
+      Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) 'timing incomplete child canonical credit identity/order restored'
+      $Cases.Add([pscustomobject]@{Route=$Row[3];Mode=$Spec[0];Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Markers=$script:W24IMarkers.ToArray()})
+    }
+  }
+  $Row=$Rows[0]
+  foreach($GuardSpec in @(@('pre-list-admission',0,0),@('post-list-admission',1,2))) {
+    Reset-W24IFacts 'wo22' $GuardSpec[0];$script:W24ISelector=$Row[2]
+    $Isolated=[Collections.Generic.List[string]]::new();$Isolated.Add('owned-ambient-credit');$script:ExactRustSelectorCredits=$Isolated;$Caught=''
+    try{Invoke-ExactRustTest $Row[0] 'owned-cargo' $Row[2] -Wo22Admission $script:W24IWo22 -Wo22MutationBytes ([byte[]]@(7))}catch{$Caught=$_.Exception.Message}finally{$script:ExactRustSelectorCredits=$Canonical}
+    Require-W24I ($Caught -ceq 'owned WO22 admission refused' -and $script:W24ICalls.Count -eq $GuardSpec[1] -and $Isolated.Count -eq 1) ('timing admission guard retains exact request prefix: '+$GuardSpec[0])
+    Require-W24I (@($script:W24IMarkers|Where-Object{$_.PhaseName -ceq ($Row[1]+'-list-cargo-capture')}).Count -eq $GuardSpec[2]) ('timing admission guard remains outside child: '+$GuardSpec[0])
+    Require-W24I ($script:W24IHooks[('phase|'+$Row[1]+'-list|end|failed')] -eq 1) ('timing parent admits no credit on guard failure: '+$GuardSpec[0])
+    Require-W24I ([object]::ReferenceEquals($script:ExactRustSelectorCredits,$Canonical) -and [string]::Join('|',$CanonicalContents) -ceq $(if($null -eq $Canonical){''}else{[string]::Join('|',$Canonical.ToArray())})) 'timing guard failure canonical credit identity/order restored'
+    $Cases.Add([pscustomobject]@{Route='wo22';Mode=$GuardSpec[0];Caught=$Caught;Calls=$script:W24ICalls.ToArray();Credits=$Isolated.ToArray();Markers=$script:W24IMarkers.ToArray()})
   }
 }finally{$script:ExactRustSelectorCredits=$Canonical;$script:ExactRustMutationGenerationOwner=$SavedGenerationOwner}
 [pscustomobject]@{Assertions=$script:W24IAssertions.ToArray();Cases=$Cases.ToArray()}
@@ -1617,6 +1678,7 @@ try {
   Assert-True ($Content -match 'utc=\d{4}-\d{2}-\d{2}T') 'marker has UTC timestamp'
   Assert-True ($Content -match 'ticks=\d+') 'marker has ticks'
   Assert-True ($Content -match 'frequency=\d+') 'marker has frequency'
+  Assert-True ([long]([regex]::Match($Content,'(?m)^frequency=([0-9]+)\r?$').Groups[1].Value) -gt 0) 'marker carries positive owner frequency'
 
   # Test 6: Outcome distinction (completed vs failed)
   Write-Host "`n=== Test 6: Outcome distinction ==="
