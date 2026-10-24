@@ -80,6 +80,181 @@ function Invoke-HumPhase {
   }
 }
 
+# Successful Cargo-list retention is optional report-only data. The owner is
+# configured once before admission; no environment or validation stream changes.
+$script:HumCargoListDiagnosticOwner = $null
+$script:HumCargoListDiagnosticInitialized = $false
+$script:HumCargoListDiagnosticState = 'not_configured_unavailable'
+
+function Get-HumCargoListDiagnosticSpec {
+  param([string] $Label, [string] $Selector, [string] $Phase)
+  if ($Label -ceq 'Work Order 22 B01 capability admission guarded production mutation' -and $Selector -ceq 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing' -and $Phase -ceq 'compiler-front-wo22-b01') {
+    return [pscustomobject] @{ File = 'cargo-list-wo22-b01.json'; Mutable = 'src/backend_cranelift.rs'; Arguments = @('test',$Selector,'--bin','hum','--','--exact','--list') }
+  }
+  if ($Label -ceq 'Work Order 23 M07 module count guarded production mutation' -and $Selector -ceq 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing' -and $Phase -ceq 'compiler-front-wo23-m07') {
+    return [pscustomobject] @{ File = 'cargo-list-wo23-m07.json'; Mutable = 'src/app_entry.rs'; Arguments = @('test',$Selector,'--','--exact','--list') }
+  }
+  return $null
+}
+
+function Assert-HumCargoListDiagnosticPath {
+  param([string] $Path, [bool] $Directory)
+  $Item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if ([bool]$Item.PSIsContainer -ne $Directory) { throw 'cargo_list_diagnostic_input_kind_unavailable' }
+  while ($null -ne $Item) {
+    if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'cargo_list_diagnostic_reparse_unavailable' }
+    $Item = if ($Item.PSIsContainer) { $Item.Parent } else { $Item.Directory }
+  }
+}
+
+function Read-HumCargoListDiagnosticFact {
+  param([string] $Path, [int] $Limit = 8192)
+  Assert-HumCargoListDiagnosticPath $Path $false
+  if ((Get-Item -LiteralPath $Path -Force -ErrorAction Stop).Length -gt $Limit) { throw 'cargo_list_diagnostic_input_size_unavailable' }
+  $Bytes = [IO.File]::ReadAllBytes($Path)
+  if ($Bytes.Length -gt $Limit) { throw 'cargo_list_diagnostic_input_size_unavailable' }
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  try { $Digest = ([BitConverter]::ToString($Hasher.ComputeHash($Bytes))).Replace('-','').ToLowerInvariant() } finally { $Hasher.Dispose() }
+  $Text = [Text.UTF8Encoding]::new($false,$true).GetString($Bytes).TrimStart([char]0xfeff)
+  return [pscustomobject] @{ Path = $Path; Bytes = $Bytes.Length; Sha256 = $Digest; Text = $Text }
+}
+
+function ConvertFrom-HumCargoListDiagnosticFields {
+  param([string] $Text)
+  $Fields = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+  foreach ($Line in ($Text -split '\r?\n')) {
+    if ($Line -ceq '') { continue }
+    $At = $Line.IndexOf('=',[StringComparison]::Ordinal)
+    if ($At -le 0) { throw 'cargo_list_diagnostic_fields_unavailable' }
+    $Name = $Line.Substring(0,$At)
+    if ($Fields.ContainsKey($Name)) { throw 'cargo_list_diagnostic_duplicate_field_unavailable' }
+    $Fields.Add($Name,$Line.Substring($At+1))
+  }
+  return ,$Fields
+}
+
+function Get-HumCargoListDiagnosticContext {
+  param([string] $Directory, [string] $Root, [string] $Cargo)
+  if ([string]::IsNullOrWhiteSpace($Directory)) { throw 'cargo_list_diagnostic_disabled_unavailable' }
+  $Directory = [IO.Path]::GetFullPath($Directory)
+  $Root = [IO.Path]::GetFullPath($Root)
+  Assert-HumCargoListDiagnosticPath $Directory $true
+  Assert-HumCargoListDiagnosticPath $Root $true
+  $RunnerTemp = [Environment]::GetEnvironmentVariable('RUNNER_TEMP')
+  if ([string]::IsNullOrWhiteSpace($RunnerTemp)) { throw 'cargo_list_diagnostic_transport_root_unavailable' }
+  $RunnerTemp = [IO.Path]::GetFullPath($RunnerTemp)
+  Assert-HumCargoListDiagnosticPath $RunnerTemp $true
+  $Comparison = if ([IO.Path]::DirectorySeparatorChar -eq '\') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+  if (-not [string]::Equals([IO.Path]::GetDirectoryName($Directory),$RunnerTemp,$Comparison) -or [IO.Path]::GetFileName($Directory) -cnotmatch '^hum-phase-diagnostics-[0-9a-f]{32}$') { throw 'cargo_list_diagnostic_transport_slot_unavailable' }
+  $Forbidden = [Collections.Generic.List[string]]::new()
+  $Forbidden.Add($Root)
+  $Forbidden.Add((Join-Path $Root 'target'))
+  $Forbidden.Add((Join-Path $Root '.cargo-home'))
+  foreach ($Name in @('CARGO_HOME','RUSTUP_HOME','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR')) {
+    $Value = [Environment]::GetEnvironmentVariable($Name)
+    if (-not [string]::IsNullOrWhiteSpace($Value)) { $Forbidden.Add([IO.Path]::GetFullPath($Value)) }
+  }
+  $Profile = [Environment]::GetFolderPath('UserProfile')
+  if (-not [string]::IsNullOrWhiteSpace($Profile)) { $Forbidden.Add((Join-Path $Profile '.cargo')); $Forbidden.Add((Join-Path $Profile '.rustup')) }
+  foreach ($Path in $Forbidden) {
+    $A = $Directory.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $B = [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if ($A.StartsWith($B,$Comparison) -or $B.StartsWith($A,$Comparison)) { throw 'cargo_list_diagnostic_tree_overlap_unavailable' }
+  }
+  # The existing workflow creates phase and strict-capture roots as distinct
+  # ordinary siblings under RUNNER_TEMP. No sibling output directory is added.
+  $Identity = [ordered] @{}
+  foreach ($Name in @('GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','RUNNER_OS','GITHUB_SHA')) { $Identity[$Name] = [Environment]::GetEnvironmentVariable($Name) }
+  if ($Identity['GITHUB_RUN_ID'] -cnotmatch '^[1-9][0-9]*$' -or $Identity['GITHUB_RUN_ATTEMPT'] -cnotmatch '^[1-9][0-9]*$' -or $Identity['RUNNER_OS'] -cnotin @('Windows','Linux') -or $Identity['GITHUB_SHA'] -cnotmatch '^[0-9a-f]{40}$') { throw 'cargo_list_diagnostic_identity_unavailable' }
+  $Source = [Collections.Generic.List[object]]::new()
+  foreach ($Relative in @('tools/test_exact_rust_selector.ps1','tools/check_all.ps1','Cargo.toml','Cargo.lock')) {
+    $Fact = Read-HumCargoListDiagnosticFact (Join-Path $Root $Relative) 2097152
+    $Source.Add([pscustomobject] @{ Path = $Relative; Bytes = $Fact.Bytes; Sha256 = $Fact.Sha256 })
+  }
+  return [pscustomobject] @{ Directory = $Directory; Root = $Root; Cargo = $Cargo; Identity = $Identity; Source = $Source.ToArray() }
+}
+
+function Initialize-HumCargoListDiagnostics {
+  if ($script:HumCargoListDiagnosticInitialized) { return }
+  $script:HumCargoListDiagnosticInitialized = $true
+  try {
+    $Context = Get-HumCargoListDiagnosticContext $PhaseDiagnostics $RepoRoot $Cargo
+    $Binding = Read-HumCargoListDiagnosticFact (Join-Path $Context.Directory 'run-binding.txt')
+    $Fields = ConvertFrom-HumCargoListDiagnosticFields $Binding.Text
+    if ($Fields.Count -ne 3 -or -not $Fields.ContainsKey('run_id') -or -not $Fields.ContainsKey('binding_guid') -or -not $Fields.ContainsKey('created_utc') -or $Fields['run_id'] -cne $Context.Identity['GITHUB_RUN_ID'] -or $Fields['binding_guid'] -cnotmatch '^[0-9a-f]{32}$') { throw 'cargo_list_diagnostic_binding_unavailable' }
+    $Created = [DateTime]::MinValue
+    if (-not [DateTime]::TryParse($Fields['created_utc'],[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::RoundtripKind,[ref]$Created)) { throw 'cargo_list_diagnostic_binding_date_unavailable' }
+    $script:HumCargoListDiagnosticOwner = [pscustomobject] @{ Context = $Context; Binding = $Binding; Guid = $Fields['binding_guid']; Used = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal); Status = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal) }
+    foreach ($Name in @('cargo-list-wo22-b01.json','cargo-list-wo23-m07.json')) { $script:HumCargoListDiagnosticOwner.Status.Add($Name,'not_observed_unavailable') }
+    $script:HumCargoListDiagnosticState = 'configured_report_only'
+  } catch { $script:HumCargoListDiagnosticOwner = $null; $script:HumCargoListDiagnosticState = 'configuration_unavailable' }
+}
+
+function Get-HumCargoListDiagnosticMarkers {
+  param($Owner, [string] $Phase)
+  $Markers = [Collections.Generic.List[object]]::new()
+  foreach ($Part in @('list','list-cargo-capture')) {
+    foreach ($Event in @('start','end')) {
+      $Name = 'phase-' + $Phase + '-' + $Part + '-' + $Event + '.txt'
+      $Fact = Read-HumCargoListDiagnosticFact (Join-Path $Owner.Context.Directory $Name)
+      $Fields = ConvertFrom-HumCargoListDiagnosticFields $Fact.Text
+      foreach ($Required in @('phase','event','utc','ticks','frequency','binding')) { if (-not $Fields.ContainsKey($Required)) { throw 'cargo_list_diagnostic_marker_unavailable' } }
+      $Ticks = [int64] 0; $Frequency = [int64] 0; $Utc = [DateTime]::MinValue
+      if ($Fields['phase'] -cne ($Phase+'-'+$Part) -or $Fields['event'] -cne $Event -or $Fields['binding'] -cne $Owner.Guid -or -not [int64]::TryParse($Fields['ticks'],[ref]$Ticks) -or $Ticks -lt 0 -or -not [int64]::TryParse($Fields['frequency'],[ref]$Frequency) -or $Frequency -le 0 -or -not [DateTime]::TryParse($Fields['utc'],[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::RoundtripKind,[ref]$Utc) -or ($Event -ceq 'end' -and (-not $Fields.ContainsKey('outcome') -or $Fields['outcome'] -cne 'completed'))) { throw 'cargo_list_diagnostic_marker_unavailable' }
+      $Markers.Add([pscustomobject] @{ File = $Name; Sha256 = $Fact.Sha256; Phase = $Fields['phase']; Event = $Event; Utc = $Fields['utc']; Ticks = $Ticks; Frequency = $Frequency; Binding = $Owner.Guid })
+    }
+  }
+  if ($Markers[0].Frequency -ne $Markers[1].Frequency -or $Markers[0].Frequency -ne $Markers[2].Frequency -or $Markers[0].Frequency -ne $Markers[3].Frequency -or $Markers[0].Ticks -gt $Markers[2].Ticks -or $Markers[2].Ticks -gt $Markers[3].Ticks -or $Markers[3].Ticks -gt $Markers[1].Ticks) { throw 'cargo_list_diagnostic_marker_containment_unavailable' }
+  return ,$Markers.ToArray()
+}
+
+function Write-HumCargoListDiagnosticBytes {
+  param([string] $Path, [byte[]] $Bytes)
+  $Stream = [IO.File]::Open($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+  try { $Stream.Write($Bytes,0,$Bytes.Length); $Stream.Flush($true) } finally { $Stream.Dispose() }
+}
+
+function Write-HumCargoListDiagnostic {
+  param([string] $Label, [string] $Selector, [string] $Phase, [string] $Cargo, [string[]] $Arguments, [string[]] $Output, [int] $ExitCode)
+  $Owner = $script:HumCargoListDiagnosticOwner
+  if ($null -eq $Owner) { return }
+  $Spec = Get-HumCargoListDiagnosticSpec $Label $Selector $Phase
+  if ($null -eq $Spec) { return }
+  try {
+    if (-not $Owner.Used.Add($Spec.File)) { return }
+    $Owner.Status[$Spec.File] = 'attempted_unavailable'
+    if ($Cargo -cne $Owner.Context.Cargo -or $ExitCode -ne 0 -or [string]::Join([char]0,$Arguments) -cne [string]::Join([char]0,$Spec.Arguments)) { throw 'cargo_list_diagnostic_request_unavailable' }
+    $Listed = @($Output | Where-Object { $_ -match ': test$' })
+    if ($Listed.Count -ne 1 -or $Listed[0] -cne ($Selector+': test')) { throw 'cargo_list_diagnostic_list_unavailable' }
+    Assert-HumCargoListDiagnosticPath $Owner.Context.Directory $true
+    if ([IO.Path]::GetFullPath($PhaseDiagnostics) -cne $Owner.Context.Directory) { throw 'cargo_list_diagnostic_destination_changed_unavailable' }
+    foreach ($Name in @('GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','RUNNER_OS','GITHUB_SHA')) { if ([Environment]::GetEnvironmentVariable($Name) -cne $Owner.Context.Identity[$Name]) { throw 'cargo_list_diagnostic_identity_changed_unavailable' } }
+    $Binding = Read-HumCargoListDiagnosticFact (Join-Path $Owner.Context.Directory 'run-binding.txt')
+    if ($Binding.Bytes -ne $Owner.Binding.Bytes -or $Binding.Sha256 -cne $Owner.Binding.Sha256 -or $Binding.Text -cne $Owner.Binding.Text) { throw 'cargo_list_diagnostic_binding_changed_unavailable' }
+    $Markers = Get-HumCargoListDiagnosticMarkers $Owner $Phase
+    $Mutable = Read-HumCargoListDiagnosticFact (Join-Path $Owner.Context.Root $Spec.Mutable) 2097152
+    $Record = [ordered] @{
+      disposition = 'report_only_complete'; validation_credit = $false; timing_credit = $false
+      text_kind = 'powershell_decoded_merged_lines_not_raw_channels'
+      binding_guid = $Owner.Guid; binding_file_sha256 = $Binding.Sha256
+      run_id = $Owner.Context.Identity['GITHUB_RUN_ID']; run_attempt = $Owner.Context.Identity['GITHUB_RUN_ATTEMPT']; platform = $Owner.Context.Identity['RUNNER_OS']
+      source_commit_claim = $Owner.Context.Identity['GITHUB_SHA']; source_claim_kind = 'environment_observation_not_git_proof'; source_files = $Owner.Context.Source
+      owner = $Label; selector = $Selector; phase = $Phase; cargo_path = $Cargo; arguments = [string[]]$Arguments.Clone(); exit_code = $ExitCode
+      output = [string[]]$Output.Clone(); markers = $Markers
+      mutable_source = [ordered] @{ path = $Spec.Mutable; bytes = $Mutable.Bytes; sha256 = $Mutable.Sha256 }
+      limits = 'No CPU/lock/startup/capture allocation or speedup claim; IO occurs after list/capture spans and remains enclosing cost.'
+    }
+    $Bytes = [Text.UTF8Encoding]::new($false,$true).GetBytes(($Record | ConvertTo-Json -Depth 8 -Compress))
+    if ($Bytes.Length -gt 262144) { throw 'cargo_list_diagnostic_serialized_size_unavailable' }
+    Write-HumCargoListDiagnosticBytes (Join-Path $Owner.Context.Directory $Spec.File) $Bytes
+    $Owner.Status[$Spec.File] = 'complete_report_only'
+  } catch {
+    # No warning/info/output stream and no retry/overwrite/rollback. A missing
+    # record or any retained partial prefix is unavailable diagnostic data.
+    try { $Owner.Status[$Spec.File] = 'unavailable_missing_or_partial' } catch { }
+  }
+}
+
 function Get-HumRepoRustSources {
   # Every .rs file compiled anywhere in the repository: the hum binary (src/),
   # the workspace crates (crates/), and the experiments (experiments/) that CI
@@ -133,6 +308,7 @@ $Cargo = Resolve-Tool 'cargo' '.cargo\bin\cargo.exe' 'cargo was not found on PAT
 $Git = Resolve-Tool 'git' '' 'git was not found on PATH'
 . (Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1')
 . (Join-Path $PSScriptRoot 'run_fast_evidence.ps1')
+Initialize-HumCargoListDiagnostics
 
 if ($EvidenceTier -eq 'Exhaustive') {
   $PreviousEvidenceTier = $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER

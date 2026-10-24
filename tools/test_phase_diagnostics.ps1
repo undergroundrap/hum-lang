@@ -115,6 +115,253 @@ function Invoke-OwnedRetainedHelperBindingControls {
   return [pscustomobject]@{Assertions=$Assertions.ToArray();Cases=$Cases.ToArray();Pins=$Pins.ToArray();Gate=[pscustomobject]@{CompiledBindingPrograms=$Cases.Count;RealAccessors=0;FullHelperBodiesExecuted=0};EvidenceKind='binding-only owned sentinel projections'}
 }
 
+function Invoke-OwnedCargoListRetentionControls {
+  param([string] $CheckAllText, [string] $SelectorText, [string] $WorkflowText, $SelectedProgram = $null)
+  function Select-RetentionSource([string] $Text,[string] $Name) {
+    $T=$null;$E=$null;$A=[Management.Automation.Language.Parser]::ParseInput($Text,[ref]$T,[ref]$E)
+    $F=@($A.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst] -and $N.Name -ceq $Name},$true))
+    if($E.Count -ne 0 -or $F.Count -ne 1){throw ('retention source selection refused: '+$Name)}
+    return $F[0]
+  }
+  function Select-RetentionPhaseTransport([string] $Text) {
+    # A bounded source selector for this existing upload step, not a YAML parser
+    # or a runtime policy gate. Every active field and the whole path must match.
+    $Lines=$Text -split '\r?\n'
+    $Header='      - name: Upload phase timing diagnostics'
+    $Starts=@();for($N=0;$N -lt $Lines.Count;$N++){if($Lines[$N] -ceq $Header){$Starts+=@($N)}}
+    if($Starts.Count -ne 1){throw 'retention phase transport source changed'}
+    $Start=$Starts[0];$End=$Lines.Count
+    for($N=$Start+1;$N -lt $Lines.Count;$N++){if($Lines[$N] -cmatch '^      - '){$End=$N;break}}
+    $Expected=@(
+      $Header,
+      "        if: always() && steps.full_preflight.outputs.phase_diagnostics != ''",
+      '        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+      '        with:',
+      ('          name: hum-phase-diagnostics-'+[char]36+'{{ github.run_id }}-'+[char]36+'{{ github.run_attempt }}-'+[char]36+'{{ matrix.os }}'),
+      ('          path: '+[char]36+'{{ steps.full_preflight.outputs.phase_diagnostics }}'),
+      '          retention-days: 14',
+      '          if-no-files-found: warn',
+      '          include-hidden-files: false',
+      '          overwrite: false'
+    )
+    $Active=@($Lines[$Start..($End-1)]|Where-Object{$_ -cnotmatch '^\s*(#|$)'})
+    if($Active.Count -ne $Expected.Count -or [string]::Join([char]10,$Active) -cne [string]::Join([char]10,$Expected)){throw 'retention phase transport source changed'}
+    $ArtifactNames=@($Lines|Where-Object{$_ -ceq $Expected[4]})
+    if($ArtifactNames.Count -ne 1){throw 'retention phase transport source changed'}
+    return [pscustomobject]@{Step=[string]::Join([char]10,$Lines[$Start..($End-1)]);Header=$Header;PathLine=$Expected[5];ArtifactLine=$Expected[4];StartLine=$Start+1;EndLine=$End}
+  }
+  function Assert-RetentionSelectedProgramBoundary([string] $Text) {
+  $T=$null;$E=$null;$A=[Management.Automation.Language.Parser]::ParseInput($Text,[ref]$T,[ref]$E)
+  $Commands=@('Where-Object','ForEach-Object','ConvertTo-Json','ConvertFrom-Json','Measure-Object')+@($A.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{$_.Name})
+  $Unknown=[Collections.Generic.List[string]]::new();if($E.Count -ne 0){$Unknown.Add('parse')}
+  foreach($N in $A.FindAll({param($N)$true},$true)){
+    if($N -is [Management.Automation.Language.CommandAst]){$Name=$N.GetCommandName();if($null -eq $Name){if($N.CommandElements[0].Extent.Text -cne '$WriteSelectorPhaseMarker'){$Unknown.Add('dynamic-command')}}elseif($Name -cnotin $Commands){$Unknown.Add('command:'+$Name)}}
+    if(($N -is [Management.Automation.Language.TypeExpressionAst] -or $N -is [Management.Automation.Language.TypeConstraintAst]) -and $N.TypeName.FullName -cmatch '^(System\.)?(IO\.(File|Directory|Path)|Environment|Diagnostics\..*|scriptblock|.*Process)$'){$Unknown.Add('operational-type:'+$N.TypeName.FullName)}
+    if($N -is [Management.Automation.Language.FileRedirectionAst] -or $N -is [Management.Automation.Language.UsingExpressionAst] -or $N -is [Management.Automation.Language.TypeDefinitionAst]){$Unknown.Add('boundary-node')}
+    if($N -is [Management.Automation.Language.VariableExpressionAst] -and $N.VariablePath.IsDriveQualified -and -not $N.VariablePath.UserPath.StartsWith('script:',[StringComparison]::Ordinal)){$Unknown.Add('drive-variable')}
+  }
+  if($Unknown.Count -ne 0){throw ('retention selected-program boundary refused: '+[string]::Join('|',$Unknown))}
+    return @{Unknown=0;RealAccessors=0;BeforeCreate=$true}
+  }
+  $Parts=[Collections.Generic.List[string]]::new();$Pins=[Collections.Generic.List[object]]::new()
+  foreach($Name in @('Get-HumCargoListDiagnosticSpec','Assert-HumCargoListDiagnosticPath','ConvertFrom-HumCargoListDiagnosticFields','Get-HumCargoListDiagnosticContext','Initialize-HumCargoListDiagnostics','Get-HumCargoListDiagnosticMarkers','Write-HumCargoListDiagnostic','Assert-ExactRustSelectorSyntax','Assert-ExactRustSelectorEvidence','Invoke-ExactRustTest')) {
+    $Input=if($Name -cin @('Assert-ExactRustSelectorSyntax','Assert-ExactRustSelectorEvidence','Invoke-ExactRustTest')){$SelectorText}else{$CheckAllText}
+    $F=Select-RetentionSource $Input $Name;$Text=$F.Extent.Text
+    $Pins.Add([pscustomobject]@{Name=$Name;StartUTF16=$F.Extent.StartOffset;EndUTF16=$F.Extent.EndOffset;Text=$Text})
+    $Text=$Text.Replace('Get-Item -LiteralPath','Get-RetentionOwnedItem -LiteralPath').Replace('Join-Path','Join-RetentionOwnedPath').Replace('Write-Host','Write-RetentionOwnedMessage')
+    foreach($Variable in @('Directory','Root','RunnerTemp','Value','Path','PhaseDiagnostics')){$Text=$Text.Replace(('[IO.Path]::GetFullPath($'+$Variable+')'),('(Get-RetentionOwnedPath $'+$Variable+')'))}
+    $Text=$Text.Replace('[IO.Path]::GetDirectoryName($Directory)','(Get-RetentionOwnedParent $Directory)').Replace('[IO.Path]::GetFileName($Directory)','(Get-RetentionOwnedLeaf $Directory)').Replace('[IO.Path]::DirectorySeparatorChar',"'/'")
+    $Text=$Text.Replace("[Environment]::GetEnvironmentVariable('RUNNER_TEMP')","(Get-RetentionOwnedEnvironment 'RUNNER_TEMP')").Replace('[Environment]::GetEnvironmentVariable($Name)','(Get-RetentionOwnedEnvironment $Name)').Replace("[Environment]::GetFolderPath('UserProfile')","'C:/profile'")
+    $Parts.Add($Text)
+  }
+  foreach($Name in @('Read-HumCargoListDiagnosticFact','Write-HumCargoListDiagnosticBytes')) {
+    $F=Select-RetentionSource $CheckAllText $Name;$Pins.Add([pscustomobject]@{Name=$Name;StartUTF16=$F.Extent.StartOffset;EndUTF16=$F.Extent.EndOffset;Text=$F.Extent.Text})
+  }
+  # OS read/hash and create-new writes stay static-only; controls model those
+  # boundaries, not real filesystem, clock, PowerShell-version or latency proof.
+  $WriteSource=(Select-RetentionSource $CheckAllText 'Write-HumCargoListDiagnosticBytes').Extent.Text
+  if(-not $WriteSource.Contains('[IO.FileMode]::CreateNew') -or $WriteSource.Contains('Delete(') -or $WriteSource.Contains('Move(')){throw 'retention create-new boundary changed'}
+  $Invoke=(Select-RetentionSource $SelectorText 'Invoke-ExactRustTest').Extent.Text
+  $ListEnd=$Invoke.IndexOf('} finally { $null = & $WriteSelectorPhaseMarker ''list'' ''end'' $ListPhaseOutcome }',[StringComparison]::Ordinal)
+  $Callback=$Invoke.IndexOf('Write-HumCargoListDiagnostic $Label',[StringComparison]::Ordinal)
+  $RunStart=$Invoke.IndexOf('$null = & $WriteSelectorPhaseMarker ''run'' ''start''',[StringComparison]::Ordinal)
+  if($ListEnd -lt 0 -or $Callback -le $ListEnd -or $RunStart -le $Callback){throw 'retention actual post-list placement changed'}
+  $Init=$CheckAllText.IndexOf(([char]10+'Initialize-HumCargoListDiagnostics'+[char]10),[StringComparison]::Ordinal)
+  if($Init -lt 0 -or $Init -gt $CheckAllText.IndexOf('if ($EvidenceTier -eq ''Exhaustive'')',[StringComparison]::Ordinal)){throw 'retention initialization not before admission'}
+  $Timing=@([regex]::Matches($WorkflowText,"'(?<pattern>\^phase-[^']+)'")|Where-Object{$_.Groups['pattern'].Value -ceq '^phase-[A-Za-z0-9_-]+-(start|end)\.txt$'})
+  if($Timing.Count -ne 1){throw 'retention actual timing filename consumer changed'}
+  $PhaseTransport=Select-RetentionPhaseTransport $WorkflowText
+  $TransportSource=Select-RetentionSource $MyInvocation.MyCommand.Definition 'Select-RetentionPhaseTransport'
+  $Parts.Add($TransportSource.Extent.Text)
+  $Owned=@'
+param([string]$TimingPattern,[string]$WorkflowText)
+function Require-RetentionOwned([bool]$Ok,[string]$Message){$script:RAssertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message});if(-not $Ok){throw ('retention assertion refused: '+$Message)}}
+function Get-RetentionOwnedPath([string]$Path){return $Path.Replace('\','/').TrimEnd('/')}
+function Get-RetentionOwnedParent([string]$Path){return $Path.Substring(0,$Path.LastIndexOf('/'))}
+function Get-RetentionOwnedLeaf([string]$Path){return $Path.Substring($Path.LastIndexOf('/')+1)}
+function Join-RetentionOwnedPath([string]$Parent,[string]$Leaf){return $Parent.TrimEnd('/')+'/'+$Leaf}
+function Get-RetentionOwnedEnvironment([string]$Name){return $script:REnv[$Name]}
+function Get-RetentionOwnedItem {param([string]$LiteralPath,[switch]$Force,$ErrorAction) if($script:RMode -ceq 'unsafe-reparse'){return [pscustomobject]@{PSIsContainer=$true;Attributes=1024;Parent=$null}};return [pscustomobject]@{PSIsContainer=$true;Attributes=0;Parent=$null}}
+function Read-HumCargoListDiagnosticFact {param([string]$Path,[int]$Limit=8192) if(-not $script:RFacts.ContainsKey($Path)){throw 'owned missing fact'};return $script:RFacts[$Path]}
+function Write-HumCargoListDiagnosticBytes([string]$Path,[byte[]]$Bytes){
+  $script:RWriteAttempts++;$script:REvents.Add('diagnostic-write')
+  if($script:RFiles.ContainsKey($Path)){throw 'owned create-new refuses existing'}
+  if($script:RMode -ceq 'write-failure'){throw 'owned write refusal'}
+  if($script:RMode -ceq 'partial-write'){$script:RFiles.Add($Path,[byte[]]$Bytes[0..16]);throw 'owned partial prefix'}
+  $script:RFiles.Add($Path,[byte[]]$Bytes.Clone())
+}
+function Write-RetentionOwnedMessage([string]$Text){$script:RMessages.Add($Text)}
+function Test-Path {param([string]$LiteralPath) if($script:RMode -ceq 'lookup-throw'){throw 'owned callback lookup refusal'};return $LiteralPath -ceq 'Function:\Write-HumCargoListDiagnostic'}
+function Assert-Wo22RustTargetAdmission {param($Admission,$Label,$Cargo,$Selector,$MutationBytes) $script:RGuards++;if($script:RMode -ceq 'precheck' -or ($script:RMode -ceq 'postcheck' -and $script:RCalls.Count -eq 1)){throw 'owned exact admission refusal'}}
+function Assert-ExactRustMutationGeneration {throw 'owned unexpected generation'}
+function Write-HumPhaseMarker {param([string]$PhaseName,[string]$Event,[string]$Outcome='') $script:REvents.Add($PhaseName+'|'+$Event+'|'+$Outcome)}
+function Invoke-ExactRustNativeCapture([string]$Cargo,[string[]]$Arguments){
+  $script:RCalls.Add([pscustomobject]@{Cargo=$Cargo;Arguments=[string[]]$Arguments.Clone()})
+  if($script:RMode -ceq 'capture-throw'){throw 'owned original capture exception'}
+  if($Arguments -ccontains '--list'){
+    $Output=[string[]]@('Compiling hum (owned text)','Finished test profile (owned text)',($Arguments[1]+': test'))
+    if($script:RMode -ceq 'duplicate-list'){$Output+=@(($Arguments[1]+': test'))}
+    if($script:RMode -ceq 'oversize'){$Output=[string[]]@(('x'*262144),($Arguments[1]+': test'))}
+    $script:RList=$Output;$script:RListArguments=$Arguments;$script:RListBefore=[string]::Join([char]0,$Output);$script:RArgumentsBefore=[string]::Join([char]0,$Arguments)
+    return [pscustomobject]@{Output=$Output;ExitCode=$(if($script:RMode -ceq 'list-nonzero'){101}else{0})}
+  }
+  if($script:RMode -ceq 'negative-run'){return [pscustomobject]@{Output=[string[]]@('owned exact negative cause');ExitCode=101}}
+  return [pscustomobject]@{Output=[string[]]@('running 1 test',('test '+$Arguments[1]+' ... ok'),'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s');ExitCode=0}
+}
+function Add-RetentionOwnedFact([string]$Path,[string]$Text){$script:RFacts[$Path]=[pscustomobject]@{Path=$Path;Text=$Text;Bytes=[Text.Encoding]::UTF8.GetByteCount($Text);Sha256=('owned-model-'+$Path)}}
+function Reset-RetentionOwned([string]$Mode,[string]$Phase){
+  $script:RMode=$Mode;$script:HumCargoListDiagnosticInitialized=$false;$script:HumCargoListDiagnosticOwner=$null;$script:HumCargoListDiagnosticState='not_configured_unavailable'
+  $script:RFacts=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);$script:RFiles=[Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::Ordinal)
+  $script:RCalls=[Collections.Generic.List[object]]::new();$script:RMessages=[Collections.Generic.List[string]]::new();$script:REvents=[Collections.Generic.List[string]]::new();$script:ExactRustSelectorCredits=[Collections.Generic.List[string]]::new();$script:ExactRustSelectorCredits.Add('ambient::credit');$script:RGuards=0;$script:RWriteAttempts=0;$script:RList=$null;$script:RListArguments=$null
+  $script:REnv=@{RUNNER_TEMP='C:/runner';GITHUB_RUN_ID='123';GITHUB_RUN_ATTEMPT='1';RUNNER_OS='Windows';GITHUB_SHA=('a'*40);CARGO_HOME='';RUSTUP_HOME='';CARGO_TARGET_DIR='';CARGO_BUILD_BUILD_DIR=''}
+  $script:PhaseDiagnostics='C:/runner/hum-phase-diagnostics-'+('b'*32);$script:RepoRoot='C:/source';$script:Cargo='owned-cargo'
+  if($Mode -ceq 'disabled'){$script:PhaseDiagnostics=''}
+  if($Mode -ceq 'wrong-destination'){$script:PhaseDiagnostics='C:/source/diagnostic'}
+  if($Mode -ceq 'overlap-cache'){$script:REnv.CARGO_HOME='C:/runner'}
+  if($Mode -ceq 'missing-identity'){$script:REnv.GITHUB_RUN_ATTEMPT=''}
+  foreach($Relative in @('tools/test_exact_rust_selector.ps1','tools/check_all.ps1','Cargo.toml','Cargo.lock','src/backend_cranelift.rs','src/app_entry.rs')){Add-RetentionOwnedFact ('C:/source/'+$Relative) ('owned-source-'+$Relative)}
+  Add-RetentionOwnedFact ($script:PhaseDiagnostics+'/run-binding.txt') ([string]::Join([char]10,@('run_id=123',('binding_guid='+('c'*32)),'created_utc=2026-10-24T00:00:00.0000000Z','')))
+  if($Mode -ceq 'wrong-binding'){Add-RetentionOwnedFact ($script:PhaseDiagnostics+'/run-binding.txt') ([string]::Join([char]10,@('run_id=999',('binding_guid='+('c'*32)),'created_utc=2026-10-24T00:00:00Z','')))}
+  if($Mode -ceq 'missing-binding'){$null=$script:RFacts.Remove($script:PhaseDiagnostics+'/run-binding.txt')}
+  foreach($Part in @('list','list-cargo-capture')){foreach($Event in @('start','end')){
+    $Ticks=if($Part -ceq 'list'){if($Event -ceq 'start'){10}else{40}}else{if($Event -ceq 'start'){20}else{30}}
+    $Text=[string]::Join([char]10,@(('phase='+$Phase+'-'+$Part),('event='+$Event),'utc=2026-10-24T00:00:00Z',('ticks='+$Ticks),'frequency=1000',('binding='+('c'*32)),''));if($Event -ceq 'end'){$Text+='outcome=completed'+[char]10}
+    if($Mode -ceq 'zero-frequency'){$Text=$Text.Replace('frequency=1000','frequency=0')}
+    if($Mode -ceq 'foreign-marker'){$Text=$Text.Replace(('binding='+('c'*32)),('binding='+('d'*32)))}
+    if($Mode -ceq 'incomplete-marker' -and $Event -ceq 'end' -and $Part -ceq 'list-cargo-capture'){continue}
+    Add-RetentionOwnedFact ($script:PhaseDiagnostics+'/phase-'+$Phase+'-'+$Part+'-'+$Event+'.txt') $Text
+  }}
+  Initialize-HumCargoListDiagnostics
+}
+'@
+  $Driver=@'
+$script:RAssertions=[Collections.Generic.List[object]]::new();$Cases=[Collections.Generic.List[object]]::new()
+$BoundTransport=Select-RetentionPhaseTransport $WorkflowText
+Require-RetentionOwned ($BoundTransport.PathLine -ceq ('          path: '+[char]36+'{{ steps.full_preflight.outputs.phase_diagnostics }}')) 'actual phase upload admits complete whole-directory transport'
+$TransportCases=@(
+  @('changed-path',($WorkflowText.Replace($BoundTransport.PathLine,'          path: other-directory'))),
+  @('obsolete-path',($WorkflowText.Replace($BoundTransport.PathLine,('          path: '+[char]36+'{{ steps.preflight.outputs.phase_diag_dir }}')))),
+  @('suffixed-path',($WorkflowText.Replace($BoundTransport.PathLine,($BoundTransport.PathLine+'/*.txt')))),
+  @('filtered-path',($WorkflowText.Replace($BoundTransport.PathLine,'          path: phase-*.txt'))),
+  @('multiline-filter',($WorkflowText.Replace($BoundTransport.PathLine,('          path: |'+[char]10+'            '+[char]36+'{{ steps.full_preflight.outputs.phase_diagnostics }}/*.txt')))),
+  @('commented-path',($WorkflowText.Replace($BoundTransport.PathLine,('          # '+$BoundTransport.PathLine.TrimStart())))),
+  @('unrelated-decoy',($WorkflowText.Replace($BoundTransport.PathLine,'          path: other-directory')+[char]10+'      - name: Unrelated diagnostic decoy'+[char]10+$BoundTransport.PathLine)),
+  @('duplicate-path',($WorkflowText.Replace($BoundTransport.PathLine,($BoundTransport.PathLine+[char]10+$BoundTransport.PathLine)))),
+  @('duplicate-step',($WorkflowText+[char]10+$BoundTransport.Step)),
+  @('ambiguous-artifact',($WorkflowText+[char]10+$BoundTransport.Step.Replace($BoundTransport.Header,'      - name: Other upload of same artifact'))),
+  @('commented-step',($WorkflowText.Replace($BoundTransport.Step,([string]::Join([char]10,@(($BoundTransport.Step -split '\r?\n')|ForEach-Object{'# '+$_})))))),
+  @('changed-step',($WorkflowText.Replace($BoundTransport.Header,'      - name: Other phase upload')))
+)
+foreach($TransportCase in $TransportCases){
+  $Caught='';try{$null=Select-RetentionPhaseTransport $TransportCase[1]}catch{$Caught=$_.Exception.Message}
+  Require-RetentionOwned ($Caught -ceq 'retention phase transport source changed') ($TransportCase[0]+' actual selected transport consumer refuses')
+}
+$Owners=@(
+ @('Work Order 22 B01 capability admission guarded production mutation','compiler-front-wo22-b01','backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing','cargo-list-wo22-b01.json'),
+ @('Work Order 23 M07 module count guarded production mutation','compiler-front-wo23-m07','app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing','cargo-list-wo23-m07.json'))
+foreach($Row in $Owners){foreach($Mode in @('positive','negative-run','lookup-throw','disabled','oversize','write-failure','partial-write','existing','wrong-binding','missing-binding','zero-frequency','foreign-marker','incomplete-marker','wrong-destination','overlap-cache','missing-identity','unsafe-reparse','duplicate-list','list-nonzero','capture-throw','precheck','postcheck')){
+  Reset-RetentionOwned $Mode $Row[1]
+  $ExistingPath=$script:PhaseDiagnostics+'/'+$Row[3];if($Mode -ceq 'existing'){$script:RFiles.Add($ExistingPath,[byte[]]@(17,29))}
+  $Caught='';$Returned=@();try{if($Row[1] -ceq 'compiler-front-wo22-b01'){$Returned=@(Invoke-ExactRustTest $Row[0] $script:Cargo $Row[2] -Wo22Admission ([pscustomobject]@{Target='hum'}))}else{$Returned=@(Invoke-ExactRustTest $Row[0] $script:Cargo $Row[2])}}catch{$Caught=$_.Exception.Message}
+  $ExpectedFailure=$Mode -cin @('negative-run','duplicate-list','list-nonzero','capture-throw') -or ($Row[1] -ceq 'compiler-front-wo22-b01' -and $Mode -cin @('precheck','postcheck'))
+  Require-RetentionOwned (($Caught -cne '') -eq $ExpectedFailure) ($Row[1]+'/'+$Mode+' unchanged validation disposition')
+  if($Mode -ceq 'negative-run'){Require-RetentionOwned ($Caught -ceq ($Row[0]+' failed with exit code 101')) ($Row[1]+' exact exit101 exception')}
+  if($Mode -ceq 'capture-throw'){Require-RetentionOwned ($Caught -ceq 'owned original capture exception') ($Row[1]+' original exception survives')}
+  $AcceptedList=$Mode -cnotin @('duplicate-list','list-nonzero','capture-throw') -and -not ($Row[1] -ceq 'compiler-front-wo22-b01' -and $Mode -cin @('precheck','postcheck'))
+  Require-RetentionOwned ($script:RCalls.Count -eq $(if($Mode -ceq 'precheck' -and $Row[1] -ceq 'compiler-front-wo22-b01'){0}elseif(-not $AcceptedList){1}else{2})) ($Row[1]+'/'+$Mode+' original request count')
+  Require-RetentionOwned ($script:ExactRustSelectorCredits.Count -eq $(if($ExpectedFailure){1}else{2})) ($Row[1]+'/'+$Mode+' original evidence credit')
+  Require-RetentionOwned ($Returned.Count -eq 0) ($Row[1]+'/'+$Mode+' no diagnostic validation stream')
+  if($null -ne $script:RList){Require-RetentionOwned ([string]::Join([char]0,$script:RList) -ceq $script:RListBefore -and [string]::Join([char]0,$script:RListArguments) -ceq $script:RArgumentsBefore) ($Row[1]+'/'+$Mode+' original output and argv unchanged')}
+  $Complete=$Mode -cin @('positive','negative-run','precheck','postcheck') -and $AcceptedList
+  if($Complete){
+    Require-RetentionOwned ($script:RFiles.Count -eq 1 -and $script:RFiles.ContainsKey($ExistingPath)) ($Row[1]+'/'+$Mode+' exact finite file')
+    $Record=[Text.Encoding]::UTF8.GetString($script:RFiles[$ExistingPath])|ConvertFrom-Json
+    Require-RetentionOwned ([string]::Join('|',$Record.output) -ceq [string]::Join('|',$script:RList)) ($Row[1]+' identical ordered decoded output')
+    Require-RetentionOwned ($Record.owner -ceq $Row[0] -and $Record.selector -ceq $Row[2] -and $Record.phase -ceq $Row[1] -and $Record.exit_code -eq 0 -and $Record.run_id -ceq '123' -and $Record.run_attempt -ceq '1' -and $Record.binding_guid -ceq ('c'*32) -and -not $Record.validation_credit -and -not $Record.timing_credit) ($Row[1]+' exact diagnostic identity no credit')
+    Require-RetentionOwned ($script:RFiles[$ExistingPath].Length -le 262144 -and $script:REvents.IndexOf($Row[1]+'-list|end|completed') -lt $script:REvents.IndexOf('diagnostic-write') -and $script:REvents.IndexOf('diagnostic-write') -lt $script:REvents.IndexOf($Row[1]+'-run|start|')) ($Row[1]+' bounded post-list pre-run retention')
+    $Before=$script:RWriteAttempts;Write-HumCargoListDiagnostic $Row[0] $Row[2] $Row[1] $script:Cargo ([string[]]$script:RListArguments.Clone()) ([string[]]$script:RList.Clone()) 0
+    Require-RetentionOwned ($script:RWriteAttempts -eq $Before) ($Row[1]+' owner cannot retry')
+  }elseif($Mode -ceq 'partial-write'){Require-RetentionOwned ($script:RFiles.Count -eq 1 -and $script:RFiles[$ExistingPath].Length -eq 17 -and $script:HumCargoListDiagnosticOwner.Status[$Row[3]] -ceq 'unavailable_missing_or_partial') ($Row[1]+' partial prefix unavailable no retry')}
+  elseif($Mode -ceq 'existing'){Require-RetentionOwned ([string]::Join(',',$script:RFiles[$ExistingPath]) -ceq '17,29') ($Row[1]+' existing bytes never overwritten')}
+  else{Require-RetentionOwned ($script:RFiles.Count -eq 0) ($Row[1]+'/'+$Mode+' missing diagnostics unavailable')}
+  $Cases.Add([pscustomobject]@{Owner=$Row[1];Mode=$Mode;Caught=$Caught;Calls=$script:RCalls.Count;Credits=$script:ExactRustSelectorCredits.Count;Files=@($script:RFiles.Keys);WriteAttempts=$script:RWriteAttempts})
+}}
+foreach($Row in $Owners){foreach($Wrong in @(@('other owner',$Row[2],$Row[1]),@($Row[0],'wrong::selector',$Row[1]),@($Row[0],$Row[2],'other-phase'))){Require-RetentionOwned ($null -eq (Get-HumCargoListDiagnosticSpec $Wrong[0] $Wrong[1] $Wrong[2])) ($Row[1]+' exact owner selector phase admission')}}
+foreach($Row in $Owners){
+  $OtherLabel=if($Row[1] -ceq 'compiler-front-wo22-b01'){'Work Order 22 B02 pinned versions guarded production mutation'}else{'Work Order 23 M08 module first guarded production mutation'}
+  Reset-RetentionOwned 'positive' $Row[1];$Caught=''
+  try{if($Row[1] -ceq 'compiler-front-wo22-b01'){$null=Invoke-ExactRustTest $OtherLabel $script:Cargo $Row[2] -Wo22Admission ([pscustomobject]@{Target='hum'})}else{$null=Invoke-ExactRustTest $OtherLabel $script:Cargo $Row[2]}}catch{$Caught=$_.Exception.Message}
+  Require-RetentionOwned ($Caught -ceq '' -and $script:RCalls.Count -eq 2 -and $script:RFiles.Count -eq 0 -and $script:ExactRustSelectorCredits.Count -eq 2) ($Row[1]+' same-selector adjacent actual owner retains no output')
+}
+$Membership=@('cargo-list-wo22-b01.json','cargo-list-wo23-m07.json','phase-compiler-front-wo23-m07-list-start.txt','phase-compiler-front-wo23-m07-list-end.txt')
+$Timing=@($Membership|Where-Object{$_ -cmatch $TimingPattern})
+Require-RetentionOwned ($Timing.Count -eq 2 -and $Timing -cnotcontains 'cargo-list-wo22-b01.json' -and $Timing -cnotcontains 'cargo-list-wo23-m07.json') 'actual timing filename consumer excludes retained JSON'
+Require-RetentionOwned (@($Membership|Where-Object{$_ -clike 'cargo-list-*.json'}).Count -eq 2) 'declared finite diagnostic names remain ordinary upload members'
+[pscustomobject]@{Assertions=$script:RAssertions.ToArray();Cases=$Cases.ToArray();StaticOnlyBoundaries=@('ordinary read/hash','create-new binary write');EvidenceKind='source-selected consumers with modeled operational accessors'}
+'@
+  $Program=$Owned+[char]10+[string]::Join([char]10,$Parts)+[char]10+$Driver
+  if($null -ne $SelectedProgram){$SelectedProgram.Value=$Program}
+  # The same actual boundary guards the selected program and every inert fixture.
+  # No fixture is invoked. Regressions must finish before the sole inner Create.
+  $Boundary=Assert-RetentionSelectedProgramBoundary $Program
+  $BoundaryAssertions=[Collections.Generic.List[object]]::new()
+  $BoundaryAssertions.Add([pscustomobject]@{Ok=$true;Message='boundary admission: actual selected program admitted before Create'})
+  $EvidencePins=@($Pins|Where-Object{$_.Name -ceq 'Assert-ExactRustSelectorEvidence'})
+  $SyntaxPins=@($Pins|Where-Object{$_.Name -ceq 'Assert-ExactRustSelectorSyntax'})
+  if($EvidencePins.Count -ne 1 -or $SyntaxPins.Count -ne 1){throw 'retention boundary evidence source selection changed'}
+  foreach($DependencyPin in @($SyntaxPins[0],$EvidencePins[0])){
+    if($DependencyPin.StartUTF16 -lt 0 -or $DependencyPin.EndUTF16 -lt $DependencyPin.StartUTF16 -or $DependencyPin.EndUTF16 -gt $SelectorText.Length -or $SelectorText.Substring($DependencyPin.StartUTF16,$DependencyPin.EndUTF16-$DependencyPin.StartUTF16) -cne $DependencyPin.Text){throw 'retention boundary evidence source binding changed'}
+  }
+  # Use the exact selected definitions; never whitelist an undefined dependency.
+  $EvidenceContext=$SyntaxPins[0].Text+[char]10+$EvidencePins[0].Text
+  $ET=$null;$EE=$null;$EA=[Management.Automation.Language.Parser]::ParseInput($EvidencePins[0].Text,[ref]$ET,[ref]$EE)
+  $MeasureSites=@($EA.FindAll({param($Node)$Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Measure-Object'},$true))
+  if($EE.Count -ne 0 -or $MeasureSites.Count -ne 6){throw 'retention boundary stock aggregation sites changed'}
+  $BoundaryAssertions.Add([pscustomobject]@{Ok=$true;Message='boundary admission: six actual stock aggregation sites selected'})
+  $BoundaryFixtures=@(
+    [pscustomobject]@{Name='actual-evidence-consumer';Text=$EvidenceContext;Expected=''},
+    [pscustomobject]@{Name='stock-aggregation';Text='1,2 | Measure-Object -Sum';Expected=''},
+    [pscustomobject]@{Name='owned-dynamic-marker';Text='& $WriteSelectorPhaseMarker ''list'' ''start''';Expected=''},
+    [pscustomobject]@{Name='unsupported-command';Text='Get-ChildItem';Expected='retention selected-program boundary refused: command:Get-ChildItem'},
+    [pscustomobject]@{Name='unsupported-dynamic-command';Text='& $RetentionUnknownCommand';Expected='retention selected-program boundary refused: dynamic-command'},
+    [pscustomobject]@{Name='operational-type';Text='[IO.File]::ReadAllText(''owned'')';Expected='retention selected-program boundary refused: operational-type:IO.File'},
+    [pscustomobject]@{Name='drive-variable';Text='$env:RETENTION_BOUNDARY_FIXTURE';Expected='retention selected-program boundary refused: drive-variable'},
+    [pscustomobject]@{Name='file-redirection';Text='1 > owned.txt';Expected='retention selected-program boundary refused: boundary-node'},
+    [pscustomobject]@{Name='using-expression';Text='$using:RetentionBoundaryFixture';Expected='retention selected-program boundary refused: boundary-node'},
+    [pscustomobject]@{Name='type-definition';Text='class RetentionBoundaryFixture { }';Expected='retention selected-program boundary refused: boundary-node'},
+    [pscustomobject]@{Name='parse-error';Text='(';Expected='retention selected-program boundary refused: parse'}
+  )
+  foreach($Fixture in $BoundaryFixtures){
+    $Caught='';try{$null=Assert-RetentionSelectedProgramBoundary $Fixture.Text}catch{$Caught=$_.Exception.Message}
+    $Ok=$Caught -ceq $Fixture.Expected
+    $BoundaryAssertions.Add([pscustomobject]@{Ok=$Ok;Message=('boundary admission: '+$Fixture.Name+' exact disposition')})
+    if(-not $Ok){throw ('retention boundary regression refused: '+$Fixture.Name)}
+  }
+  $Result=& ([scriptblock]::Create($Program)) $Timing[0].Groups['pattern'].Value $WorkflowText
+  $Assertions=@($Result.Assertions)+@($BoundaryAssertions.ToArray())
+  return [pscustomobject]@{Assertions=$Assertions;Cases=$Result.Cases;Pins=$Pins.ToArray();Gate=$Boundary;StaticOnlyBoundaries=$Result.StaticOnlyBoundaries}
+}
+
 function Invoke-OwnedWo22TargetRoutingControls {
   param([string] $CheckAllText, [string] $SelectorText, [byte[]] $BackendBytes, $SelectedProgram = $null)
   function Select-Wo22OwnedFunction([string] $Text, [string] $Name) {
@@ -153,6 +400,8 @@ function Invoke-OwnedWo22TargetRoutingControls {
   $MainGuard=$CheckAllText.Substring($Assignments[0].Extent.StartOffset,$Guards[0].Extent.EndOffset-$Assignments[0].Extent.StartOffset)
   $Owned = @'
 param([byte[]] $BackendBytes,[string] $CheckAllText)
+function Test-Path { param([string] $LiteralPath) return $false }
+function Write-HumCargoListDiagnostic { }
 function Add-Wo22OwnedHook([string] $Name) { if (-not $script:W22Hooks.ContainsKey($Name)) { $script:W22Hooks.Add($Name,0) }; $script:W22Hooks[$Name]++ }
 function Assert-Wo22Owned([bool] $Ok,[string] $Message) { $script:W22Assertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message}); if (-not $Ok) { throw "WO22 owned assertion refused: $Message" } }
 function Read-Wo22OwnedBytes($Path) { Add-Wo22OwnedHook 'read'; return ,([byte[]] $script:W22Bytes.Clone()) }
@@ -304,7 +553,7 @@ function Invoke-OwnedWo24IncrementalRequestControls {
     # PowerShell variables are case-insensitive: admit only these owned bindings/safe automatic values.
     $Variables=@('_','A','ArgvOk','ExpectedPoison','Admission','Arguments','Baseline','Bound','Bytes','Canonical','CanonicalContents','Cargo','CargoArguments','Cases','Caught','Commands','Comparison','Config','Digest','Driver','E','EscapedSelector','Event','ExactListings','ExactResults','Expected','F','Failed','false','Files','Gate','Generation','Hasher','Ignored','IncrementalAssertion','Isolated','Label','Leaf','List','ListedTests','ListOutput','ListPhaseOutcome','ListResult','Matches','Measured','Message','Methods','Mode','MutableExpected','MutationBytes','MutationPath','N','Name','NamedResults','null','ObsCases','Ok','Original','Outcome','Output','Owned','Owner','Pair','Parent','Part','Parts','Passed','Path','PhaseName','Pins','Program','Properties','PSBoundParameters','Relative','Result','Role','Roles','Route','Row','Rows','RunningCounts','RunOutput','RunPhaseOutcome','RunResult','SavedGenerationOwner','script:ExactRustMutationGenerationOwner','script:ExactRustSelectorCredits','script:W24IAssertions','script:W24IBytes','script:W24ICalls','script:W24IGeneration','script:W24IHooks','script:W24IMode','script:W24IMutation','script:W24IRoute','script:W24ISelector','script:W24ISeparator','script:W24IWo22','script:W24IWorkingRoot','SelectedProgram','Selector','SelectorPhasePrefix','SelectorText','Spec','SummaryCounts','T','Text','Total','true','Types','Unknown','UseWo22Target','V','Variables','Wo22Admission','Wo22MutationBytes','Wo24Incremental','WorkingRoot','WriteSelectorPhaseMarker','Wrong')
     # Only owned in-memory bindings for the nested list/capture controls.
-    $Variables+=@('TraceWo22Wo23ListCapture','ListCapturePhaseOutcome','Nested','CaptureEvents','ExpectedCaptureEvents','ParentOutcome','GuardSpec','script:W24IEvents','script:W24IMarkers')
+    $Variables+=@('LiteralPath','TraceWo22Wo23ListCapture','ListCapturePhaseOutcome','Nested','CaptureEvents','ExpectedCaptureEvents','ParentOutcome','GuardSpec','script:W24IEvents','script:W24IMarkers')
     $Properties+=@('PhaseName','Event','Outcome')
     $Commands=@('Where-Object','ForEach-Object','Measure-Object')+@($A.FindAll({param($N)$N -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{$_.Name})
     $Unknown=[Collections.Generic.List[string]]::new()
@@ -354,6 +603,8 @@ function Invoke-OwnedWo24IncrementalRequestControls {
     $Parts.Add($Text.Replace('Write-Host','Write-W24IMessage').Replace('Join-Path','Join-W24IPath'))
   }
   $Owned=@'
+function Test-Path { param([string] $LiteralPath) return $false }
+function Write-HumCargoListDiagnostic { }
 function Require-W24I([bool]$Ok,[string]$Message){$script:W24IAssertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message});if(-not $Ok){throw ('WO24 incremental assertion refused: '+$Message)}}
 function Hook-W24I([string]$Name){$script:W24IEvents.Add($Name);if(-not $script:W24IHooks.ContainsKey($Name)){$script:W24IHooks[$Name]=0};$script:W24IHooks[$Name]++}
 function Write-W24IMessage([string]$Message){Hook-W24I 'message'}
@@ -2339,6 +2590,9 @@ try {
     $RetainedBindings = Invoke-OwnedRetainedHelperBindingControls ([IO.File]::ReadAllText($PSCommandPath))
     foreach ($BindingAssertion in $RetainedBindings.Assertions) { Test-ObsRequire $BindingAssertion.Ok $BindingAssertion.Message }
     $ObsCases.Add('retained-six-optional-binding-owned-controls')
+    $CargoListRetention = Invoke-OwnedCargoListRetentionControls $CheckAllText ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1'))) ([IO.File]::ReadAllText((Join-Path $PSScriptRoot '../.github/workflows/ci.yml')))
+    foreach ($RetentionAssertion in $CargoListRetention.Assertions) { Test-ObsRequire $RetentionAssertion.Ok $RetentionAssertion.Message }
+    $ObsCases.Add('successful-cargo-list-retention-owned-controls')
     $Wo22Routing = Invoke-OwnedWo22TargetRoutingControls $CheckAllText ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'test_exact_rust_selector.ps1'))) ([IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '../src/backend_cranelift.rs')))
     foreach ($RoutingAssertion in $Wo22Routing.Assertions) { Test-ObsRequire $RoutingAssertion.Ok $RoutingAssertion.Message }
     $ObsCases.Add('wo22-target-routing-owned-controls')
