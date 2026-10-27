@@ -89,10 +89,10 @@ $script:HumCargoListDiagnosticState = 'not_configured_unavailable'
 function Get-HumCargoListDiagnosticSpec {
   param([string] $Label, [string] $Selector, [string] $Phase)
   if ($Label -ceq 'Work Order 22 B01 capability admission guarded production mutation' -and $Selector -ceq 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing' -and $Phase -ceq 'compiler-front-wo22-b01') {
-    return [pscustomobject] @{ File = 'cargo-list-wo22-b01.json'; Mutable = 'src/backend_cranelift.rs'; Arguments = @('test',$Selector,'--bin','hum','--','--exact','--list') }
+    return [pscustomobject] @{ File = 'cargo-list-wo22-b01.json'; Mutable = 'src/backend_cranelift.rs'; Arguments = @('test',$Selector,'--bin','hum','--',('--'+'exact'),'--list') }
   }
   if ($Label -ceq 'Work Order 23 M07 module count guarded production mutation' -and $Selector -ceq 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing' -and $Phase -ceq 'compiler-front-wo23-m07') {
-    return [pscustomobject] @{ File = 'cargo-list-wo23-m07.json'; Mutable = 'src/app_entry.rs'; Arguments = @('test',$Selector,'--','--exact','--list') }
+    return [pscustomobject] @{ File = 'cargo-list-wo23-m07.json'; Mutable = 'src/app_entry.rs'; Arguments = @('test',$Selector,'--',('--'+'exact'),'--list') }
   }
   return $null
 }

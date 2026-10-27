@@ -322,7 +322,7 @@ Require-RetentionOwned (@($Membership|Where-Object{$_ -clike 'cargo-list-*.json'
   $Program=$Owned+[char]10+[string]::Join([char]10,$Parts)+[char]10+$Driver
   if($null -ne $SelectedProgram){$SelectedProgram.Value=$Program}
   # The same actual boundary guards the selected program and every inert fixture.
-  # No fixture is invoked. Regressions must finish before the sole inner Create.
+  # No boundary fixture is invoked. Regressions finish before the selected-program Create.
   $Boundary=Assert-RetentionSelectedProgramBoundary $Program
   $BoundaryAssertions=[Collections.Generic.List[object]]::new()
   $BoundaryAssertions.Add([pscustomobject]@{Ok=$true;Message='boundary admission: actual selected program admitted before Create'})
@@ -357,8 +357,35 @@ Require-RetentionOwned (@($Membership|Where-Object{$_ -clike 'cargo-list-*.json'
     $BoundaryAssertions.Add([pscustomobject]@{Ok=$Ok;Message=('boundary admission: '+$Fixture.Name+' exact disposition')})
     if(-not $Ok){throw ('retention boundary regression refused: '+$Fixture.Name)}
   }
+  # Exercise the unchanged actual whole-source guard, not a copied predicate.
+  # Complete candidate and bypass text are data; only its two selected statements run.
+  $SelfTokens=$null;$SelfErrors=$null
+  $SelfAst=[Management.Automation.Language.Parser]::ParseInput($CheckAllText,[ref]$SelfTokens,[ref]$SelfErrors)
+  $SelfCondition='$CheckAllSource.Contains($ExactFlag)'
+  $SelfGuards=@($SelfAst.FindAll({param($Node)$Node -is [Management.Automation.Language.IfStatementAst] -and $Node.Clauses.Count -eq 1 -and $Node.Clauses[0].Item1.Extent.Text -ceq $SelfCondition},$true))
+  if($SelfErrors.Count -ne 0 -or $SelfGuards.Count -ne 1 -or $SelfGuards[0].Parent -isnot [Management.Automation.Language.StatementBlockAst]){throw 'retention self-source guard selection changed'}
+  $SelfStatements=@($SelfGuards[0].Parent.Statements);$SelfIndex=-1
+  for($Index=0;$Index -lt $SelfStatements.Count;$Index++){if([object]::ReferenceEquals($SelfStatements[$Index],$SelfGuards[0])){$SelfIndex=$Index;break}}
+  $SelfFlagText='$ExactFlag = ''--'' + ''exact'''
+  $SelfGuardText='if ($CheckAllSource.Contains($ExactFlag)) { throw ''exact Rust tests must use the guarded selector helper'' }'
+  $SelfReadText='$CheckAllSource = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot ''check_all.ps1''))'
+  $SelfReads=@($SelfStatements|Where-Object{$_.Extent.Text -ceq $SelfReadText})
+  if($SelfIndex -lt 1 -or $SelfStatements[$SelfIndex-1].Extent.Text -cne $SelfFlagText -or $SelfGuards[0].Extent.Text -cne $SelfGuardText -or $SelfReads.Count -ne 1 -or $SelfReads[0].Extent.StartOffset -ge $SelfGuards[0].Extent.StartOffset){throw 'retention actual whole-source guard binding changed'}
+  $SelfProgram='param([string]$CheckAllSource)'+[char]10+$SelfStatements[$SelfIndex-1].Extent.Text+[char]10+$SelfGuards[0].Extent.Text
+  $SelfAction=[scriptblock]::Create($SelfProgram)
+  $SelfAssertions=[Collections.Generic.List[object]]::new()
+  $SelfCases=@(
+    [pscustomobject]@{Name='complete candidate source';Source=$CheckAllText;Expected=''},
+    [pscustomobject]@{Name='direct bypass in complete candidate source';Source=($CheckAllText+[char]10+'Invoke-ExactRustNativeCapture $Cargo @(''test'',''probe::exact_guard'',''--'',''--exact'')');Expected='exact Rust tests must use the guarded selector helper'}
+  )
+  foreach($Case in $SelfCases){
+    $Caught='';try{$null=& $SelfAction $Case.Source}catch{$Caught=$_.Exception.Message}
+    $Ok=$Caught -ceq $Case.Expected
+    $SelfAssertions.Add([pscustomobject]@{Ok=$Ok;Message=('self-source exact guard: '+$Case.Name+' exact disposition')})
+    if(-not $Ok){throw ('retention self-source guard regression refused: '+$Case.Name)}
+  }
   $Result=& ([scriptblock]::Create($Program)) $Timing[0].Groups['pattern'].Value $WorkflowText
-  $Assertions=@($Result.Assertions)+@($BoundaryAssertions.ToArray())
+  $Assertions=@($Result.Assertions)+@($BoundaryAssertions.ToArray())+@($SelfAssertions.ToArray())
   return [pscustomobject]@{Assertions=$Assertions;Cases=$Result.Cases;Pins=$Pins.ToArray();Gate=$Boundary;StaticOnlyBoundaries=$Result.StaticOnlyBoundaries}
 }
 
