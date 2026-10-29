@@ -705,6 +705,58 @@ foreach($Group in $SharedGroups) {
 for($Index=1;$Index -lt $SharedPhaseIndexes.Count;$Index++) {
   Assert-Policy ($SharedPhaseIndexes[$Index] -gt $SharedPhaseIndexes[$Index-1]) 'Full shared phase order'
 }
+# This validates the actual Full source; the corruptions below use this same
+# consumer without executing a candidate Cargo request or claiming test coverage.
+function Assert-FullHumDevCoverage([string]$CandidateSource,[string[]]$Admissions) {
+  $Tokens=$null;$Errors=$null
+  $Ast=[Management.Automation.Language.Parser]::ParseInput($CandidateSource,[ref]$Tokens,[ref]$Errors)
+  if($Errors.Count -ne 0){throw 'ci_policy_test: Full hum-dev source syntax'}
+  $Main=@($Ast.EndBlock.Statements|Where-Object{$_ -is [Management.Automation.Language.TryStatementAst]})
+  if($Main.Count -ne 1){throw 'ci_policy_test: Full hum-dev main ownership'}
+  $Statements=@($Main[0].Body.Statements)
+  if($Statements.Count -lt $Admissions.Count){throw 'ci_policy_test: Full hum-dev profile admission'}
+  for($Index=0;$Index -lt $Admissions.Count;$Index++) {
+    if($Statements[$Index] -isnot [Management.Automation.Language.IfStatementAst] -or $Statements[$Index].Extent.Text -cne $Admissions[$Index]){throw 'ci_policy_test: Full hum-dev profile admission'}
+  }
+  $Request='Invoke-Native ''hum-dev crate tests'' $Cargo @(''test'',''-p'',''hum-dev'',''--all-targets'')'
+  $Calls=@($Ast.FindAll({param($Node)
+    if($Node -isnot [Management.Automation.Language.CommandAst]){return $false}
+    $Label=$Node.CommandElements.Count -gt 1 -and $Node.CommandElements[1] -is [Management.Automation.Language.StringConstantExpressionAst] -and $Node.CommandElements[1].Value -ceq 'hum-dev crate tests'
+    if($Label){return $true}
+    if($Node.GetCommandName() -cne 'Invoke-Native'){return $false}
+    $Package=@($Node.FindAll({param($Part)$Part -is [Management.Automation.Language.StringConstantExpressionAst] -and $Part.Value -ceq 'hum-dev'},$true))
+    $Test=@($Node.FindAll({param($Part)$Part -is [Management.Automation.Language.StringConstantExpressionAst] -and $Part.Value -ceq 'test'},$true))
+    $Package.Count -ne 0 -and $Test.Count -ne 0
+  },$true))
+  if($Calls.Count -ne 1 -or $Calls[0].Extent.Text -cne $Request){throw 'ci_policy_test: Full hum-dev exact unique request'}
+  $Tests=@($Statements|Where-Object{$_.Extent.Text -ceq 'Invoke-HumPhase ''tests'' { Invoke-HumCoreCheck ''tests'' $Cargo }'})
+  if($Tests.Count -ne 1){throw 'ci_policy_test: Full hum-dev tests-phase owner'}
+  $At=[Array]::IndexOf($Statements,$Tests[0])
+  if($At -lt $Admissions.Count -or $At+1 -ge $Statements.Count){throw 'ci_policy_test: Full hum-dev request placement'}
+  $Owned=$Statements[$At+1]
+  if($Owned -isnot [Management.Automation.Language.PipelineAst] -or $Owned.PipelineElements.Count -ne 1 -or $Owned.PipelineElements[0] -isnot [Management.Automation.Language.CommandAst] -or -not [object]::ReferenceEquals($Owned.PipelineElements[0],$Calls[0]) -or $Calls[0].InvocationOperator -ne [Management.Automation.Language.TokenKind]::Unknown){throw 'ci_policy_test: Full hum-dev unconditional request ownership'}
+  $Barriers=@($Statements[0..$At]|Where-Object{$_ -is [Management.Automation.Language.ReturnStatementAst] -or $_ -is [Management.Automation.Language.ThrowStatementAst] -or $_ -is [Management.Automation.Language.ExitStatementAst] -or $_ -is [Management.Automation.Language.BreakStatementAst] -or $_ -is [Management.Automation.Language.ContinueStatementAst]})
+  if($Barriers.Count -ne 0){throw 'ci_policy_test: Full hum-dev unreachable request'}
+}
+Assert-FullHumDevCoverage $Source $SharedReturns
+Assert-Policy $true 'actual Full hum-dev exact request follows root tests after profile returns'
+$FullHumDevRequest='Invoke-Native ''hum-dev crate tests'' $Cargo @(''test'',''-p'',''hum-dev'',''--all-targets'')'
+$FullTestsRequest='Invoke-HumPhase ''tests'' { Invoke-HumCoreCheck ''tests'' $Cargo }'
+$HumDevCoverageCases=@(
+  [pscustomobject]@{Name='omission';Source=$Source.Replace($FullHumDevRequest,'')},
+  [pscustomobject]@{Name='duplicate';Source=$Source.Replace($FullHumDevRequest,($FullHumDevRequest+[char]10+'  '+$FullHumDevRequest))},
+  [pscustomobject]@{Name='wrong package';Source=$Source.Replace($FullHumDevRequest,$FullHumDevRequest.Replace('''hum-dev''','''hum'''))},
+  [pscustomobject]@{Name='wrong argv';Source=$Source.Replace($FullHumDevRequest,$FullHumDevRequest.Replace('''--all-targets''','''--lib'''))},
+  [pscustomobject]@{Name='no-run';Source=$Source.Replace($FullHumDevRequest,$FullHumDevRequest.Replace('''--all-targets''','''--all-targets'',''--no-run'''))},
+  [pscustomobject]@{Name='conditional';Source=$Source.Replace($FullHumDevRequest,('if ($false) { '+$FullHumDevRequest+' }'))},
+  [pscustomobject]@{Name='uninvoked scriptblock';Source=$Source.Replace($FullHumDevRequest,('{ '+$FullHumDevRequest+' }'))},
+  [pscustomobject]@{Name='unreachable after return';Source=$Source.Replace($FullTestsRequest,('return'+[char]10+'  '+$FullTestsRequest))},
+  [pscustomobject]@{Name='before profile dispatch';Source=$Source.Replace($FullHumDevRequest,'').Replace($SharedReturns[4],($FullHumDevRequest+[char]10+'  '+$SharedReturns[4]))}
+)
+foreach($Case in $HumDevCoverageCases) {
+  Assert-Policy ($Case.Source -cne $Source) "initialized Full hum-dev corruption: $($Case.Name)"
+  Assert-PolicyRejects { Assert-FullHumDevCoverage $Case.Source $SharedReturns } "Full hum-dev corruption rejects: $($Case.Name)"
+}
 $SharedMarkerIndexes=@()
 foreach($Route in @(@('compiler-front-checks','Invoke-HumCompilerFrontChecks'),@('compiler-corpus','Invoke-HumCompilerCorpusChecks'))) {
   $Phase=$Route[0];$Name=$Route[1]

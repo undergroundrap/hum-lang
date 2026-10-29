@@ -472,6 +472,16 @@ function Invoke-ExactRustTest {
     $ListPhaseOutcome = 'completed'
   } finally { $null = & $WriteSelectorPhaseMarker 'list' 'end' $ListPhaseOutcome }
 
+  # Optional diagnostic IO follows list acceptance and its end marker. It is
+  # outside list/capture spans, but still part of enclosing producer/Full cost.
+  if (($Label -ceq 'Work Order 22 B01 capability admission guarded production mutation' -and $Selector -ceq 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing') -or ($Label -ceq 'Work Order 23 M07 module count guarded production mutation' -and $Selector -ceq 'app_entry::tests::canonical_native_program_layout_is_ordered_and_load_bearing')) {
+    try {
+      if (Test-Path -LiteralPath 'Function:\Write-HumCargoListDiagnostic') {
+        $null = Write-HumCargoListDiagnostic $Label $Selector $SelectorPhasePrefix $Cargo ([string[]]$CargoArguments.Clone()) ([string[]]$ListResult.Output.Clone()) ([int]$ListResult.ExitCode)
+      }
+    } catch { }
+  }
+
   $RunPhaseOutcome = 'failed'
   $null = & $WriteSelectorPhaseMarker 'run' 'start'
   try {
