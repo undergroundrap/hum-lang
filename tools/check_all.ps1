@@ -7462,6 +7462,7 @@ try {
   Invoke-HumPhase 'format' { Invoke-HumCoreCheck 'format' $Cargo }
   Invoke-HumPhase 'check' { Invoke-HumCoreCheck 'check' $Cargo }
   Invoke-HumPhase 'tests' { Invoke-HumCoreCheck 'tests' $Cargo }
+  Invoke-Native 'hum-dev crate tests' $Cargo @('test','-p','hum-dev','--all-targets')
   Invoke-HumPhase 'canonical-diagnostic-registry' { Invoke-ExactRustTest 'canonical diagnostic registry/projection test' $Cargo 'diagnostic_catalog::tests::canonical_registry_and_checked_projections_are_valid' }
   Invoke-HumPhase 'windows-drive-locality-tests' { Invoke-Native 'Windows drive locality adapter tests' $Cargo @('test', '-p', 'windows-drive-locality') }
   Invoke-HumPhase 'effect-bakeoff-tests' { Invoke-Native 'effect bake-off corpus harness tests' $Cargo @('test', '--manifest-path', 'experiments/effect-bakeoff/Cargo.toml', '--target-dir', 'target/effect-bakeoff') }
