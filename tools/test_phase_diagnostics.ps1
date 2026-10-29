@@ -171,7 +171,7 @@ function Invoke-OwnedCargoListRetentionControls {
     $Text=$Text.Replace('Get-Item -LiteralPath','Get-RetentionOwnedItem -LiteralPath').Replace('Join-Path','Join-RetentionOwnedPath').Replace('Write-Host','Write-RetentionOwnedMessage')
     foreach($Variable in @('Directory','Root','RunnerTemp','Value','Path','PhaseDiagnostics')){$Text=$Text.Replace(('[IO.Path]::GetFullPath($'+$Variable+')'),('(Get-RetentionOwnedPath $'+$Variable+')'))}
     $Text=$Text.Replace('[IO.Path]::GetDirectoryName($Directory)','(Get-RetentionOwnedParent $Directory)').Replace('[IO.Path]::GetFileName($Directory)','(Get-RetentionOwnedLeaf $Directory)').Replace('[IO.Path]::DirectorySeparatorChar',"'/'")
-    $Text=$Text.Replace("[Environment]::GetEnvironmentVariable('RUNNER_TEMP')","(Get-RetentionOwnedEnvironment 'RUNNER_TEMP')").Replace('[Environment]::GetEnvironmentVariable($Name)','(Get-RetentionOwnedEnvironment $Name)').Replace("[Environment]::GetFolderPath('UserProfile')","'C:/profile'")
+    $Text=$Text.Replace("[Environment]::GetEnvironmentVariable('RUNNER_TEMP')","(Get-RetentionOwnedEnvironment 'RUNNER_TEMP')").Replace('[Environment]::GetEnvironmentVariable($Name)','(Get-RetentionOwnedEnvironment $Name)').Replace("[Environment]::GetFolderPath('UserProfile')",("'C:" + "/profile'"))
     $Parts.Add($Text)
   }
   foreach($Name in @('Read-HumCargoListDiagnosticFact','Write-HumCargoListDiagnosticBytes')) {
@@ -233,13 +233,13 @@ function Reset-RetentionOwned([string]$Mode,[string]$Phase){
   $script:RMode=$Mode;$script:HumCargoListDiagnosticInitialized=$false;$script:HumCargoListDiagnosticOwner=$null;$script:HumCargoListDiagnosticState='not_configured_unavailable'
   $script:RFacts=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal);$script:RFiles=[Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::Ordinal)
   $script:RCalls=[Collections.Generic.List[object]]::new();$script:RMessages=[Collections.Generic.List[string]]::new();$script:REvents=[Collections.Generic.List[string]]::new();$script:ExactRustSelectorCredits=[Collections.Generic.List[string]]::new();$script:ExactRustSelectorCredits.Add('ambient::credit');$script:RGuards=0;$script:RWriteAttempts=0;$script:RList=$null;$script:RListArguments=$null
-  $script:REnv=@{RUNNER_TEMP='C:/runner';GITHUB_RUN_ID='123';GITHUB_RUN_ATTEMPT='1';RUNNER_OS='Windows';GITHUB_SHA=('a'*40);CARGO_HOME='';RUSTUP_HOME='';CARGO_TARGET_DIR='';CARGO_BUILD_BUILD_DIR=''}
-  $script:PhaseDiagnostics='C:/runner/hum-phase-diagnostics-'+('b'*32);$script:RepoRoot='C:/source';$script:Cargo='owned-cargo'
+  $script:REnv=@{RUNNER_TEMP='__RETENTION_DRIVE_ROOT__runner';GITHUB_RUN_ID='123';GITHUB_RUN_ATTEMPT='1';RUNNER_OS='Windows';GITHUB_SHA=('a'*40);CARGO_HOME='';RUSTUP_HOME='';CARGO_TARGET_DIR='';CARGO_BUILD_BUILD_DIR=''}
+  $script:PhaseDiagnostics='__RETENTION_DRIVE_ROOT__runner/hum-phase-diagnostics-'+('b'*32);$script:RepoRoot='__RETENTION_DRIVE_ROOT__source';$script:Cargo='owned-cargo'
   if($Mode -ceq 'disabled'){$script:PhaseDiagnostics=''}
-  if($Mode -ceq 'wrong-destination'){$script:PhaseDiagnostics='C:/source/diagnostic'}
-  if($Mode -ceq 'overlap-cache'){$script:REnv.CARGO_HOME='C:/runner'}
+  if($Mode -ceq 'wrong-destination'){$script:PhaseDiagnostics='__RETENTION_DRIVE_ROOT__source/diagnostic'}
+  if($Mode -ceq 'overlap-cache'){$script:REnv.CARGO_HOME='__RETENTION_DRIVE_ROOT__runner'}
   if($Mode -ceq 'missing-identity'){$script:REnv.GITHUB_RUN_ATTEMPT=''}
-  foreach($Relative in @('tools/test_exact_rust_selector.ps1','tools/check_all.ps1','Cargo.toml','Cargo.lock','src/backend_cranelift.rs','src/app_entry.rs')){Add-RetentionOwnedFact ('C:/source/'+$Relative) ('owned-source-'+$Relative)}
+  foreach($Relative in @('tools/test_exact_rust_selector.ps1','tools/check_all.ps1','Cargo.toml','Cargo.lock','src/backend_cranelift.rs','src/app_entry.rs')){Add-RetentionOwnedFact ('__RETENTION_DRIVE_ROOT__source/'+$Relative) ('owned-source-'+$Relative)}
   Add-RetentionOwnedFact ($script:PhaseDiagnostics+'/run-binding.txt') ([string]::Join([char]10,@('run_id=123',('binding_guid='+('c'*32)),'created_utc=2026-10-24T00:00:00.0000000Z','')))
   if($Mode -ceq 'wrong-binding'){Add-RetentionOwnedFact ($script:PhaseDiagnostics+'/run-binding.txt') ([string]::Join([char]10,@('run_id=999',('binding_guid='+('c'*32)),'created_utc=2026-10-24T00:00:00Z','')))}
   if($Mode -ceq 'missing-binding'){$null=$script:RFacts.Remove($script:PhaseDiagnostics+'/run-binding.txt')}
@@ -254,6 +254,7 @@ function Reset-RetentionOwned([string]$Mode,[string]$Phase){
   Initialize-HumCargoListDiagnostics
 }
 '@
+  $Owned=$Owned.Replace('__RETENTION_DRIVE_ROOT__',('C' + ':/'))
   $Driver=@'
 $script:RAssertions=[Collections.Generic.List[object]]::new();$Cases=[Collections.Generic.List[object]]::new()
 $BoundTransport=Select-RetentionPhaseTransport $WorkflowText
