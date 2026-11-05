@@ -533,7 +533,16 @@ function Get-HumCiSelection([string] $Root, [string] $Base, [string] $Head, [str
   try {
     if ((Read-HumCiGit $Root @('rev-parse','--is-shallow-repository')).Trim() -cne 'false') { throw 'ci_policy: shallow history' }
     $Changes = @(Read-HumCiChanges $Root $Base $Integration)
-    $Profile = Get-HumCiChangeProfile $Changes; $Paths = @($Changes.Path); $Reason = 'classified_changes'
+    $Profile = Get-HumCiChangeProfile $Changes
+    # Only the PR planner has this exception. Runtime runs the exact fixture
+    # consumers and the source-surface check. The shared path rank stays Compiler.
+    if ($Profile -ceq 'compiler' -and $Changes.Count -eq 1 -and
+        $Changes[0].Path -ceq 'fixtures/ownership_check/session_j_use_after_move_fail.hum' -and
+        $Changes[0].Status -ceq 'M' -and $Changes[0].OldMode -ceq '100644' -and $Changes[0].NewMode -ceq '100644') {
+      $Profile = 'runtime'
+    }
+    $Paths = @($Changes.Path)
+    $Reason = 'classified_changes'
   } catch { Write-Warning 'ci_policy: incomplete change evidence selects Full' }
   [pscustomobject]@{ Profile=$Profile; Base=$Base; Head=$Head; Integration=$Integration; Tree=$Tree; Paths=$Paths; Reason=$Reason }
 }

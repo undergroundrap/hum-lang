@@ -2437,7 +2437,12 @@ function Invoke-HumFixedProfile {
       switch -CaseSensitive ($Group) {
         'capture' { Invoke-HumCaptureSmoke }
         'language-programs' { Invoke-HumLanguageProgramChecks $Hum }
-        'runtime-programs' { . Invoke-HumRuntimeProgramChecks $Cargo $Hum }
+        'runtime-programs' {
+          . Invoke-HumRuntimeProgramChecks $Cargo $Hum
+          Invoke-HumUseAfterMoveRuntimeCheck $Hum
+          Invoke-HumUseAfterMoveProjectionCheck $Hum
+          Assert-SessionASurfaceRules
+        }
         'compiler-front' { . Invoke-HumCompilerFrontChecks $Cargo $Hum }
         'compiler-corpus' { . Invoke-HumCompilerCorpusChecks $Cargo $Hum }
         default { Invoke-HumCoreCheck $Group $Cargo }
