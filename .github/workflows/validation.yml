@@ -156,11 +156,153 @@ jobs:
       integration: ${{ needs.plan.outputs.integration }}
       tree: ${{ needs.plan.outputs.tree }}
       boundary_required: ${{ needs.plan.outputs.boundary_required }}
+      windows_full_split: ${{ github.event_name == 'pull_request' && needs.plan.outputs.profile == 'full' }}
+
+  windows_mutations:
+    name: Windows Full WO22 and WO23
+    if: github.event_name == 'pull_request' && needs.plan.outputs.profile == 'full'
+    needs: plan
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      CARGO_HOME: ${{ github.workspace }}/.cargo-home
+    outputs:
+      proof: ${{ steps.mutation_completion.outputs.proof }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.integration }}
+      - name: Prepare Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup component add rustfmt clippy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run Windows mutation campaigns
+        id: mutations
+        shell: pwsh
+        env:
+          HUM_EXPECTED_INTEGRATION: ${{ needs.plan.outputs.integration }}
+          HUM_EXPECTED_TREE: ${{ needs.plan.outputs.tree }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Assert-WindowsFullMutationOutput([byte[]] $Bytes) {
+            $OutputText = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes)
+            $Footers = [regex]::Matches($OutputText, '(?m)^Windows Full part completed: [^\r\n]*\r?$')
+            if ($Footers.Count -ne 1 -or $Footers[0].Value.TrimEnd([char]13) -cne 'Windows Full part completed: mutations' -or
+                -not $OutputText.TrimEnd([char[]]@(13,10)).EndsWith('Windows Full part completed: mutations', [StringComparison]::Ordinal) -or
+                $OutputText -cmatch '(?m)^All Hum preflight checks passed\.\r?$') { throw 'Windows mutation completion footer disagrees' }
+            $Rows = @([regex]::Matches($OutputText, '(?m)^ok - Work Order (?:22|23) [^\r\n]+ production mutation rejected\r?$') |
+              ForEach-Object { $_.Value.TrimEnd([char]13) })
+            # Digest of the 29 ordered full row labels, LF joined without a final LF.
+            $RowDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($Rows -join [char]10)))).ToLowerInvariant()
+            if ($Rows.Count -ne 29 -or $RowDigest -cne '00fb7261b1797361d492dfafc2143d945add3fd5028fd14837130310b8292d24') {
+              throw 'Windows mutation evidence inventory disagrees'
+            }
+          }
+          if (-not $IsWindows -or $env:RUNNER_OS -cne 'Windows' -or $PSVersionTable.PSVersion.Major -ne 7 -or
+              $env:GITHUB_EVENT_NAME -cne 'pull_request' -or -not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP) -or
+              $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z' -or $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]*\z' -or
+              $env:GITHUB_RUN_ATTEMPT -cnotmatch '\A[1-9][0-9]*\z' -or $env:HUM_EXPECTED_TREE -cnotmatch '\A[0-9a-f]{40}\z') {
+            throw 'Windows mutation runner context is invalid'
+          }
+          $Actual = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $Actual -cne $env:HUM_EXPECTED_INTEGRATION -or $Actual -cne $env:GITHUB_SHA) { throw 'Windows mutation integration mismatch' }
+          $Tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0 -or $Tree -cne $env:HUM_EXPECTED_TREE) { throw 'Windows mutation tree mismatch' }
+          $Pwsh = Join-Path $PSHOME 'pwsh.exe'
+          $PwshItem = Get-Item -LiteralPath $Pwsh -Force
+          if ($PwshItem.PSIsContainer -or ($PwshItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+              -not [string]::Equals($PwshItem.FullName, (Get-Process -Id $PID).Path, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Windows mutation PowerShell identity mismatch'
+          }
+          . ./tools/run_fast_evidence.ps1
+          $Root = (Get-Location).Path
+          $Rustc = (Get-Command rustc -CommandType Application -TotalCount 1 -ErrorAction Stop).Source
+          $ToolchainDir = Join-Path $env:RUNNER_TEMP ('hum-windows-mutation-toolchain-' + [Guid]::NewGuid().ToString('N'))
+          $CaptureDir = Join-Path $env:RUNNER_TEMP ('hum-windows-mutation-capture-' + [Guid]::NewGuid().ToString('N'))
+          $PhaseDir = Join-Path $env:RUNNER_TEMP ('hum-phase-diagnostics-' + [Guid]::NewGuid().ToString('N'))
+          "toolchain_dir=$ToolchainDir" >> $env:GITHUB_OUTPUT
+          "capture_dir=$CaptureDir" >> $env:GITHUB_OUTPUT
+          $Toolchain = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Rustc @('-Vv') $Root $ToolchainDir 4500 -CaseName 'ci-windows-mutation-toolchain')
+          if ($Toolchain.ExitCode -ne 0 -or $Toolchain.TimedOut) { throw 'Windows mutation rustc identity failed' }
+          $ToolchainBytes = [IO.File]::ReadAllBytes($Toolchain.StdoutPath)
+          if ($ToolchainBytes.Length -eq 0 -or [Array]::IndexOf($ToolchainBytes, [byte]0) -ge 0) { throw 'Windows mutation rustc identity is malformed' }
+          [void][Text.UTF8Encoding]::new($false, $true).GetString($ToolchainBytes)
+          $ToolchainDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($ToolchainBytes)).ToLowerInvariant()
+          if ($ToolchainDigest -cne $Toolchain.StdoutSha256) { throw 'Windows mutation rustc identity changed after capture' }
+          $env:HUM_BUILD_TOOLCHAIN = 'utf8-base64:' + [Convert]::ToBase64String($ToolchainBytes)
+          $env:HUM_BUILD_TARGET = 'x86_64-pc-windows-msvc'
+          cargo build -p hum-dev
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          try {
+            [void][IO.Directory]::CreateDirectory($PhaseDir)
+            $Binding = "run_id=$env:GITHUB_RUN_ID" + [char]10 + "binding_guid=$([Guid]::NewGuid().ToString('N'))" + [char]10 + "created_utc=$([DateTime]::UtcNow.ToString('o'))" + [char]10
+            [IO.File]::WriteAllText((Join-Path $PhaseDir 'run-binding.txt'), $Binding, [Text.Encoding]::UTF8)
+            "phase_dir=$PhaseDir" >> $env:GITHUB_OUTPUT
+          } catch { Write-Warning "Windows mutation phase diagnostics unavailable: $($_.Exception.Message)" }
+          $Ticket = Join-Path $env:RUNNER_TEMP "hum-windows-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $TicketBytes = [Text.Encoding]::UTF8.GetBytes("mutations|$env:GITHUB_SHA|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT")
+          $TicketStream = [IO.File]::Open($Ticket, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+          try {
+            try { $TicketStream.Write($TicketBytes, 0, $TicketBytes.Length) } finally { $TicketStream.Dispose() }
+            $Isolated = New-HumIsolatedExecutable 'target/debug/hum-dev.exe' $env:RUNNER_TEMP 'target'
+            try {
+              Assert-HumIsolatedExecutable $Isolated -RequireSource
+              $Arguments = @('evidence','full','--pwsh',$Pwsh,'--phase-diagnostics',$PhaseDir)
+              $Capture = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Isolated.Executable $Arguments $Root $CaptureDir 4500 -CaseName 'ci-windows-mutations' -PhaseDiagnosticDirectory $PhaseDir)
+              $Bytes = [IO.File]::ReadAllBytes($Capture.StdoutPath)
+              $Stderr = [IO.File]::ReadAllBytes($Capture.StderrPath)
+              [Console]::OpenStandardOutput().Write($Bytes, 0, $Bytes.Length)
+              [Console]::OpenStandardError().Write($Stderr, 0, $Stderr.Length)
+              if ($Capture.ExitCode -ne 0 -or $Capture.TimedOut) { throw "Windows mutations failed with exit $($Capture.ExitCode)" }
+              $StdoutDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes)).ToLowerInvariant()
+              if ($StdoutDigest -cne $Capture.StdoutSha256) { throw 'Windows mutation stdout changed after capture authentication' }
+              Assert-WindowsFullMutationOutput $Bytes
+            } finally { Remove-HumIsolatedExecutable $Isolated }
+          } finally { [IO.File]::Delete($Ticket) }
+          "proof=mutations|windows-latest|full|$Actual|$Tree|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT|$ToolchainDigest|$StdoutDigest" >> $env:GITHUB_OUTPUT
+      - name: Retain Windows mutation capture
+        id: retain_mutations
+        if: always() && steps.mutations.outputs.toolchain_dir != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-windows-mutations-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.mutations.outputs.toolchain_dir }}
+            ${{ steps.mutations.outputs.capture_dir }}
+            ${{ steps.mutations.outputs.phase_dir }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+      - name: Confirm Windows mutation completion
+        id: mutation_completion
+        if: always()
+        shell: pwsh
+        env:
+          HUM_MUTATION_STEPS: ${{ toJSON(steps) }}
+        run: |
+          $Steps = $env:HUM_MUTATION_STEPS | ConvertFrom-Json
+          foreach ($Name in @('mutations','retain_mutations')) {
+            if ($Steps.$Name.outcome -cne 'success' -or $Steps.$Name.conclusion -cne 'success') { throw "required Windows mutation step incomplete: $Name" }
+          }
+          $Proof = $Steps.mutations.outputs.proof
+          if ($Proof -isnot [string] -or
+              $Proof -cnotmatch '\Amutations\|windows-latest\|full\|[0-9a-f]{40}\|[0-9a-f]{40}\|[1-9][0-9]*\|[1-9][0-9]*\|[0-9a-f]{64}\|[0-9a-f]{64}\z') { throw 'Windows mutation proof is absent or malformed' }
+          "proof=$Proof" >> $env:GITHUB_OUTPUT
 
   required:
     name: Hum required validation
     if: always()
-    needs: [plan, evaluate]
+    needs: [plan, evaluate, windows_mutations]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -169,10 +311,22 @@ jobs:
         env:
           HUM_CI_NEEDS: ${{ toJSON(needs) }}
         run: |
+          $ErrorActionPreference = 'Stop'
+          function Assert-UniqueNeedFields([Text.Json.JsonElement] $Object) {
+            if ($Object.ValueKind -ne [Text.Json.JsonValueKind]::Object) { throw 'required-work record is not an object' }
+            $Names = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($Field in $Object.EnumerateObject()) {
+              if (-not $Names.Add($Field.Name)) { throw "duplicate required-work field: $($Field.Name)" }
+              if ($Field.Value.ValueKind -eq [Text.Json.JsonValueKind]::Object) { Assert-UniqueNeedFields $Field.Value }
+              if ($Field.Value.ValueKind -eq [Text.Json.JsonValueKind]::Array) { throw "unexpected required-work array: $($Field.Name)" }
+            }
+          }
+          $Document = [Text.Json.JsonDocument]::Parse($env:HUM_CI_NEEDS)
+          try { Assert-UniqueNeedFields $Document.RootElement } finally { $Document.Dispose() }
           $Needs = $env:HUM_CI_NEEDS | ConvertFrom-Json
-          if ((($Needs.PSObject.Properties.Name | Sort-Object) -join ',') -cne 'evaluate,plan') { throw 'missing or unexpected required work' }
+          if ((($Needs.PSObject.Properties.Name | Sort-Object) -join ',') -cne 'evaluate,plan,windows_mutations') { throw 'missing or unexpected required work' }
           foreach ($Name in @('plan','evaluate')) {
-            if ($Needs.$Name.result -cne 'success') { throw "required work did not succeed: $Name" }
+            if ($Needs.$Name.result -isnot [string] -or $Needs.$Name.result -cne 'success') { throw "required work did not succeed: $Name" }
           }
           if ($Needs.plan.outputs.profile -cnotin @('language','runtime','compiler','full')) { throw 'missing selected profile' }
           foreach ($Name in @('integration','tree')) {
@@ -187,5 +341,22 @@ jobs:
             foreach ($Name in @('base','head')) {
               if ($Needs.plan.outputs.$Name -cnotmatch '\A[0-9a-f]{40}\z') { throw "missing PR provenance: $Name" }
             }
+          }
+          $Main = $Needs.evaluate.outputs.windows_full_main
+          $Mutations = $Needs.windows_mutations.outputs.proof
+          $MutationResult = $Needs.windows_mutations.result
+          if ($env:GITHUB_EVENT_NAME -ceq 'pull_request' -and $Needs.plan.outputs.profile -ceq 'full') {
+            if ($MutationResult -isnot [string] -or $MutationResult -cne 'success') { throw 'required Windows Full mutations did not succeed' }
+            $Plan = $Needs.plan.outputs
+            $Identity = [regex]::Escape("windows-latest|full|$($Plan.integration)|$($Plan.tree)|$($Plan.run)|$($Plan.attempt)")
+            $Digests = '\|(?<toolchain>[0-9a-f]{64})\|(?<stdout>[0-9a-f]{64})\z'
+            if ($Main -isnot [string] -or $Mutations -isnot [string]) { throw 'Windows Full part proof is missing' }
+            $MainProof = [regex]::Match($Main, ('\Amain\|' + $Identity + $Digests))
+            $MutationProof = [regex]::Match($Mutations, ('\Amutations\|' + $Identity + $Digests))
+            if (-not $MainProof.Success -or -not $MutationProof.Success -or
+                $MainProof.Groups['toolchain'].Value -cne $MutationProof.Groups['toolchain'].Value -or
+                $MainProof.Groups['stdout'].Value -ceq $MutationProof.Groups['stdout'].Value) { throw 'Windows Full part proofs disagree with the selected work' }
+          } elseif ($MutationResult -isnot [string] -or $MutationResult -cne 'skipped' -or $Main -or $Mutations) {
+            throw 'unexpected Windows Full part outside the Full PR route'
           }
           Write-Host 'Selected work succeeded. Review definitions and exact run before owner-authorized integration; this badge is not attestation.'

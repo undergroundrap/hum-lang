@@ -521,13 +521,13 @@ foreach($Key in @('GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_EVEN
 try {
   $env:GITHUB_SHA='a'*40;$env:GITHUB_RUN_ID='42';$env:GITHUB_RUN_ATTEMPT='1';$env:GITHUB_EVENT_NAME='pull_request'
   foreach ($Outcome in @('success','failure','cancelled','skipped','timed_out','')) {
-    $Needs = [ordered]@{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result=$Outcome} }
+    $Needs = [ordered]@{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result=$Outcome}; windows_mutations = @{result='skipped'} }
     $env:HUM_CI_NEEDS = $Needs | ConvertTo-Json -Depth 6 -Compress
     if ($Outcome -ceq 'success') { & $Aggregate; Assert-Policy $true 'honest aggregate' }
     else { Assert-PolicyRejects $Aggregate "aggregate $Outcome" }
   }
   foreach ($Mutation in @('missing','extra','plan-failed','tree-missing','profile-missing','head-missing','stale-attempt','stale-integration')) {
-    $Needs = @{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result='success'} }
+    $Needs = @{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result='success'}; windows_mutations = @{result='skipped'} }
     switch ($Mutation) {
       'missing' { $Needs.Remove('evaluate') }
       'extra' { $Needs.extra = @{ result='success' } }
@@ -541,6 +541,55 @@ try {
     $env:HUM_CI_NEEDS = $Needs | ConvertTo-Json -Depth 6 -Compress
     Assert-PolicyRejects $Aggregate "aggregate $Mutation"
   }
+  $Identity = "windows-latest|full|$('a'*40)|$('b'*40)|42|1|$('e'*64)"
+  $Needs = [ordered]@{
+    plan = @{result='success'; outputs=@{profile='full';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'}}
+    evaluate = @{result='success'; outputs=@{windows_full_main="main|$Identity|$('1'*64)"}}
+    windows_mutations = @{result='success'; outputs=@{proof="mutations|$Identity|$('2'*64)"}}
+  }
+  $HonestSplit = $Needs | ConvertTo-Json -Depth 6 -Compress
+  $env:HUM_CI_NEEDS = $HonestSplit
+  & $Aggregate
+  Assert-Policy $true 'honest joined Windows Full PR'
+  foreach ($Defect in @('missing job','missing result','failed','skipped','cancelled','timed out','missing main','missing mutations',
+      'same role','same transcript','foreign platform','foreign tree','foreign integration','foreign run',
+      'stale attempt','different toolchain','wrong event','wrong profile')) {
+    $Needs = $HonestSplit | ConvertFrom-Json -AsHashtable
+    $MutationJob = $Needs.windows_mutations
+    $Proof = $MutationJob.outputs.proof
+    switch ($Defect) {
+      'missing job' { [void]$Needs.Remove('windows_mutations') }
+      'missing result' { [void]$MutationJob.Remove('result') }
+      'failed' { $MutationJob.result = 'failure' }
+      'skipped' { $MutationJob.result = 'skipped' }
+      'cancelled' { $MutationJob.result = 'cancelled' }
+      'timed out' { $MutationJob.result = 'timed_out' }
+      'missing main' { [void]$Needs.evaluate.outputs.Remove('windows_full_main') }
+      'missing mutations' { [void]$MutationJob.outputs.Remove('proof') }
+      'same role' { $MutationJob.outputs.proof = $Proof.Replace('mutations|','main|') }
+      'same transcript' { $MutationJob.outputs.proof = $Proof.Replace(('2'*64),('1'*64)) }
+      'foreign platform' { $MutationJob.outputs.proof = $Proof.Replace('windows-latest','ubuntu-latest') }
+      'foreign tree' { $MutationJob.outputs.proof = $Proof.Replace(('b'*40),('f'*40)) }
+      'foreign integration' { $MutationJob.outputs.proof = $Proof.Replace(('a'*40),('f'*40)) }
+      'foreign run' { $MutationJob.outputs.proof = $Proof.Replace('|42|','|43|') }
+      'stale attempt' { $MutationJob.outputs.proof = $Proof.Replace('|42|1|','|42|2|') }
+      'different toolchain' { $MutationJob.outputs.proof = $Proof.Replace(('e'*64),('f'*64)) }
+      'wrong event' { $env:GITHUB_EVENT_NAME = 'schedule' }
+      'wrong profile' { $Needs.plan.outputs.profile = 'runtime' }
+    }
+    try {
+      $env:HUM_CI_NEEDS = $Needs | ConvertTo-Json -Depth 6 -Compress
+      Assert-Policy ($env:HUM_CI_NEEDS -cne $HonestSplit -or $Defect -ceq 'wrong event') "initialized Windows Full join defect: $Defect"
+      Assert-PolicyRejects $Aggregate "Windows Full join rejects: $Defect"
+    } finally { $env:GITHUB_EVENT_NAME = 'pull_request' }
+  }
+  foreach ($Case in @(
+      @('"windows_mutations":{','"windows_mutations":null,"windows_mutations":{'),
+      @('"proof":"mutations|','"PROOF":null,"proof":"mutations|'))) {
+    $env:HUM_CI_NEEDS = $HonestSplit.Replace($Case[0],$Case[1])
+    Assert-Policy ($env:HUM_CI_NEEDS -cne $HonestSplit) 'initialized duplicate Windows Full proof'
+    Assert-PolicyRejects $Aggregate 'duplicate Windows Full job or proof field rejects'
+  }
 } finally {
   [Environment]::SetEnvironmentVariable('HUM_CI_NEEDS',$OriginalNeeds,'Process')
   foreach($Key in $SavedProvenance.Keys) { [Environment]::SetEnvironmentVariable($Key,$SavedProvenance[$Key],'Process') }
@@ -551,8 +600,10 @@ $CompletionMatch=[regex]::Match($Ci,'(?ms)^      - name: Confirm selected work c
 Assert-Policy $CompletionMatch.Success 'platform completion owner exists'
 $Completion=[scriptblock]::Create((($CompletionMatch.Groups['body'].Value -split "`n"|ForEach-Object{if($_.StartsWith('          ')){$_.Substring(10)}else{$_}})-join "`n"))
 $SavedCompletion=@{}
-foreach($Key in @('HUM_COMPLETED_STEPS','HUM_SELECTED_MODE','HUM_SELECTED_PROFILE','HUM_MATRIX_OS','GITHUB_EVENT_NAME')){$SavedCompletion[$Key]=[Environment]::GetEnvironmentVariable($Key,'Process')}
+$SplitOutput=$null
+foreach($Key in @('HUM_COMPLETED_STEPS','HUM_SELECTED_MODE','HUM_SELECTED_PROFILE','HUM_MATRIX_OS','HUM_WINDOWS_FULL_PART','GITHUB_EVENT_NAME','GITHUB_OUTPUT')){$SavedCompletion[$Key]=[Environment]::GetEnvironmentVariable($Key,'Process')}
 try {
+  $env:HUM_WINDOWS_FULL_PART = ''
   foreach($Platform in @('windows-latest','ubuntu-latest')) {
     foreach($Profile in @('language','runtime','compiler','full')) {
       $env:HUM_MATRIX_OS=$Platform;$env:HUM_SELECTED_PROFILE=$Profile;$env:GITHUB_EVENT_NAME='pull_request'
@@ -576,7 +627,77 @@ try {
       Assert-PolicyRejects $Completion 'unknown mode cannot omit execution'
     }
   }
-} finally {foreach($Key in $SavedCompletion.Keys){[Environment]::SetEnvironmentVariable($Key,$SavedCompletion[$Key],'Process')}}
+  $env:HUM_MATRIX_OS = 'windows-latest'
+  $env:HUM_SELECTED_PROFILE = $env:HUM_SELECTED_MODE = 'full'
+  $env:HUM_WINDOWS_FULL_PART = 'main'
+  $Rows = @{}
+  foreach ($Name in @('integration_identity','pwsh_identity','classify','full_preflight','close_full_transport','windows_full_ticket','windows_full_capture','windows_full_retain')) {
+    $Rows[$Name] = @{outcome='success';conclusion='success'}
+  }
+  $env:HUM_COMPLETED_STEPS = $Rows | ConvertTo-Json -Depth 5 -Compress
+  Assert-PolicyRejects $Completion 'green steps cannot substitute for the Windows part proof'
+  $Rows.windows_full_capture.outputs = @{windows_full_part='mutations|windows-latest|full|foreign'}
+  $env:HUM_COMPLETED_STEPS = $Rows | ConvertTo-Json -Depth 5 -Compress
+  Assert-PolicyRejects $Completion 'Windows part completion rejects the other role'
+  $Proof = "main|windows-latest|full|$('a'*40)|$('b'*40)|42|1|$('e'*64)|$('1'*64)"
+  $Rows.windows_full_capture.outputs.windows_full_part = $Proof
+  $SplitOutput = [IO.Path]::GetTempFileName()
+  $env:GITHUB_OUTPUT = $SplitOutput
+  $env:HUM_COMPLETED_STEPS = $Rows | ConvertTo-Json -Depth 5 -Compress
+  & $Completion
+  Assert-Policy ([IO.File]::ReadAllLines($SplitOutput) -ccontains "windows_full_part=$Proof") 'Windows Full main publishes its retained proof'
+  $Rows.windows_full_retain.outcome = 'failure'
+  $env:HUM_COMPLETED_STEPS = $Rows | ConvertTo-Json -Depth 5 -Compress
+  Assert-PolicyRejects $Completion 'Windows Full main refuses failed transcript retention'
+} finally {
+  foreach($Key in $SavedCompletion.Keys){[Environment]::SetEnvironmentVariable($Key,$SavedCompletion[$Key],'Process')}
+  if ($SplitOutput) { [IO.File]::Delete($SplitOutput) }
+}
+
+# Model the transcript boundary using the actual workflow validators and the
+# unchanged ordered source-row labels. This launches no mutation campaign.
+foreach ($Owner in @(
+    @($Ci,'Verify Windows Full part transcript','Assert-WindowsFullMainOutput'),
+    @($Workflow,'Run Windows mutation campaigns','Assert-WindowsFullMutationOutput'))) {
+  $StepPattern = '(?ms)^      - name: ' + [regex]::Escape($Owner[1]) + '\n.*?        run: \|\n(?<body>.*?)(?=^      - name: )'
+  $TranscriptBlocks = [regex]::Matches($Owner[0], $StepPattern)
+  Assert-Policy ($TranscriptBlocks.Count -eq 1) "Windows part transcript owner: $($Owner[1])"
+  $TranscriptScript = ($TranscriptBlocks[0].Groups['body'].Value -split '\n' | ForEach-Object {
+    if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ }
+  }) -join [char]10
+  . (Import-PolicyTestFunction $TranscriptScript $Owner[2])
+}
+$WindowsMutationRows = @(foreach ($Family in @(
+    @('22','Invoke-Wo22BackendPredicateMutationEvidence',16),
+    @('23','Invoke-Wo23UnitAProductionMutationEvidence',13))) {
+  $Definition = (Import-PolicyTestFunction $Source $Family[1]).ToString()
+  $Labels = [regex]::Matches($Definition, "Label = '(?<row>[BM][0-9]{2} [^']+)'")
+  Assert-Policy ($Labels.Count -eq $Family[2]) "source inventory for Windows mutation family $($Family[0])"
+  foreach ($Label in $Labels) { "ok - Work Order $($Family[0]) $($Label.Groups['row'].Value) production mutation rejected" }
+})
+$MainFooter = 'Windows Full part completed: main'
+$MutationsFooter = 'Windows Full part completed: mutations'
+$Utf8 = [Text.UTF8Encoding]::new($false, $true)
+$Crlf = [string][char]13 + [char]10
+Assert-WindowsFullMainOutput ($Utf8.GetBytes($MainFooter + $Crlf))
+Assert-WindowsFullMutationOutput ($Utf8.GetBytes((($WindowsMutationRows + $MutationsFooter) -join $Crlf) + $Crlf))
+Assert-Policy $true 'both honest Windows part transcripts pass the actual capture consumer'
+foreach ($Case in @(
+    @('mutations', (@($WindowsMutationRows[1..28]) + $MutationsFooter)),
+    @('mutations', (@($WindowsMutationRows[0]) + $WindowsMutationRows[0..27] + $MutationsFooter)),
+    @('mutations', (@($WindowsMutationRows[1],$WindowsMutationRows[0]) + $WindowsMutationRows[2..28] + $MutationsFooter)),
+    @('mutations', ($WindowsMutationRows + @($MutationsFooter,$MutationsFooter))),
+    @('mutations', ($WindowsMutationRows + $MainFooter)),
+    @('main', @($WindowsMutationRows[0],$MainFooter)),
+    @('main', @('All Hum preflight checks passed.',$MainFooter)),
+    @('main', @($MainFooter,'unexpected output after completion')))) {
+  $Bytes = $Utf8.GetBytes(($Case[1] -join [char]10))
+  if ($Case[0] -ceq 'main') {
+    Assert-PolicyRejects { Assert-WindowsFullMainOutput $Bytes } 'Windows main capture refuses altered row or footer evidence'
+  } else {
+    Assert-PolicyRejects { Assert-WindowsFullMutationOutput $Bytes } 'Windows mutation capture refuses altered row or footer evidence'
+  }
+}
 
 $Now = [datetimeoffset]'2026-09-20T12:00:00Z'
 function New-HealthRun {
@@ -720,8 +841,7 @@ try {
   $MainCode=$MainBody.Substring(1,$MainBody.Length-2)
   $Guard="if (`$EvidenceTier -cin @('Language', 'Runtime', 'Compiler')) { Invoke-HumFixedProfile `$EvidenceTier `$Cargo; return }"
   Assert-Policy ($MainCode.Contains($Guard)) 'normal return is owned by actual dispatch'
-  function Invoke-RepoScript {
-    param($Label,$Path,$Arguments)
+  function Get-HumWindowsFullPart {
     throw 'ci_policy_test: blocked Full fallback'
   }
   foreach($EvidenceTier in @('Language','Runtime','Compiler')) {
@@ -729,7 +849,9 @@ try {
     & ([scriptblock]::Create($MainCode))
     Assert-Policy ($Observed.Contains('tests')) 'top-level route reached compiler tests'
     $script:Observed.Clear()
-    Assert-PolicyRejects ([scriptblock]::Create($MainCode.Replace($Guard,''))) 'omitted dispatch rejects before Full execution'
+    $Refusal = $null
+    try { & ([scriptblock]::Create($MainCode.Replace($Guard,''))) } catch { $Refusal = $_.Exception.Message }
+    Assert-Policy ($Refusal -ceq 'ci_policy_test: blocked Full fallback') 'omitted dispatch reaches the blocked Full entry'
     Assert-Policy ($Observed.Count -eq 0) 'omitted route gained no selected-work credit'
   }
   $script:Observed.Clear();$script:FailAt='tests'
@@ -882,7 +1004,8 @@ foreach($Route in @(
 # These pins protect the mechanically shared bodies from silent omissions.
 # They are source-closure evidence, never a claim that the full corpus ran.
 $CompilerBodies=@{
-  'Invoke-HumCompilerFrontChecks'='c1f82a86ff35780b0515b19038cbeb40386420d9e86cc570eb9531bd7d5624d7'
+  'Invoke-HumCompilerFrontChecks'='2af662edf5df102495f03b824b69c30c387978046e40107ac0afdbf05afc1010'
+  'Invoke-HumWo22Wo23MutationCampaigns'='853630100c06b135c7a806576ce280de12b9b7634872b24a1d62d5ffab967ec4'
   'Invoke-HumCompilerCorpusChecks'='b700c4c7226228c85aafd37ad56f30ad35875626c84a443cbfb8c277f4d4185c'
   'Invoke-HumUseAfterMoveRuntimeCheck'='a7c5db7146519cba950ec4ba2de9a0f15bf505bbfde0bc855b2e49c9a74a34f8'
   'Invoke-HumUseAfterMoveProjectionCheck'='d1708df1234a0cbdf4f686d48facad32ccfb2bcc7baa834281d2246b748f41f0'
@@ -909,7 +1032,7 @@ foreach($Name in @('Get-Wo25Sha256','Assert-Wo25EvidenceTierDispatcherContract',
 Assert-Wo25EvidenceTierDispatcherContract $Source -SkipStaleControl
 Assert-Wo25UnitBFullPreflightWorkflowRoute $Ci
 Assert-Policy ($null -eq (Get-Wo25ExhaustiveWorkflowRouteFailure $Ci)) 'Full exhaustive route unchanged'
-Assert-Policy ($Workflow.Contains('if: always()') -and $Workflow.Contains('needs: [plan, evaluate]')) 'aggregate runs after failure'
+Assert-Policy ($Workflow.Contains('if: always()') -and $Workflow.Contains('needs: [plan, evaluate, windows_mutations]')) 'aggregate runs after either Windows leg fails'
 Assert-Policy ($Workflow.Contains('git show "$($AcceptedBase):tools/check_ci_policy.ps1"')) 'accepted-base policy selection'
 Assert-Policy ($Workflow -notmatch 'git show "\$\(\$env:HUM_BASE\):tools/check_ci_policy\.ps1"') 'stale event base never feeds the policy read'
 Assert-Policy ($Workflow -notmatch '(?m)^\s*(checks|statuses|id-token):\s*write\s*$' -and $Workflow -notmatch 'pull_request_target:') 'no privileged publisher'

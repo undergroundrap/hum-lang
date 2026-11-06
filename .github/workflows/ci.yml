@@ -16,6 +16,13 @@ on:
         required: false
         type: string
         default: ''
+      windows_full_split:
+        type: boolean
+        default: false
+    outputs:
+      windows_full_main:
+        description: Authenticated Windows Full main capture
+        value: ${{ jobs.preflight.outputs.windows_full_part }}
   workflow_dispatch:
   push:
     branches:
@@ -39,6 +46,8 @@ jobs:
     name: preflight (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 90 || 60 }}
+    outputs:
+      windows_full_part: ${{ steps.selected_completion.outputs.windows_full_part }}
     strategy:
       fail-fast: false
       matrix:
@@ -60,12 +69,18 @@ jobs:
           HUM_EXPECTED_SHA: ${{ inputs.integration || github.sha }}
           HUM_EXPECTED_TREE: ${{ inputs.tree }}
           HUM_SELECTED_PROFILE: ${{ inputs.profile || 'full' }}
+          HUM_WINDOWS_FULL_SPLIT: ${{ inputs.windows_full_split }}
         run: |
           if ($env:HUM_SELECTED_PROFILE -cnotin @('language','runtime','compiler','full')) { throw 'invalid fixed profile' }
           $Actual = git rev-parse HEAD
           if ($LASTEXITCODE -ne 0 -or $Actual -cne $env:HUM_EXPECTED_SHA) { throw 'integration checkout mismatch' }
           $Tree = git rev-parse 'HEAD^{tree}'
           if ($LASTEXITCODE -ne 0 -or ($env:HUM_EXPECTED_TREE -and $Tree -cne $env:HUM_EXPECTED_TREE)) { throw 'integration tree mismatch' }
+          if ($env:HUM_WINDOWS_FULL_SPLIT -ceq 'true' -and (
+              $env:GITHUB_EVENT_NAME -cne 'pull_request' -or $env:HUM_SELECTED_PROFILE -cne 'full' -or
+              $Actual -cne $env:GITHUB_SHA -or $env:HUM_EXPECTED_TREE -cnotmatch '\A[0-9a-f]{40}\z')) {
+            throw 'Windows Full split requires the selected PR integration'
+          }
           "profile=$env:HUM_SELECTED_PROFILE;integration=$Actual;tree=$Tree;run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Authenticate PowerShell 7 runtime
@@ -275,6 +290,28 @@ jobs:
           if-no-files-found: error
           include-hidden-files: false
           overwrite: false
+
+      - name: Prepare Windows Full part
+        id: windows_full_ticket
+        if: inputs.windows_full_split && matrix.os == 'windows-latest' && steps.classify.outputs.mode == 'full'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $IsWindows -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_EVENT_NAME -cne 'pull_request' -or
+              $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z' -or $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]*\z' -or
+              $env:GITHUB_RUN_ATTEMPT -cnotmatch '\A[1-9][0-9]*\z' -or
+              -not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP)) { throw 'Windows Full part context is invalid' }
+          # The legacy launcher already forwards RUNNER_TEMP and the run identity.
+          $Ticket = Join-Path $env:RUNNER_TEMP "hum-windows-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $Bytes = [Text.Encoding]::UTF8.GetBytes("main|$env:GITHUB_SHA|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT")
+          $Stream = [IO.File]::Open($Ticket, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+          try {
+            try { $Stream.Write($Bytes, 0, $Bytes.Length) } finally { $Stream.Dispose() }
+            "ticket=$Ticket" >> $env:GITHUB_OUTPUT
+          } catch {
+            [IO.File]::Delete($Ticket)
+            throw
+          }
 
       - name: Run Hum preflight
         id: full_preflight
@@ -690,6 +727,68 @@ jobs:
             if (-not [string]::IsNullOrEmpty($Owned) -and (Test-Path -LiteralPath $Owned)) { throw "full evidence transport cleanup failed: $Owned" }
           }
 
+      - name: Verify Windows Full part transcript
+        id: windows_full_capture
+        if: always() && steps.windows_full_ticket.outputs.ticket != ''
+        shell: pwsh
+        env:
+          HUM_WINDOWS_FULL_TICKET: ${{ steps.windows_full_ticket.outputs.ticket }}
+          HUM_EXPECTED_TREE: ${{ inputs.tree }}
+          HUM_FULL_CAPTURE_OUTCOME: ${{ steps.full_preflight.outcome }}
+          HUM_FULL_CAPTURE_CONCLUSION: ${{ steps.full_preflight.conclusion }}
+          HUM_FULL_CAPTURE_COPY: ${{ steps.full_preflight.outputs.failure_capture }}
+          HUM_FULL_STDOUT_SHA256: ${{ steps.full_preflight.outputs.stdout_sha256 }}
+          HUM_FULL_TOOLCHAIN: ${{ steps.full_preflight.outputs.toolchain }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Assert-WindowsFullMainOutput([byte[]] $Bytes) {
+            $OutputText = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes)
+            $Footers = [regex]::Matches($OutputText, '(?m)^Windows Full part completed: [^\r\n]*\r?$')
+            if ($Footers.Count -ne 1 -or $Footers[0].Value.TrimEnd([char]13) -cne 'Windows Full part completed: main' -or
+                -not $OutputText.TrimEnd([char[]]@(13,10)).EndsWith('Windows Full part completed: main', [StringComparison]::Ordinal) -or
+                $OutputText -cmatch '(?m)^All Hum preflight checks passed\.\r?$') { throw 'Windows Full part completion footer disagrees' }
+            if ($OutputText -cmatch '(?m)^ok - Work Order (?:22|23) [^\r\n]+ production mutation rejected\r?$') {
+              throw 'Windows Full main contains transferred mutation rows'
+            }
+          }
+          $Ticket = Join-Path $env:RUNNER_TEMP "hum-windows-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if ($env:HUM_WINDOWS_FULL_TICKET -cne $Ticket) { throw 'Windows Full part ticket ownership disagrees' }
+          try {
+            if ($env:HUM_FULL_CAPTURE_OUTCOME -cne 'success' -or $env:HUM_FULL_CAPTURE_CONCLUSION -cne 'success') { return }
+            $Copy = Get-Item -LiteralPath $env:HUM_FULL_CAPTURE_COPY -Force
+            if (-not $Copy.PSIsContainer -or ($Copy.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                -not [string]::Equals($Copy.Parent.FullName, [IO.Path]::GetFullPath($env:RUNNER_TEMP), [StringComparison]::OrdinalIgnoreCase) -or
+                $Copy.Name -cnotmatch '\Ahum-preflight-diagnostics-[0-9a-f]{32}\z') { throw 'Windows Full capture copy is foreign' }
+            $Stdout = Get-Item -LiteralPath (Join-Path $Copy.FullName 'stdout.bin') -Force
+            if ($Stdout.PSIsContainer -or ($Stdout.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Windows Full stdout copy is not an ordinary file' }
+            # The copy transports bytes only. The successful, authenticated primary
+            # capture owns the digest and is still required by the completion step.
+            $Bytes = [IO.File]::ReadAllBytes($Stdout.FullName)
+            $StdoutDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes)).ToLowerInvariant()
+            if ($StdoutDigest -cne $env:HUM_FULL_STDOUT_SHA256) { throw 'Windows Full stdout differs from the authenticated capture' }
+            Assert-WindowsFullMainOutput $Bytes
+            $Prefix = 'utf8-base64:'
+            if (-not $env:HUM_FULL_TOOLCHAIN.StartsWith($Prefix, [StringComparison]::Ordinal)) { throw 'Windows Full toolchain binding is absent' }
+            $Payload = $env:HUM_FULL_TOOLCHAIN.Substring($Prefix.Length)
+            $ToolchainBytes = [Convert]::FromBase64String($Payload)
+            if ($ToolchainBytes.Length -eq 0 -or [Convert]::ToBase64String($ToolchainBytes) -cne $Payload) { throw 'Windows Full toolchain binding is malformed' }
+            $ToolchainDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($ToolchainBytes)).ToLowerInvariant()
+            $Proof = "main|windows-latest|full|$env:GITHUB_SHA|$env:HUM_EXPECTED_TREE|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT|$ToolchainDigest|$StdoutDigest"
+          } finally { [IO.File]::Delete($Ticket) }
+          "windows_full_part=$Proof" >> $env:GITHUB_OUTPUT
+
+      - name: Retain Windows Full main transcript
+        id: windows_full_retain
+        if: steps.windows_full_capture.outputs.windows_full_part != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-windows-full-main-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.full_preflight.outputs.failure_capture }}/stdout.bin
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
       - name: Resolve status executable
         id: start_status_review_and_resolve_hum_dev
         if: steps.classify.outputs.mode == 'fast'
@@ -842,6 +941,7 @@ jobs:
           ./tools/check_public_readiness.ps1
           ./tools/check_release_readiness.ps1
       - name: Confirm selected work completion
+        id: selected_completion
         if: always()
         shell: pwsh
         env:
@@ -849,6 +949,7 @@ jobs:
           HUM_SELECTED_MODE: ${{ steps.classify.outputs.mode }}
           HUM_SELECTED_PROFILE: ${{ steps.classify.outputs.profile }}
           HUM_MATRIX_OS: ${{ matrix.os }}
+          HUM_WINDOWS_FULL_PART: ${{ inputs.windows_full_split && matrix.os == 'windows-latest' && 'main' || '' }}
         run: |
           $Steps = $env:HUM_COMPLETED_STEPS | ConvertFrom-Json
           $Mode = $env:HUM_SELECTED_MODE
@@ -866,7 +967,21 @@ jobs:
           } elseif ($Mode -ceq 'fast' -and $Profile -ceq 'full' -and $env:GITHUB_EVENT_NAME -ceq 'push') {
             $Required += @('start_status_review_and_resolve_hum_dev','download_hum_dev_executable','authenticate_and_run_status_only_evidence')
           } else { throw 'selected mode/profile/event disagree' }
+          $WindowsPart = $env:HUM_WINDOWS_FULL_PART
+          if ($WindowsPart) {
+            if ($Mode -cne 'full' -or $Profile -cne 'full' -or $env:GITHUB_EVENT_NAME -cne 'pull_request' -or
+                $env:HUM_MATRIX_OS -cne 'windows-latest' -or $WindowsPart -cne 'main') {
+              throw 'unexpected Windows Full part in selected completion'
+            }
+            $Required += @('windows_full_ticket','windows_full_capture','windows_full_retain')
+          }
           foreach ($Name in $Required) {
             if ($Steps.$Name.outcome -cne 'success' -or $Steps.$Name.conclusion -cne 'success') { throw "required execution incomplete: $Name" }
           }
+          $Proof = $Steps.windows_full_capture.outputs.windows_full_part
+          if ($WindowsPart) {
+            $ProofPattern = '\A' + [regex]::Escape($WindowsPart) + '\|windows-latest\|full\|[0-9a-f]{40}\|[0-9a-f]{40}\|[1-9][0-9]*\|[1-9][0-9]*\|[0-9a-f]{64}\|[0-9a-f]{64}\z'
+            if ($Proof -isnot [string] -or $Proof -cnotmatch $ProofPattern) { throw 'Windows Full part completion proof is missing or wrong' }
+            "windows_full_part=$Proof" >> $env:GITHUB_OUTPUT
+          } elseif ($Proof) { throw 'unexpected Windows Full part completion proof' }
           Write-Host "Explicit selected-step completion: $env:HUM_MATRIX_OS / $Profile / $Mode"

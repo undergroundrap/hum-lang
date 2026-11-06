@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $GitRepoRoot = $RepoRoot.Replace([System.IO.Path]::DirectorySeparatorChar, '/')
 $script:Wo25MutationRecords = New-Object 'System.Collections.Generic.List[string]'
+$script:HumWindowsFullPart = ''
 
 # Phase diagnostics: writes timestamped start/end markers to an owned
 # diagnostic directory (NOT the capture directory, which has exact
@@ -1839,7 +1840,8 @@ function Assert-Wo25UnitBTransportContract {
     @('Upload failed preflight diagnostics','','failure() && steps.full_preflight.outcome == ''failure'' && steps.full_preflight.outputs.failure_capture != ''''','hum-preflight-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}','${{ steps.full_preflight.outputs.failure_capture }}','error'),
     @('Upload phase timing diagnostics','','always() && steps.full_preflight.outputs.phase_diagnostics != ''''','hum-phase-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}','${{ steps.full_preflight.outputs.phase_diagnostics }}','warn'),
     @('Upload evidence summary','upload_evidence_summary','steps.classify.outputs.mode == ''full'' && github.event_name == ''push''','${{ steps.generate_evidence_summary.outputs.summary_name }}','${{ steps.generate_evidence_summary.outputs.summary_path }}','error'),
-    @('Upload hum-dev executable','upload_hum_dev_executable','steps.classify.outputs.mode == ''full'' && github.event_name == ''push''','${{ steps.generate_evidence_summary.outputs.executable_name }}','${{ steps.generate_evidence_summary.outputs.executable_path }}','error')
+    @('Upload hum-dev executable','upload_hum_dev_executable','steps.classify.outputs.mode == ''full'' && github.event_name == ''push''','${{ steps.generate_evidence_summary.outputs.executable_name }}','${{ steps.generate_evidence_summary.outputs.executable_path }}','error'),
+    @('Retain Windows Full main transcript','windows_full_retain','steps.windows_full_capture.outputs.windows_full_part != ''''','hum-windows-full-main-${{ github.run_id }}-${{ github.run_attempt }}','${{ steps.full_preflight.outputs.failure_capture }}/stdout.bin','error')
   )
   $UploadJobsRoot=@([regex]::Matches($Workflow,'(?ms)^jobs:(?<Header>[^\r\n]*)(?:\r?\n|\z)(?<Jobs>.*?)(?=^[^\s#]|\z)'))
   if($UploadJobsRoot.Count -ne 1 -or $UploadJobsRoot[0].Groups['Header'].Value.Trim() -cne ''){throw 'Unit B upload configuration drifted: jobs mapping owner must be unique and canonical'}
@@ -1848,7 +1850,7 @@ function Assert-Wo25UnitBTransportContract {
   $UploadStepsRoot=@([regex]::Matches($UploadJob[0].Groups['Job'].Value,'(?ms)^    steps:(?<Header>[^\r\n]*)(?:\r?\n|\z)(?<Steps>.*?)(?=^    [^\s#]|\z)'))
   if($UploadStepsRoot.Count -ne 1 -or $UploadStepsRoot[0].Groups['Header'].Value.Trim() -cne ''){throw 'Unit B upload configuration drifted: steps mapping owner must be unique and canonical'}
   $UploadArtifactSteps=@([regex]::Matches($UploadStepsRoot[0].Groups['Steps'].Value,'(?ms)^      - (?<Head>[^\r\n]+)\r?\n(?<Body>(?:(?!^      - ).)*)(?=^      - |\z)')|ForEach-Object{'        '+$_.Groups['Head'].Value+"`n"+$_.Groups['Body'].Value}|Where-Object{$_ -cmatch '(?m)^        uses:[ \t]*actions/upload-artifact'})
-  if($UploadArtifactSteps.Count -ne $UploadOwners.Count){throw 'Unit B upload configuration drifted: actual upload step cardinality must be five'}
+  if($UploadArtifactSteps.Count -ne $UploadOwners.Count){throw 'Unit B upload configuration drifted: actual upload step cardinality must match the exact owner table'}
   foreach($Owner in $UploadOwners){
     $Owned=@($UploadArtifactSteps|Where-Object{([regex]::Matches($_,'(?m)^        name:[ \t]*'+[regex]::Escape($Owner[0])+'[ \t]*\r?$')).Count -eq 1})
     if($Owned.Count -ne 1){throw "Unit B upload configuration drifted: missing or duplicate owner '$($Owner[0])'"}
@@ -3044,6 +3046,48 @@ function Invoke-HumUseAfterMoveProjectionCheck {
 
 }
 
+function Get-HumWindowsFullPart {
+  # hum-dev forwards RUNNER_TEMP and the run identity. The hosting job owns
+  # one ticket in its private runner temp directory for this run and attempt.
+  if (-not $IsWindows -or $env:GITHUB_ACTIONS -cne 'true' -or
+      $env:GITHUB_EVENT_NAME -cne 'pull_request' -or $env:RUNNER_OS -cne 'Windows' -or
+      [string]::IsNullOrEmpty($env:RUNNER_TEMP) -or -not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP) -or
+      $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]*\z' -or
+      $env:GITHUB_RUN_ATTEMPT -cnotmatch '\A[1-9][0-9]*\z') { return '' }
+  $Ticket = Join-Path $env:RUNNER_TEMP "hum-windows-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+  if (-not (Test-Path -LiteralPath $Ticket)) { return '' }
+  $Item = Get-Item -LiteralPath $Ticket -Force
+  if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $Item.Length -gt 160) {
+    throw 'Windows Full part ticket is not an ordinary bounded file'
+  }
+  if ($env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z') { throw 'Windows Full part identity is malformed' }
+  $TicketText = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes($Item.FullName))
+  foreach ($Part in @('main','mutations')) {
+    if ($TicketText -ceq "$Part|$env:GITHUB_SHA|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT") { return $Part }
+  }
+  throw 'Windows Full part ticket has foreign provenance'
+}
+
+function Invoke-HumWo22Wo23MutationCampaigns {
+  param([string] $Cargo)
+  Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'start'
+  try {
+  Invoke-Wo22BackendPredicateMutationEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
+    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'failed'
+    throw
+  }
+  Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'start'
+  try {
+    Invoke-Wo23UnitAProductionMutationEvidence $Cargo
+    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'failed'
+    throw
+  }
+}
+
 function Invoke-HumCompilerFrontChecks {
   param([string] $Cargo, [string] $Hum)
   $MainSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/main.rs'))
@@ -3174,22 +3218,7 @@ function Invoke-HumCompilerFrontChecks {
   Invoke-ExactRustTest 'Work Order 22 Unit B exact JIT probe matrix' $Cargo 'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact'
   Invoke-ExactRustTest 'Work Order 22 Unit B complete load-bearing row matrix' $Cargo 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Work Order 22 Unit B explicit unsupported targets' $Cargo 'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
-  Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'start'
-  try {
-  Invoke-Wo22BackendPredicateMutationEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
-    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'completed'
-  } catch {
-    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'failed'
-    throw
-  }
-  Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'start'
-  try {
-  Invoke-Wo23UnitAProductionMutationEvidence $Cargo
-    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'completed'
-  } catch {
-    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'failed'
-    throw
-  }
+  if ($script:HumWindowsFullPart -cne 'main') { Invoke-HumWo22Wo23MutationCampaigns $Cargo }
   Write-HumPhaseMarker 'compiler-front-wo24-mutation' 'start'
   try {
   Invoke-Wo24UnitAProductionMutationEvidence $Cargo
@@ -7366,6 +7395,18 @@ try {
   if ($EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -eq 'Wo25UnitCMutation') { Initialize-Wo25WindowsToolchain; Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -cin @('Language', 'Runtime', 'Compiler')) { Invoke-HumFixedProfile $EvidenceTier $Cargo; return }
+  $script:HumWindowsFullPart = Get-HumWindowsFullPart
+  if ($script:HumWindowsFullPart -ceq 'mutations') {
+    $Before = @(& $Git status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0 -or $Before.Count -ne 0) { throw 'Windows Full mutations require a clean checkout' }
+    Invoke-HumWo22Wo23MutationCampaigns $Cargo
+    $After = @(& $Git status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0 -or $After.Count -ne 0 -or @(Get-ExactRustSelectorCredits).Count -ne 0) {
+      throw 'Windows Full mutations did not restore their checkout or selector credits'
+    }
+    Write-Host 'Windows Full part completed: mutations'
+    return
+  }
   # Decision 0025: the status-boundary classifier runs in the hygiene group
   # (every profile), not as a standalone Fast-tier invocation.
   $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
@@ -7585,7 +7626,11 @@ try {
     [IO.File]::WriteAllText($Receipt,$ReceiptText,(New-Object Text.UTF8Encoding($false,$true)))
   }
 
-  Write-Host 'All Hum preflight checks passed.'
+  if ($script:HumWindowsFullPart -ceq 'main') {
+    Write-Host 'Windows Full part completed: main'
+  } else {
+    Write-Host 'All Hum preflight checks passed.'
+  }
 } finally {
   Pop-Location
 }
