@@ -1318,6 +1318,42 @@ Assert-Policy ($EditorCalls.Count -eq 1 -and
 $LoadCorpusDirectory=Import-PolicyTestFunction $Source 'Assert-HumCorpusDirectory'
 $LoadCorpusCompiler=Import-PolicyTestFunction $Source 'Get-HumCorpusCompiler'
 & {
+  . $LoadCorpusCompiler
+  . (Import-PolicyTestFunction $Source 'Invoke-HumFullCorpusPart')
+  $Calls=[Collections.Generic.List[string]]::new()
+  function Join-Path {
+    [void]$Calls.Add('path')
+    throw 'modeled corpus path boundary'
+  }
+  $Git={ [void]$Calls.Add('git'); throw 'modeled corpus Git boundary' }
+  foreach ($BadName in @($null,'','../hum','hum.cmd','hum-dev','hum.exe/..',' hum')) {
+    $Failure=$null
+    try { Get-HumCorpusCompiler 'unused-target' $BadName } catch { $Failure=$_ }
+    Assert-Policy ($null -ne $Failure -and $Failure.Exception.Message -ceq 'Full corpus compiler name is unsupported' -and
+      $Calls.Count -eq 0) 'corpus compiler refuses unsupported names before path or file access'
+  }
+  foreach ($BadPlatform in @($null,'','Linux','MacOS','Windows/../Ubuntu','hum','Windows ')) {
+    $Failure=$null
+    try { Invoke-HumFullCorpusPart 'unused-cargo' $BadPlatform } catch { $Failure=$_ }
+    Assert-Policy ($null -ne $Failure -and $Failure.Exception.Message -ceq 'Full corpus platform is unsupported' -and
+      $Calls.Count -eq 0) 'corpus refuses unsupported platforms before Git or Cargo'
+  }
+  foreach ($Name in @('hum.exe','hum','HUM.EXE','HUM')) {
+    $Calls.Clear()
+    $Failure=$null
+    try { Get-HumCorpusCompiler 'unused-target' $Name } catch { $Failure=$_ }
+    Assert-Policy ($null -ne $Failure -and $Failure.Exception.Message -ceq 'modeled corpus path boundary' -and
+      $Calls.Count -eq 1 -and $Calls[0] -ceq 'path') 'corpus preserves admitted compiler names at the first path boundary'
+  }
+  foreach ($Platform in @('Windows','Ubuntu','windows','ubuntu')) {
+    $Calls.Clear()
+    $Failure=$null
+    try { Invoke-HumFullCorpusPart 'unused-cargo' $Platform } catch { $Failure=$_ }
+    Assert-Policy ($null -ne $Failure -and $Failure.Exception.Message -ceq 'modeled corpus Git boundary' -and
+      $Calls.Count -eq 1 -and $Calls[0] -ceq 'git') 'corpus preserves admitted platforms at the first Git boundary'
+  }
+}
+& {
   . $LoadCorpusDirectory
   . $LoadCorpusCompiler
   # Model the actual resolver on all hosts without writing or executing a binary.
@@ -1468,6 +1504,17 @@ foreach($Name in @('Get-Wo25Sha256','Assert-Wo25EvidenceTierDispatcherContract',
   . (Import-PolicyTestFunction $Source $Name)
 }
 Assert-Wo25EvidenceTierDispatcherContract $Source -SkipStaleControl
+Assert-Policy $true 'complete corpus helper source passes the actual WO25 dispatcher contract'
+foreach ($Admission in @(
+  @('function Get-HumCorpusCompiler([string] $Target, [string] $Name) {',
+    'function Get-HumCorpusCompiler([string] $Target, [ValidateSet(''hum.exe'',''hum'')][string] $Name) {'),
+  @('  param([string] $Cargo, [string] $Platform)',
+    '  param([string] $Cargo, [ValidateSet(''Windows'',''Ubuntu'')][string] $Platform)'))) {
+  Assert-Policy (([regex]::Matches($Source,[regex]::Escape($Admission[0]))).Count -eq 1) 'corpus helper admission regression targets one actual owner'
+  $Failure=$null
+  try { Assert-Wo25EvidenceTierDispatcherContract ($Source.Replace($Admission[0],$Admission[1])) -SkipStaleControl } catch { $Failure=$_ }
+  Assert-Policy ($null -ne $Failure -and $Failure.Exception.Message -ceq 'Work Order 25 evidence-tier dispatcher retained a stale or additional admission rule or boundary invocation') 'dispatcher still refuses an additional corpus helper admission attribute'
+}
 Assert-Wo25UnitBFullPreflightWorkflowRoute $Ci
 Assert-Policy ($null -eq (Get-Wo25ExhaustiveWorkflowRouteFailure $Ci)) 'Full exhaustive route unchanged'
 Assert-Policy ($Workflow.Contains('if: always()') -and $Workflow.Contains('needs: [plan, evaluate, ubuntu_corpus, windows_mutations]')) 'aggregate runs after any required leg fails'

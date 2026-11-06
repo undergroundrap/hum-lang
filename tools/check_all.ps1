@@ -7494,7 +7494,8 @@ function Assert-HumCorpusDirectory([string] $Path) {
   }
 }
 
-function Get-HumCorpusCompiler([string] $Target, [ValidateSet('hum.exe','hum')][string] $Name) {
+function Get-HumCorpusCompiler([string] $Target, [string] $Name) {
+  if ($Name -notin @('hum.exe','hum')) { throw 'Full corpus compiler name is unsupported' }
   $Debug = Join-Path $Target 'debug'
   Assert-HumCorpusDirectory $Debug
   $Hum = Join-Path $Debug $Name
@@ -7506,7 +7507,8 @@ function Get-HumCorpusCompiler([string] $Target, [ValidateSet('hum.exe','hum')][
 }
 
 function Invoke-HumFullCorpusPart {
-  param([string] $Cargo, [ValidateSet('Windows','Ubuntu')][string] $Platform)
+  param([string] $Cargo, [string] $Platform)
+  if ($Platform -notin @('Windows','Ubuntu')) { throw 'Full corpus platform is unsupported' }
   $Name = if ($Platform -ceq 'Windows') { 'hum.exe' } else { 'hum' }
   $Before = @(& $Git status --porcelain=v1 --untracked-files=all)
   if ($LASTEXITCODE -ne 0 -or $Before.Count -ne 0 -or $env:HUM_EVIDENCE_RECEIPT) {
