@@ -3062,7 +3062,7 @@ function Get-HumWindowsFullPart {
   }
   if ($env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z') { throw 'Windows Full part identity is malformed' }
   $TicketText = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes($Item.FullName))
-  foreach ($Part in @('main','mutations')) {
+  foreach ($Part in @('main','mutations','corpus')) {
     if ($TicketText -ceq "$Part|$env:GITHUB_SHA|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT") { return $Part }
   }
   throw 'Windows Full part ticket has foreign provenance'
@@ -7388,6 +7388,55 @@ function Invoke-HumCompilerCorpusChecks {
 
 }
 
+function Invoke-HumCompilerCorpusPhase {
+  # Dot-sourced by both Full paths to preserve the existing corpus scope.
+  Write-HumPhaseMarker 'compiler-corpus' 'start'
+  try {
+    . Invoke-HumCompilerCorpusChecks $Cargo $Hum
+    Write-HumPhaseMarker 'compiler-corpus' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-corpus' 'end' 'failed'
+    throw
+  }
+}
+
+function Get-HumWindowsCorpusCompilerHash([string] $Hum) {
+  $Item = Get-Item -LiteralPath $Hum -Force
+  if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $Item.Length -eq 0) {
+    throw 'Windows Full corpus compiler is not an ordinary nonempty file'
+  }
+  (Get-FileHash -LiteralPath $Item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Invoke-HumWindowsCorpusPart {
+  param([string] $Cargo)
+  $Before = @(& $Git status --porcelain=v1 --untracked-files=all)
+  if ($LASTEXITCODE -ne 0 -or $Before.Count -ne 0 -or $env:HUM_EVIDENCE_RECEIPT) {
+    throw 'Windows Full corpus requires a clean checkout and no Full receipt'
+  }
+
+  $Target = Join-Path $RepoRoot 'target'
+  $Debug = Join-Path $Target 'debug'
+  $Hum = Join-Path $Debug 'hum.exe'
+  foreach ($Path in @($Target, $Debug)) {
+    $Directory = Get-Item -LiteralPath $Path -Force
+    if (-not $Directory.PSIsContainer -or ($Directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw 'Windows Full corpus build directory is not ordinary'
+    }
+  }
+  if ($null -ne (Get-Item -LiteralPath $Hum -Force -ErrorAction SilentlyContinue)) {
+    throw 'Windows Full corpus requires a fresh compiler build'
+  }
+  Invoke-HumPhase 'build' { Invoke-HumCoreCheck 'build' $Cargo }
+  $CompilerHash = Get-HumWindowsCorpusCompilerHash $Hum
+  . Invoke-HumCompilerCorpusPhase
+  if ((Get-HumWindowsCorpusCompilerHash $Hum) -cne $CompilerHash) { throw 'Windows Full corpus compiler changed during checks' }
+  $After = @(& $Git status --porcelain=v1 --untracked-files=all)
+  if ($LASTEXITCODE -ne 0 -or $After.Count -ne 0) { throw 'Windows Full corpus did not preserve its checkout' }
+  Write-Host "Windows Full corpus compiler sha256=$CompilerHash"
+  Write-Host 'Windows Full part completed: corpus'
+}
+
 Push-Location $RepoRoot
 try {
   if ($EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo; return }
@@ -7405,6 +7454,10 @@ try {
       throw 'Windows Full mutations did not restore their checkout or selector credits'
     }
     Write-Host 'Windows Full part completed: mutations'
+    return
+  }
+  if ($script:HumWindowsFullPart -ceq 'corpus') {
+    Invoke-HumWindowsCorpusPart $Cargo
     return
   }
   # Decision 0025: the status-boundary classifier runs in the hygiene group
@@ -7605,19 +7658,17 @@ try {
   foreach ($WorkOrder25UnitBSelector in $WorkOrder25UnitBExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit B selector $WorkOrder25UnitBSelector" } }
   foreach ($WorkOrder25UnitCSelector in $WorkOrder25UnitCExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitCSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit C selector $WorkOrder25UnitCSelector" } }
 
-  # Dot-source at main scope; markers written manually (see R1 fix above).
-  Write-HumPhaseMarker 'compiler-corpus' 'start'
-  try {
-    . Invoke-HumCompilerCorpusChecks $Cargo $Hum
-    Write-HumPhaseMarker 'compiler-corpus' 'end' 'completed'
-  } catch {
-    Write-HumPhaseMarker 'compiler-corpus' 'end' 'failed'
-    throw
+  if ($script:HumWindowsFullPart -ceq 'main') {
+    # The sidecar cannot check the main runner's working tree or index.
+    Invoke-Native 'git diff --check' $Git @('-c', "safe.directory=$GitRepoRoot", '-C', $GitRepoRoot, 'diff', '--check')
+    Invoke-Native 'git diff --cached --check' $Git @('-c', "safe.directory=$GitRepoRoot", '-C', $GitRepoRoot, 'diff', '--cached', '--check')
+  } else {
+    . Invoke-HumCompilerCorpusPhase
   }
 
   Invoke-HumPhase 'hygiene' { Invoke-HumCoreCheck 'hygiene' $Cargo }
 
-  if (-not [string]::IsNullOrEmpty($env:HUM_EVIDENCE_RECEIPT)) {
+  if ($script:HumWindowsFullPart -ceq '' -and -not [string]::IsNullOrEmpty($env:HUM_EVIDENCE_RECEIPT)) {
     $Receipt = [IO.Path]::GetFullPath($env:HUM_EVIDENCE_RECEIPT); $RunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
     if (-not $Receipt.StartsWith($RunnerTemp + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or [string]::IsNullOrEmpty($script:ExactRustSelectorLedgerSha256)) { throw 'full evidence receipt ownership or selector identity is invalid' }
     Assert-Wo25MutationReceiptRecords @($script:Wo25MutationRecords)

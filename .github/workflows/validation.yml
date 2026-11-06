@@ -159,7 +159,7 @@ jobs:
       windows_full_split: ${{ github.event_name == 'pull_request' && needs.plan.outputs.profile == 'full' }}
 
   windows_mutations:
-    name: Windows Full WO22 and WO23
+    name: Windows Full WO22, WO23 and compiler corpus
     if: github.event_name == 'pull_request' && needs.plan.outputs.profile == 'full'
     needs: plan
     runs-on: windows-latest
@@ -170,6 +170,7 @@ jobs:
       CARGO_HOME: ${{ github.workspace }}/.cargo-home
     outputs:
       proof: ${{ steps.mutation_completion.outputs.proof }}
+      corpus_proof: ${{ steps.mutation_completion.outputs.corpus_proof }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -283,21 +284,155 @@ jobs:
           if-no-files-found: error
           include-hidden-files: false
           overwrite: false
-      - name: Confirm Windows mutation completion
+      - name: Run Windows compiler corpus
+        id: corpus
+        shell: pwsh
+        env:
+          HUM_EXPECTED_INTEGRATION: ${{ needs.plan.outputs.integration }}
+          HUM_EXPECTED_TREE: ${{ needs.plan.outputs.tree }}
+          HUM_MUTATION_PROOF: ${{ steps.mutations.outputs.proof }}
+          HUM_MUTATION_TOOLCHAIN_DIR: ${{ steps.mutations.outputs.toolchain_dir }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Get-WindowsFullCorpusCompilerHash([byte[]] $Bytes) {
+            $OutputText = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes)
+            $Footers = [regex]::Matches($OutputText, '(?m)^Windows Full part completed: [^\r\n]*\r?$')
+            if ($Footers.Count -ne 1 -or $Footers[0].Value.TrimEnd([char]13) -cne 'Windows Full part completed: corpus' -or
+                -not $OutputText.TrimEnd([char[]]@(13,10)).EndsWith('Windows Full part completed: corpus', [StringComparison]::Ordinal) -or
+                $OutputText -cmatch '(?m)^(?:All Hum preflight checks passed\.|ok - Work Order (?:22|23) [^\r\n]+ production mutation rejected)\r?$') {
+              throw 'Windows corpus completion footer or role disagrees'
+            }
+            $Compiler = [regex]::Matches($OutputText, '(?m)^Windows Full corpus compiler sha256=[^\r\n]*\r?$')
+            if ($Compiler.Count -ne 1) { throw 'Windows corpus compiler identity is missing or ambiguous' }
+            $Digest = [regex]::Match($Compiler[0].Value, '\AWindows Full corpus compiler sha256=(?<sha>[0-9a-f]{64})\r?\z')
+            if (-not $Digest.Success -or
+                [regex]::Matches($OutputText, '(?m)^==> editor fixture recovery\r?$').Count -ne 1) {
+              throw 'Windows corpus compiler or editor fixture evidence is missing or ambiguous'
+            }
+            $Digest.Groups['sha'].Value
+          }
+          if (-not $IsWindows -or $env:RUNNER_OS -cne 'Windows' -or $PSVersionTable.PSVersion.Major -ne 7 -or
+              $env:GITHUB_EVENT_NAME -cne 'pull_request' -or -not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP) -or
+              $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z' -or $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]*\z' -or
+              $env:GITHUB_RUN_ATTEMPT -cnotmatch '\A[1-9][0-9]*\z' -or $env:HUM_EXPECTED_TREE -cnotmatch '\A[0-9a-f]{40}\z') {
+            throw 'Windows corpus runner context is invalid'
+          }
+          $Actual = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $Actual -cne $env:HUM_EXPECTED_INTEGRATION -or $Actual -cne $env:GITHUB_SHA) { throw 'Windows corpus integration mismatch' }
+          $Tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0 -or $Tree -cne $env:HUM_EXPECTED_TREE) { throw 'Windows corpus tree mismatch' }
+          $Identity = [regex]::Escape("mutations|windows-latest|full|$Actual|$Tree|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT")
+          $Mutation = [regex]::Match($env:HUM_MUTATION_PROOF, ('\A' + $Identity + '\|(?<toolchain>[0-9a-f]{64})\|[0-9a-f]{64}\z'))
+          if (-not $Mutation.Success) { throw 'Windows corpus requires restored same-run mutations' }
+
+          $Pwsh = Join-Path $PSHOME 'pwsh.exe'
+          $PwshItem = Get-Item -LiteralPath $Pwsh -Force
+          if ($PwshItem.PSIsContainer -or ($PwshItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+              -not [string]::Equals($PwshItem.FullName, (Get-Process -Id $PID).Path, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Windows corpus PowerShell identity mismatch'
+          }
+          $ToolchainDir = Get-Item -LiteralPath $env:HUM_MUTATION_TOOLCHAIN_DIR -Force
+          if (-not $ToolchainDir.PSIsContainer -or ($ToolchainDir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+              $ToolchainDir.Name -cnotmatch '\Ahum-windows-mutation-toolchain-[0-9a-f]{32}\z' -or
+              $ToolchainDir.Parent.FullName -cne [IO.Path]::TrimEndingDirectorySeparator($env:RUNNER_TEMP)) {
+            throw 'Windows corpus toolchain capture is foreign'
+          }
+          $ToolchainFile = Get-Item -LiteralPath (Join-Path $ToolchainDir.FullName 'stdout.bin') -Force
+          if ($ToolchainFile.PSIsContainer -or ($ToolchainFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Windows corpus toolchain capture is not ordinary'
+          }
+          $ToolchainBytes = [IO.File]::ReadAllBytes($ToolchainFile.FullName)
+          $ToolchainDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($ToolchainBytes)).ToLowerInvariant()
+          if ($ToolchainDigest -cne $Mutation.Groups['toolchain'].Value) { throw 'Windows corpus toolchain binding disagrees' }
+          $env:HUM_BUILD_TOOLCHAIN = 'utf8-base64:' + [Convert]::ToBase64String($ToolchainBytes)
+          $env:HUM_BUILD_TARGET = 'x86_64-pc-windows-msvc'
+
+          . ./tools/run_fast_evidence.ps1
+          $Root = (Get-Location).Path
+          $CaptureDir = Join-Path $env:RUNNER_TEMP ('hum-windows-corpus-capture-' + [Guid]::NewGuid().ToString('N'))
+          $PhaseDir = Join-Path $env:RUNNER_TEMP ('hum-phase-diagnostics-' + [Guid]::NewGuid().ToString('N'))
+          "capture_dir=$CaptureDir" >> $env:GITHUB_OUTPUT
+          try {
+            [void][IO.Directory]::CreateDirectory($PhaseDir)
+            $Binding = "run_id=$env:GITHUB_RUN_ID" + [char]10 + "binding_guid=$([Guid]::NewGuid().ToString('N'))" + [char]10 + "created_utc=$([DateTime]::UtcNow.ToString('o'))" + [char]10
+            [IO.File]::WriteAllText((Join-Path $PhaseDir 'run-binding.txt'), $Binding, [Text.Encoding]::UTF8)
+            "phase_dir=$PhaseDir" >> $env:GITHUB_OUTPUT
+          } catch { Write-Warning "Windows corpus phase diagnostics unavailable: $($_.Exception.Message)" }
+          $Ticket = Join-Path $env:RUNNER_TEMP "hum-windows-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $TicketBytes = [Text.Encoding]::UTF8.GetBytes("corpus|$Actual|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT")
+          $TicketStream = [IO.File]::Open($Ticket, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+          try {
+            try { $TicketStream.Write($TicketBytes, 0, $TicketBytes.Length) } finally { $TicketStream.Dispose() }
+            $Isolated = New-HumIsolatedExecutable 'target/debug/hum-dev.exe' $env:RUNNER_TEMP 'target'
+            try {
+              Assert-HumIsolatedExecutable $Isolated -RequireSource
+              $Arguments = @('evidence','full','--pwsh',$Pwsh,'--phase-diagnostics',$PhaseDir)
+              $Capture = Assert-HumCaptureComplete (Invoke-HumBinaryCapture $Isolated.Executable $Arguments $Root $CaptureDir 4500 -CaseName 'ci-windows-corpus' -PhaseDiagnosticDirectory $PhaseDir)
+              $Bytes = [IO.File]::ReadAllBytes($Capture.StdoutPath)
+              $Stderr = [IO.File]::ReadAllBytes($Capture.StderrPath)
+              [Console]::OpenStandardOutput().Write($Bytes, 0, $Bytes.Length)
+              [Console]::OpenStandardError().Write($Stderr, 0, $Stderr.Length)
+              if ($Capture.ExitCode -ne 0 -or $Capture.TimedOut) { throw "Windows corpus failed with exit $($Capture.ExitCode)" }
+              $StdoutDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes)).ToLowerInvariant()
+              if ($StdoutDigest -cne $Capture.StdoutSha256) { throw 'Windows corpus stdout changed after capture authentication' }
+              $CompilerHash = Get-WindowsFullCorpusCompilerHash $Bytes
+            } finally { Remove-HumIsolatedExecutable $Isolated }
+          } finally { [IO.File]::Delete($Ticket) }
+          $After = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $After -cne $Actual) { throw 'Windows corpus changed its integration' }
+          "proof=corpus|windows-latest|full|$Actual|$Tree|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT|$ToolchainDigest|$StdoutDigest|$CompilerHash" >> $env:GITHUB_OUTPUT
+      - name: Retain Windows corpus capture
+        id: retain_corpus
+        if: always() && steps.corpus.outputs.capture_dir != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-windows-corpus-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.corpus.outputs.capture_dir }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+      - name: Retain Windows corpus phase diagnostics
+        if: always() && steps.corpus.outputs.phase_dir != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-windows-corpus-phase-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.corpus.outputs.phase_dir }}
+          retention-days: 14
+          if-no-files-found: warn
+          include-hidden-files: false
+          overwrite: false
+      - name: Confirm Windows mutation and corpus completion
         id: mutation_completion
         if: always()
         shell: pwsh
         env:
           HUM_MUTATION_STEPS: ${{ toJSON(steps) }}
         run: |
-          $Steps = $env:HUM_MUTATION_STEPS | ConvertFrom-Json
-          foreach ($Name in @('mutations','retain_mutations')) {
-            if ($Steps.$Name.outcome -cne 'success' -or $Steps.$Name.conclusion -cne 'success') { throw "required Windows mutation step incomplete: $Name" }
+          $ErrorActionPreference = 'Stop'
+          function Get-WindowsSidecarCompletedProofs($Steps) {
+            foreach ($Name in @('mutations','retain_mutations','corpus','retain_corpus')) {
+              if ($Steps.$Name.outcome -cne 'success' -or $Steps.$Name.conclusion -cne 'success') { throw "required Windows sidecar step incomplete: $Name" }
+            }
+            $Proof = $Steps.mutations.outputs.proof
+            if ($Proof -isnot [string] -or
+                $Proof -cnotmatch '\Amutations\|windows-latest\|full\|[0-9a-f]{40}\|[0-9a-f]{40}\|[1-9][0-9]*\|[1-9][0-9]*\|[0-9a-f]{64}\|[0-9a-f]{64}\z') { throw 'Windows mutation proof is absent or malformed' }
+            $Corpus = $Steps.corpus.outputs.proof
+            if ($Corpus -isnot [string] -or
+                $Corpus -cnotmatch '\Acorpus\|windows-latest\|full\|[0-9a-f]{40}\|[0-9a-f]{40}\|[1-9][0-9]*\|[1-9][0-9]*\|[0-9a-f]{64}\|[0-9a-f]{64}\|[0-9a-f]{64}\z') { throw 'Windows corpus proof is absent or malformed' }
+            if ($Steps.retain_corpus.outputs.'artifact-id' -cnotmatch '\A[1-9][0-9]*\z') { throw 'Windows corpus capture upload has no artifact ID' }
+            $Directory = $Steps.corpus.outputs.capture_dir
+            if ($Directory -isnot [string] -or [string]::IsNullOrEmpty($Directory)) { throw 'Windows corpus capture directory is absent' }
+            $Capture = Assert-HumCaptureComplete @{CaptureDirectory=$Directory}
+            if ($Capture.CaseName -cne 'ci-windows-corpus' -or $Capture.ExitCode -ne 0 -or $Capture.TimedOut -or
+                $Capture.StdoutSha256 -cne $Corpus.Split('|')[8]) { throw 'retained Windows corpus capture disagrees with its proof' }
+            [pscustomobject]@{Mutation=$Proof; Corpus=$Corpus}
           }
-          $Proof = $Steps.mutations.outputs.proof
-          if ($Proof -isnot [string] -or
-              $Proof -cnotmatch '\Amutations\|windows-latest\|full\|[0-9a-f]{40}\|[0-9a-f]{40}\|[1-9][0-9]*\|[1-9][0-9]*\|[0-9a-f]{64}\|[0-9a-f]{64}\z') { throw 'Windows mutation proof is absent or malformed' }
-          "proof=$Proof" >> $env:GITHUB_OUTPUT
+          . ./tools/run_fast_evidence.ps1
+          $Proofs = Get-WindowsSidecarCompletedProofs ($env:HUM_MUTATION_STEPS | ConvertFrom-Json)
+          "proof=$($Proofs.Mutation)" >> $env:GITHUB_OUTPUT
+          "corpus_proof=$($Proofs.Corpus)" >> $env:GITHUB_OUTPUT
 
   required:
     name: Hum required validation
@@ -344,19 +479,25 @@ jobs:
           }
           $Main = $Needs.evaluate.outputs.windows_full_main
           $Mutations = $Needs.windows_mutations.outputs.proof
-          $MutationResult = $Needs.windows_mutations.result
+          $Corpus = $Needs.windows_mutations.outputs.corpus_proof
+          $SidecarResult = $Needs.windows_mutations.result
           if ($env:GITHUB_EVENT_NAME -ceq 'pull_request' -and $Needs.plan.outputs.profile -ceq 'full') {
-            if ($MutationResult -isnot [string] -or $MutationResult -cne 'success') { throw 'required Windows Full mutations did not succeed' }
+            if ($SidecarResult -isnot [string] -or $SidecarResult -cne 'success') { throw 'required Windows Full sidecar did not succeed' }
             $Plan = $Needs.plan.outputs
             $Identity = [regex]::Escape("windows-latest|full|$($Plan.integration)|$($Plan.tree)|$($Plan.run)|$($Plan.attempt)")
-            $Digests = '\|(?<toolchain>[0-9a-f]{64})\|(?<stdout>[0-9a-f]{64})\z'
-            if ($Main -isnot [string] -or $Mutations -isnot [string]) { throw 'Windows Full part proof is missing' }
-            $MainProof = [regex]::Match($Main, ('\Amain\|' + $Identity + $Digests))
-            $MutationProof = [regex]::Match($Mutations, ('\Amutations\|' + $Identity + $Digests))
-            if (-not $MainProof.Success -or -not $MutationProof.Success -or
-                $MainProof.Groups['toolchain'].Value -cne $MutationProof.Groups['toolchain'].Value -or
-                $MainProof.Groups['stdout'].Value -ceq $MutationProof.Groups['stdout'].Value) { throw 'Windows Full part proofs disagree with the selected work' }
-          } elseif ($MutationResult -isnot [string] -or $MutationResult -cne 'skipped' -or $Main -or $Mutations) {
+            $Digests = '\|(?<toolchain>[0-9a-f]{64})\|(?<stdout>[0-9a-f]{64})'
+            if ($Main -isnot [string] -or $Mutations -isnot [string] -or $Corpus -isnot [string]) { throw 'Windows Full part proof is missing' }
+            $MainProof = [regex]::Match($Main, ('\Amain\|' + $Identity + $Digests + '\z'))
+            $MutationProof = [regex]::Match($Mutations, ('\Amutations\|' + $Identity + $Digests + '\z'))
+            $CorpusProof = [regex]::Match($Corpus, ('\Acorpus\|' + $Identity + $Digests + '\|[0-9a-f]{64}\z'))
+            $Proofs = @($MainProof, $MutationProof, $CorpusProof)
+            $Transcripts = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach ($Proof in $Proofs) {
+              if (-not $Proof.Success -or $Proof.Groups['toolchain'].Value -cne $MainProof.Groups['toolchain'].Value -or
+                  -not $Transcripts.Add($Proof.Groups['stdout'].Value)) { throw 'Windows Full part proofs disagree with the selected work' }
+            }
+          } elseif ($SidecarResult -isnot [string] -or $SidecarResult -cne 'skipped' -or $Main -or $Mutations -or
+                    ($null -ne $Corpus -and ($Corpus -isnot [string] -or $Corpus -cne ''))) {
             throw 'unexpected Windows Full part outside the Full PR route'
           }
           Write-Host 'Selected work succeeded. Review definitions and exact run before owner-authorized integration; this badge is not attestation.'

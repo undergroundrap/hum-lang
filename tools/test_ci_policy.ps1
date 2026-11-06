@@ -545,7 +545,7 @@ try {
   $Needs = [ordered]@{
     plan = @{result='success'; outputs=@{profile='full';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'}}
     evaluate = @{result='success'; outputs=@{windows_full_main="main|$Identity|$('1'*64)"}}
-    windows_mutations = @{result='success'; outputs=@{proof="mutations|$Identity|$('2'*64)"}}
+    windows_mutations = @{result='success'; outputs=@{proof="mutations|$Identity|$('2'*64)";corpus_proof="corpus|$Identity|$('3'*64)|$('4'*64)"}}
   }
   $HonestSplit = $Needs | ConvertTo-Json -Depth 6 -Compress
   $env:HUM_CI_NEEDS = $HonestSplit
@@ -553,10 +553,13 @@ try {
   Assert-Policy $true 'honest joined Windows Full PR'
   foreach ($Defect in @('missing job','missing result','failed','skipped','cancelled','timed out','missing main','missing mutations',
       'same role','same transcript','foreign platform','foreign tree','foreign integration','foreign run',
-      'stale attempt','different toolchain','wrong event','wrong profile')) {
+      'stale attempt','different toolchain','missing corpus','wrong corpus role','foreign corpus tree',
+      'stale corpus attempt','foreign corpus toolchain','corpus copies main','corpus copies mutations',
+      'missing compiler hash','wrong event','wrong profile')) {
     $Needs = $HonestSplit | ConvertFrom-Json -AsHashtable
     $MutationJob = $Needs.windows_mutations
     $Proof = $MutationJob.outputs.proof
+    $Corpus = $MutationJob.outputs.corpus_proof
     switch ($Defect) {
       'missing job' { [void]$Needs.Remove('windows_mutations') }
       'missing result' { [void]$MutationJob.Remove('result') }
@@ -574,6 +577,14 @@ try {
       'foreign run' { $MutationJob.outputs.proof = $Proof.Replace('|42|','|43|') }
       'stale attempt' { $MutationJob.outputs.proof = $Proof.Replace('|42|1|','|42|2|') }
       'different toolchain' { $MutationJob.outputs.proof = $Proof.Replace(('e'*64),('f'*64)) }
+      'missing corpus' { [void]$MutationJob.outputs.Remove('corpus_proof') }
+      'wrong corpus role' { $MutationJob.outputs.corpus_proof = $Corpus.Replace('corpus|','mutations|') }
+      'foreign corpus tree' { $MutationJob.outputs.corpus_proof = $Corpus.Replace(('b'*40),('f'*40)) }
+      'stale corpus attempt' { $MutationJob.outputs.corpus_proof = $Corpus.Replace('|42|1|','|42|2|') }
+      'foreign corpus toolchain' { $MutationJob.outputs.corpus_proof = $Corpus.Replace(('e'*64),('f'*64)) }
+      'corpus copies main' { $MutationJob.outputs.corpus_proof = $Corpus.Replace(('3'*64),('1'*64)) }
+      'corpus copies mutations' { $MutationJob.outputs.corpus_proof = $Corpus.Replace(('3'*64),('2'*64)) }
+      'missing compiler hash' { $MutationJob.outputs.corpus_proof = $Corpus.Substring(0,$Corpus.Length-65) }
       'wrong event' { $env:GITHUB_EVENT_NAME = 'schedule' }
       'wrong profile' { $Needs.plan.outputs.profile = 'runtime' }
     }
@@ -585,7 +596,8 @@ try {
   }
   foreach ($Case in @(
       @('"windows_mutations":{','"windows_mutations":null,"windows_mutations":{'),
-      @('"proof":"mutations|','"PROOF":null,"proof":"mutations|'))) {
+      @('"proof":"mutations|','"PROOF":null,"proof":"mutations|'),
+      @('"corpus_proof":"corpus|','"CORPUS_PROOF":null,"corpus_proof":"corpus|'))) {
     $env:HUM_CI_NEEDS = $HonestSplit.Replace($Case[0],$Case[1])
     Assert-Policy ($env:HUM_CI_NEEDS -cne $HonestSplit) 'initialized duplicate Windows Full proof'
     Assert-PolicyRejects $Aggregate 'duplicate Windows Full job or proof field rejects'
@@ -593,6 +605,53 @@ try {
 } finally {
   [Environment]::SetEnvironmentVariable('HUM_CI_NEEDS',$OriginalNeeds,'Process')
   foreach($Key in $SavedProvenance.Keys) { [Environment]::SetEnvironmentVariable($Key,$SavedProvenance[$Key],'Process') }
+}
+
+# The sidecar completion owner must require actual execution and retention.
+$SidecarMatch = [regex]::Match($Workflow, '(?ms)^      - name: Confirm Windows mutation and corpus completion\n.*?        run: \|\n(?<body>.*?)(?=^  required:)')
+Assert-Policy $SidecarMatch.Success 'Windows sidecar completion owner exists'
+$SidecarSource = ($SidecarMatch.Groups['body'].Value -split '\n' | ForEach-Object {
+  if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ }
+}) -join [char]10
+$SidecarFunction = Import-PolicyTestFunction $SidecarSource 'Get-WindowsSidecarCompletedProofs'
+& {
+  . $SidecarFunction
+  function Assert-HumCaptureComplete($Request) {
+    if ($Request.CaptureDirectory -cne 'modeled-corpus-capture' -or -not $CaptureAvailable) { throw 'modeled complete capture is unavailable' }
+    $CaptureModel
+  }
+  $Rows = @{}
+  foreach ($Name in @('mutations','retain_mutations','corpus','retain_corpus')) {
+    $Rows[$Name] = @{outcome='success';conclusion='success'}
+  }
+  $Identity = "windows-latest|full|$('a'*40)|$('b'*40)|42|1|$('e'*64)"
+  $Rows.mutations.outputs = @{proof="mutations|$Identity|$('2'*64)"}
+  $Rows.corpus.outputs = @{proof="corpus|$Identity|$('3'*64)|$('4'*64)";capture_dir='modeled-corpus-capture'}
+  $Rows.retain_corpus.outputs = @{'artifact-id'='47'}
+  $CaptureModel = @{CaseName='ci-windows-corpus';ExitCode=0;TimedOut=$false;StdoutSha256=('3'*64)}
+  $CaptureAvailable = $true
+  $InvokeSidecar = { Get-WindowsSidecarCompletedProofs ($Rows | ConvertTo-Json -Depth 5 -Compress | ConvertFrom-Json) }
+  $Published = & $InvokeSidecar
+  Assert-Policy ($Published.Mutation -ceq $Rows.mutations.outputs.proof -and
+    $Published.Corpus -ceq $Rows.corpus.outputs.proof) 'Windows sidecar accepts both completed and retained proofs'
+  foreach ($Name in @('corpus','retain_corpus')) {
+    foreach ($Field in @('outcome','conclusion')) {
+      $Rows[$Name][$Field] = 'failure'
+      Assert-PolicyRejects $InvokeSidecar "Windows sidecar rejects failed $Name $Field"
+      $Rows[$Name][$Field] = 'success'
+    }
+  }
+  $Rows.retain_corpus.outputs.Clear()
+  Assert-PolicyRejects $InvokeSidecar 'Windows sidecar rejects missing raw capture artifact identity'
+  $Rows.retain_corpus.outputs.'artifact-id' = '47'
+  $CaptureAvailable = $false
+  Assert-PolicyRejects $InvokeSidecar 'Windows sidecar rejects absent complete capture despite successful upload'
+  $CaptureAvailable = $true
+  $CaptureModel.StdoutSha256 = '5'*64
+  Assert-PolicyRejects $InvokeSidecar 'Windows sidecar rejects a changed raw corpus transcript'
+  $CaptureModel.StdoutSha256 = '3'*64
+  [void]$Rows.corpus.outputs.Remove('proof')
+  Assert-PolicyRejects $InvokeSidecar 'Windows sidecar rejects absent corpus proof'
 }
 
 # The per-platform completion owner checks actual steps, not just a green job.
@@ -658,7 +717,8 @@ try {
 # unchanged ordered source-row labels. This launches no mutation campaign.
 foreach ($Owner in @(
     @($Ci,'Verify Windows Full part transcript','Assert-WindowsFullMainOutput'),
-    @($Workflow,'Run Windows mutation campaigns','Assert-WindowsFullMutationOutput'))) {
+    @($Workflow,'Run Windows mutation campaigns','Assert-WindowsFullMutationOutput'),
+    @($Workflow,'Run Windows compiler corpus','Get-WindowsFullCorpusCompilerHash'))) {
   $StepPattern = '(?ms)^      - name: ' + [regex]::Escape($Owner[1]) + '\n.*?        run: \|\n(?<body>.*?)(?=^      - name: )'
   $TranscriptBlocks = [regex]::Matches($Owner[0], $StepPattern)
   Assert-Policy ($TranscriptBlocks.Count -eq 1) "Windows part transcript owner: $($Owner[1])"
@@ -677,11 +737,26 @@ $WindowsMutationRows = @(foreach ($Family in @(
 })
 $MainFooter = 'Windows Full part completed: main'
 $MutationsFooter = 'Windows Full part completed: mutations'
+$CorpusFooter = 'Windows Full part completed: corpus'
+$CorpusHash = '4'*64
+$CorpusRows = @('==> editor fixture recovery',"Windows Full corpus compiler sha256=$CorpusHash",$CorpusFooter)
 $Utf8 = [Text.UTF8Encoding]::new($false, $true)
 $Crlf = [string][char]13 + [char]10
 Assert-WindowsFullMainOutput ($Utf8.GetBytes($MainFooter + $Crlf))
 Assert-WindowsFullMutationOutput ($Utf8.GetBytes((($WindowsMutationRows + $MutationsFooter) -join $Crlf) + $Crlf))
-Assert-Policy $true 'both honest Windows part transcripts pass the actual capture consumer'
+$FoundCompiler = Get-WindowsFullCorpusCompilerHash ($Utf8.GetBytes(($CorpusRows -join $Crlf) + $Crlf))
+Assert-Policy ($FoundCompiler -ceq $CorpusHash) 'honest Windows corpus transcript yields its compiler identity'
+foreach ($Rows in @(
+    @($CorpusRows[1],$CorpusFooter),
+    @($CorpusRows[0],$CorpusFooter),
+    @($CorpusRows[0],$CorpusRows[1],$CorpusRows[1],$CorpusFooter),
+    @($CorpusRows[0],$CorpusRows[1],$MutationsFooter),
+    @($CorpusRows[0],$CorpusRows[1],$CorpusFooter,'after corpus completion'),
+    (@($WindowsMutationRows[0]) + $CorpusRows))) {
+  $Bytes = $Utf8.GetBytes($Rows -join [char]10)
+  Assert-PolicyRejects { Get-WindowsFullCorpusCompilerHash $Bytes } 'Windows corpus refuses incomplete or foreign transcript evidence'
+}
+Assert-Policy $true 'honest Windows main and mutation transcripts pass their actual capture consumers'
 foreach ($Case in @(
     @('mutations', (@($WindowsMutationRows[1..28]) + $MutationsFooter)),
     @('mutations', (@($WindowsMutationRows[0]) + $WindowsMutationRows[0..27] + $MutationsFooter)),
@@ -689,6 +764,8 @@ foreach ($Case in @(
     @('mutations', ($WindowsMutationRows + @($MutationsFooter,$MutationsFooter))),
     @('mutations', ($WindowsMutationRows + $MainFooter)),
     @('main', @($WindowsMutationRows[0],$MainFooter)),
+    @('main', @($CorpusRows[0],$MainFooter)),
+    @('main', @($CorpusRows[1],$MainFooter)),
     @('main', @('All Hum preflight checks passed.',$MainFooter)),
     @('main', @($MainFooter,'unexpected output after completion')))) {
   $Bytes = $Utf8.GetBytes(($Case[1] -join [char]10))
@@ -875,7 +952,7 @@ $SharedTokens=$null;$SharedErrors=$null
 $SharedAst=[Management.Automation.Language.Parser]::ParseInput($Source,[ref]$SharedTokens,[ref]$SharedErrors)
 Assert-Policy ($SharedErrors.Count -eq 0) 'Full shared source syntax'
 $SharedDefinitions=@{}
-foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumLanguageProgramChecks','Invoke-HumCompilerFrontChecks','Invoke-HumCompilerCorpusChecks')) {
+foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumLanguageProgramChecks','Invoke-HumCompilerFrontChecks','Invoke-HumCompilerCorpusChecks','Invoke-HumCompilerCorpusPhase','Invoke-HumWindowsCorpusPart')) {
   $Definitions=@($SharedAst.FindAll({param($Node)$Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq $Name},$true))
   $Top=@($SharedAst.EndBlock.Statements|Where-Object{$_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq $Name})
   Assert-Policy ($Definitions.Count -eq 1 -and $Top.Count -eq 1 -and [object]::ReferenceEquals($Definitions[0],$Top[0])) "Full shared definition ownership: $Name"
@@ -977,20 +1054,59 @@ foreach($Case in $HumDevCoverageCases) {
   Assert-Policy ($Case.Source -cne $Source) "initialized Full hum-dev corruption: $($Case.Name)"
   Assert-PolicyRejects { Assert-FullHumDevCoverage $Case.Source $SharedReturns } "Full hum-dev corruption rejects: $($Case.Name)"
 }
-$SharedMarkerIndexes=@()
-foreach($Route in @(@('compiler-front-checks','Invoke-HumCompilerFrontChecks'),@('compiler-corpus','Invoke-HumCompilerCorpusChecks'))) {
-  $Phase=$Route[0];$Name=$Route[1]
-  $Starts=@($SharedStatements|Where-Object{& $SharedCommand $_ "Write-HumPhaseMarker '$Phase' 'start'"})
-  $Calls=@($SharedMain[0].Body.FindAll({param($Node)$Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq $Name},$true))
+$MarkerCalls=@($SharedMain[0].Body.FindAll({param($Node)
+  $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Write-HumPhaseMarker' -and
+  $Node.CommandElements.Count -gt 1 -and $Node.CommandElements[1] -is [Management.Automation.Language.StringConstantExpressionAst] -and
+  $Node.CommandElements[1].Value -cin @('compiler-front-checks','compiler-corpus')
+},$true))
+Assert-Policy ($MarkerCalls.Count -eq 3) 'serial Full owns only the three compiler-front marker calls'
+$FrontBody=$SharedMain[0].Body
+$CorpusBody=$SharedDefinitions['Invoke-HumCompilerCorpusPhase'].Body.EndBlock
+foreach($Route in @(@('compiler-front-checks','Invoke-HumCompilerFrontChecks',$FrontBody),@('compiler-corpus','Invoke-HumCompilerCorpusChecks',$CorpusBody))) {
+  $Phase=$Route[0];$Name=$Route[1];$Body=$Route[2]
+  $Statements=@($Body.Statements)
+  $Starts=@($Statements|Where-Object{& $SharedCommand $_ "Write-HumPhaseMarker '$Phase' 'start'"})
+  $Calls=@($Body.FindAll({param($Node)$Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq $Name},$true))
   Assert-Policy ($Starts.Count -eq 1 -and $Calls.Count -eq 1) "Full shared marker ownership: $Name"
-  $At=[Array]::IndexOf($SharedStatements,$Starts[0]);$SharedMarkerIndexes+=$At
-  Assert-Policy ($At+1 -lt $SharedStatements.Count -and $SharedStatements[$At+1] -is [Management.Automation.Language.TryStatementAst]) "Full shared marker try: $Name"
-  $Owner=$SharedStatements[$At+1]
+  $At=[Array]::IndexOf($Statements,$Starts[0])
+  if ($Phase -ceq 'compiler-front-checks') { $FrontIndex=$At }
+  else { Assert-Policy ($At -eq 0 -and $Statements.Count -eq 2) 'corpus phase has only its paired marker and checked owner' }
+  Assert-Policy ($At+1 -lt $Statements.Count -and $Statements[$At+1] -is [Management.Automation.Language.TryStatementAst]) "Full shared marker try: $Name"
+  $Owner=$Statements[$At+1]
   Assert-Policy ($Owner.Body.Statements.Count -eq 2 -and $Owner.CatchClauses.Count -eq 1 -and $null -eq $Owner.Finally -and $Owner.CatchClauses[0].CatchTypes.Count -eq 0 -and $Owner.CatchClauses[0].Body.Statements.Count -eq 2) "Full shared marker shape: $Name"
   Assert-Policy ((& $SharedCommand $Owner.Body.Statements[0] ". $Name `$Cargo `$Hum") -and (& $SharedCommand $Owner.Body.Statements[1] "Write-HumPhaseMarker '$Phase' 'end' 'completed'") -and (& $SharedCommand $Owner.CatchClauses[0].Body.Statements[0] "Write-HumPhaseMarker '$Phase' 'end' 'failed'") -and $Owner.CatchClauses[0].Body.Statements[1] -is [Management.Automation.Language.ThrowStatementAst] -and $null -eq $Owner.CatchClauses[0].Body.Statements[1].Pipeline) "Full shared marker action: $Name"
 }
-$SharedMarkers=@($SharedMain[0].Body.FindAll({param($Node)$Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Write-HumPhaseMarker' -and $Node.CommandElements.Count -gt 1 -and $Node.CommandElements[1] -is [Management.Automation.Language.StringConstantExpressionAst] -and $Node.CommandElements[1].Value -cin @('compiler-front-checks','compiler-corpus')},$true))
-Assert-Policy ($SharedMarkers.Count -eq 6 -and $SharedPhaseIndexes[4] -lt $SharedMarkerIndexes[0] -and $SharedMarkerIndexes[0] -lt $SharedMarkerIndexes[1] -and $SharedMarkerIndexes[1]+1 -lt $SharedPhaseIndexes[5]) 'Full shared marker order'
+$CorpusRoutes=@($SharedStatements | Where-Object {
+  $_ -is [Management.Automation.Language.IfStatementAst] -and $null -ne $_.ElseClause -and
+  @($_.ElseClause.Statements | Where-Object { & $SharedCommand $_ '. Invoke-HumCompilerCorpusPhase' }).Count -eq 1
+})
+Assert-Policy ($CorpusRoutes.Count -eq 1 -and $CorpusRoutes[0].Clauses.Count -eq 1 -and
+  $CorpusRoutes[0].Clauses[0].Item1.Extent.Text -ceq '$script:HumWindowsFullPart -ceq ''main''' -and
+  $CorpusRoutes[0].ElseClause.Statements.Count -eq 1) 'serial Full retains its single corpus phase'
+$CorpusIndex=[Array]::IndexOf($SharedStatements,$CorpusRoutes[0])
+Assert-Policy ($SharedPhaseIndexes[4] -lt $FrontIndex -and $FrontIndex+1 -lt $CorpusIndex -and
+  $CorpusIndex -lt $SharedPhaseIndexes[5]) 'Full shared marker order'
+$MainDiffs=@($CorpusRoutes[0].Clauses[0].Item2.Statements)
+$WorktreeDiff='Invoke-Native ''git diff --check'' $Git @(''-c'', "safe.directory=$GitRepoRoot", ''-C'', $GitRepoRoot, ''diff'', ''--check'')'
+$IndexDiff='Invoke-Native ''git diff --cached --check'' $Git @(''-c'', "safe.directory=$GitRepoRoot", ''-C'', $GitRepoRoot, ''diff'', ''--cached'', ''--check'')'
+Assert-Policy ($MainDiffs.Count -eq 2 -and $MainDiffs[0].Extent.Text -ceq $WorktreeDiff -and
+  $MainDiffs[1].Extent.Text -ceq $IndexDiff) 'Windows Full main retains both checkout-local Git diff checks'
+$CorpusDispatch=@($SharedStatements | Where-Object {
+  $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -ceq '$script:HumWindowsFullPart -ceq ''corpus'''
+})
+Assert-Policy ($CorpusDispatch.Count -eq 1 -and [Array]::IndexOf($SharedStatements,$CorpusDispatch[0]) -eq $SharedReturns.Count+2 -and
+  $SharedStatements[$SharedReturns.Count].Extent.Text -ceq '$script:HumWindowsFullPart = Get-HumWindowsFullPart' -and
+  $CorpusDispatch[0].Clauses.Count -eq 1 -and $null -eq $CorpusDispatch[0].ElseClause) 'corpus sidecar follows ticket dispatch and other profile returns'
+$CorpusActions=@($CorpusDispatch[0].Clauses[0].Item2.Statements)
+Assert-Policy ($CorpusActions.Count -eq 2 -and (& $SharedCommand $CorpusActions[0] 'Invoke-HumWindowsCorpusPart $Cargo') -and
+  $CorpusActions[1] -is [Management.Automation.Language.ReturnStatementAst] -and $null -eq $CorpusActions[1].Pipeline) 'corpus sidecar dispatch returns before serial Full'
+$SidecarBody=@($SharedDefinitions['Invoke-HumWindowsCorpusPart'].Body.EndBlock.Statements)
+$Build=@($SidecarBody | Where-Object { $_.Extent.Text -ceq 'Invoke-HumPhase ''build'' { Invoke-HumCoreCheck ''build'' $Cargo }' })
+$Phase=@($SidecarBody | Where-Object { & $SharedCommand $_ '. Invoke-HumCompilerCorpusPhase' })
+$Footer=@($SidecarBody | Where-Object { $_.Extent.Text -ceq 'Write-Host ''Windows Full part completed: corpus''' })
+Assert-Policy ($Build.Count -eq 1 -and $Phase.Count -eq 1 -and $Footer.Count -eq 1 -and
+  [Array]::IndexOf($SidecarBody,$Build[0]) -lt [Array]::IndexOf($SidecarBody,$Phase[0]) -and
+  [object]::ReferenceEquals($SidecarBody[-1],$Footer[0])) 'Windows corpus runs its checked build before the single corpus phase and ends with its own footer'
 foreach($Route in @(
   @('Invoke-HumCompilerFrontChecks','Invoke-HumRuntimeProgramChecks','. Invoke-HumRuntimeProgramChecks $Cargo $Hum'),
   @('Invoke-HumCompilerFrontChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumCompilerPrivacyChecks $Cargo'),

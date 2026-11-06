@@ -750,6 +750,9 @@ jobs:
             if ($OutputText -cmatch '(?m)^ok - Work Order (?:22|23) [^\r\n]+ production mutation rejected\r?$') {
               throw 'Windows Full main contains transferred mutation rows'
             }
+            if ($OutputText -cmatch '(?m)^(?:==> editor fixture recovery|Windows Full corpus compiler sha256=[^\r\n]*)\r?$') {
+              throw 'Windows Full main contains transferred corpus evidence'
+            }
           }
           $Ticket = Join-Path $env:RUNNER_TEMP "hum-windows-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           if ($env:HUM_WINDOWS_FULL_TICKET -cne $Ticket) { throw 'Windows Full part ticket ownership disagrees' }
