@@ -952,7 +952,7 @@ $SharedTokens=$null;$SharedErrors=$null
 $SharedAst=[Management.Automation.Language.Parser]::ParseInput($Source,[ref]$SharedTokens,[ref]$SharedErrors)
 Assert-Policy ($SharedErrors.Count -eq 0) 'Full shared source syntax'
 $SharedDefinitions=@{}
-foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumLanguageProgramChecks','Invoke-HumCompilerFrontChecks','Invoke-HumCompilerCorpusChecks','Invoke-HumCompilerCorpusPhase','Invoke-HumWindowsCorpusPart')) {
+foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumLanguageProgramChecks','Invoke-HumCompilerFrontChecks','Invoke-HumCompilerCorpusChecks','Invoke-HumCompilerCorpusPhase','Invoke-HumWindowsCorpusPart','Get-AqRustProductionSource')) {
   $Definitions=@($SharedAst.FindAll({param($Node)$Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq $Name},$true))
   $Top=@($SharedAst.EndBlock.Statements|Where-Object{$_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq $Name})
   Assert-Policy ($Definitions.Count -eq 1 -and $Top.Count -eq 1 -and [object]::ReferenceEquals($Definitions[0],$Top[0])) "Full shared definition ownership: $Name"
@@ -1201,10 +1201,69 @@ foreach($Route in @(
   $Direct=@($Body.EndBlock.Statements|Where-Object{& $SharedCommand $_ $Route[2]})
   Assert-Policy ($Calls.Count -eq 1 -and $Direct.Count -eq 1 -and [object]::ReferenceEquals($Calls[0],$Direct[0].PipelineElements[0])) "Full shared transitive ownership: $Name"
 }
+$AqCorpusCalls=@($SharedDefinitions['Invoke-HumCompilerCorpusChecks'].Body.FindAll({
+  param($Node)
+  $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Get-AqRustProductionSource'
+},$true))
+Assert-Policy ($AqCorpusCalls.Count -eq 3) 'isolated corpus retains the three shared scanner calls'
+
+& {
+  . (Import-PolicyTestFunction $Source 'Get-Wo25UnitCProcessEvidence')
+  $FixturePid=[int]::MaxValue-1
+  $AncestorPid=[int]::MaxValue-2
+  $MissingPid=[int]::MaxValue-3
+  $Created=[datetime]::new(2026,1,1,0,0,0,[DateTimeKind]::Utc)
+  $AncestorCreated=$Created
+  $ComparedFrom=$Created.AddSeconds(1)
+  $ComparedTo=$Created.AddSeconds(2)
+  $Unavailable=$false
+  function Get-CimInstance {
+    [CmdletBinding()]
+    param([string] $ClassName,[string[]] $Property)
+    if ($Unavailable -or $ClassName -cne 'Win32_Process' -or
+        ($Property -join ',') -cne 'Name,ProcessId,ParentProcessId,CreationDate') { throw 'modeled process provider refused' }
+    [pscustomobject]@{Name='pwsh.exe'; ProcessId=$PID; ParentProcessId=$AncestorPid; CreationDate=$Created}
+    [pscustomobject]@{Name='cargo.exe'; ProcessId=$AncestorPid; ParentProcessId=0; CreationDate=$AncestorCreated}
+    [pscustomobject]@{Name='rustc.exe'; ProcessId=$FixturePid; ParentProcessId=$PID; CreationDate=$Created}
+  }
+  $Snapshot=Get-Wo25UnitCProcessEvidence @($FixturePid,$MissingPid) $ComparedFrom $ComparedTo
+  $Fixture=@($Snapshot.rows | Where-Object pid -EQ $FixturePid)
+  Assert-Policy ($Snapshot.status -ceq 'observed' -and $Snapshot.observer_pid -eq $PID -and
+    $Snapshot.rows.Count -eq 3 -and $Fixture.Count -eq 1 -and $Fixture[0].parent_pid -eq $PID -and
+    $Fixture[0].name -ceq 'rustc.exe' -and $Fixture[0].created_utc -ceq $Created.ToString('o')) 'Unit C records identities and parent links'
+  Assert-Policy (($Snapshot.compared_pids -join ',') -ceq "$FixturePid,$MissingPid" -and
+    @($Snapshot.rows | Where-Object pid -EQ $MissingPid).Count -eq 0) 'Unit C keeps a compared PID even when attribution missed it'
+  Assert-Policy ($Snapshot.compared_from_utc -ceq $ComparedFrom.ToString('o') -and
+    $Snapshot.compared_to_utc -ceq $ComparedTo.ToString('o')) 'Unit C preserves the comparison window separately from the provider window'
+  $AncestorCreated=$Created.AddMilliseconds(500)
+  $Snapshot=Get-Wo25UnitCProcessEvidence @($FixturePid) $ComparedFrom $ComparedTo
+  $Observer=@($Snapshot.rows | Where-Object pid -EQ $PID)
+  Assert-Policy ($Observer.Count -eq 1 -and $Observer[0].parent_pid -eq $AncestorPid -and
+    @($Snapshot.rows | Where-Object pid -EQ $AncestorPid).Count -eq 0) 'Unit C preserves but does not follow a reused parent PID'
+  $Unavailable=$true
+  $Snapshot=Get-Wo25UnitCProcessEvidence @($FixturePid) $ComparedFrom $ComparedTo
+  Assert-Policy ($Snapshot.status -ceq 'unavailable' -and $Snapshot.rows.Count -eq 0 -and
+    $Snapshot.compared_pids.Count -eq 1 -and $Snapshot.compared_pids[0] -eq $FixturePid) 'Unit C preserves compared IDs when attribution is unavailable'
+}
+$Isolation=@($SharedAst.EndBlock.Statements | Where-Object {
+  $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'Assert-Wo25UnitCIsolationContract'
+})
+Assert-Policy ($Isolation.Count -eq 1) 'Unit C owns its existing process guard'
+$PidMismatch=@($Isolation[0].Body.FindAll({
+  param($Node)
+  $Node -is [Management.Automation.Language.IfStatementAst] -and $Node.Clauses[0].Item1.Extent.Text -ceq
+    '[string]::Join('','',$PriorProcesses) -cne [string]::Join('','',$FinalProcesses)'
+},$true))
+Assert-Policy ($PidMismatch.Count -eq 1 -and $PidMismatch[0].Clauses[0].Item2.Statements.Count -eq 1 -and
+  $PidMismatch[0].Clauses[0].Item2.Statements[0] -is [Management.Automation.Language.TryStatementAst] -and
+  $PidMismatch[0].Clauses[0].Item2.Statements[0].Finally.Statements[0].Extent.Text -ceq
+    'throw ''Unit C isolation control process quiescence failed''') 'Unit C PID mismatch still throws even if evidence collection fails'
+
 # These pins protect the mechanically shared bodies from silent omissions.
 # They are source-closure evidence, never a claim that the full corpus ran.
 $CompilerBodies=@{
-  'Invoke-HumCompilerFrontChecks'='2af662edf5df102495f03b824b69c30c387978046e40107ac0afdbf05afc1010'
+  'Invoke-HumCompilerFrontChecks'='3493080f32f86f9ed892450c679ee14c62fa826185aa922bf4df6fd0d508c3fd'
+  'Get-AqRustProductionSource'='51fe78de6bd0fe820c67ca238ed344ed8f45a12f9d74b34b8109d9a9ac6ac379'
   'Invoke-HumWo22Wo23MutationCampaigns'='853630100c06b135c7a806576ce280de12b9b7634872b24a1d62d5ffab967ec4'
   'Invoke-HumCompilerCorpusChecks'='6a707093921c181bf9a85a1104c7ffb09cdf6b6418ce52b9a3faaa1ff9f31e25'
   'Invoke-HumUseAfterMoveRuntimeCheck'='a7c5db7146519cba950ec4ba2de9a0f15bf505bbfde0bc855b2e49c9a74a34f8'
