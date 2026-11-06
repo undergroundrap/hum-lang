@@ -1516,6 +1516,58 @@ foreach ($Admission in @(
   Assert-Policy ($null -ne $Failure -and $Failure.Exception.Message -ceq 'Work Order 25 evidence-tier dispatcher retained a stale or additional admission rule or boundary invocation') 'dispatcher still refuses an additional corpus helper admission attribute'
 }
 Assert-Wo25UnitBFullPreflightWorkflowRoute $Ci
+& {
+  # Exercise the real transport consumer on complete workflow bytes. Only
+  # its three read-only inputs are copied; no workflow or project is run.
+  Set-StrictMode -Version Latest
+  . (Import-PolicyTestFunction $Source 'Assert-Wo25UnitBTransportContract')
+  $RepoRoot=[IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('hum-ci-transport-'+[Guid]::NewGuid().ToString('N'))))
+  if(Test-Path -LiteralPath $RepoRoot){throw 'ci_policy_test: transport fixture collision'}
+  $null=New-Item -ItemType Directory -Path $RepoRoot -ErrorAction Stop
+  $Directories=@('.github','.github/workflows','fixtures','fixtures/evidence','crates','crates/hum-dev','crates/hum-dev/src')
+  $Inputs=@('.github/workflows/ci.yml','fixtures/evidence/summary_corruption_cases.v1.json','crates/hum-dev/src/status.rs')
+  try {
+    foreach($Relative in $Directories){$null=New-Item -ItemType Directory -Path (Join-Path $RepoRoot $Relative) -ErrorAction Stop}
+    foreach($Relative in $Inputs){[IO.File]::Copy((Join-Path $Root $Relative),(Join-Path $RepoRoot $Relative),$false)}
+    $WorkflowPath=Join-Path $RepoRoot $Inputs[0]
+    $OriginalWorkflow=[IO.File]::ReadAllText($WorkflowPath)
+    Assert-Wo25UnitBTransportContract
+    Assert-Policy $true 'actual Unit B transport consumer admits the complete current workflow'
+    $UbuntuUploads=@([regex]::Matches($OriginalWorkflow,'(?ms)^      - name: Retain Ubuntu Full main transcript\r?\n.*?(?=^      - |\z)'))
+    Assert-Policy ($UbuntuUploads.Count -eq 1) 'transport regressions select one actual Ubuntu main upload'
+    $Upload=$UbuntuUploads[0].Value
+    $Cases=@(
+      @('missing','', 'Unit B upload configuration drifted: actual upload step cardinality must match the exact owner table'),
+      @('duplicate',($Upload+$Upload), 'Unit B upload configuration drifted: actual upload step cardinality must match the exact owner table'),
+      @('foreign owner',$Upload.Replace('Retain Ubuntu Full main transcript','Retain foreign main transcript'), "Unit B upload configuration drifted: missing or duplicate owner 'Retain Ubuntu Full main transcript'"),
+      @('wrong identity',$Upload.Replace('id: ubuntu_full_retain','id: foreign_full_retain'), "Unit B upload configuration drifted: owned step 'id' in 'Retain Ubuntu Full main transcript'"),
+      @('wrong condition',$Upload.Replace("if: steps.ubuntu_full_capture.outputs.ubuntu_full_part != ''",'if: always()'), "Unit B upload configuration drifted: owned step 'if' in 'Retain Ubuntu Full main transcript'"),
+      @('wrong action pin',$Upload.Replace('043fb46d1a93c77aae656e7c1c64a875d1fc6a0a','0000000000000000000000000000000000000000'), "Unit B upload configuration drifted: owned step 'uses' in 'Retain Ubuntu Full main transcript'"),
+      @('wrong artifact name',$Upload.Replace('name: hum-ubuntu-full-main-','name: hum-foreign-full-main-'), "Unit B upload configuration drifted: owned with 'name' in 'Retain Ubuntu Full main transcript'"),
+      @('wrong path',$Upload.Replace('/stdout.bin','/stderr.bin'), "Unit B upload configuration drifted: owned with 'path' in 'Retain Ubuntu Full main transcript'"),
+      @('wrong retention',$Upload.Replace('retention-days: 14','retention-days: 1'), "Unit B upload configuration drifted: owned with 'retention-days' in 'Retain Ubuntu Full main transcript'"),
+      @('missing file permissive',$Upload.Replace('if-no-files-found: error','if-no-files-found: warn'), "Unit B upload configuration drifted: owned with 'if-no-files-found' in 'Retain Ubuntu Full main transcript'"),
+      @('hidden files',$Upload.Replace('include-hidden-files: false','include-hidden-files: true'), "Unit B upload configuration drifted: owned with 'include-hidden-files' in 'Retain Ubuntu Full main transcript'"),
+      @('overwrite',$Upload.Replace('overwrite: false','overwrite: true'), "Unit B upload configuration drifted: owned with 'overwrite' in 'Retain Ubuntu Full main transcript'")
+    )
+    foreach($Case in $Cases){
+      $Changed=$OriginalWorkflow.Replace($Upload,$Case[1])
+      Assert-Policy ($Changed -cne $OriginalWorkflow) "initialized transport corruption: $($Case[0])"
+      [IO.File]::WriteAllText($WorkflowPath,$Changed)
+      $Failure=$null
+      try { Assert-Wo25UnitBTransportContract } catch { $Failure=$_ }
+      Assert-Policy ($null -ne $Failure -and $Failure.Exception.Message -ceq $Case[2]) "actual transport refusal: $($Case[0])"
+    }
+    [IO.File]::Copy((Join-Path $Root $Inputs[0]),$WorkflowPath,$true)
+    Assert-Wo25UnitBTransportContract
+    Assert-Policy $true 'actual Unit B transport consumer admits restored original workflow bytes'
+  } finally {
+    # Delete only these owned files and empty directories; never recurse.
+    foreach($Relative in $Inputs){$Path=Join-Path $RepoRoot $Relative;if([IO.File]::Exists($Path)){[IO.File]::Delete($Path)}}
+    for($Index=$Directories.Count-1;$Index -ge 0;$Index--){$Path=Join-Path $RepoRoot $Directories[$Index];if([IO.Directory]::Exists($Path)){[IO.Directory]::Delete($Path,$false)}}
+    [IO.Directory]::Delete($RepoRoot,$false)
+  }
+}
 Assert-Policy ($null -eq (Get-Wo25ExhaustiveWorkflowRouteFailure $Ci)) 'Full exhaustive route unchanged'
 Assert-Policy ($Workflow.Contains('if: always()') -and $Workflow.Contains('needs: [plan, evaluate, ubuntu_corpus, windows_mutations]')) 'aggregate runs after any required leg fails'
 Assert-Policy ($Workflow.Contains('git show "$($AcceptedBase):tools/check_ci_policy.ps1"')) 'accepted-base policy selection'
