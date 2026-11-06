@@ -151,6 +151,76 @@ foreach ($Case in @(
 foreach ($Paths in @(@('src/run.rs','SRC/run.rs'), @('../src/run.rs'), @('src//run.rs'), @("src/run.rs`nother"), @(('C'+':/src/run.rs')), @('src\run.rs'), @(''))) {
   Assert-PolicyRejects { Get-HumCiProfile $Paths } 'malformed inventory cannot select cheaper work'
 }
+
+# Exercise both selectors and the real raw diff parser. Model only Git's
+# transport here so the refusal matrix does not create more fixture repositories.
+& {
+  $FixturePath = 'fixtures/ownership_check/session_j_use_after_move_fail.hum'
+  $Base = 'a' * 40
+  $Head = 'b' * 40
+  $Integration = 'c' * 40
+  $Tree = 'd' * 40
+  $OldBlob = 'e' * 40
+  $NewBlob = 'f' * 40
+  $Absent = '0' * 40
+  $Nul = [char]0
+  $Modified = ":100644 100644 $OldBlob $NewBlob M$Nul$FixturePath$Nul"
+  $Added = ":000000 100644 $Absent $NewBlob A$Nul$FixturePath$Nul"
+  $Deleted = ":100644 000000 $OldBlob $Absent D$Nul$FixturePath$Nul"
+  $Mixed = $Modified + ":100644 100644 $OldBlob $NewBlob M$Nul" + "README.md$Nul"
+  $Renamed = $Deleted + ":000000 100644 $Absent $OldBlob A$Nul$FixturePath.renamed$Nul"
+  $ModeChanged = ":100644 100755 $OldBlob $NewBlob M$Nul$FixturePath$Nul"
+  $CaseChanged = $Modified.Replace($FixturePath, $FixturePath.ToUpperInvariant())
+  $GitReplies = @{
+    'rev-parse HEAD' = $Integration
+    "rev-list --parents -n 1 $Integration" = "$Integration $Base $Head"
+    "rev-parse $Integration^{tree}" = $Tree
+    'rev-parse --is-shallow-repository' = 'false'
+  }
+  $PrDiff = "diff --no-ext-diff --no-textconv --no-renames --raw --no-abbrev -z $Base $Integration --"
+  $DiffRequests = [System.Collections.Generic.List[string]]::new()
+  function Read-HumCiGit([string] $Root, [string[]] $Arguments) {
+    $Command = $Arguments -join ' '
+    if ($Root -cne 'owned-routing-model' -or -not $GitReplies.ContainsKey($Command)) { throw 'unexpected routing-model Git request' }
+    if ($Arguments[0] -ceq 'diff') { $DiffRequests.Add($Command) }
+    $GitReplies[$Command]
+  }
+  foreach ($Case in @(
+    @('single fixture edit', 'runtime', 'classified_changes', $Modified),
+    @('mixed change', 'compiler', 'classified_changes', $Mixed),
+    @('addition', 'compiler', 'classified_changes', $Added),
+    @('deletion', 'compiler', 'classified_changes', $Deleted),
+    @('rename', 'full', 'classified_changes', $Renamed),
+    @('mode change', 'full', 'classified_changes', $ModeChanged),
+    @('case variant', 'full', 'classified_changes', $CaseChanged),
+    @('empty inventory', 'full', 'classified_changes', ''),
+    @('incomplete record', 'full', 'ambiguous_inventory', $Modified.TrimEnd($Nul)),
+    @('duplicate record', 'full', 'ambiguous_inventory', ($Modified + $Modified))
+  )) {
+    $GitReplies[$PrDiff] = $Case[3]
+    $DiffRequests.Clear()
+    $Selection = Get-HumCiSelection 'owned-routing-model' $Base $Head $Integration
+    Assert-Policy ($DiffRequests.Count -eq 1 -and $DiffRequests[0] -ceq $PrDiff -and
+      $Selection.Profile -ceq $Case[1] -and $Selection.Reason -ceq $Case[2] -and
+      $Selection.Tree -ceq $Tree) "PR fixture routing: $($Case[0])"
+    if ($Case[0] -ceq 'single fixture edit') {
+      Assert-Policy ($Selection.Paths.Count -eq 1 -and $Selection.Paths[0] -ceq $FixturePath) 'Runtime retains the exact fixture path'
+    }
+  }
+  $GitReplies['rev-parse HEAD'] = $Head
+  $GitReplies["rev-parse $Head^{tree}"] = $Tree
+  $GitReplies["merge-base --is-ancestor $Base $Head"] = ''
+  $GitReplies["rev-list --reverse --max-count=513 $Base..$Head"] = $Head
+  $GitReplies["rev-list --parents -n 1 $Head"] = "$Head $Base"
+  $PushDiff = "diff --no-ext-diff --no-textconv --no-renames --raw --no-abbrev -z $Base $Head --"
+  $GitReplies[$PushDiff] = $Modified
+  $DiffRequests.Clear()
+  $Selection = Get-HumCiPushSelection 'owned-routing-model' $Base $Head
+  Assert-Policy ($DiffRequests.Count -eq 1 -and $DiffRequests[0] -ceq $PushDiff -and
+    $Selection.Profile -ceq 'compiler' -and $Selection.Reason -ceq 'complete_push_range' -and
+    $Selection.Paths.Count -eq 1 -and $Selection.Paths[0] -ceq $FixturePath) 'the same fixture edit still selects Compiler on push'
+}
+
 # Decision 0025: workorders/ routes at language rank only because the hygiene
 # group executes its consumer, the status-boundary classifier. Pin the real
 # wiring in check_all.ps1, not a re-implementation.
@@ -566,6 +636,19 @@ function Invoke-HumCoreCheck([string]$Group,[string]$Cargo) { $script:Observed.A
 function Invoke-HumCaptureSmoke { $script:Observed.Add('capture') }
 function Invoke-HumLanguageProgramChecks { $script:Observed.Add('language-programs') }
 function Invoke-HumRuntimeProgramChecks { $script:Observed.Add('runtime-programs') }
+function Observe-RuntimeFixtureCheck([string] $Check) {
+  $script:Observed.Add($Check)
+  if ($script:FailAt -ceq $Check) { throw 'owned runtime fixture check failure' }
+}
+function Invoke-HumUseAfterMoveRuntimeCheck([string] $Hum) {
+  Assert-Policy ($Hum -ceq $ExpectedHum) 'Runtime refusal check uses the built compiler'
+  Observe-RuntimeFixtureCheck 'use-after-move-runtime'
+}
+function Invoke-HumUseAfterMoveProjectionCheck([string] $Hum) {
+  Assert-Policy ($Hum -ceq $ExpectedHum) 'Runtime projection check uses the built compiler'
+  Observe-RuntimeFixtureCheck 'use-after-move-projection'
+}
+function Assert-SessionASurfaceRules { Observe-RuntimeFixtureCheck 'source-surface' }
 function Invoke-HumCompilerPrivacyChecks { $script:Observed.Add('compiler-privacy') }
 function Invoke-HumCompilerFrontChecks { $script:Observed.Add('compiler-front') }
 function Invoke-HumCompilerCorpusChecks { $script:Observed.Add('compiler-corpus') }
@@ -597,6 +680,7 @@ Invoke-HumCaptureSmoke -ToolsDir (Join-Path $Root 'tools')
 Assert-Policy ($LASTEXITCODE -eq 0) 'real capture smoke executes with exit 0'
 function Invoke-HumCaptureSmoke { $script:Observed.Add('capture') }
 $RepoRoot=$Root
+$ExpectedHum = Join-Path $Root $(if ($env:OS -ceq 'Windows_NT') { 'target/debug/hum.exe' } else { 'target/debug/hum' })
 $OldReceipt=[Environment]::GetEnvironmentVariable('HUM_EVIDENCE_RECEIPT','Process')
 try {
   [Environment]::SetEnvironmentVariable('HUM_EVIDENCE_RECEIPT',$null,'Process')
@@ -605,7 +689,13 @@ try {
     Invoke-HumFixedProfile $Profile 'owned-cargo'
     $Expected=@('capture','format','check','tests','clippy','build')
     if($Profile -ceq 'Compiler'){$Expected+=@('compiler-front','compiler-corpus')}
-    else {$Expected+='language-programs';if($Profile -ceq 'Runtime'){$Expected+='runtime-programs'}}
+    else {
+      $Expected += 'language-programs'
+      if ($Profile -ceq 'Runtime') {
+        $Expected += @('runtime-programs','use-after-move-runtime','use-after-move-projection','source-surface')
+        $RuntimeRoute = $Expected + 'hygiene'
+      }
+    }
     $Expected+='hygiene'
     Assert-Policy (($Observed -join ',') -ceq ($Expected -join ',')) "actual $Profile route closure"
     if($Profile -ceq 'Compiler') {
@@ -645,6 +735,14 @@ try {
   $script:Observed.Clear();$script:FailAt='tests'
   Assert-PolicyRejects { Invoke-HumFixedProfile 'Runtime' 'owned-cargo' } 'group failure propagates'
   Assert-Policy (($Observed -join ',') -ceq 'capture,format,check,tests') 'no work after failure'
+  foreach ($Check in @('use-after-move-runtime','use-after-move-projection','source-surface')) {
+    $script:Observed.Clear(); $script:FailAt = $Check
+    $Refusal = $null
+    try { Invoke-HumFixedProfile 'Runtime' 'owned-cargo' } catch { $Refusal = $_.Exception.Message }
+    $Last = [Array]::IndexOf($RuntimeRoute, $Check)
+    Assert-Policy ($Refusal -ceq 'owned runtime fixture check failure' -and
+      ($Observed -join ',') -ceq ($RuntimeRoute[0..$Last] -join ',')) "Runtime stops at failed $Check"
+  }
   $env:HUM_EVIDENCE_RECEIPT='rejected-full-receipt'
   $script:Observed.Clear()
   Assert-PolicyRejects { Invoke-HumFixedProfile 'Language' 'owned-cargo' } 'normal cannot write Full receipt'
