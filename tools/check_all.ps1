@@ -7153,7 +7153,7 @@ function Invoke-HumCompilerCorpusChecks {
   if (-not $GraphFirstWordJson.Contains('"source": "text"')) { throw 'Session N graph JSON is missing returned-view source text' }
   if (-not $GraphFirstWordJson.Contains('"status": "declared_return_dependency_parameter_v0"')) { throw 'Session N graph JSON is missing returned-view parameter status' }
   if (-not $GraphFirstWordJson.Contains('slice_until(text, \" \"')) { throw 'Session N graph JSON is missing slice_until body evidence' }
-  Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1'
+  Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1' @($Hum)
 
   $SyntaxJson = Read-NativeOutput 'syntax surface JSON' $Hum @('syntax')
   Assert-Json 'syntax surface JSON' $SyntaxJson
@@ -7400,12 +7400,26 @@ function Invoke-HumCompilerCorpusPhase {
   }
 }
 
-function Get-HumWindowsCorpusCompilerHash([string] $Hum) {
-  $Item = Get-Item -LiteralPath $Hum -Force
+function Assert-HumWindowsCorpusDirectory([string] $Path) {
+  $Directory = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if (-not $Directory.PSIsContainer) { throw 'Windows Full corpus build path is not a directory' }
+  while ($null -ne $Directory) {
+    if (($Directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw 'Windows Full corpus build directory has reparse ancestry'
+    }
+    $Directory = $Directory.Parent
+  }
+}
+
+function Get-HumWindowsCorpusCompiler([string] $Target) {
+  $Debug = Join-Path $Target 'debug'
+  Assert-HumWindowsCorpusDirectory $Debug
+  $Hum = Join-Path $Debug 'hum.exe'
+  $Item = Get-Item -LiteralPath $Hum -Force -ErrorAction Stop
   if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $Item.Length -eq 0) {
     throw 'Windows Full corpus compiler is not an ordinary nonempty file'
   }
-  (Get-FileHash -LiteralPath $Item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+  [pscustomobject]@{Path=$Hum; Sha256=(Get-FileHash -LiteralPath $Hum -Algorithm SHA256).Hash.ToLowerInvariant()}
 }
 
 function Invoke-HumWindowsCorpusPart {
@@ -7415,25 +7429,24 @@ function Invoke-HumWindowsCorpusPart {
     throw 'Windows Full corpus requires a clean checkout and no Full receipt'
   }
 
-  $Target = Join-Path $RepoRoot 'target'
-  $Debug = Join-Path $Target 'debug'
-  $Hum = Join-Path $Debug 'hum.exe'
-  foreach ($Path in @($Target, $Debug)) {
-    $Directory = Get-Item -LiteralPath $Path -Force
-    if (-not $Directory.PSIsContainer -or ($Directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-      throw 'Windows Full corpus build directory is not ordinary'
-    }
+  # WO22/23 may have built the shared compiler. Give only this Cargo build
+  # a new target in runner temp, leaving the shared target and environment alone.
+  $RunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+  Assert-HumWindowsCorpusDirectory $RunnerTemp
+  $Target = Join-Path $RunnerTemp ('hum-corpus-target-' + [Guid]::NewGuid().ToString('N'))
+  $null = New-Item -ItemType Directory -Path $Target -ErrorAction Stop
+  Assert-HumWindowsCorpusDirectory $Target
+  if (@(Get-ChildItem -LiteralPath $Target -Force -ErrorAction Stop).Count -ne 0) {
+    throw 'Windows Full corpus target is not empty before build'
   }
-  if ($null -ne (Get-Item -LiteralPath $Hum -Force -ErrorAction SilentlyContinue)) {
-    throw 'Windows Full corpus requires a fresh compiler build'
-  }
-  Invoke-HumPhase 'build' { Invoke-HumCoreCheck 'build' $Cargo }
-  $CompilerHash = Get-HumWindowsCorpusCompilerHash $Hum
+  Invoke-HumPhase 'build' { Invoke-Native 'cargo build' $Cargo @('build','--target-dir',$Target) }
+  $Compiler = Get-HumWindowsCorpusCompiler $Target
+  $Hum = $Compiler.Path
   . Invoke-HumCompilerCorpusPhase
-  if ((Get-HumWindowsCorpusCompilerHash $Hum) -cne $CompilerHash) { throw 'Windows Full corpus compiler changed during checks' }
+  if ((Get-HumWindowsCorpusCompiler $Target).Sha256 -cne $Compiler.Sha256) { throw 'Windows Full corpus compiler changed during checks' }
   $After = @(& $Git status --porcelain=v1 --untracked-files=all)
   if ($LASTEXITCODE -ne 0 -or $After.Count -ne 0) { throw 'Windows Full corpus did not preserve its checkout' }
-  Write-Host "Windows Full corpus compiler sha256=$CompilerHash"
+  Write-Host "Windows Full corpus compiler sha256=$($Compiler.Sha256)"
   Write-Host 'Windows Full part completed: corpus'
 }
 

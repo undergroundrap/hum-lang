@@ -1101,12 +1101,96 @@ $CorpusActions=@($CorpusDispatch[0].Clauses[0].Item2.Statements)
 Assert-Policy ($CorpusActions.Count -eq 2 -and (& $SharedCommand $CorpusActions[0] 'Invoke-HumWindowsCorpusPart $Cargo') -and
   $CorpusActions[1] -is [Management.Automation.Language.ReturnStatementAst] -and $null -eq $CorpusActions[1].Pipeline) 'corpus sidecar dispatch returns before serial Full'
 $SidecarBody=@($SharedDefinitions['Invoke-HumWindowsCorpusPart'].Body.EndBlock.Statements)
-$Build=@($SidecarBody | Where-Object { $_.Extent.Text -ceq 'Invoke-HumPhase ''build'' { Invoke-HumCoreCheck ''build'' $Cargo }' })
+$CreateRoute=@(
+  '$RunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)',
+  'Assert-HumWindowsCorpusDirectory $RunnerTemp',
+  '$Target = Join-Path $RunnerTemp (''hum-corpus-target-'' + [Guid]::NewGuid().ToString(''N''))',
+  '$null = New-Item -ItemType Directory -Path $Target -ErrorAction Stop',
+  'Assert-HumWindowsCorpusDirectory $Target'
+)
+$BuildRoute=@(
+  'Invoke-HumPhase ''build'' { Invoke-Native ''cargo build'' $Cargo @(''build'',''--target-dir'',$Target) }',
+  '$Compiler = Get-HumWindowsCorpusCompiler $Target',
+  '$Hum = $Compiler.Path',
+  '. Invoke-HumCompilerCorpusPhase',
+  'if ((Get-HumWindowsCorpusCompiler $Target).Sha256 -cne $Compiler.Sha256) { throw ''Windows Full corpus compiler changed during checks'' }'
+)
+$Creation=@($SidecarBody | Where-Object { $_.Extent.Text -ceq $CreateRoute[0] })
+Assert-Policy ($Creation.Count -eq 1) 'Windows corpus has a single private target creation'
+$CreateIndex=[Array]::IndexOf($SidecarBody,$Creation[0])
+$BuildIndex=$CreateIndex + $CreateRoute.Count + 1
+Assert-Policy ($BuildIndex + $BuildRoute.Count -lt $SidecarBody.Count) 'Windows corpus owns target creation and build'
+for ($Index=0; $Index -lt $CreateRoute.Count; $Index++) {
+  Assert-Policy ($SidecarBody[$CreateIndex + $Index].Extent.Text -ceq $CreateRoute[$Index]) 'Windows corpus creates a fresh private target'
+}
+$EmptyGate=$SidecarBody[$BuildIndex - 1]
+Assert-Policy ($EmptyGate -is [Management.Automation.Language.IfStatementAst] -and $EmptyGate.Clauses.Count -eq 1 -and
+  $null -eq $EmptyGate.ElseClause -and
+  $EmptyGate.Clauses[0].Item1.Extent.Text -ceq '@(Get-ChildItem -LiteralPath $Target -Force -ErrorAction Stop).Count -ne 0' -and
+  $EmptyGate.Clauses[0].Item2.Statements.Count -eq 1 -and
+  $EmptyGate.Clauses[0].Item2.Statements[0] -is [Management.Automation.Language.ThrowStatementAst]) 'Windows corpus refuses a populated target before building'
+for ($Index=0; $Index -lt $BuildRoute.Count; $Index++) {
+  Assert-Policy ($SidecarBody[$BuildIndex + $Index].Extent.Text -ceq $BuildRoute[$Index]) 'Windows corpus uses and rechecks only the private compiler'
+}
 $Phase=@($SidecarBody | Where-Object { & $SharedCommand $_ '. Invoke-HumCompilerCorpusPhase' })
 $Footer=@($SidecarBody | Where-Object { $_.Extent.Text -ceq 'Write-Host ''Windows Full part completed: corpus''' })
-Assert-Policy ($Build.Count -eq 1 -and $Phase.Count -eq 1 -and $Footer.Count -eq 1 -and
-  [Array]::IndexOf($SidecarBody,$Build[0]) -lt [Array]::IndexOf($SidecarBody,$Phase[0]) -and
-  [object]::ReferenceEquals($SidecarBody[-1],$Footer[0])) 'Windows corpus runs its checked build before the single corpus phase and ends with its own footer'
+Assert-Policy ($Phase.Count -eq 1 -and $Footer.Count -eq 1 -and
+  [object]::ReferenceEquals($SidecarBody[-1],$Footer[0])) 'Windows corpus runs one checked phase and ends with its own footer'
+$EditorCalls=@($SharedDefinitions['Invoke-HumCompilerCorpusChecks'].Body.FindAll({
+  param($Node)
+  $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Invoke-RepoScript' -and
+  $Node.CommandElements.Count -gt 1 -and $Node.CommandElements[1].Extent.Text -ceq '''editor fixture recovery'''
+},$true))
+Assert-Policy ($EditorCalls.Count -eq 1 -and
+  $EditorCalls[0].Extent.Text -ceq 'Invoke-RepoScript ''editor fixture recovery'' ''check_editor_fixtures.ps1'' @($Hum)') 'editor fixtures receive the actual corpus compiler path'
+
+$LoadCorpusDirectory=Import-PolicyTestFunction $Source 'Assert-HumWindowsCorpusDirectory'
+$LoadCorpusCompiler=Import-PolicyTestFunction $Source 'Get-HumWindowsCorpusCompiler'
+& {
+  . $LoadCorpusDirectory
+  . $LoadCorpusCompiler
+  # Model the actual resolver on all hosts without writing or executing a binary.
+  $PrivateTarget=Join-Path ([IO.Path]::GetTempPath()) 'modeled-corpus-target'
+  $Debug=Join-Path $PrivateTarget 'debug'
+  $Fresh=Join-Path $Debug 'hum.exe'
+  $Shared=Join-Path (Join-Path $Root 'target/debug') 'hum.exe'
+  $TargetItem=[pscustomobject]@{PSIsContainer=$true;Attributes=[IO.FileAttributes]::Directory;Parent=$null}
+  $DebugItem=[pscustomobject]@{PSIsContainer=$true;Attributes=[IO.FileAttributes]::Directory;Parent=$TargetItem}
+  $FileItem=[pscustomobject]@{PSIsContainer=$false;Attributes=[IO.FileAttributes]::Normal;Length=20}
+  $Items=@{}
+  $Items[$Debug]=$DebugItem
+  $Items[$Fresh]=$FileItem
+  $Items[$Shared]=[pscustomobject]@{PSIsContainer=$false;Attributes=[IO.FileAttributes]::Normal;Length=20}
+  $Hashed=[Collections.Generic.List[string]]::new()
+  function Get-Item {
+    [CmdletBinding()]
+    param([string] $LiteralPath,[switch] $Force)
+    if (-not $Force -or -not $Items.ContainsKey($LiteralPath)) { throw 'modeled corpus path absent' }
+    $Items[$LiteralPath]
+  }
+  function Get-FileHash([string] $LiteralPath,[string] $Algorithm) {
+    $Hashed.Add($LiteralPath)
+    if ($Algorithm -cne 'SHA256') { throw 'wrong corpus hash algorithm' }
+    [pscustomobject]@{Hash=('A'*64)}
+  }
+  $Identity=Get-HumWindowsCorpusCompiler $PrivateTarget
+  Assert-Policy ($Identity.Path -ceq $Fresh -and $Identity.Sha256 -ceq ('a'*64) -and
+    $Hashed.Count -eq 1 -and $Hashed[0] -ceq $Fresh) 'Windows corpus resolves and hashes its exact private compiler'
+  $Hashed.Clear()
+  $Resolve={ Get-HumWindowsCorpusCompiler $PrivateTarget }
+  [void]$Items.Remove($Fresh)
+  Assert-PolicyRejects $Resolve 'Windows corpus refuses an absent private compiler even with a shared compiler'
+  $Items[$Fresh]=$FileItem
+  $FileItem.Attributes=[IO.FileAttributes]::ReparsePoint
+  Assert-PolicyRejects $Resolve 'Windows corpus refuses a reparse executable'
+  $FileItem.Attributes=[IO.FileAttributes]::Normal
+  $TargetItem.Attributes=[IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint
+  Assert-PolicyRejects $Resolve 'Windows corpus refuses a reparse target ancestor'
+  $TargetItem.Attributes=[IO.FileAttributes]::Directory
+  $FileItem.Length=0
+  Assert-PolicyRejects $Resolve 'Windows corpus refuses an empty executable'
+  Assert-Policy ($Hashed.Count -eq 0) 'Windows corpus refuses these inputs before hashing any file'
+}
 foreach($Route in @(
   @('Invoke-HumCompilerFrontChecks','Invoke-HumRuntimeProgramChecks','. Invoke-HumRuntimeProgramChecks $Cargo $Hum'),
   @('Invoke-HumCompilerFrontChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumCompilerPrivacyChecks $Cargo'),
@@ -1122,7 +1206,7 @@ foreach($Route in @(
 $CompilerBodies=@{
   'Invoke-HumCompilerFrontChecks'='2af662edf5df102495f03b824b69c30c387978046e40107ac0afdbf05afc1010'
   'Invoke-HumWo22Wo23MutationCampaigns'='853630100c06b135c7a806576ce280de12b9b7634872b24a1d62d5ffab967ec4'
-  'Invoke-HumCompilerCorpusChecks'='b700c4c7226228c85aafd37ad56f30ad35875626c84a443cbfb8c277f4d4185c'
+  'Invoke-HumCompilerCorpusChecks'='6a707093921c181bf9a85a1104c7ffb09cdf6b6418ce52b9a3faaa1ff9f31e25'
   'Invoke-HumUseAfterMoveRuntimeCheck'='a7c5db7146519cba950ec4ba2de9a0f15bf505bbfde0bc855b2e49c9a74a34f8'
   'Invoke-HumUseAfterMoveProjectionCheck'='d1708df1234a0cbdf4f686d48facad32ccfb2bcc7baa834281d2246b748f41f0'
 }
