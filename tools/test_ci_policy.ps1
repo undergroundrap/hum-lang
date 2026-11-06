@@ -521,13 +521,13 @@ foreach($Key in @('GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_EVEN
 try {
   $env:GITHUB_SHA='a'*40;$env:GITHUB_RUN_ID='42';$env:GITHUB_RUN_ATTEMPT='1';$env:GITHUB_EVENT_NAME='pull_request'
   foreach ($Outcome in @('success','failure','cancelled','skipped','timed_out','')) {
-    $Needs = [ordered]@{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result=$Outcome}; windows_mutations = @{result='skipped'} }
+    $Needs = [ordered]@{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result=$Outcome}; windows_mutations = @{result='skipped'}; ubuntu_corpus = @{result='skipped'} }
     $env:HUM_CI_NEEDS = $Needs | ConvertTo-Json -Depth 6 -Compress
     if ($Outcome -ceq 'success') { & $Aggregate; Assert-Policy $true 'honest aggregate' }
     else { Assert-PolicyRejects $Aggregate "aggregate $Outcome" }
   }
   foreach ($Mutation in @('missing','extra','plan-failed','tree-missing','profile-missing','head-missing','stale-attempt','stale-integration')) {
-    $Needs = @{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result='success'}; windows_mutations = @{result='skipped'} }
+    $Needs = @{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result='success'}; windows_mutations = @{result='skipped'}; ubuntu_corpus = @{result='skipped'} }
     switch ($Mutation) {
       'missing' { $Needs.Remove('evaluate') }
       'extra' { $Needs.extra = @{ result='success' } }
@@ -542,15 +542,17 @@ try {
     Assert-PolicyRejects $Aggregate "aggregate $Mutation"
   }
   $Identity = "windows-latest|full|$('a'*40)|$('b'*40)|42|1|$('e'*64)"
+  $UbuntuIdentity = "ubuntu-latest|full|$('a'*40)|$('b'*40)|42|1|$('9'*64)"
   $Needs = [ordered]@{
     plan = @{result='success'; outputs=@{profile='full';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'}}
-    evaluate = @{result='success'; outputs=@{windows_full_main="main|$Identity|$('1'*64)"}}
+    evaluate = @{result='success'; outputs=@{windows_full_main="main|$Identity|$('1'*64)";ubuntu_full_main="main|$UbuntuIdentity|$('5'*64)|48"}}
     windows_mutations = @{result='success'; outputs=@{proof="mutations|$Identity|$('2'*64)";corpus_proof="corpus|$Identity|$('3'*64)|$('4'*64)"}}
+    ubuntu_corpus = @{result='success'; outputs=@{proof="corpus|$UbuntuIdentity|$('6'*64)|$('7'*64)|49"}}
   }
   $HonestSplit = $Needs | ConvertTo-Json -Depth 6 -Compress
   $env:HUM_CI_NEEDS = $HonestSplit
   & $Aggregate
-  Assert-Policy $true 'honest joined Windows Full PR'
+  Assert-Policy $true 'honest joined Windows and Ubuntu Full PR'
   foreach ($Defect in @('missing job','missing result','failed','skipped','cancelled','timed out','missing main','missing mutations',
       'same role','same transcript','foreign platform','foreign tree','foreign integration','foreign run',
       'stale attempt','different toolchain','missing corpus','wrong corpus role','foreign corpus tree',
@@ -594,13 +596,54 @@ try {
       Assert-PolicyRejects $Aggregate "Windows Full join rejects: $Defect"
     } finally { $env:GITHUB_EVENT_NAME = 'pull_request' }
   }
+  foreach ($Defect in @('missing job','failed corpus','skipped corpus','cancelled corpus','missing main','missing corpus',
+      'wrong main role','foreign platform','foreign tree','foreign integration','foreign run','stale attempt',
+      'different toolchain','copied transcript','copied artifact','missing compiler hash','missing main artifact',
+      'missing corpus artifact','foreign output','outside route')) {
+    $Needs = $HonestSplit | ConvertFrom-Json -AsHashtable
+    $CorpusJob = $Needs.ubuntu_corpus
+    $Proof = $CorpusJob.outputs.proof
+    $Main = $Needs.evaluate.outputs.ubuntu_full_main
+    switch ($Defect) {
+      'missing job' { [void]$Needs.Remove('ubuntu_corpus') }
+      'failed corpus' { $CorpusJob.result = 'failure' }
+      'skipped corpus' { $CorpusJob.result = 'skipped' }
+      'cancelled corpus' { $CorpusJob.result = 'cancelled' }
+      'missing main' { [void]$Needs.evaluate.outputs.Remove('ubuntu_full_main') }
+      'missing corpus' { [void]$CorpusJob.outputs.Remove('proof') }
+      'wrong main role' { $Needs.evaluate.outputs.ubuntu_full_main = $Main.Replace('main|','corpus|') }
+      'foreign platform' { $CorpusJob.outputs.proof = $Proof.Replace('ubuntu-latest','windows-latest') }
+      'foreign tree' { $CorpusJob.outputs.proof = $Proof.Replace(('b'*40),('f'*40)) }
+      'foreign integration' { $CorpusJob.outputs.proof = $Proof.Replace(('a'*40),('f'*40)) }
+      'foreign run' { $CorpusJob.outputs.proof = $Proof.Replace('|42|','|43|') }
+      'stale attempt' { $CorpusJob.outputs.proof = $Proof.Replace('|42|1|','|42|2|') }
+      'different toolchain' { $CorpusJob.outputs.proof = $Proof.Replace(('9'*64),('f'*64)) }
+      'copied transcript' { $CorpusJob.outputs.proof = $Proof.Replace(('6'*64),('5'*64)) }
+      'copied artifact' { $CorpusJob.outputs.proof = $Proof.Substring(0,$Proof.Length-2) + '48' }
+      'missing compiler hash' { $CorpusJob.outputs.proof = $Proof.Replace(('|' + '7'*64),'') }
+      'missing main artifact' { $Needs.evaluate.outputs.ubuntu_full_main = $Main.Substring(0,$Main.Length-3) }
+      'missing corpus artifact' { $CorpusJob.outputs.proof = $Proof.Substring(0,$Proof.Length-3) }
+      'foreign output' { $CorpusJob.outputs.other = $Proof }
+      'outside route' {
+        $Needs.plan.outputs.profile = 'runtime'
+        $Needs.windows_mutations = @{result='skipped'}
+        [void]$Needs.evaluate.outputs.Remove('windows_full_main')
+      }
+    }
+    $env:HUM_CI_NEEDS = $Needs | ConvertTo-Json -Depth 6 -Compress
+    Assert-Policy ($env:HUM_CI_NEEDS -cne $HonestSplit) "initialized Ubuntu Full join defect: $Defect"
+    Assert-PolicyRejects $Aggregate "Ubuntu Full join rejects: $Defect"
+  }
   foreach ($Case in @(
+      @('"ubuntu_corpus":{','"UBUNTU_CORPUS":null,"ubuntu_corpus":{'),
+      @('"ubuntu_full_main":"main|','"UBUNTU_FULL_MAIN":null,"ubuntu_full_main":"main|'),
+      @('"proof":"corpus|','"PROOF":null,"proof":"corpus|'),
       @('"windows_mutations":{','"windows_mutations":null,"windows_mutations":{'),
       @('"proof":"mutations|','"PROOF":null,"proof":"mutations|'),
       @('"corpus_proof":"corpus|','"CORPUS_PROOF":null,"corpus_proof":"corpus|'))) {
     $env:HUM_CI_NEEDS = $HonestSplit.Replace($Case[0],$Case[1])
-    Assert-Policy ($env:HUM_CI_NEEDS -cne $HonestSplit) 'initialized duplicate Windows Full proof'
-    Assert-PolicyRejects $Aggregate 'duplicate Windows Full job or proof field rejects'
+    Assert-Policy ($env:HUM_CI_NEEDS -cne $HonestSplit) 'initialized duplicate Full proof'
+    Assert-PolicyRejects $Aggregate 'duplicate Full job or proof field rejects'
   }
 } finally {
   [Environment]::SetEnvironmentVariable('HUM_CI_NEEDS',$OriginalNeeds,'Process')
@@ -654,15 +697,59 @@ $SidecarFunction = Import-PolicyTestFunction $SidecarSource 'Get-WindowsSidecarC
   Assert-PolicyRejects $InvokeSidecar 'Windows sidecar rejects absent corpus proof'
 }
 
+$UbuntuCompletionMatch = [regex]::Match($Workflow, '(?ms)^      - name: Confirm Ubuntu corpus completion\n.*?        run: \|\n(?<body>.*?)(?=^  windows_mutations:)')
+Assert-Policy $UbuntuCompletionMatch.Success 'Ubuntu corpus completion owner exists'
+$UbuntuCompletionSource = ($UbuntuCompletionMatch.Groups['body'].Value -split '\n' | ForEach-Object {
+  if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ }
+}) -join [char]10
+& {
+  . (Import-PolicyTestFunction $UbuntuCompletionSource 'Get-UbuntuCorpusCompletedProof')
+  function Assert-HumCaptureComplete($Request) {
+    if (-not $Captures.ContainsKey($Request.CaptureDirectory)) { throw 'modeled retained capture is absent' }
+    $Captures[$Request.CaptureDirectory]
+  }
+  $Proof = "corpus|ubuntu-latest|full|$('a'*40)|$('b'*40)|42|1|$('9'*64)|$('6'*64)|$('7'*64)"
+  $Rows = @{
+    corpus = @{outcome='success';conclusion='success';outputs=@{proof=$Proof;capture_dir='corpus';toolchain_dir='toolchain'}}
+    retain_corpus = @{outcome='success';conclusion='success';outputs=@{'artifact-id'='49'}}
+  }
+  $Captures = @{
+    corpus = @{CaseName='ci-ubuntu-corpus';ExitCode=0;TimedOut=$false;StdoutSha256=('6'*64)}
+    toolchain = @{CaseName='ci-ubuntu-corpus-toolchain';ExitCode=0;TimedOut=$false;StdoutSha256=('9'*64)}
+  }
+  $InvokeCorpusCompletion = { Get-UbuntuCorpusCompletedProof ($Rows | ConvertTo-Json -Depth 5 -Compress | ConvertFrom-Json) }
+  Assert-Policy ((& $InvokeCorpusCompletion) -ceq "$Proof|49") 'Ubuntu corpus publishes completed and retained proof'
+  foreach ($Step in @('corpus','retain_corpus')) {
+    foreach ($Field in @('outcome','conclusion')) {
+      $Rows[$Step][$Field] = 'failure'
+      Assert-PolicyRejects $InvokeCorpusCompletion "Ubuntu corpus rejects failed $Step $Field"
+      $Rows[$Step][$Field] = 'success'
+    }
+  }
+  foreach ($Kind in @('corpus','toolchain')) {
+    $SavedCapture = $Captures[$Kind]
+    [void]$Captures.Remove($Kind)
+    Assert-PolicyRejects $InvokeCorpusCompletion "Ubuntu corpus rejects missing $Kind capture"
+    $Captures[$Kind] = $SavedCapture
+    $SavedDigest = $SavedCapture.StdoutSha256
+    $SavedCapture.StdoutSha256 = 'f'*64
+    Assert-PolicyRejects $InvokeCorpusCompletion "Ubuntu corpus rejects changed $Kind digest"
+    $SavedCapture.StdoutSha256 = $SavedDigest
+  }
+  $Rows.retain_corpus.outputs.Clear()
+  Assert-PolicyRejects $InvokeCorpusCompletion 'Ubuntu corpus rejects missing artifact ID'
+}
+
 # The per-platform completion owner checks actual steps, not just a green job.
 $CompletionMatch=[regex]::Match($Ci,'(?ms)^      - name: Confirm selected work completion\n.*?        run: \|\n(?<body>.*)\z')
 Assert-Policy $CompletionMatch.Success 'platform completion owner exists'
 $Completion=[scriptblock]::Create((($CompletionMatch.Groups['body'].Value -split "`n"|ForEach-Object{if($_.StartsWith('          ')){$_.Substring(10)}else{$_}})-join "`n"))
 $SavedCompletion=@{}
 $SplitOutput=$null
-foreach($Key in @('HUM_COMPLETED_STEPS','HUM_SELECTED_MODE','HUM_SELECTED_PROFILE','HUM_MATRIX_OS','HUM_WINDOWS_FULL_PART','GITHUB_EVENT_NAME','GITHUB_OUTPUT')){$SavedCompletion[$Key]=[Environment]::GetEnvironmentVariable($Key,'Process')}
+foreach($Key in @('HUM_COMPLETED_STEPS','HUM_SELECTED_MODE','HUM_SELECTED_PROFILE','HUM_MATRIX_OS','HUM_WINDOWS_FULL_PART','HUM_UBUNTU_FULL_PART','GITHUB_EVENT_NAME','GITHUB_OUTPUT')){$SavedCompletion[$Key]=[Environment]::GetEnvironmentVariable($Key,'Process')}
 try {
   $env:HUM_WINDOWS_FULL_PART = ''
+  $env:HUM_UBUNTU_FULL_PART = ''
   foreach($Platform in @('windows-latest','ubuntu-latest')) {
     foreach($Profile in @('language','runtime','compiler','full')) {
       $env:HUM_MATRIX_OS=$Platform;$env:HUM_SELECTED_PROFILE=$Profile;$env:GITHUB_EVENT_NAME='pull_request'
@@ -708,6 +795,34 @@ try {
   $Rows.windows_full_retain.outcome = 'failure'
   $env:HUM_COMPLETED_STEPS = $Rows | ConvertTo-Json -Depth 5 -Compress
   Assert-PolicyRejects $Completion 'Windows Full main refuses failed transcript retention'
+
+  $env:HUM_WINDOWS_FULL_PART = ''
+  $env:HUM_UBUNTU_FULL_PART = 'main'
+  $env:HUM_MATRIX_OS = 'ubuntu-latest'
+  $Rows = @{}
+  foreach ($Name in @('integration_identity','pwsh_identity','classify','full_preflight','close_full_transport','exhaustive',
+      'ubuntu_full_ticket','ubuntu_full_capture','ubuntu_full_retain')) {
+    $Rows[$Name] = @{outcome='success';conclusion='success'}
+  }
+  $Proof = "main|ubuntu-latest|full|$('a'*40)|$('b'*40)|42|1|$('9'*64)|$('5'*64)"
+  $Rows.ubuntu_full_capture.outputs = @{ubuntu_full_part=$Proof}
+  $env:HUM_COMPLETED_STEPS = $Rows | ConvertTo-Json -Depth 5 -Compress
+  Assert-PolicyRejects $Completion 'Ubuntu main refuses a missing artifact ID'
+  $Rows.ubuntu_full_retain.outputs = @{'artifact-id'='48'}
+  $env:HUM_COMPLETED_STEPS = $Rows | ConvertTo-Json -Depth 5 -Compress
+  & $Completion
+  Assert-Policy ([IO.File]::ReadAllLines($SplitOutput) -ccontains "ubuntu_full_part=$Proof|48") 'Ubuntu Full main publishes its retained proof'
+  foreach ($Name in @('exhaustive','ubuntu_full_ticket','ubuntu_full_capture','ubuntu_full_retain')) {
+    foreach ($Field in @('outcome','conclusion')) {
+      $Rows[$Name][$Field] = 'skipped'
+      $env:HUM_COMPLETED_STEPS = $Rows | ConvertTo-Json -Depth 5 -Compress
+      Assert-PolicyRejects $Completion "Ubuntu main rejects incomplete $Name $Field"
+      $Rows[$Name][$Field] = 'success'
+    }
+  }
+  $env:HUM_COMPLETED_STEPS = $Rows | ConvertTo-Json -Depth 5 -Compress
+  $env:HUM_UBUNTU_FULL_PART = ''
+  Assert-PolicyRejects $Completion 'Ubuntu main refuses proof outside its split route'
 } finally {
   foreach($Key in $SavedCompletion.Keys){[Environment]::SetEnvironmentVariable($Key,$SavedCompletion[$Key],'Process')}
   if ($SplitOutput) { [IO.File]::Delete($SplitOutput) }
@@ -718,10 +833,12 @@ try {
 foreach ($Owner in @(
     @($Ci,'Verify Windows Full part transcript','Assert-WindowsFullMainOutput'),
     @($Workflow,'Run Windows mutation campaigns','Assert-WindowsFullMutationOutput'),
-    @($Workflow,'Run Windows compiler corpus','Get-WindowsFullCorpusCompilerHash'))) {
+    @($Workflow,'Run Windows compiler corpus','Get-WindowsFullCorpusCompilerHash'),
+    @($Ci,'Verify Ubuntu Full main transcript','Assert-UbuntuFullMainOutput'),
+    @($Workflow,'Run Ubuntu compiler corpus','Get-UbuntuFullCorpusCompilerHash'))) {
   $StepPattern = '(?ms)^      - name: ' + [regex]::Escape($Owner[1]) + '\n.*?        run: \|\n(?<body>.*?)(?=^      - name: )'
   $TranscriptBlocks = [regex]::Matches($Owner[0], $StepPattern)
-  Assert-Policy ($TranscriptBlocks.Count -eq 1) "Windows part transcript owner: $($Owner[1])"
+  Assert-Policy ($TranscriptBlocks.Count -eq 1) "Full part transcript owner: $($Owner[1])"
   $TranscriptScript = ($TranscriptBlocks[0].Groups['body'].Value -split '\n' | ForEach-Object {
     if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ }
   }) -join [char]10
@@ -756,7 +873,39 @@ foreach ($Rows in @(
   $Bytes = $Utf8.GetBytes($Rows -join [char]10)
   Assert-PolicyRejects { Get-WindowsFullCorpusCompilerHash $Bytes } 'Windows corpus refuses incomplete or foreign transcript evidence'
 }
-Assert-Policy $true 'honest Windows main and mutation transcripts pass their actual capture consumers'
+$UbuntuMainFooter = 'Ubuntu Full part completed: main'
+$UbuntuCorpusFooter = 'Ubuntu Full part completed: corpus'
+$UbuntuCompiler = "Ubuntu Full corpus compiler sha256=$CorpusHash"
+$UbuntuCorpusRows = @($CorpusRows[0],$UbuntuCompiler,$UbuntuCorpusFooter)
+$Wo24Producer = (Import-PolicyTestFunction $Source 'Invoke-Wo24UnitAProductionMutationEvidence').ToString()
+$Wo24Row = [regex]::Match($Wo24Producer, "Label = '(?<label>N01 [^']+)'")
+Assert-Policy ($Wo24Row.Success -and $Wo24Producer.Contains('Write-Host "ok - Work Order 24 $($Mutation.Label) rejected and restored"')) 'actual WO24 result grammar and label'
+$Wo24Result = "ok - Work Order 24 $($Wo24Row.Groups['label'].Value) rejected and restored"
+$Bytes = $Utf8.GetBytes(($UbuntuCorpusRows -join [char]10) + [char]10)
+Assert-Policy ((Get-UbuntuFullCorpusCompilerHash $Bytes) -ceq $CorpusHash) 'Ubuntu corpus retains its checked compiler identity'
+Assert-UbuntuFullMainOutput ($Utf8.GetBytes((@($WindowsMutationRows[0],$Wo24Result,$UbuntuMainFooter) -join [char]10)))
+foreach ($Rows in @(
+    @($UbuntuCompiler,$UbuntuCorpusFooter),
+    @($CorpusRows[0],$UbuntuCorpusFooter),
+    @($CorpusRows[0],$UbuntuCompiler,$UbuntuCompiler,$UbuntuCorpusFooter),
+    @($CorpusRows[0],$CorpusRows[1],$UbuntuCorpusFooter),
+    @($CorpusRows[0],$UbuntuCompiler,$UbuntuCorpusFooter,$MainFooter),
+    (@($WindowsMutationRows[0]) + $UbuntuCorpusRows),
+    (@($Wo24Result) + $UbuntuCorpusRows))) {
+  $Bytes = $Utf8.GetBytes($Rows -join [char]10)
+  Assert-PolicyRejects { Get-UbuntuFullCorpusCompilerHash $Bytes } 'Ubuntu corpus refuses incomplete or foreign transcript evidence'
+}
+foreach ($Rows in @(
+    @($CorpusRows[0],$UbuntuMainFooter),
+    @($UbuntuCompiler,$UbuntuMainFooter),
+    @($UbuntuCorpusFooter,$UbuntuMainFooter),
+    @($UbuntuMainFooter,$UbuntuMainFooter),
+    @('All Hum preflight checks passed.',$UbuntuMainFooter),
+    @($UbuntuMainFooter,'output after completion'))) {
+  $Bytes = $Utf8.GetBytes($Rows -join [char]10)
+  Assert-PolicyRejects { Assert-UbuntuFullMainOutput $Bytes } 'Ubuntu main refuses corpus or foreign completion evidence'
+}
+Assert-Policy $true 'honest Full main and mutation transcripts pass their actual capture consumers'
 foreach ($Case in @(
     @('mutations', (@($WindowsMutationRows[1..28]) + $MutationsFooter)),
     @('mutations', (@($WindowsMutationRows[0]) + $WindowsMutationRows[0..27] + $MutationsFooter)),
@@ -952,7 +1101,7 @@ $SharedTokens=$null;$SharedErrors=$null
 $SharedAst=[Management.Automation.Language.Parser]::ParseInput($Source,[ref]$SharedTokens,[ref]$SharedErrors)
 Assert-Policy ($SharedErrors.Count -eq 0) 'Full shared source syntax'
 $SharedDefinitions=@{}
-foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumLanguageProgramChecks','Invoke-HumCompilerFrontChecks','Invoke-HumCompilerCorpusChecks','Invoke-HumCompilerCorpusPhase','Invoke-HumWindowsCorpusPart','Get-AqRustProductionSource')) {
+foreach($Name in @('Invoke-HumCoreCheck','Invoke-HumRuntimeProgramChecks','Invoke-HumCompilerPrivacyChecks','Invoke-HumLanguageProgramChecks','Invoke-HumCompilerFrontChecks','Invoke-HumCompilerCorpusChecks','Invoke-HumCompilerCorpusPhase','Invoke-HumFullCorpusPart','Get-AqRustProductionSource')) {
   $Definitions=@($SharedAst.FindAll({param($Node)$Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -ceq $Name},$true))
   $Top=@($SharedAst.EndBlock.Statements|Where-Object{$_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq $Name})
   Assert-Policy ($Definitions.Count -eq 1 -and $Top.Count -eq 1 -and [object]::ReferenceEquals($Definitions[0],$Top[0])) "Full shared definition ownership: $Name"
@@ -1081,7 +1230,7 @@ $CorpusRoutes=@($SharedStatements | Where-Object {
   @($_.ElseClause.Statements | Where-Object { & $SharedCommand $_ '. Invoke-HumCompilerCorpusPhase' }).Count -eq 1
 })
 Assert-Policy ($CorpusRoutes.Count -eq 1 -and $CorpusRoutes[0].Clauses.Count -eq 1 -and
-  $CorpusRoutes[0].Clauses[0].Item1.Extent.Text -ceq '$script:HumWindowsFullPart -ceq ''main''' -and
+  $CorpusRoutes[0].Clauses[0].Item1.Extent.Text -ceq '$script:HumWindowsFullPart -ceq ''main'' -or $script:HumUbuntuFullPart -ceq ''main''' -and
   $CorpusRoutes[0].ElseClause.Statements.Count -eq 1) 'serial Full retains its single corpus phase'
 $CorpusIndex=[Array]::IndexOf($SharedStatements,$CorpusRoutes[0])
 Assert-Policy ($SharedPhaseIndexes[4] -lt $FrontIndex -and $FrontIndex+1 -lt $CorpusIndex -and
@@ -1090,52 +1239,74 @@ $MainDiffs=@($CorpusRoutes[0].Clauses[0].Item2.Statements)
 $WorktreeDiff='Invoke-Native ''git diff --check'' $Git @(''-c'', "safe.directory=$GitRepoRoot", ''-C'', $GitRepoRoot, ''diff'', ''--check'')'
 $IndexDiff='Invoke-Native ''git diff --cached --check'' $Git @(''-c'', "safe.directory=$GitRepoRoot", ''-C'', $GitRepoRoot, ''diff'', ''--cached'', ''--check'')'
 Assert-Policy ($MainDiffs.Count -eq 2 -and $MainDiffs[0].Extent.Text -ceq $WorktreeDiff -and
-  $MainDiffs[1].Extent.Text -ceq $IndexDiff) 'Windows Full main retains both checkout-local Git diff checks'
-$CorpusDispatch=@($SharedStatements | Where-Object {
-  $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -ceq '$script:HumWindowsFullPart -ceq ''corpus'''
+  $MainDiffs[1].Extent.Text -ceq $IndexDiff) 'both Full main roles retain both checkout-local Git diff checks'
+Assert-Policy ($SharedStatements[$SharedReturns.Count].Extent.Text -ceq '$script:HumWindowsFullPart = Get-HumWindowsFullPart' -and
+  $SharedStatements[$SharedReturns.Count+1].Extent.Text -ceq '$script:HumUbuntuFullPart = Get-HumUbuntuFullPart') 'Full role tickets follow every narrower return'
+foreach ($Route in @(@('Windows',3),@('Ubuntu',4))) {
+  $Platform = $Route[0]
+  $Guard = '$script:Hum' + $Platform + 'FullPart -ceq ''corpus'''
+  $CorpusDispatch = @($SharedStatements | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -ceq $Guard
+  })
+  Assert-Policy ($CorpusDispatch.Count -eq 1 -and [Array]::IndexOf($SharedStatements,$CorpusDispatch[0]) -eq $SharedReturns.Count+$Route[1] -and
+    $CorpusDispatch[0].Clauses.Count -eq 1 -and $null -eq $CorpusDispatch[0].ElseClause) "$Platform corpus follows ticket dispatch"
+  $CorpusActions = @($CorpusDispatch[0].Clauses[0].Item2.Statements)
+  $ExpectedCall = 'Invoke-HumFullCorpusPart $Cargo ' + "'$Platform'"
+  Assert-Policy ($CorpusActions.Count -eq 2 -and (& $SharedCommand $CorpusActions[0] $ExpectedCall) -and
+    $CorpusActions[1] -is [Management.Automation.Language.ReturnStatementAst] -and $null -eq $CorpusActions[1].Pipeline) "$Platform corpus returns before serial Full"
+}
+$LedgerGuard = '$script:HumWindowsFullPart -ceq '''' -and' + [char]10 +
+  '      ($script:HumUbuntuFullPart -ceq ''main'' -or -not [string]::IsNullOrEmpty($env:HUM_EVIDENCE_RECEIPT))'
+$LedgerRoute = @($SharedStatements | Where-Object {
+  $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -ceq $LedgerGuard
 })
-Assert-Policy ($CorpusDispatch.Count -eq 1 -and [Array]::IndexOf($SharedStatements,$CorpusDispatch[0]) -eq $SharedReturns.Count+2 -and
-  $SharedStatements[$SharedReturns.Count].Extent.Text -ceq '$script:HumWindowsFullPart = Get-HumWindowsFullPart' -and
-  $CorpusDispatch[0].Clauses.Count -eq 1 -and $null -eq $CorpusDispatch[0].ElseClause) 'corpus sidecar follows ticket dispatch and other profile returns'
-$CorpusActions=@($CorpusDispatch[0].Clauses[0].Item2.Statements)
-Assert-Policy ($CorpusActions.Count -eq 2 -and (& $SharedCommand $CorpusActions[0] 'Invoke-HumWindowsCorpusPart $Cargo') -and
-  $CorpusActions[1] -is [Management.Automation.Language.ReturnStatementAst] -and $null -eq $CorpusActions[1].Pipeline) 'corpus sidecar dispatch returns before serial Full'
-$SidecarBody=@($SharedDefinitions['Invoke-HumWindowsCorpusPart'].Body.EndBlock.Statements)
+Assert-Policy ($LedgerRoute.Count -eq 1 -and $LedgerRoute[0].Clauses.Count -eq 1 -and
+  $null -eq $LedgerRoute[0].ElseClause) 'Ubuntu split main and serial receipt routes own live ledger validation'
+$LedgerStatements = $LedgerRoute[0].Clauses[0].Item2.Statements
+Assert-Policy ($LedgerStatements.Count -eq 5 -and $LedgerStatements[2].Extent.Text.Contains('full evidence receipt ownership or selector identity is invalid') -and
+  $LedgerStatements[3].Extent.Text -ceq 'Assert-Wo25MutationReceiptRecords @($script:Wo25MutationRecords)') 'ownership and actual mutation rows are checked before receipt writing'
+$ReceiptWrite = $LedgerStatements[4]
+Assert-Policy ($ReceiptWrite -is [Management.Automation.Language.IfStatementAst] -and
+  $ReceiptWrite.Clauses.Count -eq 1 -and $null -eq $ReceiptWrite.ElseClause -and
+  $ReceiptWrite.Clauses[0].Item1.Extent.Text -ceq '$script:HumUbuntuFullPart -ceq ''''' -and
+  $ReceiptWrite.Clauses[0].Item2.Statements[-1].Extent.Text.StartsWith('[IO.File]::WriteAllText($Receipt,$ReceiptText,')) 'whole-Full receipt is written only by serial preflight'
+
+$SidecarBody=@($SharedDefinitions['Invoke-HumFullCorpusPart'].Body.EndBlock.Statements)
 $CreateRoute=@(
   '$RunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)',
-  'Assert-HumWindowsCorpusDirectory $RunnerTemp',
+  'Assert-HumCorpusDirectory $RunnerTemp',
   '$Target = Join-Path $RunnerTemp (''hum-corpus-target-'' + [Guid]::NewGuid().ToString(''N''))',
   '$null = New-Item -ItemType Directory -Path $Target -ErrorAction Stop',
-  'Assert-HumWindowsCorpusDirectory $Target'
+  'Assert-HumCorpusDirectory $Target'
 )
 $BuildRoute=@(
   'Invoke-HumPhase ''build'' { Invoke-Native ''cargo build'' $Cargo @(''build'',''--target-dir'',$Target) }',
-  '$Compiler = Get-HumWindowsCorpusCompiler $Target',
+  '$Compiler = Get-HumCorpusCompiler $Target $Name',
   '$Hum = $Compiler.Path',
   '. Invoke-HumCompilerCorpusPhase',
-  'if ((Get-HumWindowsCorpusCompiler $Target).Sha256 -cne $Compiler.Sha256) { throw ''Windows Full corpus compiler changed during checks'' }'
+  'if ((Get-HumCorpusCompiler $Target $Name).Sha256 -cne $Compiler.Sha256) { throw "$Platform Full corpus compiler changed during checks" }'
 )
 $Creation=@($SidecarBody | Where-Object { $_.Extent.Text -ceq $CreateRoute[0] })
-Assert-Policy ($Creation.Count -eq 1) 'Windows corpus has a single private target creation'
+Assert-Policy ($Creation.Count -eq 1) 'Full corpus has a single private target creation'
 $CreateIndex=[Array]::IndexOf($SidecarBody,$Creation[0])
 $BuildIndex=$CreateIndex + $CreateRoute.Count + 1
-Assert-Policy ($BuildIndex + $BuildRoute.Count -lt $SidecarBody.Count) 'Windows corpus owns target creation and build'
+Assert-Policy ($BuildIndex + $BuildRoute.Count -lt $SidecarBody.Count) 'Full corpus owns target creation and build'
 for ($Index=0; $Index -lt $CreateRoute.Count; $Index++) {
-  Assert-Policy ($SidecarBody[$CreateIndex + $Index].Extent.Text -ceq $CreateRoute[$Index]) 'Windows corpus creates a fresh private target'
+  Assert-Policy ($SidecarBody[$CreateIndex + $Index].Extent.Text -ceq $CreateRoute[$Index]) 'Full corpus creates a fresh private target'
 }
 $EmptyGate=$SidecarBody[$BuildIndex - 1]
 Assert-Policy ($EmptyGate -is [Management.Automation.Language.IfStatementAst] -and $EmptyGate.Clauses.Count -eq 1 -and
   $null -eq $EmptyGate.ElseClause -and
   $EmptyGate.Clauses[0].Item1.Extent.Text -ceq '@(Get-ChildItem -LiteralPath $Target -Force -ErrorAction Stop).Count -ne 0' -and
   $EmptyGate.Clauses[0].Item2.Statements.Count -eq 1 -and
-  $EmptyGate.Clauses[0].Item2.Statements[0] -is [Management.Automation.Language.ThrowStatementAst]) 'Windows corpus refuses a populated target before building'
+  $EmptyGate.Clauses[0].Item2.Statements[0] -is [Management.Automation.Language.ThrowStatementAst]) 'Full corpus refuses a populated target before building'
 for ($Index=0; $Index -lt $BuildRoute.Count; $Index++) {
-  Assert-Policy ($SidecarBody[$BuildIndex + $Index].Extent.Text -ceq $BuildRoute[$Index]) 'Windows corpus uses and rechecks only the private compiler'
+  Assert-Policy ($SidecarBody[$BuildIndex + $Index].Extent.Text -ceq $BuildRoute[$Index]) 'Full corpus uses and rechecks only the private compiler'
 }
 $Phase=@($SidecarBody | Where-Object { & $SharedCommand $_ '. Invoke-HumCompilerCorpusPhase' })
-$Footer=@($SidecarBody | Where-Object { $_.Extent.Text -ceq 'Write-Host ''Windows Full part completed: corpus''' })
+$Footer=@($SidecarBody | Where-Object { $_.Extent.Text -ceq 'Write-Host "$Platform Full part completed: corpus"' })
 Assert-Policy ($Phase.Count -eq 1 -and $Footer.Count -eq 1 -and
-  [object]::ReferenceEquals($SidecarBody[-1],$Footer[0])) 'Windows corpus runs one checked phase and ends with its own footer'
+  [object]::ReferenceEquals($SidecarBody[-1],$Footer[0])) 'Full corpus runs one checked phase and ends with its own footer'
 $EditorCalls=@($SharedDefinitions['Invoke-HumCompilerCorpusChecks'].Body.FindAll({
   param($Node)
   $Node -is [Management.Automation.Language.CommandAst] -and $Node.GetCommandName() -ceq 'Invoke-RepoScript' -and
@@ -1144,8 +1315,8 @@ $EditorCalls=@($SharedDefinitions['Invoke-HumCompilerCorpusChecks'].Body.FindAll
 Assert-Policy ($EditorCalls.Count -eq 1 -and
   $EditorCalls[0].Extent.Text -ceq 'Invoke-RepoScript ''editor fixture recovery'' ''check_editor_fixtures.ps1'' @($Hum)') 'editor fixtures receive the actual corpus compiler path'
 
-$LoadCorpusDirectory=Import-PolicyTestFunction $Source 'Assert-HumWindowsCorpusDirectory'
-$LoadCorpusCompiler=Import-PolicyTestFunction $Source 'Get-HumWindowsCorpusCompiler'
+$LoadCorpusDirectory=Import-PolicyTestFunction $Source 'Assert-HumCorpusDirectory'
+$LoadCorpusCompiler=Import-PolicyTestFunction $Source 'Get-HumCorpusCompiler'
 & {
   . $LoadCorpusDirectory
   . $LoadCorpusCompiler
@@ -1173,11 +1344,19 @@ $LoadCorpusCompiler=Import-PolicyTestFunction $Source 'Get-HumWindowsCorpusCompi
     if ($Algorithm -cne 'SHA256') { throw 'wrong corpus hash algorithm' }
     [pscustomobject]@{Hash=('A'*64)}
   }
-  $Identity=Get-HumWindowsCorpusCompiler $PrivateTarget
+  $Identity=Get-HumCorpusCompiler $PrivateTarget 'hum.exe'
   Assert-Policy ($Identity.Path -ceq $Fresh -and $Identity.Sha256 -ceq ('a'*64) -and
     $Hashed.Count -eq 1 -and $Hashed[0] -ceq $Fresh) 'Windows corpus resolves and hashes its exact private compiler'
   $Hashed.Clear()
-  $Resolve={ Get-HumWindowsCorpusCompiler $PrivateTarget }
+  $UbuntuFresh=Join-Path $Debug 'hum'
+  $Items[$UbuntuFresh]=$FileItem
+  $UbuntuIdentity=Get-HumCorpusCompiler $PrivateTarget 'hum'
+  Assert-Policy ($UbuntuIdentity.Path -ceq $UbuntuFresh -and $UbuntuIdentity.Sha256 -ceq ('a'*64) -and
+    $Hashed.Count -eq 1 -and $Hashed[0] -ceq $UbuntuFresh) 'Ubuntu corpus resolves and hashes its exact private compiler'
+  $Hashed.Clear()
+  [void]$Items.Remove($UbuntuFresh)
+  Assert-PolicyRejects { Get-HumCorpusCompiler $PrivateTarget 'hum' } 'Ubuntu corpus refuses an absent private compiler with the other platform file present'
+  $Resolve={ Get-HumCorpusCompiler $PrivateTarget 'hum.exe' }
   [void]$Items.Remove($Fresh)
   Assert-PolicyRejects $Resolve 'Windows corpus refuses an absent private compiler even with a shared compiler'
   $Items[$Fresh]=$FileItem
@@ -1291,7 +1470,7 @@ foreach($Name in @('Get-Wo25Sha256','Assert-Wo25EvidenceTierDispatcherContract',
 Assert-Wo25EvidenceTierDispatcherContract $Source -SkipStaleControl
 Assert-Wo25UnitBFullPreflightWorkflowRoute $Ci
 Assert-Policy ($null -eq (Get-Wo25ExhaustiveWorkflowRouteFailure $Ci)) 'Full exhaustive route unchanged'
-Assert-Policy ($Workflow.Contains('if: always()') -and $Workflow.Contains('needs: [plan, evaluate, windows_mutations]')) 'aggregate runs after either Windows leg fails'
+Assert-Policy ($Workflow.Contains('if: always()') -and $Workflow.Contains('needs: [plan, evaluate, ubuntu_corpus, windows_mutations]')) 'aggregate runs after any required leg fails'
 Assert-Policy ($Workflow.Contains('git show "$($AcceptedBase):tools/check_ci_policy.ps1"')) 'accepted-base policy selection'
 Assert-Policy ($Workflow -notmatch 'git show "\$\(\$env:HUM_BASE\):tools/check_ci_policy\.ps1"') 'stale event base never feeds the policy read'
 Assert-Policy ($Workflow -notmatch '(?m)^\s*(checks|statuses|id-token):\s*write\s*$' -and $Workflow -notmatch 'pull_request_target:') 'no privileged publisher'

@@ -19,10 +19,16 @@ on:
       windows_full_split:
         type: boolean
         default: false
+      ubuntu_full_split:
+        type: boolean
+        default: false
     outputs:
       windows_full_main:
         description: Authenticated Windows Full main capture
         value: ${{ jobs.preflight.outputs.windows_full_part }}
+      ubuntu_full_main:
+        description: Authenticated and retained Ubuntu Full main capture
+        value: ${{ jobs.preflight.outputs.ubuntu_full_part }}
   workflow_dispatch:
   push:
     branches:
@@ -48,6 +54,7 @@ jobs:
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 90 || 60 }}
     outputs:
       windows_full_part: ${{ steps.selected_completion.outputs.windows_full_part }}
+      ubuntu_full_part: ${{ steps.selected_completion.outputs.ubuntu_full_part }}
     strategy:
       fail-fast: false
       matrix:
@@ -70,6 +77,7 @@ jobs:
           HUM_EXPECTED_TREE: ${{ inputs.tree }}
           HUM_SELECTED_PROFILE: ${{ inputs.profile || 'full' }}
           HUM_WINDOWS_FULL_SPLIT: ${{ inputs.windows_full_split }}
+          HUM_UBUNTU_FULL_SPLIT: ${{ inputs.ubuntu_full_split && matrix.os == 'ubuntu-latest' }}
         run: |
           if ($env:HUM_SELECTED_PROFILE -cnotin @('language','runtime','compiler','full')) { throw 'invalid fixed profile' }
           $Actual = git rev-parse HEAD
@@ -80,6 +88,11 @@ jobs:
               $env:GITHUB_EVENT_NAME -cne 'pull_request' -or $env:HUM_SELECTED_PROFILE -cne 'full' -or
               $Actual -cne $env:GITHUB_SHA -or $env:HUM_EXPECTED_TREE -cnotmatch '\A[0-9a-f]{40}\z')) {
             throw 'Windows Full split requires the selected PR integration'
+          }
+          if ($env:HUM_UBUNTU_FULL_SPLIT -ceq 'true' -and (
+              $env:GITHUB_EVENT_NAME -cne 'pull_request' -or $env:HUM_SELECTED_PROFILE -cne 'full' -or
+              $Actual -cne $env:GITHUB_SHA -or $env:HUM_EXPECTED_TREE -cnotmatch '\A[0-9a-f]{40}\z')) {
+            throw 'Ubuntu Full split requires the selected PR integration'
           }
           "profile=$env:HUM_SELECTED_PROFILE;integration=$Actual;tree=$Tree;run=$env:GITHUB_RUN_ID;attempt=$env:GITHUB_RUN_ATTEMPT" >> $env:GITHUB_STEP_SUMMARY
 
@@ -303,6 +316,27 @@ jobs:
               -not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP)) { throw 'Windows Full part context is invalid' }
           # The legacy launcher already forwards RUNNER_TEMP and the run identity.
           $Ticket = Join-Path $env:RUNNER_TEMP "hum-windows-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $Bytes = [Text.Encoding]::UTF8.GetBytes("main|$env:GITHUB_SHA|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT")
+          $Stream = [IO.File]::Open($Ticket, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+          try {
+            try { $Stream.Write($Bytes, 0, $Bytes.Length) } finally { $Stream.Dispose() }
+            "ticket=$Ticket" >> $env:GITHUB_OUTPUT
+          } catch {
+            [IO.File]::Delete($Ticket)
+            throw
+          }
+
+      - name: Admit Ubuntu Full main role
+        id: ubuntu_full_ticket
+        if: inputs.ubuntu_full_split && matrix.os == 'ubuntu-latest' && steps.classify.outputs.mode == 'full'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $IsLinux -or $env:RUNNER_OS -cne 'Linux' -or $env:GITHUB_EVENT_NAME -cne 'pull_request' -or
+              $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z' -or $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]*\z' -or
+              $env:GITHUB_RUN_ATTEMPT -cnotmatch '\A[1-9][0-9]*\z' -or
+              -not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP)) { throw 'Ubuntu Full main context is invalid' }
+          $Ticket = Join-Path $env:RUNNER_TEMP "hum-ubuntu-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           $Bytes = [Text.Encoding]::UTF8.GetBytes("main|$env:GITHUB_SHA|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT")
           $Stream = [IO.File]::Open($Ticket, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
           try {
@@ -792,6 +826,66 @@ jobs:
           include-hidden-files: false
           overwrite: false
 
+      - name: Verify Ubuntu Full main transcript
+        id: ubuntu_full_capture
+        if: always() && steps.ubuntu_full_ticket.outputs.ticket != ''
+        shell: pwsh
+        env:
+          HUM_UBUNTU_FULL_TICKET: ${{ steps.ubuntu_full_ticket.outputs.ticket }}
+          HUM_EXPECTED_TREE: ${{ inputs.tree }}
+          HUM_FULL_CAPTURE_OUTCOME: ${{ steps.full_preflight.outcome }}
+          HUM_FULL_CAPTURE_CONCLUSION: ${{ steps.full_preflight.conclusion }}
+          HUM_FULL_CAPTURE_COPY: ${{ steps.full_preflight.outputs.failure_capture }}
+          HUM_FULL_STDOUT_SHA256: ${{ steps.full_preflight.outputs.stdout_sha256 }}
+          HUM_FULL_TOOLCHAIN: ${{ steps.full_preflight.outputs.toolchain }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Assert-UbuntuFullMainOutput([byte[]] $Bytes) {
+            $Text = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes)
+            $Footer = 'Ubuntu Full part completed: main'
+            $RoleFooters = [regex]::Matches($Text, '(?m)^(?:Ubuntu|Windows) Full part completed: [^\r\n]*\r?$')
+            if ($RoleFooters.Count -ne 1 -or $RoleFooters[0].Value.TrimEnd([char]13) -cne $Footer -or
+                -not $Text.TrimEnd([char[]]@(13,10)).EndsWith($Footer, [StringComparison]::Ordinal) -or
+                $Text -cmatch '(?m)^(?:All Hum preflight checks passed\.|==> editor fixture recovery|(?:Ubuntu|Windows) Full corpus compiler sha256=[^\r\n]*)\r?$') {
+              throw 'Ubuntu Full main transcript contains incomplete or foreign role evidence'
+            }
+          }
+          $Ticket = Join-Path $env:RUNNER_TEMP "hum-ubuntu-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if ($env:HUM_UBUNTU_FULL_TICKET -cne $Ticket) { throw 'Ubuntu Full main ticket ownership disagrees' }
+          try {
+            if ($env:HUM_FULL_CAPTURE_OUTCOME -cne 'success' -or $env:HUM_FULL_CAPTURE_CONCLUSION -cne 'success') { return }
+            $Copy = Get-Item -LiteralPath $env:HUM_FULL_CAPTURE_COPY -Force
+            if (-not $Copy.PSIsContainer -or ($Copy.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                $Copy.Parent.FullName -cne [IO.Path]::TrimEndingDirectorySeparator($env:RUNNER_TEMP) -or
+                $Copy.Name -cnotmatch '\Ahum-preflight-diagnostics-[0-9a-f]{32}\z') { throw 'Ubuntu Full main capture copy is foreign' }
+            $Stdout = Get-Item -LiteralPath (Join-Path $Copy.FullName 'stdout.bin') -Force
+            if ($Stdout.PSIsContainer -or ($Stdout.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Ubuntu Full main stdout copy is not an ordinary file' }
+            $Bytes = [IO.File]::ReadAllBytes($Stdout.FullName)
+            $StdoutDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes)).ToLowerInvariant()
+            if ($StdoutDigest -cne $env:HUM_FULL_STDOUT_SHA256) { throw 'Ubuntu Full main stdout differs from its authenticated capture' }
+            Assert-UbuntuFullMainOutput $Bytes
+            $Prefix = 'utf8-base64:'
+            if (-not $env:HUM_FULL_TOOLCHAIN.StartsWith($Prefix, [StringComparison]::Ordinal)) { throw 'Ubuntu Full main toolchain binding is absent' }
+            $Payload = $env:HUM_FULL_TOOLCHAIN.Substring($Prefix.Length)
+            $ToolchainBytes = [Convert]::FromBase64String($Payload)
+            if ($ToolchainBytes.Length -eq 0 -or [Convert]::ToBase64String($ToolchainBytes) -cne $Payload) { throw 'Ubuntu Full main toolchain binding is malformed' }
+            $ToolchainDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($ToolchainBytes)).ToLowerInvariant()
+            $Proof = "main|ubuntu-latest|full|$env:GITHUB_SHA|$env:HUM_EXPECTED_TREE|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT|$ToolchainDigest|$StdoutDigest"
+          } finally { [IO.File]::Delete($Ticket) }
+          "ubuntu_full_part=$Proof" >> $env:GITHUB_OUTPUT
+
+      - name: Retain Ubuntu Full main transcript
+        id: ubuntu_full_retain
+        if: steps.ubuntu_full_capture.outputs.ubuntu_full_part != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-ubuntu-full-main-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.full_preflight.outputs.failure_capture }}/stdout.bin
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+
       - name: Resolve status executable
         id: start_status_review_and_resolve_hum_dev
         if: steps.classify.outputs.mode == 'fast'
@@ -953,6 +1047,7 @@ jobs:
           HUM_SELECTED_PROFILE: ${{ steps.classify.outputs.profile }}
           HUM_MATRIX_OS: ${{ matrix.os }}
           HUM_WINDOWS_FULL_PART: ${{ inputs.windows_full_split && matrix.os == 'windows-latest' && 'main' || '' }}
+          HUM_UBUNTU_FULL_PART: ${{ inputs.ubuntu_full_split && matrix.os == 'ubuntu-latest' && 'main' || '' }}
         run: |
           $Steps = $env:HUM_COMPLETED_STEPS | ConvertFrom-Json
           $Mode = $env:HUM_SELECTED_MODE
@@ -978,6 +1073,14 @@ jobs:
             }
             $Required += @('windows_full_ticket','windows_full_capture','windows_full_retain')
           }
+          $UbuntuPart = $env:HUM_UBUNTU_FULL_PART
+          if ($UbuntuPart) {
+            if ($Mode -cne 'full' -or $Profile -cne 'full' -or $env:GITHUB_EVENT_NAME -cne 'pull_request' -or
+                $env:HUM_MATRIX_OS -cne 'ubuntu-latest' -or $UbuntuPart -cne 'main') {
+              throw 'unexpected Ubuntu Full part in selected completion'
+            }
+            $Required += @('ubuntu_full_ticket','ubuntu_full_capture','ubuntu_full_retain')
+          }
           foreach ($Name in $Required) {
             if ($Steps.$Name.outcome -cne 'success' -or $Steps.$Name.conclusion -cne 'success') { throw "required execution incomplete: $Name" }
           }
@@ -987,4 +1090,14 @@ jobs:
             if ($Proof -isnot [string] -or $Proof -cnotmatch $ProofPattern) { throw 'Windows Full part completion proof is missing or wrong' }
             "windows_full_part=$Proof" >> $env:GITHUB_OUTPUT
           } elseif ($Proof) { throw 'unexpected Windows Full part completion proof' }
+          $UbuntuProof = $Steps.ubuntu_full_capture.outputs.ubuntu_full_part
+          $UbuntuArtifact = $Steps.ubuntu_full_retain.outputs.'artifact-id'
+          if ($UbuntuPart) {
+            if ($UbuntuProof -isnot [string] -or
+                $UbuntuProof -cnotmatch '\Amain\|ubuntu-latest\|full\|[0-9a-f]{40}\|[0-9a-f]{40}\|[1-9][0-9]*\|[1-9][0-9]*\|[0-9a-f]{64}\|[0-9a-f]{64}\z' -or
+                $UbuntuArtifact -isnot [string] -or $UbuntuArtifact -cnotmatch '\A[1-9][0-9]*\z') {
+              throw 'Ubuntu Full main requires authenticated and retained evidence'
+            }
+            "ubuntu_full_part=$UbuntuProof|$UbuntuArtifact" >> $env:GITHUB_OUTPUT
+          } elseif ($UbuntuProof -or $UbuntuArtifact) { throw 'unexpected Ubuntu Full main evidence' }
           Write-Host "Explicit selected-step completion: $env:HUM_MATRIX_OS / $Profile / $Mode"
