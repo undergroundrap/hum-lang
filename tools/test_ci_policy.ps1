@@ -521,13 +521,13 @@ foreach($Key in @('GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_EVEN
 try {
   $env:GITHUB_SHA='a'*40;$env:GITHUB_RUN_ID='42';$env:GITHUB_RUN_ATTEMPT='1';$env:GITHUB_EVENT_NAME='pull_request'
   foreach ($Outcome in @('success','failure','cancelled','skipped','timed_out','')) {
-    $Needs = [ordered]@{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result=$Outcome}; windows_mutations = @{result='skipped'}; ubuntu_corpus = @{result='skipped'} }
+    $Needs = [ordered]@{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result=$Outcome}; windows_mutations = @{result='skipped'}; windows_corpus = @{result='skipped'}; ubuntu_corpus = @{result='skipped'} }
     $env:HUM_CI_NEEDS = $Needs | ConvertTo-Json -Depth 6 -Compress
     if ($Outcome -ceq 'success') { & $Aggregate; Assert-Policy $true 'honest aggregate' }
     else { Assert-PolicyRejects $Aggregate "aggregate $Outcome" }
   }
   foreach ($Mutation in @('missing','extra','plan-failed','tree-missing','profile-missing','head-missing','stale-attempt','stale-integration')) {
-    $Needs = @{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result='success'}; windows_mutations = @{result='skipped'}; ubuntu_corpus = @{result='skipped'} }
+    $Needs = @{ plan = @{ result='success'; outputs=@{profile='runtime';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'} }; evaluate = @{result='success'}; windows_mutations = @{result='skipped'}; windows_corpus = @{result='skipped'}; ubuntu_corpus = @{result='skipped'} }
     switch ($Mutation) {
       'missing' { $Needs.Remove('evaluate') }
       'extra' { $Needs.extra = @{ result='success' } }
@@ -546,22 +546,43 @@ try {
   $Needs = [ordered]@{
     plan = @{result='success'; outputs=@{profile='full';integration=('a'*40);tree=('b'*40);base=('c'*40);head=('d'*40);run='42';attempt='1'}}
     evaluate = @{result='success'; outputs=@{windows_full_main="main|$Identity|$('1'*64)";ubuntu_full_main="main|$UbuntuIdentity|$('5'*64)|48"}}
-    windows_mutations = @{result='success'; outputs=@{proof="mutations|$Identity|$('2'*64)";corpus_proof="corpus|$Identity|$('3'*64)|$('4'*64)"}}
+    windows_mutations = @{result='success'; outputs=@{proof="mutations|$Identity|$('2'*64)";artifact_id='46'}}
+    windows_corpus = @{result='success'; outputs=@{proof="corpus|$Identity|$('3'*64)|$('4'*64)|47";artifact_id='47'}}
     ubuntu_corpus = @{result='success'; outputs=@{proof="corpus|$UbuntuIdentity|$('6'*64)|$('7'*64)|49"}}
   }
   $HonestSplit = $Needs | ConvertTo-Json -Depth 6 -Compress
   $env:HUM_CI_NEEDS = $HonestSplit
   & $Aggregate
   Assert-Policy $true 'honest joined Windows and Ubuntu Full PR'
+  foreach ($Route in @(@('pull_request','runtime'),@('schedule','full'),@('workflow_dispatch','full'))) {
+    $Needs = $HonestSplit | ConvertFrom-Json -AsHashtable
+    $Needs.plan.outputs.profile = $Route[1]
+    $Needs.evaluate.outputs.Clear()
+    foreach ($Role in @('windows_mutations','windows_corpus','ubuntu_corpus')) {
+      $Needs[$Role] = @{result='skipped';outputs=@{}}
+    }
+    $env:GITHUB_EVENT_NAME = $Route[0]
+    try {
+      $env:HUM_CI_NEEDS = $Needs | ConvertTo-Json -Depth 6 -Compress
+      & $Aggregate
+      Assert-Policy $true "honest skipped sidecars for $($Route[0])/$($Route[1])"
+    } finally { $env:GITHUB_EVENT_NAME = 'pull_request' }
+  }
   foreach ($Defect in @('missing job','missing result','failed','skipped','cancelled','timed out','missing main','missing mutations',
       'same role','same transcript','foreign platform','foreign tree','foreign integration','foreign run',
       'stale attempt','different toolchain','missing corpus','wrong corpus role','foreign corpus tree',
       'stale corpus attempt','foreign corpus toolchain','corpus copies main','corpus copies mutations',
-      'missing compiler hash','wrong event','wrong profile')) {
+      'missing compiler hash','wrong event','wrong profile',
+      'missing corpus job','missing corpus result','failed corpus','skipped corpus','cancelled corpus','timed out corpus',
+      'foreign corpus integration','foreign corpus run','foreign corpus platform','foreign corpus output','foreign mutation output',
+      'missing corpus artifact','invalid corpus artifact','missing upload output','invalid upload output','mismatched upload output',
+      'missing mutation upload','invalid mutation upload','copied mutation upload','copied Ubuntu main upload','copied Ubuntu corpus upload',
+      'artifact outside Full route','corpus outside Full route')) {
     $Needs = $HonestSplit | ConvertFrom-Json -AsHashtable
     $MutationJob = $Needs.windows_mutations
     $Proof = $MutationJob.outputs.proof
-    $Corpus = $MutationJob.outputs.corpus_proof
+    $CorpusJob = $Needs.windows_corpus
+    $Corpus = $CorpusJob.outputs.proof
     switch ($Defect) {
       'missing job' { [void]$Needs.Remove('windows_mutations') }
       'missing result' { [void]$MutationJob.Remove('result') }
@@ -579,16 +600,55 @@ try {
       'foreign run' { $MutationJob.outputs.proof = $Proof.Replace('|42|','|43|') }
       'stale attempt' { $MutationJob.outputs.proof = $Proof.Replace('|42|1|','|42|2|') }
       'different toolchain' { $MutationJob.outputs.proof = $Proof.Replace(('e'*64),('f'*64)) }
-      'missing corpus' { [void]$MutationJob.outputs.Remove('corpus_proof') }
-      'wrong corpus role' { $MutationJob.outputs.corpus_proof = $Corpus.Replace('corpus|','mutations|') }
-      'foreign corpus tree' { $MutationJob.outputs.corpus_proof = $Corpus.Replace(('b'*40),('f'*40)) }
-      'stale corpus attempt' { $MutationJob.outputs.corpus_proof = $Corpus.Replace('|42|1|','|42|2|') }
-      'foreign corpus toolchain' { $MutationJob.outputs.corpus_proof = $Corpus.Replace(('e'*64),('f'*64)) }
-      'corpus copies main' { $MutationJob.outputs.corpus_proof = $Corpus.Replace(('3'*64),('1'*64)) }
-      'corpus copies mutations' { $MutationJob.outputs.corpus_proof = $Corpus.Replace(('3'*64),('2'*64)) }
-      'missing compiler hash' { $MutationJob.outputs.corpus_proof = $Corpus.Substring(0,$Corpus.Length-65) }
+      'missing corpus' { [void]$CorpusJob.outputs.Remove('proof') }
+      'wrong corpus role' { $CorpusJob.outputs.proof = $Corpus.Replace('corpus|','mutations|') }
+      'foreign corpus tree' { $CorpusJob.outputs.proof = $Corpus.Replace(('b'*40),('f'*40)) }
+      'stale corpus attempt' { $CorpusJob.outputs.proof = $Corpus.Replace('|42|1|','|42|2|') }
+      'foreign corpus toolchain' { $CorpusJob.outputs.proof = $Corpus.Replace(('e'*64),('f'*64)) }
+      'corpus copies main' { $CorpusJob.outputs.proof = $Corpus.Replace(('3'*64),('1'*64)) }
+      'corpus copies mutations' { $CorpusJob.outputs.proof = $Corpus.Replace(('3'*64),('2'*64)) }
+      'missing compiler hash' { $CorpusJob.outputs.proof = $Corpus.Replace(('|' + '4'*64),'') }
       'wrong event' { $env:GITHUB_EVENT_NAME = 'schedule' }
       'wrong profile' { $Needs.plan.outputs.profile = 'runtime' }
+      'missing corpus job' { [void]$Needs.Remove('windows_corpus') }
+      'missing corpus result' { [void]$CorpusJob.Remove('result') }
+      'failed corpus' { $CorpusJob.result = 'failure' }
+      'skipped corpus' { $CorpusJob.result = 'skipped' }
+      'cancelled corpus' { $CorpusJob.result = 'cancelled' }
+      'timed out corpus' { $CorpusJob.result = 'timed_out' }
+      'foreign corpus integration' { $CorpusJob.outputs.proof = $Corpus.Replace(('a'*40),('f'*40)) }
+      'foreign corpus run' { $CorpusJob.outputs.proof = $Corpus.Replace('|42|','|43|') }
+      'foreign corpus platform' { $CorpusJob.outputs.proof = $Corpus.Replace('windows-latest','ubuntu-latest') }
+      'foreign corpus output' { $CorpusJob.outputs.other = $Corpus }
+      'foreign mutation output' { $MutationJob.outputs.corpus_proof = $Corpus }
+      'missing corpus artifact' { $CorpusJob.outputs.proof = $Corpus.Substring(0,$Corpus.Length-3) }
+      'invalid corpus artifact' { $CorpusJob.outputs.proof = $Corpus.Substring(0,$Corpus.Length-2) + '047' }
+      'missing upload output' { [void]$CorpusJob.outputs.Remove('artifact_id') }
+      'invalid upload output' { $CorpusJob.outputs.artifact_id = 47 }
+      'mismatched upload output' { $CorpusJob.outputs.artifact_id = '50' }
+      'missing mutation upload' { [void]$MutationJob.outputs.Remove('artifact_id') }
+      'invalid mutation upload' { $MutationJob.outputs.artifact_id = '0' }
+      'copied mutation upload' {
+        $CorpusJob.outputs.artifact_id = '46'
+        $CorpusJob.outputs.proof = $Corpus.Substring(0,$Corpus.Length-2) + '46'
+      }
+      'copied Ubuntu main upload' {
+        $CorpusJob.outputs.artifact_id = '48'
+        $CorpusJob.outputs.proof = $Corpus.Substring(0,$Corpus.Length-2) + '48'
+      }
+      'copied Ubuntu corpus upload' {
+        $CorpusJob.outputs.artifact_id = '49'
+        $CorpusJob.outputs.proof = $Corpus.Substring(0,$Corpus.Length-2) + '49'
+      }
+      { $_ -cin @('artifact outside Full route','corpus outside Full route') } {
+        $Needs.plan.outputs.profile = 'runtime'
+        $Needs.evaluate.outputs.Clear()
+        foreach ($Role in @('windows_mutations','windows_corpus','ubuntu_corpus')) {
+          $Needs[$Role] = @{result='skipped';outputs=@{}}
+        }
+        if ($Defect -ceq 'artifact outside Full route') { $Needs.windows_corpus.outputs.artifact_id = '47' }
+        else { $Needs.windows_corpus.outputs.proof = $Corpus }
+      }
     }
     try {
       $env:HUM_CI_NEEDS = $Needs | ConvertTo-Json -Depth 6 -Compress
@@ -627,6 +687,7 @@ try {
       'outside route' {
         $Needs.plan.outputs.profile = 'runtime'
         $Needs.windows_mutations = @{result='skipped'}
+        $Needs.windows_corpus = @{result='skipped'}
         [void]$Needs.evaluate.outputs.Remove('windows_full_main')
       }
     }
@@ -640,7 +701,8 @@ try {
       @('"proof":"corpus|','"PROOF":null,"proof":"corpus|'),
       @('"windows_mutations":{','"windows_mutations":null,"windows_mutations":{'),
       @('"proof":"mutations|','"PROOF":null,"proof":"mutations|'),
-      @('"corpus_proof":"corpus|','"CORPUS_PROOF":null,"corpus_proof":"corpus|'))) {
+      @('"windows_corpus":{','"WINDOWS_CORPUS":null,"windows_corpus":{'),
+      @('"artifact_id":"47"','"ARTIFACT_ID":"46","artifact_id":"47"'))) {
     $env:HUM_CI_NEEDS = $HonestSplit.Replace($Case[0],$Case[1])
     Assert-Policy ($env:HUM_CI_NEEDS -cne $HonestSplit) 'initialized duplicate Full proof'
     Assert-PolicyRejects $Aggregate 'duplicate Full job or proof field rejects'
@@ -650,51 +712,81 @@ try {
   foreach($Key in $SavedProvenance.Keys) { [Environment]::SetEnvironmentVariable($Key,$SavedProvenance[$Key],'Process') }
 }
 
-# The sidecar completion owner must require actual execution and retention.
-$SidecarMatch = [regex]::Match($Workflow, '(?ms)^      - name: Confirm Windows mutation and corpus completion\n.*?        run: \|\n(?<body>.*?)(?=^  required:)')
-Assert-Policy $SidecarMatch.Success 'Windows sidecar completion owner exists'
-$SidecarSource = ($SidecarMatch.Groups['body'].Value -split '\n' | ForEach-Object {
+# Exercise each actual completion owner with modeled runner capture metadata.
+$MutationMatch = [regex]::Match($Workflow, '(?ms)^      - name: Confirm Windows mutation completion\n.*?        run: \|\n(?<body>.*?)(?=^  windows_corpus:)')
+Assert-Policy $MutationMatch.Success 'Windows mutation completion owner exists'
+$MutationSource = ($MutationMatch.Groups['body'].Value -split '\n' | ForEach-Object {
   if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ }
 }) -join [char]10
-$SidecarFunction = Import-PolicyTestFunction $SidecarSource 'Get-WindowsSidecarCompletedProofs'
 & {
-  . $SidecarFunction
-  function Assert-HumCaptureComplete($Request) {
-    if ($Request.CaptureDirectory -cne 'modeled-corpus-capture' -or -not $CaptureAvailable) { throw 'modeled complete capture is unavailable' }
-    $CaptureModel
+  . (Import-PolicyTestFunction $MutationSource 'Get-WindowsMutationCompletedProof')
+  $Proof = "mutations|windows-latest|full|$('a'*40)|$('b'*40)|42|1|$('e'*64)|$('2'*64)"
+  $Rows = @{
+    mutations = @{outcome='success';conclusion='success';outputs=@{proof=$Proof}}
+    retain_mutations = @{outcome='success';conclusion='success';outputs=@{'artifact-id'='46'}}
   }
-  $Rows = @{}
-  foreach ($Name in @('mutations','retain_mutations','corpus','retain_corpus')) {
-    $Rows[$Name] = @{outcome='success';conclusion='success'}
-  }
-  $Identity = "windows-latest|full|$('a'*40)|$('b'*40)|42|1|$('e'*64)"
-  $Rows.mutations.outputs = @{proof="mutations|$Identity|$('2'*64)"}
-  $Rows.corpus.outputs = @{proof="corpus|$Identity|$('3'*64)|$('4'*64)";capture_dir='modeled-corpus-capture'}
-  $Rows.retain_corpus.outputs = @{'artifact-id'='47'}
-  $CaptureModel = @{CaseName='ci-windows-corpus';ExitCode=0;TimedOut=$false;StdoutSha256=('3'*64)}
-  $CaptureAvailable = $true
-  $InvokeSidecar = { Get-WindowsSidecarCompletedProofs ($Rows | ConvertTo-Json -Depth 5 -Compress | ConvertFrom-Json) }
-  $Published = & $InvokeSidecar
-  Assert-Policy ($Published.Mutation -ceq $Rows.mutations.outputs.proof -and
-    $Published.Corpus -ceq $Rows.corpus.outputs.proof) 'Windows sidecar accepts both completed and retained proofs'
-  foreach ($Name in @('corpus','retain_corpus')) {
+  $InvokeMutationCompletion = { Get-WindowsMutationCompletedProof ($Rows | ConvertTo-Json -Depth 5 -Compress | ConvertFrom-Json) }
+  Assert-Policy ((& $InvokeMutationCompletion) -ceq $Proof) 'Windows mutation publishes completed and retained proof'
+  foreach ($Step in @('mutations','retain_mutations')) {
     foreach ($Field in @('outcome','conclusion')) {
-      $Rows[$Name][$Field] = 'failure'
-      Assert-PolicyRejects $InvokeSidecar "Windows sidecar rejects failed $Name $Field"
-      $Rows[$Name][$Field] = 'success'
+      $Rows[$Step][$Field] = 'failure'
+      Assert-PolicyRejects $InvokeMutationCompletion "Windows mutations reject failed $Step $Field"
+      $Rows[$Step][$Field] = 'success'
     }
   }
-  $Rows.retain_corpus.outputs.Clear()
-  Assert-PolicyRejects $InvokeSidecar 'Windows sidecar rejects missing raw capture artifact identity'
+  $Rows.retain_mutations.outputs.Clear()
+  Assert-PolicyRejects $InvokeMutationCompletion 'Windows mutations reject missing upload identity'
+}
+
+$CorpusMatch = [regex]::Match($Workflow, '(?ms)^      - name: Confirm Windows corpus completion\n.*?        run: \|\n(?<body>.*?)(?=^  required:)')
+Assert-Policy $CorpusMatch.Success 'Windows corpus completion owner exists'
+$CorpusSource = ($CorpusMatch.Groups['body'].Value -split '\n' | ForEach-Object {
+  if ($_.StartsWith('          ')) { $_.Substring(10) } else { $_ }
+}) -join [char]10
+& {
+  . (Import-PolicyTestFunction $CorpusSource 'Get-WindowsCorpusCompletedProof')
+  function Assert-HumCaptureComplete($Request) {
+    if (-not $Captures.ContainsKey($Request.CaptureDirectory)) { throw 'modeled retained capture is absent' }
+    $Captures[$Request.CaptureDirectory]
+  }
+  $Proof = "corpus|windows-latest|full|$('a'*40)|$('b'*40)|42|1|$('e'*64)|$('3'*64)|$('4'*64)"
+  $Rows = @{
+    corpus = @{outcome='success';conclusion='success';outputs=@{proof=$Proof;capture_dir='corpus';toolchain_dir='toolchain'}}
+    retain_corpus = @{outcome='success';conclusion='success';outputs=@{'artifact-id'='47'}}
+  }
+  $Captures = @{
+    corpus = @{CaseName='ci-windows-corpus';ExitCode=0;TimedOut=$false;StdoutSha256=('3'*64)}
+    toolchain = @{CaseName='ci-windows-corpus-toolchain';ExitCode=0;TimedOut=$false;StdoutSha256=('e'*64)}
+  }
+  $InvokeCorpusCompletion = { Get-WindowsCorpusCompletedProof ($Rows | ConvertTo-Json -Depth 5 -Compress | ConvertFrom-Json) }
+  Assert-Policy ((& $InvokeCorpusCompletion) -ceq "$Proof|47") 'Windows corpus publishes completed and retained proof'
+  foreach ($Step in @('corpus','retain_corpus')) {
+    foreach ($Field in @('outcome','conclusion')) {
+      $Rows[$Step][$Field] = 'failure'
+      Assert-PolicyRejects $InvokeCorpusCompletion "Windows corpus rejects failed $Step $Field"
+      $Rows[$Step][$Field] = 'success'
+    }
+  }
+  foreach ($Kind in @('corpus','toolchain')) {
+    $SavedCapture = $Captures[$Kind]
+    [void]$Captures.Remove($Kind)
+    Assert-PolicyRejects $InvokeCorpusCompletion "Windows corpus rejects missing $Kind capture despite upload"
+    $Captures[$Kind] = $SavedCapture
+    foreach ($Wrong in @(@('StdoutSha256',('f'*64)),@('CaseName','foreign'),@('ExitCode',1),@('TimedOut',$true))) {
+      $Field = $Wrong[0]
+      $Saved = $SavedCapture[$Field]
+      $SavedCapture[$Field] = $Wrong[1]
+      Assert-PolicyRejects $InvokeCorpusCompletion "Windows corpus rejects foreign $Kind $Field"
+      $SavedCapture[$Field] = $Saved
+    }
+  }
+  foreach ($Id in @($null,'','0','047','47,48',47)) {
+    $Rows.retain_corpus.outputs.'artifact-id' = $Id
+    Assert-PolicyRejects $InvokeCorpusCompletion 'Windows corpus rejects invalid upload identity'
+  }
   $Rows.retain_corpus.outputs.'artifact-id' = '47'
-  $CaptureAvailable = $false
-  Assert-PolicyRejects $InvokeSidecar 'Windows sidecar rejects absent complete capture despite successful upload'
-  $CaptureAvailable = $true
-  $CaptureModel.StdoutSha256 = '5'*64
-  Assert-PolicyRejects $InvokeSidecar 'Windows sidecar rejects a changed raw corpus transcript'
-  $CaptureModel.StdoutSha256 = '3'*64
   [void]$Rows.corpus.outputs.Remove('proof')
-  Assert-PolicyRejects $InvokeSidecar 'Windows sidecar rejects absent corpus proof'
+  Assert-PolicyRejects $InvokeCorpusCompletion 'Windows corpus rejects absent corpus proof'
 }
 
 $UbuntuCompletionMatch = [regex]::Match($Workflow, '(?ms)^      - name: Confirm Ubuntu corpus completion\n.*?        run: \|\n(?<body>.*?)(?=^  windows_mutations:)')
@@ -1569,7 +1661,7 @@ Assert-Wo25UnitBFullPreflightWorkflowRoute $Ci
   }
 }
 Assert-Policy ($null -eq (Get-Wo25ExhaustiveWorkflowRouteFailure $Ci)) 'Full exhaustive route unchanged'
-Assert-Policy ($Workflow.Contains('if: always()') -and $Workflow.Contains('needs: [plan, evaluate, ubuntu_corpus, windows_mutations]')) 'aggregate runs after any required leg fails'
+Assert-Policy ($Workflow.Contains('if: always()') -and $Workflow.Contains('needs: [plan, evaluate, ubuntu_corpus, windows_corpus, windows_mutations]')) 'aggregate runs after any required leg fails'
 Assert-Policy ($Workflow.Contains('git show "$($AcceptedBase):tools/check_ci_policy.ps1"')) 'accepted-base policy selection'
 Assert-Policy ($Workflow -notmatch 'git show "\$\(\$env:HUM_BASE\):tools/check_ci_policy\.ps1"') 'stale event base never feeds the policy read'
 Assert-Policy ($Workflow -notmatch '(?m)^\s*(checks|statuses|id-token):\s*write\s*$' -and $Workflow -notmatch 'pull_request_target:') 'no privileged publisher'
