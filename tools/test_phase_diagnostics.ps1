@@ -48,13 +48,15 @@ function Invoke-OwnedUnitCTimingControls {
   }
   $Body=$Owners[0].Body
   $TryOwners=@($Body.FindAll({param($Node)
-    $Node -is [Management.Automation.Language.TryStatementAst] -and $null -ne $Node.Finally -and
-    $Node.Finally.Extent.Text -match 'Write-HumPhaseMarker (?:''wo25-unit-c-prepare''|\$UnitCEquivalencePhase|\$UnitCSelectorPhase) '
+    if($Node -isnot [Management.Automation.Language.TryStatementAst] -or $null -eq $Node.Finally){return $false}
+    return @($Node.Finally.Statements | Where-Object {
+      $_.Extent.Text -match '^Write-HumPhaseMarker (?:''wo25-unit-c-prepare''|\$UnitCEquivalencePhase|\$UnitCSelectorPhase) ' -or
+      ($_.Extent.Text -ceq "try { Write-HumPhaseMarker `$UnitCEquivalencePhase 'end' `$UnitCEquivalenceOutcome } catch { }")
+    }).Count -eq 1
   },$true))
   Require-UnitCTiming ($TryOwners.Count -eq 3) 'three actual timing wrappers are uniquely owned'
   foreach($Spec in @(
     @('prepare','wo25-unit-c-prepare','UnitCPrepareOutcome',1),
-    @('equivalence','UnitCEquivalencePhase','UnitCEquivalenceOutcome',2),
     @('selector','UnitCSelectorPhase','UnitCSelectorOutcome',3)
   )){
     $Kind=$Spec[0];$PhaseName=$Spec[1];$OutcomeName=$Spec[2]
@@ -108,6 +110,230 @@ function Invoke-OwnedUnitCTimingControls {
     }
   }
   return [pscustomobject]@{Assertions=@($Assertions)}
+}
+
+function Invoke-OwnedUnitCShellOverlapControls {
+  param([string] $CheckAllText)
+  $Tokens=$null; $Errors=$null
+  $Ast=[Management.Automation.Language.Parser]::ParseInput($CheckAllText,(Join-Path $PSScriptRoot 'check_all.ps1'),[ref]$Tokens,[ref]$Errors)
+  if($Errors.Count -ne 0){throw 'Unit C overlap source parse failed'}
+  $Owners=@($Ast.FindAll({param($N) $N -is [Management.Automation.Language.FunctionDefinitionAst] -and $N.Name -ceq 'Invoke-Wo25UnitCFocusedEvidence'},$true))
+  if($Owners.Count -ne 1){throw 'Unit C overlap owner is missing or duplicated'}
+  $Pairs=@($Owners[0].Body.FindAll({param($N)
+    $N -is [Management.Automation.Language.TryStatementAst] -and $null -ne $N.Finally -and
+    $N.Body.Extent.Text.Contains('foreach($Contract in @(') -and
+    $N.Finally.Extent.Text.Contains('foreach ($UnitCShell in $UnitCShells)')
+  },$true))
+  if($Pairs.Count -ne 1){throw 'Unit C overlap orchestration is missing or duplicated'}
+  $Pair=$Pairs[0]
+  $Launches=@($Pair.Body.Statements | Where-Object {$_ -is [Management.Automation.Language.ForEachStatementAst] -and $_.Variable.VariablePath.UserPath -ceq 'Contract'})
+  $Joins=@($Pair.Finally.Statements | Where-Object {$_ -is [Management.Automation.Language.ForEachStatementAst] -and $_.Variable.VariablePath.UserPath -ceq 'UnitCShell'})
+  if($Launches.Count -ne 1 -or $Joins.Count -ne 1){throw 'Unit C overlap launch/join ownership changed'}
+  $Launch=$Launches[0]
+  $Preparation=@($Launch.Body.Statements | Where-Object {$_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$Path'})
+  $Constructors=@($Launch.Body.Statements | Where-Object {$_.Extent.Text -ceq '$Process = New-Object Diagnostics.Process'})
+  if($Preparation.Count -ne 1 -or $Constructors.Count -ne 1){throw 'Unit C overlap native preparation ownership changed'}
+  $First=$Preparation[0].Extent.StartOffset-$Pair.Extent.StartOffset
+  $Last=$Constructors[0].Extent.StartOffset-$Pair.Extent.StartOffset
+  if($Last -le $First){throw 'Unit C overlap preparation order changed'}
+  $Program=$Pair.Extent.Text.Remove($First,$Last-$First).Insert($First,(
+    '$Path=$State.Path; $Scratch="owned-$($Contract[0])"; $ExpectedEnvironment=$State.Expected[$Contract[0]]; $Start=$Contract[0]'+[char]10))
+  $Constructor='$Process = New-Object Diagnostics.Process'
+  if(([regex]::Matches($Program,[regex]::Escape($Constructor))).Count -ne 1){throw 'Unit C overlap process constructor is ambiguous'}
+  $Program=$Program.Replace($Constructor,'$Process = New-ModeledUnitCShellProcess $Contract[0]')
+  $FailureOwner=@($Owners[0].Body.FindAll({param($N)
+    $N -is [Management.Automation.Language.IfStatementAst] -and
+    $N.Extent.Text -ceq 'if ($null -ne $UnitCFailure) { throw $UnitCFailure }'
+  },$true))
+  if($FailureOwner.Count -ne 1){throw 'Unit C overlap primary failure consumer changed'}
+  $Program += [char]10+$FailureOwner[0].Extent.Text
+  $Consumers=@{}
+  foreach($Name in @('Get-Wo25UnitCEquivalenceFailure','Assert-Wo25UnitCShellLabel')){
+    $Found=@($Ast.FindAll({param($N) $N -is [Management.Automation.Language.FunctionDefinitionAst] -and $N.Name -ceq $Name},$true))
+    if($Found.Count -ne 1){throw 'Unit C overlap row consumer changed'}
+    $Consumers[$Name]=$Found[0].Body.GetScriptBlock()
+  }
+  $Assertions=[Collections.Generic.List[object]]::new()
+  $Cases=[Collections.Generic.List[object]]::new()
+  function Require-UnitCOverlap([bool] $Ok,[string] $Label){
+    $Assertions.Add([pscustomobject]@{Ok=$Ok;Message=$Label})
+    if(-not $Ok){throw "Unit C overlap control failed: $Label"}
+  }
+  Require-UnitCOverlap (-not $Launch.Extent.Text.Contains('WaitForExit')) 'launch loop contains no child wait'
+  Require-UnitCOverlap ($Joins[0].Extent.StartOffset -gt $Launch.Extent.EndOffset) 'join follows the complete launch loop'
+  Require-UnitCOverlap ($Launch.Extent.Text.Contains("Write-HumPhaseMarker `$UnitCShell.Phase 'start'")) 'each launched holder owns its start marker'
+  foreach($Mode in @('honest','powershell-launch-false','pwsh-launch-false','powershell-launch-throw','pwsh-launch-throw',
+    'powershell-launch-partial','pwsh-launch-partial','powershell-out-setup','pwsh-err-setup',
+    'powershell-exit','pwsh-exit','both-exit','powershell-stderr','pwsh-stderr',
+    'powershell-out-fault','pwsh-err-fault','powershell-wait','pwsh-wait',
+    'powershell-dispose','pwsh-dispose','sentinel-cleanup','both-exit-warning',
+    'both-dispose-warning','powershell-both-stream-fault-warning','powershell-missing-report',
+    'powershell-label','powershell-runtime-row','powershell-environment-row','marker-sink')){
+    $Observed=& {
+      param($Mode,$Program,$Consumers)
+      foreach($Name in $Consumers.Keys){ Set-Item -Path ('Function:local:'+$Name) -Value $Consumers[$Name] }
+      $Capture=Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
+      $Pwsh=@([pscustomobject]@{Source=$Capture})
+      $State=@{Mode=$Mode;FaultMode=($Mode -replace '-warning$','');Path=$Capture;Events=[Collections.Generic.List[string]]::new();Expected=@{};Sentinels=$true}
+      foreach($Name in @('powershell','pwsh')){
+        $State.Expected[$Name]=[pscustomobject]@{Keys=@('Path','PSModulePath','CONTEXT');Hashes=@("path-$Name","module-$Name",'same')}
+      }
+      function Get-Item {param($Path) [pscustomobject]@{VersionInfo=[pscustomobject]@{FileVersion='owned'}}}
+      function Get-FileHash {param($Path,$Algorithm) [pscustomobject]@{Hash=('0'*64)}}
+      function Test-Path {param($LiteralPath) return $false}
+      function Remove-Item {
+        param([string[]]$Path,[string]$ErrorAction)
+        if(($Path -join ',') -cne 'Env:HUM_UNIT_C_AMBIENT_SENTINEL,Env:HUM_UNIT_C_SECRET_SENTINEL' -or $ErrorAction -cne 'Stop'){throw 'unowned modeled cleanup'}
+        $State.Events.Add('sentinel-cleanup')
+        if($Mode -ceq 'sentinel-cleanup'){throw 'owned-sentinel-cleanup'}
+        $State.Sentinels=$false
+      }
+      function Write-HumPhaseMarker($Name,$Event,$Outcome=''){
+        $State.Events.Add("marker:$Name|$Event|$Outcome")
+        if($Mode -ceq 'marker-sink'){throw 'owned-marker-sink'}
+      }
+      function Write-Warning($Message){
+        $State.Events.Add('warning')
+        if($Mode.EndsWith('-warning',[StringComparison]::Ordinal)){throw 'owned-warning-sink'}
+      }
+      function New-ModeledUnitCShellTask($Name,$Stream,$Pipe){
+        $Expected=$State.Expected[$Name]
+        $Report=[ordered]@{Runtime=$Name;Path=$State.Path;Sha=('0'*64);Keys=$Expected.Keys;Hashes=$Expected.Hashes}
+        if($Mode -ceq "$Name-runtime-row"){$Report.Runtime='foreign'}
+        if($Mode -ceq "$Name-environment-row"){$Report.Hashes=@($Expected.Hashes);$Report.Hashes[2]='foreign'}
+        $Prelude='HUM_CHILD_ENV_V1|'+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($Report|ConvertTo-Json -Compress)))
+        $Value=if($Stream -ceq 'out'){ $Prelude+"`nowned body`nFast evidence capture tests passed for $Name.`n" }elseif($Mode -ceq "$Name-stderr"){'owned stderr'}else{''}
+        if($Stream -ceq 'out' -and $Mode -ceq "$Name-missing-report"){$Value="missing report`nFast evidence capture tests passed for $Name.`n"}
+        if($Stream -ceq 'out' -and $Mode -ceq "$Name-label"){$Value=$Prelude+"`nowned body`nmissing terminal label`n"}
+        $Task=[pscustomobject]@{Name=$Name;Stream=$Stream;Pipe=$Pipe;State=$State;Result=$Value}
+        $Task|Add-Member ScriptMethod GetAwaiter { return $this }
+        $Task|Add-Member ScriptMethod GetResult {
+          $this.State.Events.Add("drain:$($this.Name):$($this.Stream)")
+          if($this.Pipe.Closed){throw 'owned-closed-pipe'}
+          if($this.State.FaultMode -ceq "$($this.Name)-$($this.Stream)-fault" -or $this.State.FaultMode -ceq "$($this.Name)-both-stream-fault"){throw "owned-$($this.Name)-$($this.Stream)-fault"}
+          return $this.Result
+        }
+        return $Task
+      }
+      function New-ModeledUnitCShellProcess($Name){
+        $Process=[pscustomobject]@{Name=$Name;State=$State;Id=0;StartInfo=$null;HasExited=$false;ExitCode=0;StandardOutput=$null;StandardError=$null}
+        foreach($Stream in @('out','err')){
+          $Pipe=[pscustomobject]@{Name=$Name;Stream=$Stream;State=$State;Closed=$false}
+          $Pipe|Add-Member ScriptMethod ReadToEndAsync {
+            $this.State.Events.Add("read:$($this.Name):$($this.Stream)")
+            if($this.State.Mode -ceq "$($this.Name)-$($this.Stream)-setup"){throw "owned-$($this.Name)-$($this.Stream)-setup"}
+            New-ModeledUnitCShellTask $this.Name $this.Stream $this
+          }
+          $Pipe|Add-Member ScriptMethod Close { $this.Closed=$true; $this.State.Events.Add("close:$($this.Name):$($this.Stream)") }
+          if($Stream -ceq 'out'){$Process.StandardOutput=$Pipe}else{$Process.StandardError=$Pipe}
+        }
+        $Process|Add-Member ScriptMethod Start {
+          $this.State.Events.Add("start:$($this.Name)")
+          if($this.State.Mode -ceq "$($this.Name)-launch-false"){return $false}
+          if($this.State.Mode -ceq "$($this.Name)-launch-throw"){throw "owned-$($this.Name)-launch-throw"}
+          $this.Id=if($this.Name -ceq 'powershell'){101}else{202}
+          if($this.State.Mode -ceq "$($this.Name)-launch-partial"){throw "owned-$($this.Name)-launch-partial"}
+          if($this.State.FaultMode -ceq "$($this.Name)-exit" -or $this.State.FaultMode -ceq 'both-exit'){$this.ExitCode=23}
+          return $true
+        }
+        $Process|Add-Member ScriptMethod WaitForExit {
+          $this.State.Events.Add("wait:$($this.Name)");$this.HasExited=$true
+          if($this.State.Mode -ceq "$($this.Name)-wait"){throw "owned-$($this.Name)-wait"}
+        }
+        $Process|Add-Member ScriptMethod Dispose {
+          $this.State.Events.Add("dispose:$($this.Name)")
+          if($this.State.FaultMode -ceq "$($this.Name)-dispose" -or $this.State.FaultMode -ceq 'both-dispose'){throw "owned-$($this.Name)-dispose"}
+        }
+        return $Process
+      }
+      $UnitCShells=[Collections.Generic.List[object]]::new();$UnitCFailure=$null;$Rows=@();$Caught=$null
+      try { . ([scriptblock]::Create($Program)) } catch {$Caught=$_}
+      $RowFailure=if($null -eq $Caught){Get-Wo25UnitCEquivalenceFailure $Rows}else{'not-admitted'}
+      $ErrorFact=if($null -ne $Caught){[pscustomobject]@{Message=$Caught.Exception.Message;Type=$Caught.Exception.GetType().FullName}}else{$null}
+      $HolderFacts=@($UnitCShells|ForEach-Object{[pscustomobject]@{Contract=$_.Contract;Started=$_.Started;OutPresent=($null -ne $_.Out);ErrPresent=($null -ne $_.Err)}})
+      [pscustomobject]@{Mode=$Mode;Error=$ErrorFact;RowFailure=$RowFailure;Rows=$Rows;Holders=$HolderFacts;Events=@($State.Events);Sentinels=$State.Sentinels}
+    } $Mode $Program $Consumers
+    $Cases.Add($Observed)
+    $Events=@($Observed.Events)
+    $Honest=$Mode -in @('honest','marker-sink')
+    $PairRefusal=$Mode -in @('powershell-runtime-row','powershell-environment-row')
+    $ExpectedRowFailure=if($Mode -ceq 'powershell-runtime-row'){'runtime_identity'}else{'child_environment'}
+    Require-UnitCOverlap (($Honest -and $null -eq $Observed.Error -and $Observed.RowFailure -ceq '') -or
+      ($PairRefusal -and $null -eq $Observed.Error -and $Observed.RowFailure -ceq $ExpectedRowFailure) -or
+      (-not $Honest -and -not $PairRefusal -and $null -ne $Observed.Error -and $Observed.RowFailure -ceq 'not-admitted')) "$Mode has the exact admission disposition"
+    foreach($Holder in $Observed.Holders){
+      $Name=$Holder.Contract[0]
+      Require-UnitCOverlap (@($Events|Where-Object{$_ -ceq "dispose:$Name"}).Count -eq 1) "$Mode disposes $Name exactly once"
+      Require-UnitCOverlap (@($Events|Where-Object{$_ -ceq "marker:wo25-unit-c-equivalence-$Name|start|"}).Count -eq 1 -and
+        @($Events|Where-Object{$_ -like "marker:wo25-unit-c-equivalence-$Name|end|*"}).Count -eq 1) "$Mode retains $Name start and terminal outcome"
+      $FaultMode=$Mode -replace '-warning$',''
+      $ChildFails=($FaultMode.StartsWith($Name+'-',[StringComparison]::Ordinal) -and -not $PairRefusal) -or $FaultMode -in @('both-exit','both-dispose')
+      $ExpectedEnd=if($ChildFails){'failed'}else{'completed'}
+      Require-UnitCOverlap ($Events -contains "marker:wo25-unit-c-equivalence-$Name|end|$ExpectedEnd") "$Mode retains the exact $Name marker disposition"
+      if($Holder.Started){
+        Require-UnitCOverlap (@($Events|Where-Object{$_ -ceq "wait:$Name"}).Count -eq 1) "$Mode joins started $Name"
+        foreach($Stream in @('out','err')){
+          $Present=if($Stream -ceq 'out'){$Holder.OutPresent}else{$Holder.ErrPresent}
+          if($Present){Require-UnitCOverlap (@($Events|Where-Object{$_ -ceq "drain:${Name}:$Stream"}).Count -eq 1) "$Mode drains owned ${Name}:$Stream"}
+        }
+      }
+    }
+    Require-UnitCOverlap (@($Events|Where-Object{$_ -ceq 'sentinel-cleanup'}).Count -eq 1 -and
+      ($Observed.Sentinels -eq ($Mode -ceq 'sentinel-cleanup'))) "$Mode attempts exact parent environment cleanup"
+    if($Mode -notmatch '^(powershell|pwsh)-(launch-|out-setup|err-setup)'){
+      Require-UnitCOverlap ([Array]::IndexOf($Events,'start:pwsh') -lt [Array]::IndexOf($Events,'wait:powershell')) "$Mode starts both before the first join"
+    }
+    if($Honest){
+      Require-UnitCOverlap (($Observed.Rows.Name -join ',') -ceq 'powershell,pwsh') 'honest rows retain stable runtime ownership'
+      foreach($Name in @('powershell','pwsh')){
+        Require-UnitCOverlap ($Events -contains "marker:wo25-unit-c-equivalence-$Name|end|completed") "honest $Name completion follows checked work"
+      }
+      foreach($Corruption in @('missing','duplicate','reordered','foreign')){
+        $Changed=@($Observed.Rows)
+        if($Corruption -ceq 'missing'){$Changed=@($Changed[0])}
+        elseif($Corruption -ceq 'duplicate'){$Changed=@($Changed[0],$Changed[0])}
+        elseif($Corruption -ceq 'reordered'){$Changed=@($Changed[1],$Changed[0])}
+        else{$Changed=@($Changed[0],$Changed[1].PSObject.Copy());$Changed[1].Name='foreign'}
+        Require-UnitCOverlap ((& $Consumers['Get-Wo25UnitCEquivalenceFailure'] $Changed) -ceq 'runtime_identity') "$Corruption rows fail the actual pair consumer"
+      }
+    }
+    if($Mode -match '^(powershell|pwsh)-(launch-throw|launch-partial|out-setup|err-setup|out-fault|err-fault|wait|dispose)$'){
+      Require-UnitCOverlap ($Observed.Error.Message.Contains("owned-$Mode")) "$Mode preserves its observed primary failure"
+    }
+    if($Mode -in @('both-exit','both-exit-warning')){
+      Require-UnitCOverlap ($Observed.Error.Message.Contains('Unit C powershell child failed: exit=23')) "$Mode preserves the first observed child failure"
+    }
+    if($Mode.EndsWith('-warning',[StringComparison]::Ordinal)){
+      Require-UnitCOverlap ($Events -contains 'warning' -and -not $Observed.Error.Message.Contains('owned-warning-sink')) "$Mode reporting cannot replace the primary failure"
+    }
+    if($Mode -ceq 'powershell-both-stream-fault-warning'){
+      Require-UnitCOverlap ($Observed.Error.Message.Contains('owned-powershell-out-fault')) 'two drain failures preserve the first observed channel'
+    }
+    if(-not $Honest -and -not $PairRefusal){
+      $FaultMode=$Mode -replace '-warning$',''
+      $Owner=if($FaultMode.StartsWith('pwsh-',[StringComparison]::Ordinal)){'pwsh'}else{'powershell'}
+      $Exact=$null;$Method=$null;$OwnedFailure=$FaultMode
+      if($FaultMode -like '*-launch-false'){$Exact="Unit C $Owner equivalence launch failed"}
+      elseif($FaultMode -like '*-exit'){$Exact="Unit C $Owner child failed: exit=23; stderr="}
+      elseif($FaultMode -like '*-stderr'){$Exact="Unit C $Owner child failed: exit=0; stderr=owned stderr"}
+      elseif($FaultMode -ceq 'sentinel-cleanup'){$Exact='owned-sentinel-cleanup'}
+      elseif($FaultMode -like '*-missing-report'){$Exact="Unit C $Owner child environment report missing"}
+      elseif($FaultMode -like '*-label'){$Exact="Unit C $Owner shell-label contract drifted"}
+      elseif($FaultMode -match '-launch-(throw|partial)$'){$Method='Start'}
+      elseif($FaultMode -match '-(out|err)-setup$'){$Method='ReadToEndAsync'}
+      elseif($FaultMode -match '-(out|err)-fault$'){$Method='GetResult'}
+      elseif($FaultMode -ceq 'powershell-both-stream-fault'){$Method='GetResult';$OwnedFailure='powershell-out-fault'}
+      elseif($FaultMode -like '*-wait'){$Method='WaitForExit'}
+      elseif($FaultMode -like '*-dispose'){$Method='Dispose';if($FaultMode -ceq 'both-dispose'){$OwnedFailure='powershell-dispose'}}
+      if($null -ne $Exact){
+        Require-UnitCOverlap ($Observed.Error.Type -ceq 'System.Management.Automation.RuntimeException' -and $Observed.Error.Message -ceq $Exact) "$Mode refuses for its exact owned reason"
+      }else{
+        Require-UnitCOverlap ($null -ne $Method -and $Observed.Error.Type -ceq 'System.Management.Automation.MethodInvocationException' -and
+          $Observed.Error.Message.Contains('"'+$Method+'"') -and $Observed.Error.Message.Contains('owned-'+$OwnedFailure)) "$Mode refuses for its exact owned method and cause"
+      }
+    }
+  }
+  return [pscustomobject]@{Assertions=@($Assertions);Cases=@($Cases);Source=$Program}
 }
 
 function Invoke-OwnedRetainedHelperBindingControls {
@@ -2696,6 +2922,8 @@ try {
     Invoke-OwnedObsUnavailableFramingControls
     $UnitCTiming = Invoke-OwnedUnitCTimingControls $CheckAllText
     foreach ($TimingAssertion in $UnitCTiming.Assertions) { Test-ObsRequire $TimingAssertion.Ok $TimingAssertion.Message }
+    $UnitCShellOverlap = Invoke-OwnedUnitCShellOverlapControls $CheckAllText
+    foreach ($OverlapAssertion in $UnitCShellOverlap.Assertions) { Test-ObsRequire $OverlapAssertion.Ok $OverlapAssertion.Message }
     $ObsCases.Add('unit-c-owned-child-timing-controls')
     $RetainedBindings = Invoke-OwnedRetainedHelperBindingControls ([IO.File]::ReadAllText($PSCommandPath))
     foreach ($BindingAssertion in $RetainedBindings.Assertions) { Test-ObsRequire $BindingAssertion.Ok $BindingAssertion.Message }
