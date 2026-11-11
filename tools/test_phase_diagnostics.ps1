@@ -31,6 +31,85 @@ $PhaseDiagnostics = ''
 Invoke-Expression $MarkerLines
 Invoke-Expression $PhaseLines
 
+function Invoke-OwnedUnitCTimingControls {
+  param([string] $CheckAllText)
+  $Tokens=$null; $Errors=$null
+  $Ast=[Management.Automation.Language.Parser]::ParseInput($CheckAllText,[ref]$Tokens,[ref]$Errors)
+  if($Errors.Count -ne 0){throw 'Unit C timing source parse failed'}
+  $Owners=@($Ast.FindAll({param($Node)
+    $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $Node.Name -ceq 'Invoke-Wo25UnitCFocusedEvidence'
+  },$true))
+  if($Owners.Count -ne 1){throw 'Unit C timing owner is missing or duplicated'}
+  $Assertions=[Collections.Generic.List[object]]::new()
+  function Require-UnitCTiming([bool] $Ok,[string] $Message) {
+    $Assertions.Add([pscustomobject]@{Ok=$Ok;Message=$Message})
+    if(-not $Ok){throw "Unit C timing control failed: $Message"}
+  }
+  $Body=$Owners[0].Body
+  $TryOwners=@($Body.FindAll({param($Node)
+    $Node -is [Management.Automation.Language.TryStatementAst] -and $null -ne $Node.Finally -and
+    $Node.Finally.Extent.Text -match 'Write-HumPhaseMarker (?:''wo25-unit-c-prepare''|\$UnitCEquivalencePhase|\$UnitCSelectorPhase) '
+  },$true))
+  Require-UnitCTiming ($TryOwners.Count -eq 3) 'three actual timing wrappers are uniquely owned'
+  foreach($Spec in @(
+    @('prepare','wo25-unit-c-prepare','UnitCPrepareOutcome',1),
+    @('equivalence','UnitCEquivalencePhase','UnitCEquivalenceOutcome',2),
+    @('selector','UnitCSelectorPhase','UnitCSelectorOutcome',3)
+  )){
+    $Kind=$Spec[0];$PhaseName=$Spec[1];$OutcomeName=$Spec[2]
+    $Owned=@($TryOwners | Where-Object {$_.Finally.Extent.Text.Contains($PhaseName)})
+    Require-UnitCTiming ($Owned.Count -eq 1) "one actual wrapper for $Kind"
+    $Try=$Owned[0];$Statements=@($Try.Body.Statements)
+    $Completed='$'+$OutcomeName+" = 'completed'"
+    Require-UnitCTiming ($Statements[-1].Extent.Text -ceq $Completed) "completion follows the actual $Kind work"
+    $First=$Statements[0].Extent.StartOffset-$Try.Extent.StartOffset
+    $Last=$Statements[-1].Extent.StartOffset-$Try.Extent.StartOffset
+    # Replace only operational payload. Keep the actual completed assignment,
+    # finally block, outcome variable and marker call verbatim.
+    $Program=$Try.Extent.Text.Remove($First,$Last-$First).Insert($First,('Invoke-UnitCTimingModeledWork'+[char]10))
+    $Parent=$Try.Parent
+    $Siblings=@($Parent.Statements)
+    $Index=[Array]::IndexOf($Siblings,$Try)
+    $PreludeCount=if($Kind -ceq 'prepare'){2}else{3}
+    Require-UnitCTiming ($Index -ge $PreludeCount) "actual $Kind start and failed initialization precede try"
+    $Prelude=($Siblings[($Index-$PreludeCount)..($Index-1)] | ForEach-Object {$_.Extent.Text}) -join [char]10
+    Require-UnitCTiming ($Prelude.Contains('$'+$OutcomeName+" = 'failed'") -and
+      $Prelude.Contains('Write-HumPhaseMarker') -and $Prelude.Contains("'start'")) "actual $Kind prelude initializes failure and starts"
+    $Program=$Prelude+[char]10+$Program
+    for($Ordinal=1;$Ordinal -le $Spec[3];$Ordinal++){
+      $ExpectedPhase=if($Kind -ceq 'prepare'){'wo25-unit-c-prepare'}elseif($Kind -ceq 'equivalence'){
+        'wo25-unit-c-equivalence-'+@('powershell','pwsh')[$Ordinal-1]
+      }else{'wo25-unit-c-selector-'+$Ordinal}
+      foreach($WorkFails in @($false,$true)){
+        $Observed=& {
+          $ContractName=if($Kind -ceq 'equivalence'){@('powershell','pwsh')[$Ordinal-1]}else{'powershell'}
+          $Contract=@($ContractName,'modeled-path')
+          $UnitCSelectorOrdinal=$Ordinal
+          $Records=[Collections.Generic.List[string]]::new()
+          $State=@{Signal='';Calls=0}
+          function Write-HumPhaseMarker($Name,$Event,$Outcome='') { $Records.Add("$Name|$Event|$Outcome") }
+          function Invoke-UnitCTimingModeledWork {
+            $State.Signal='consumed';$State.Calls+=1
+            if($WorkFails){throw 'unit-c-modeled-owned-failure'}
+          }
+          $Caught=$null
+          try { . ([scriptblock]::Create($Program)) } catch {$Caught=$_}
+          [pscustomobject]@{Records=@($Records);Error=$Caught;Signal=$State.Signal;Calls=$State.Calls}
+        }
+        $Outcome=if($WorkFails){'failed'}else{'completed'}
+        Require-UnitCTiming ($Observed.Signal -ceq 'consumed' -and $Observed.Calls -eq 1) "$ExpectedPhase consumes modeled payload once"
+        Require-UnitCTiming (($Observed.Records -join ',') -ceq
+          "$ExpectedPhase|start|,$ExpectedPhase|end|$Outcome") "$ExpectedPhase retains the actual marker order and outcome"
+        Require-UnitCTiming (($WorkFails -and $null -ne $Observed.Error -and
+          $Observed.Error.Exception.Message -ceq 'unit-c-modeled-owned-failure') -or
+          (-not $WorkFails -and $null -eq $Observed.Error)) "$ExpectedPhase preserves modeled payload disposition"
+      }
+    }
+  }
+  return [pscustomobject]@{Assertions=@($Assertions)}
+}
+
 function Invoke-OwnedRetainedHelperBindingControls {
   param([string]$TestText)
   # Binding-only: keep current param/caller/export-hook AST text, replace all other body work.
@@ -2615,6 +2694,9 @@ try {
       $ObsCases.Add('unavailable-framing-sink-refusal')
     }
     Invoke-OwnedObsUnavailableFramingControls
+    $UnitCTiming = Invoke-OwnedUnitCTimingControls $CheckAllText
+    foreach ($TimingAssertion in $UnitCTiming.Assertions) { Test-ObsRequire $TimingAssertion.Ok $TimingAssertion.Message }
+    $ObsCases.Add('unit-c-owned-child-timing-controls')
     $RetainedBindings = Invoke-OwnedRetainedHelperBindingControls ([IO.File]::ReadAllText($PSCommandPath))
     foreach ($BindingAssertion in $RetainedBindings.Assertions) { Test-ObsRequire $BindingAssertion.Ok $BindingAssertion.Message }
     $ObsCases.Add('retained-six-optional-binding-owned-controls')
