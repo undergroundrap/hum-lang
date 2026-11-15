@@ -2701,8 +2701,8 @@ impl Parser {
         let mut depth = 0usize;
         let mut quoted = false;
         let mut escaped = false;
-        for index in start..self.lines.len() {
-            let text = &self.lines[index].text;
+        for (index, line) in self.lines.iter().enumerate().skip(start) {
+            let text = &line.text;
             for ch in text.chars() {
                 if quoted {
                     if escaped {
