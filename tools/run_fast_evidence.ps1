@@ -1438,7 +1438,17 @@ function Invoke-HumBinaryCapture {
     Set-HumDurableBytes (Join-Path $CaptureDirectory 'capture_error.bin') ($Existing + $Encoding.GetBytes($_.Exception.ToString()))
   }
   Write-HumCaptureManifest $CaptureDirectory
-  Read-HumCaptureRecord $CaptureDirectory
+  $Retained = Read-HumCaptureRecord $CaptureDirectory
+  if ($Retained.DeadlineDisposition -ceq 'deadline_expired_prelaunch') {
+    # Keep these existing samples on the direct result. The raw error bytes
+    # and manifest remain the authority for the capture's disposition.
+    Add-Member -InputObject $Retained -NotePropertyName PrelaunchStartup -NotePropertyValue ([pscustomobject]@{
+      frequency = $Frequency
+      deadline_ticks = $DeadlineTicks
+      checkpoints = $StartupCheckpoints.ToArray()
+    })
+  }
+  $Retained
 }
 
 function Assert-HumCaptureComplete {
@@ -1459,6 +1469,20 @@ function Assert-HumCaptureComplete {
     throw 'capture child was not resumed from durable Windows containment'
   }
   $Retained
+}
+
+function Get-HumPrelaunchStartupDiagnostic {
+  param([object] $Result)
+  if ($Result.DeadlineDisposition -cne 'deadline_expired_prelaunch') { return }
+  $Property = $Result.PSObject.Properties['PrelaunchStartup']
+  if ($null -eq $Property) { return }
+  $Facts = $Property.Value
+  'HUM_CAPTURE_PRELAUNCH_STARTUP ' + ([ordered]@{
+    case_name = $Result.CaseName
+    frequency = $Facts.frequency
+    deadline_ticks = $Facts.deadline_ticks
+    checkpoints = $Facts.checkpoints
+  } | ConvertTo-Json -Depth 3 -Compress)
 }
 
 function Get-HumCaptureFailureDiagnostic {

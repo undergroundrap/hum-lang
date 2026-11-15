@@ -9,6 +9,8 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $GitRepoRoot = $RepoRoot.Replace([System.IO.Path]::DirectorySeparatorChar, '/')
 $script:Wo25MutationRecords = New-Object 'System.Collections.Generic.List[string]'
+$script:HumWindowsFullPart = ''
+$script:HumUbuntuFullPart = ''
 
 # Phase diagnostics: writes timestamped start/end markers to an owned
 # diagnostic directory (NOT the capture directory, which has exact
@@ -1839,7 +1841,9 @@ function Assert-Wo25UnitBTransportContract {
     @('Upload failed preflight diagnostics','','failure() && steps.full_preflight.outcome == ''failure'' && steps.full_preflight.outputs.failure_capture != ''''','hum-preflight-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}','${{ steps.full_preflight.outputs.failure_capture }}','error'),
     @('Upload phase timing diagnostics','','always() && steps.full_preflight.outputs.phase_diagnostics != ''''','hum-phase-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}','${{ steps.full_preflight.outputs.phase_diagnostics }}','warn'),
     @('Upload evidence summary','upload_evidence_summary','steps.classify.outputs.mode == ''full'' && github.event_name == ''push''','${{ steps.generate_evidence_summary.outputs.summary_name }}','${{ steps.generate_evidence_summary.outputs.summary_path }}','error'),
-    @('Upload hum-dev executable','upload_hum_dev_executable','steps.classify.outputs.mode == ''full'' && github.event_name == ''push''','${{ steps.generate_evidence_summary.outputs.executable_name }}','${{ steps.generate_evidence_summary.outputs.executable_path }}','error')
+    @('Upload hum-dev executable','upload_hum_dev_executable','steps.classify.outputs.mode == ''full'' && github.event_name == ''push''','${{ steps.generate_evidence_summary.outputs.executable_name }}','${{ steps.generate_evidence_summary.outputs.executable_path }}','error'),
+    @('Retain Windows Full main transcript','windows_full_retain','steps.windows_full_capture.outputs.windows_full_part != ''''','hum-windows-full-main-${{ github.run_id }}-${{ github.run_attempt }}','${{ steps.full_preflight.outputs.failure_capture }}/stdout.bin','error'),
+    @('Retain Ubuntu Full main transcript','ubuntu_full_retain','steps.ubuntu_full_capture.outputs.ubuntu_full_part != ''''','hum-ubuntu-full-main-${{ github.run_id }}-${{ github.run_attempt }}','${{ steps.full_preflight.outputs.failure_capture }}/stdout.bin','error')
   )
   $UploadJobsRoot=@([regex]::Matches($Workflow,'(?ms)^jobs:(?<Header>[^\r\n]*)(?:\r?\n|\z)(?<Jobs>.*?)(?=^[^\s#]|\z)'))
   if($UploadJobsRoot.Count -ne 1 -or $UploadJobsRoot[0].Groups['Header'].Value.Trim() -cne ''){throw 'Unit B upload configuration drifted: jobs mapping owner must be unique and canonical'}
@@ -1848,7 +1852,7 @@ function Assert-Wo25UnitBTransportContract {
   $UploadStepsRoot=@([regex]::Matches($UploadJob[0].Groups['Job'].Value,'(?ms)^    steps:(?<Header>[^\r\n]*)(?:\r?\n|\z)(?<Steps>.*?)(?=^    [^\s#]|\z)'))
   if($UploadStepsRoot.Count -ne 1 -or $UploadStepsRoot[0].Groups['Header'].Value.Trim() -cne ''){throw 'Unit B upload configuration drifted: steps mapping owner must be unique and canonical'}
   $UploadArtifactSteps=@([regex]::Matches($UploadStepsRoot[0].Groups['Steps'].Value,'(?ms)^      - (?<Head>[^\r\n]+)\r?\n(?<Body>(?:(?!^      - ).)*)(?=^      - |\z)')|ForEach-Object{'        '+$_.Groups['Head'].Value+"`n"+$_.Groups['Body'].Value}|Where-Object{$_ -cmatch '(?m)^        uses:[ \t]*actions/upload-artifact'})
-  if($UploadArtifactSteps.Count -ne $UploadOwners.Count){throw 'Unit B upload configuration drifted: actual upload step cardinality must be five'}
+  if($UploadArtifactSteps.Count -ne $UploadOwners.Count){throw 'Unit B upload configuration drifted: actual upload step cardinality must match the exact owner table'}
   foreach($Owner in $UploadOwners){
     $Owned=@($UploadArtifactSteps|Where-Object{([regex]::Matches($_,'(?m)^        name:[ \t]*'+[regex]::Escape($Owner[0])+'[ \t]*\r?$')).Count -eq 1})
     if($Owned.Count -ne 1){throw "Unit B upload configuration drifted: missing or duplicate owner '$($Owner[0])'"}
@@ -1921,6 +1925,9 @@ function Assert-Wo25UnitCShellLabel { param([string]$Text,[string]$Contract,[str
 }
 
 function Invoke-Wo25UnitCFocusedEvidence { param([string]$Cargo)
+  $UnitCPrepareOutcome = 'failed'
+  Write-HumPhaseMarker 'wo25-unit-c-prepare' 'start'
+  try {
   Initialize-Wo25WindowsToolchain;$Source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'check_all.ps1'));Assert-Wo25EvidenceTierDispatcherContract -Source $Source
   Assert-Wo25UnitCV2OrchestrationContract
   Assert-Wo25UnitCIsolationContract
@@ -1929,10 +1936,105 @@ function Invoke-Wo25UnitCFocusedEvidence { param([string]$Cargo)
   foreach($Stale in @(('mutation_'+'count=7'),('hygiene_'+'file_count=584'))){if($Source.Contains($Stale)){throw "Work Order 25 Unit C retained stale integrated evidence: $Stale"}}
   $Honest=@(Get-Wo25ExpectedMutationReceiptRecords);Assert-Wo25MutationReceiptRecords $Honest;$Zero='0'*64;$Wrong='1'*64
   foreach($Case in @(@($Honest[0..6]),@($Honest[0..6]+$Honest[6]),@($Honest[0..6]+($Honest[7]-replace'^I08','I09')),@(@($Honest[1],$Honest[0])+@($Honest[2..7])),@($Honest+"I09|rejected|$Wrong"),@("I01|rejected|$Zero"+$Honest[1..7]),@("I01|rejected|$Wrong"+$Honest[1..7]),@($Honest[0..5]+($Honest[6]-replace'\|[0-9a-f]{64}$',('|'+($Honest[0]-split'\|')[2]))+$Honest[7]),@(($Honest[0]-replace'^I01','I02')+$Honest[1..7]))){$Failure=$null;try{Assert-Wo25MutationReceiptRecords @($Case)}catch{$Failure=$_};if($null-eq$Failure){throw 'Unit C mutation receipt corruption earned credit'}}
+    $UnitCPrepareOutcome = 'completed'
+  } finally {
+    Write-HumPhaseMarker 'wo25-unit-c-prepare' 'end' $UnitCPrepareOutcome
+  }
   if($env:OS -eq 'Windows_NT'){
     $Capture=Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1';$PwshApplications=@(Get-Command pwsh -CommandType Application -All -ErrorAction Stop);$null=Select-FirstApplicationSource $PwshApplications 'Unit C equivalence pwsh selection';$Pwsh=@($PwshApplications[0]);$Rows=@();$Allowed='CARGO_HOME,COMSPEC,HOME,OS,PATH,PATHEXT,ProgramFiles,PSModulePath,RUNNER_TEMP,RUSTUP_HOME,RUSTUP_TOOLCHAIN,SystemRoot,TEMP,TMP,TMPDIR,USERPROFILE,WINDIR,CI,GITHUB_ACTIONS,GITHUB_ACTION,GITHUB_ACTOR,GITHUB_API_URL,GITHUB_ENV,GITHUB_EVENT_NAME,GITHUB_EVENT_PATH,GITHUB_GRAPHQL_URL,GITHUB_JOB,GITHUB_OUTPUT,GITHUB_PATH,GITHUB_REF,GITHUB_REPOSITORY,GITHUB_RUN_ATTEMPT,GITHUB_RUN_ID,GITHUB_SERVER_URL,GITHUB_SHA,GITHUB_STEP_SUMMARY,GITHUB_TOKEN,GITHUB_WORKFLOW,GITHUB_WORKSPACE,RUNNER_ARCH,RUNNER_OS,RUNNER_TOOL_CACHE,HUM_CANONICAL_SEAL_EVIDENCE_TIER,HUM_EVIDENCE_RECEIPT,HUM_BUILD_TARGET,HUM_BUILD_TOOLCHAIN,INCLUDE,LIB,LIBPATH,VCINSTALLDIR,VCToolsInstallDir,VSCMD_ARG_HOST_ARCH,VSCMD_ARG_TGT_ARCH,WindowsSdkDir,WindowsSDKVersion,GIT_CONFIG_COUNT,GIT_CONFIG_KEY_0,GIT_CONFIG_VALUE_0'.Split(',');$Explicit=[ordered]@{};foreach($Key in $Allowed){$Value=[Environment]::GetEnvironmentVariable($Key);if($null-ne$Value){$Explicit[$Key]=$Value}};$env:HUM_UNIT_C_AMBIENT_SENTINEL='reject';$env:HUM_UNIT_C_SECRET_SENTINEL='secret'
-    foreach($Contract in @(@('powershell',"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"),@('pwsh',[string]$Pwsh[0].Source))){$Path=[IO.Path]::GetFullPath($Contract[1]);$Scratch=Join-Path ([IO.Path]::GetTempPath()) "hum-unit-c-equivalence-$($Contract[0])-$PID";$Child='$a=@([Environment]::GetEnvironmentVariables().Keys|%{[string]$_}|Sort-Object);if(@($a|Group-Object{$_.ToLowerInvariant()}|? Count -gt 1).Count-ne0){throw "child environment duplicate identity"};$h=@();foreach($n in $a){$v=[Environment]::GetEnvironmentVariable($n);if($null-eq$v-or$v.Contains("`r")-or$v.Contains("`n")-or$v.Contains([char]0)){throw "child environment value: $n"};$z=[Security.Cryptography.SHA256]::Create();try{$h+=,-join($z.ComputeHash([Text.Encoding]::UTF8.GetBytes($v))|%{$_.ToString("x2")})}finally{$z.Dispose()}};$x=[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName;$r=[ordered]@{Runtime="'+$Contract[0]+'";Path=$x;Sha=(&{$z=[Security.Cryptography.SHA256]::Create();try{-join($z.ComputeHash([IO.File]::ReadAllBytes($x))|%{$_.ToString("x2")})}finally{$z.Dispose()}});Keys=$a;Hashes=$h};[Console]::Out.WriteLine("HUM_CHILD_ENV_V1|"+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($r|ConvertTo-Json -Compress))));[Console]::Out.Flush();& "'+$Capture+'" -ShellContract "'+$Contract[0]+'" -ScratchRoot "'+$Scratch+'";exit $LASTEXITCODE';$Start=New-Object Diagnostics.ProcessStartInfo;$Start.FileName=$Path;$Start.UseShellExecute=$false;$Start.RedirectStandardOutput=$true;$Start.RedirectStandardError=$true;$Start.Environment.Clear();foreach($Entry in $Explicit.GetEnumerator()){$Start.Environment[$Entry.Key]=$Entry.Value};$RuntimeDirectory=[IO.Path]::GetDirectoryName($Path);$Start.Environment['Path']="$RuntimeDirectory;$($Start.Environment['Path'])";$ExpectedKeys=@($Start.Environment.Keys|Sort-Object);$ExpectedHashes=@($ExpectedKeys|%{Get-Wo25Sha256 ([Text.Encoding]::UTF8.GetBytes($Start.Environment[$_]))});$ExpectedEnvironment=[pscustomobject]@{Keys=$ExpectedKeys;Hashes=$ExpectedHashes};foreach($Arg in @('-NoLogo','-NoProfile','-NonInteractive','-Command',$Child)){$Start.ArgumentList.Add($Arg)};$Process=New-Object Diagnostics.Process;$Process.StartInfo=$Start;if(-not$Process.Start()){throw "Unit C $($Contract[0]) equivalence launch failed"};$Out=$Process.StandardOutput.ReadToEndAsync();$Err=$Process.StandardError.ReadToEndAsync();$Process.WaitForExit();$ChildError=$Err.Result;if($Process.ExitCode-ne0-or$ChildError-cne''){throw "Unit C $($Contract[0]) child failed: exit=$($Process.ExitCode); stderr=$ChildError"};$Expected="Fast evidence capture tests passed for $($Contract[0]).";$Text=$Out.Result;$First=$Text.IndexOf("`n");if($First-lt 0-or-not$Text.StartsWith('HUM_CHILD_ENV_V1|')){throw "Unit C $($Contract[0]) child environment report missing"};$Report=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Text.Substring(17,$First-17).TrimEnd("`r")))|ConvertFrom-Json);$Text=$Text.Substring($First+1);Assert-Wo25UnitCShellLabel -Text $Text -Contract $Contract[0] -CaptureSource ([IO.File]::ReadAllText($Capture));$Rows+=,[pscustomobject]@{Name=$Contract[0];Path=$Path;Version=(Get-Item $Path).VersionInfo.FileVersion;Sha=(Get-FileHash $Path -Algorithm SHA256).Hash.ToLowerInvariant();Report=$Report;Expected=$ExpectedEnvironment;Exit=$Process.ExitCode;Quiescent=$Process.HasExited;Stdout=$Text.Replace($Expected,'Fast evidence capture tests passed for <shell>.');Stderr=$ChildError;Cleanup=(-not(Test-Path -LiteralPath $Scratch))}}
-    Remove-Item Env:HUM_UNIT_C_AMBIENT_SENTINEL,Env:HUM_UNIT_C_SECRET_SENTINEL -ErrorAction Stop;if(@($Rows|Where-Object{$_.Report.Keys -contains'HUM_UNIT_C_AMBIENT_SENTINEL'-or$_.Report.Keys -contains'HUM_UNIT_C_SECRET_SENTINEL'}).Count-ne0){throw 'Unit C ambient or secret-like environment escaped into child'};$Failure=Get-Wo25UnitCEquivalenceFailure $Rows;if($Failure-ne''){
+    $UnitCShells = [Collections.Generic.List[object]]::new()
+    $UnitCFailure = $null
+    try {
+      foreach($Contract in @(@('powershell',"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"),@('pwsh',[string]$Pwsh[0].Source))){
+        $UnitCShell = [pscustomobject]@{
+          Contract = $Contract
+          Phase = 'wo25-unit-c-equivalence-' + $Contract[0]
+          Process = $null
+          Started = $false
+          Out = $null
+          Err = $null
+          Path = ''
+          Scratch = ''
+          Expected = $null
+        }
+        $UnitCShells.Add($UnitCShell)
+        try { Write-HumPhaseMarker $UnitCShell.Phase 'start' } catch { }
+        $Path=[IO.Path]::GetFullPath($Contract[1]);$Scratch=Join-Path ([IO.Path]::GetTempPath()) "hum-unit-c-equivalence-$($Contract[0])-$PID";$Child='$a=@([Environment]::GetEnvironmentVariables().Keys|%{[string]$_}|Sort-Object);if(@($a|Group-Object{$_.ToLowerInvariant()}|? Count -gt 1).Count-ne0){throw "child environment duplicate identity"};$h=@();foreach($n in $a){$v=[Environment]::GetEnvironmentVariable($n);if($null-eq$v-or$v.Contains("`r")-or$v.Contains("`n")-or$v.Contains([char]0)){throw "child environment value: $n"};$z=[Security.Cryptography.SHA256]::Create();try{$h+=,-join($z.ComputeHash([Text.Encoding]::UTF8.GetBytes($v))|%{$_.ToString("x2")})}finally{$z.Dispose()}};$x=[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName;$r=[ordered]@{Runtime="'+$Contract[0]+'";Path=$x;Sha=(&{$z=[Security.Cryptography.SHA256]::Create();try{-join($z.ComputeHash([IO.File]::ReadAllBytes($x))|%{$_.ToString("x2")})}finally{$z.Dispose()}});Keys=$a;Hashes=$h};[Console]::Out.WriteLine("HUM_CHILD_ENV_V1|"+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($r|ConvertTo-Json -Compress))));[Console]::Out.Flush();& "'+$Capture+'" -ShellContract "'+$Contract[0]+'" -ScratchRoot "'+$Scratch+'";exit $LASTEXITCODE';$Start=New-Object Diagnostics.ProcessStartInfo;$Start.FileName=$Path;$Start.UseShellExecute=$false;$Start.RedirectStandardOutput=$true;$Start.RedirectStandardError=$true;$Start.Environment.Clear();foreach($Entry in $Explicit.GetEnumerator()){$Start.Environment[$Entry.Key]=$Entry.Value};$RuntimeDirectory=[IO.Path]::GetDirectoryName($Path);$Start.Environment['Path']="$RuntimeDirectory;$($Start.Environment['Path'])";$ExpectedKeys=@($Start.Environment.Keys|Sort-Object);$ExpectedHashes=@($ExpectedKeys|%{Get-Wo25Sha256 ([Text.Encoding]::UTF8.GetBytes($Start.Environment[$_]))});$ExpectedEnvironment=[pscustomobject]@{Keys=$ExpectedKeys;Hashes=$ExpectedHashes};foreach($Arg in @('-NoLogo','-NoProfile','-NonInteractive','-Command',$Child)){$Start.ArgumentList.Add($Arg)};
+        $Process = New-Object Diagnostics.Process
+        $UnitCShell.Process = $Process
+        $UnitCShell.Path = $Path
+        $UnitCShell.Scratch = $Scratch
+        $UnitCShell.Expected = $ExpectedEnvironment
+        $Process.StartInfo = $Start
+        if (-not $Process.Start()) { throw "Unit C $($Contract[0]) equivalence launch failed" }
+        $UnitCShell.Started = $true
+        $UnitCShell.Out = $Process.StandardOutput.ReadToEndAsync()
+        $UnitCShell.Err = $Process.StandardError.ReadToEndAsync()
+      }
+    } catch {
+      $UnitCFailure = $_
+    } finally {
+      # Launch both before waiting. Every holder keeps its own channels,
+      # expected environment and runtime identity; join in the original order.
+      foreach ($UnitCShell in $UnitCShells) {
+        $Contract = $UnitCShell.Contract
+        $UnitCEquivalencePhase = $UnitCShell.Phase
+        $UnitCEquivalenceOutcome = 'failed'
+        try {
+          if (-not $UnitCShell.Started -and $null -ne $UnitCShell.Process) {
+            # Start can fail after associating its Process object. Retain
+            # ownership of that child instead of assuming no launch occurred.
+            try { if ($UnitCShell.Process.Id -gt 0) { $UnitCShell.Started = $true } } catch { }
+          }
+          if (-not $UnitCShell.Started) { continue }
+          $Process = $UnitCShell.Process
+          $Path = $UnitCShell.Path
+          $Scratch = $UnitCShell.Scratch
+          $ExpectedEnvironment = $UnitCShell.Expected
+          $Out = $UnitCShell.Out
+          $Err = $UnitCShell.Err
+          $UnitCChildFailure = $null
+          if ($null -eq $Out -or $null -eq $Err) {
+            # A failed pipe setup cannot yield a row. Close parent pipe reads
+            # before waiting so an unconsumed full pipe cannot block its child.
+            try { throw "Unit C $($Contract[0]) channel capture did not initialize" } catch { $UnitCChildFailure = $_ }
+            try { $Process.StandardOutput.Close() } catch { try { Write-Warning "Unit C $($Contract[0]) stdout close also failed: $($_.Exception.Message)" } catch { } }
+            try { $Process.StandardError.Close() } catch { try { Write-Warning "Unit C $($Contract[0]) stderr close also failed: $($_.Exception.Message)" } catch { } }
+          }
+          try { $Process.WaitForExit() } catch { if ($null -eq $UnitCChildFailure) { $UnitCChildFailure = $_ } }
+          foreach ($UnitCDrain in @($Out, $Err)) {
+            if ($null -ne $UnitCDrain) {
+              try { [void]$UnitCDrain.GetAwaiter().GetResult() } catch {
+                if ($null -eq $UnitCChildFailure) { $UnitCChildFailure = $_ }
+                else { try { Write-Warning "Unit C $($Contract[0]) additional drain failure: $($_.Exception.Message)" } catch { } }
+              }
+            }
+          }
+          if ($null -ne $UnitCChildFailure) { throw $UnitCChildFailure }
+          $ChildError=$Err.Result;if($Process.ExitCode-ne0-or$ChildError-cne''){throw "Unit C $($Contract[0]) child failed: exit=$($Process.ExitCode); stderr=$ChildError"};$Expected="Fast evidence capture tests passed for $($Contract[0]).";$Text=$Out.Result;$First=$Text.IndexOf("`n");if($First-lt 0-or-not$Text.StartsWith('HUM_CHILD_ENV_V1|')){throw "Unit C $($Contract[0]) child environment report missing"};$Report=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Text.Substring(17,$First-17).TrimEnd("`r")))|ConvertFrom-Json);$Text=$Text.Substring($First+1);Assert-Wo25UnitCShellLabel -Text $Text -Contract $Contract[0] -CaptureSource ([IO.File]::ReadAllText($Capture));$Rows+=,[pscustomobject]@{Name=$Contract[0];Path=$Path;Version=(Get-Item $Path).VersionInfo.FileVersion;Sha=(Get-FileHash $Path -Algorithm SHA256).Hash.ToLowerInvariant();Report=$Report;Expected=$ExpectedEnvironment;Exit=$Process.ExitCode;Quiescent=$Process.HasExited;Stdout=$Text.Replace($Expected,'Fast evidence capture tests passed for <shell>.');Stderr=$ChildError;Cleanup=(-not(Test-Path -LiteralPath $Scratch))}
+          $UnitCEquivalenceOutcome = 'completed'
+        } catch {
+          if ($null -eq $UnitCFailure) { $UnitCFailure = $_ }
+          else { try { Write-Warning "Unit C $($Contract[0]) additional child failure: $($_.Exception.Message)" } catch { } }
+        } finally {
+          if ($null -ne $UnitCShell.Process) {
+            try { $UnitCShell.Process.Dispose() } catch {
+              $UnitCEquivalenceOutcome = 'failed'
+              if ($null -eq $UnitCFailure) { $UnitCFailure = $_ }
+              else { try { Write-Warning "Unit C $($Contract[0]) additional dispose failure: $($_.Exception.Message)" } catch { } }
+            }
+          }
+          try { Write-HumPhaseMarker $UnitCEquivalencePhase 'end' $UnitCEquivalenceOutcome } catch { }
+        }
+      }
+      try { Remove-Item Env:HUM_UNIT_C_AMBIENT_SENTINEL,Env:HUM_UNIT_C_SECRET_SENTINEL -ErrorAction Stop } catch {
+        if ($null -eq $UnitCFailure) { $UnitCFailure = $_ }
+        else { try { Write-Warning "Unit C additional environment cleanup failure: $($_.Exception.Message)" } catch { } }
+      }
+    }
+    if ($null -ne $UnitCFailure) { throw $UnitCFailure }
+
+    if(@($Rows|Where-Object{$_.Report.Keys -contains'HUM_UNIT_C_AMBIENT_SENTINEL'-or$_.Report.Keys -contains'HUM_UNIT_C_SECRET_SENTINEL'}).Count-ne0){throw 'Unit C ambient or secret-like environment escaped into child'};$Failure=Get-Wo25UnitCEquivalenceFailure $Rows;if($Failure-ne''){
       if($Failure-ceq'normalized_contract_output'){
         $OutputDiagnosticStatus='unavailable';$OutputDiagnosticCreated=0;$OutputFacts=@()
         try{
@@ -1991,8 +2093,59 @@ function Invoke-Wo25UnitCFocusedEvidence { param([string]$Cargo)
   $Selectors=@('shell::tests::pwsh7_adapter_is_thin_declarative_and_environment_bound','commit_message::tests::legacy_hook_corpus_matches_portable_rule','cli::preflight_repairs_stop_before_state_changing_launch')
   Push-Location (Join-Path $RepoRoot 'crates/hum-dev')
   try {
-    foreach($Selector in $Selectors){Invoke-ExactRustTest "Work Order 25 Unit C $Selector" $Cargo $Selector}
+    $UnitCSelectorOrdinal = 0
+    foreach($Selector in $Selectors){
+      $UnitCSelectorOrdinal += 1
+      $UnitCSelectorPhase = 'wo25-unit-c-selector-' + $UnitCSelectorOrdinal
+      $UnitCSelectorOutcome = 'failed'
+      Write-HumPhaseMarker $UnitCSelectorPhase 'start'
+      try {
+        Invoke-ExactRustTest "Work Order 25 Unit C $Selector" $Cargo $Selector
+        $UnitCSelectorOutcome = 'completed'
+      } finally {
+        Write-HumPhaseMarker $UnitCSelectorPhase 'end' $UnitCSelectorOutcome
+      }
+    }
   } finally {Pop-Location}
+}
+
+function Get-Wo25UnitCProcessEvidence([int[]] $ProcessIds, [datetime] $ComparedFromUtc, [datetime] $ComparedToUtc) {
+  $StartedUtc = [DateTime]::UtcNow.ToString('o')
+  $Rows = [Collections.Generic.List[object]]::new()
+  $Status = 'observed'
+  try {
+    # Compare the original Get-Process IDs. CIM only supplies attribution and
+    # may miss a process that exited between the two observations.
+    $ById = @{}
+    foreach ($Process in Get-CimInstance -ClassName Win32_Process -Property Name,ProcessId,ParentProcessId,CreationDate -ErrorAction Stop) {
+      $ById[[long]$Process.ProcessId] = $Process
+    }
+    $Seen = [Collections.Generic.HashSet[long]]::new()
+    foreach ($Identity in (@($PID) + @($ProcessIds))) {
+      $Current = [long]$Identity
+      for ($Depth = 0; $Depth -lt 12 -and $Current -gt 0; $Depth++) {
+        $Process = $ById[$Current]
+        if ($null -eq $Process -or -not $Seen.Add($Current)) { break }
+        $Created = if ($null -ne $Process.CreationDate) { $Process.CreationDate.ToUniversalTime() }
+        $ParentId = [long]$Process.ParentProcessId
+        $CreatedUtc = if ($null -ne $Created) { $Created.ToString('o') }
+        $Rows.Add([pscustomobject]@{pid=$Current; parent_pid=$ParentId; name=$Process.Name; created_utc=$CreatedUtc})
+        # A later holder of a reused parent PID is not this process's parent.
+        $Parent = $ById[$ParentId]
+        if ($null -eq $Created -or $Created -gt $ComparedToUtc -or $ParentId -le 0 -or
+            $null -eq $Parent -or $null -eq $Parent.CreationDate -or
+            $Parent.CreationDate.ToUniversalTime() -gt $Created) { break }
+        $Current = $ParentId
+      }
+    }
+  } catch {
+    $Status = 'unavailable'
+  }
+  [pscustomobject]@{
+    status=$Status; observer_pid=$PID; compared_pids=@($ProcessIds)
+    compared_from_utc=$ComparedFromUtc.ToString('o'); compared_to_utc=$ComparedToUtc.ToString('o')
+    sampled_from_utc=$StartedUtc; sampled_to_utc=[DateTime]::UtcNow.ToString('o'); rows=$Rows.ToArray()
+  }
 }
 
 function Assert-Wo25UnitCIsolationContract {
@@ -2003,7 +2156,14 @@ function Assert-Wo25UnitCIsolationContract {
   $IsolationLauncherCount=([regex]::Matches($Workflow,[regex]::Escape('. ./tools/run_fast_evidence.ps1'))).Count
   if($IsolationNewCount -eq 0 -or $IsolationRemoveCount -ne $IsolationNewCount -or $IsolationLauncherCount -ne $IsolationNewCount){throw "Unit C workflow isolation routes are unbalanced in .github/workflows/ci.yml: New-HumIsolatedExecutable=$IsolationNewCount, Remove-HumIsolatedExecutable=$IsolationRemoveCount, run_fast_evidence launcher=$IsolationLauncherCount. Every isolated route must carry all three markers; see Assert-Wo25UnitCIsolationContract in tools/check_all.ps1."}
   . $LauncherPath
-  $Suffix=if($script:HumHostIsWindows){'.exe'}else{''};$Source=Join-Path $RepoRoot "target/debug/hum-dev$Suffix";$Record=New-HumIsolatedExecutable $Source ([IO.Path]::GetTempPath()) (Join-Path $RepoRoot 'target');$Original=[IO.File]::ReadAllBytes($Record.Executable);$Extra=Join-Path $Record.Directory 'extra';$HardRoot=Join-Path ([IO.Path]::GetTempPath()) "hum-unit-c-hardlink-$PID-$([Guid]::NewGuid().ToString('N'))";$HardSource=Join-Path $HardRoot 'source';$HardLink=Join-Path $HardRoot 'linked';$Handle=$null;$PriorProcesses=@(Get-Process -Name hum-dev,cargo,rustc -ErrorAction SilentlyContinue|Select-Object -ExpandProperty Id|Sort-Object);$Reject={param($Name,$Expected,[scriptblock]$Action)$Attempts=0;$Failure=$null;try{&$Action;$Attempts++}catch{$Failure=$_.Exception.Message};if($Attempts-ne0-or$Failure-notlike$Expected){throw "Unit C isolation $Name disposition drifted: $Failure; attempts=$Attempts"}}
+  $Suffix=if($script:HumHostIsWindows){'.exe'}else{''};$Source=Join-Path $RepoRoot "target/debug/hum-dev$Suffix";$Record=New-HumIsolatedExecutable $Source ([IO.Path]::GetTempPath()) (Join-Path $RepoRoot 'target');$Original=[IO.File]::ReadAllBytes($Record.Executable);$Extra=Join-Path $Record.Directory 'extra';$HardRoot=Join-Path ([IO.Path]::GetTempPath()) "hum-unit-c-hardlink-$PID-$([Guid]::NewGuid().ToString('N'))";$HardSource=Join-Path $HardRoot 'source';$HardLink=Join-Path $HardRoot 'linked';$Handle=$null
+  $CaptureProcessEvidence = $script:HumHostIsWindows -and $env:GITHUB_ACTIONS -ceq 'true'
+  $PriorComparedFrom = if ($CaptureProcessEvidence) { [DateTime]::UtcNow }
+  $PriorProcesses = @(Get-Process -Name hum-dev,cargo,rustc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id | Sort-Object)
+  $PriorProcessEvidence = if ($CaptureProcessEvidence) {
+    Get-Wo25UnitCProcessEvidence $PriorProcesses $PriorComparedFrom ([DateTime]::UtcNow)
+  }
+  $Reject={param($Name,$Expected,[scriptblock]$Action)$Attempts=0;$Failure=$null;try{&$Action;$Attempts++}catch{$Failure=$_.Exception.Message};if($Attempts-ne0-or$Failure-notlike$Expected){throw "Unit C isolation $Name disposition drifted: $Failure; attempts=$Attempts"}}
   try {
     $Canonical=Get-HumExecutableIdentity $Record.Source -AllowHardLinks;$Isolated=Get-HumExecutableIdentity $Record.Executable;if($Canonical.Links-lt2-or$Isolated.Links-ne1-or$Canonical.FileIdentity-ceq$Isolated.FileIdentity){throw 'Unit C canonical hard-link or physical-copy identity failed'};Assert-HumIsolatedExecutable $Record -RequireSource
     foreach($Field in @('SourceFileIdentity','Bytes','Sha256')){$Wrong=$Record.PSObject.Copy();$Wrong.$Field=if($Field-ceq'Bytes'){$Wrong.Bytes+1}else{'0'*64};&$Reject "source_$Field" '*canonical executable identity changed during transport*' {Assert-HumIsolatedExecutable $Wrong -RequireSource}}
@@ -2052,7 +2212,20 @@ function Assert-Wo25UnitCIsolationContract {
     $TreeCases=[ordered]@{exact=$Record.TargetRoot;direct=(Join-Path $Record.TargetRoot 'direct');deep=(Join-Path $Record.TargetRoot 'direct/deep')};if($script:HumHostIsWindows){$TreeCases.case_variant=$Record.TargetRoot.ToUpperInvariant()};foreach($Case in $TreeCases.GetEnumerator()){$Wrong=[pscustomobject]@{Source=$Record.Source;Executable=$Record.Source;Directory=$Case.Value;TargetRoot=$Record.TargetRoot;Bytes=$Record.Bytes;Sha256=$Record.Sha256};$Failure=$null;try{Assert-HumIsolatedExecutable $Wrong}catch{$Failure=$_.Exception.Message};if($Failure-cne'target-tree directory identity'){throw "Unit C target-tree $($Case.Key) disposition drifted: $Failure"}}
     $Wrong.Directory=$Record.TargetRoot+'-outside';$Failure=$null;try{Assert-HumIsolatedExecutable $Wrong}catch{$Failure=$_.Exception.Message};if($Failure-ceq'target-tree directory identity'){throw 'Unit C prefix-similar outside directory was classified inside target'}
     if($script:HumHostIsWindows){$Handle=[IO.File]::Open($Record.Executable,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read);$Failure=$null;try{Remove-HumIsolatedExecutable $Record}catch{$Failure=$_.Exception.Message};if($null-eq$Failure-or-not[IO.File]::Exists($Record.Executable)){throw 'Unit C live-handle cleanup corruption escaped'};$Handle.Dispose();$Handle=$null}
-    Remove-HumIsolatedExecutable $Record;$Failure=$null;try{Assert-HumIsolatedExecutable $Record}catch{$Failure=$_.Exception.Message};if($null-eq$Failure){throw 'Unit C isolated directory reuse earned credit'};$FinalProcesses=@(Get-Process -Name hum-dev,cargo,rustc -ErrorAction SilentlyContinue|Select-Object -ExpandProperty Id|Sort-Object);if([string]::Join(',',$PriorProcesses)-cne[string]::Join(',',$FinalProcesses)){throw 'Unit C isolation control process quiescence failed'}
+    Remove-HumIsolatedExecutable $Record;$Failure=$null;try{Assert-HumIsolatedExecutable $Record}catch{$Failure=$_.Exception.Message};if($null-eq$Failure){throw 'Unit C isolated directory reuse earned credit'}
+    $FinalComparedFrom = if ($CaptureProcessEvidence) { [DateTime]::UtcNow }
+    $FinalProcesses = @(Get-Process -Name hum-dev,cargo,rustc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id | Sort-Object)
+    $FinalComparedTo = if ($CaptureProcessEvidence) { [DateTime]::UtcNow }
+    if ([string]::Join(',',$PriorProcesses) -cne [string]::Join(',',$FinalProcesses)) {
+      try {
+        if ($CaptureProcessEvidence) {
+          $FinalProcessEvidence = Get-Wo25UnitCProcessEvidence $FinalProcesses $FinalComparedFrom $FinalComparedTo
+          $Evidence = @{before=$PriorProcessEvidence; after=$FinalProcessEvidence} | ConvertTo-Json -Depth 6 -Compress
+          # The public focused Rust integration test surfaces child stderr.
+          [Console]::Error.WriteLine("HUM_UNIT_C_PROCESS_EVIDENCE $Evidence")
+        }
+      } finally { throw 'Unit C isolation control process quiescence failed' }
+    }
   } finally {if($null-ne$Handle){$Handle.Dispose()};if([IO.Directory]::Exists($Record.Directory)){if([IO.File]::Exists($Record.Executable)){Remove-Item -LiteralPath $Record.Executable -Force};[IO.File]::Copy($Record.Source,$Record.Executable,$false);$Record.ExecutableFileIdentity=(Get-HumExecutableIdentity $Record.Executable).FileIdentity;Remove-HumIsolatedExecutable $Record};if([IO.Directory]::Exists($HardRoot)){Remove-Item -LiteralPath $HardRoot -Recurse -Force};if([IO.Directory]::Exists($HardRoot)){throw 'Unit C hard-link fixture cleanup failed'}}
 }
 
@@ -3044,6 +3217,145 @@ function Invoke-HumUseAfterMoveProjectionCheck {
 
 }
 
+function Get-HumWindowsFullPart {
+  # hum-dev forwards RUNNER_TEMP and the run identity. The hosting job owns
+  # one ticket in its private runner temp directory for this run and attempt.
+  if (-not $IsWindows -or $env:GITHUB_ACTIONS -cne 'true' -or
+      $env:GITHUB_EVENT_NAME -cne 'pull_request' -or $env:RUNNER_OS -cne 'Windows' -or
+      [string]::IsNullOrEmpty($env:RUNNER_TEMP) -or -not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP) -or
+      $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]*\z' -or
+      $env:GITHUB_RUN_ATTEMPT -cnotmatch '\A[1-9][0-9]*\z') { return '' }
+  $Ticket = Join-Path $env:RUNNER_TEMP "hum-windows-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+  if (-not (Test-Path -LiteralPath $Ticket)) { return '' }
+  $Item = Get-Item -LiteralPath $Ticket -Force
+  if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $Item.Length -gt 160) {
+    throw 'Windows Full part ticket is not an ordinary bounded file'
+  }
+  if ($env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z') { throw 'Windows Full part identity is malformed' }
+  $TicketText = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes($Item.FullName))
+  foreach ($Part in @('main','mutations','corpus')) {
+    if ($TicketText -ceq "$Part|$env:GITHUB_SHA|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT") { return $Part }
+  }
+  throw 'Windows Full part ticket has foreign provenance'
+}
+
+function Get-HumUbuntuFullPart {
+  # The legacy launcher forwards RUNNER_TEMP and the GitHub run identity.
+  if ($env:RUNNER_OS -cne 'Linux' -or -not $IsLinux -or $env:GITHUB_ACTIONS -cne 'true' -or
+      $env:GITHUB_EVENT_NAME -cne 'pull_request' -or [string]::IsNullOrEmpty($env:RUNNER_TEMP) -or
+      -not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP) -or
+      $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]*\z' -or
+      $env:GITHUB_RUN_ATTEMPT -cnotmatch '\A[1-9][0-9]*\z') { return '' }
+  $Ticket = Join-Path $env:RUNNER_TEMP "hum-ubuntu-full-part-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+  if (-not (Test-Path -LiteralPath $Ticket)) { return '' }
+  Assert-HumCorpusDirectory $env:RUNNER_TEMP
+  $Item = Get-Item -LiteralPath $Ticket -Force
+  if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $Item.Length -gt 160) {
+    throw 'Ubuntu Full part ticket is not an ordinary bounded file'
+  }
+  if ($env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z') { throw 'Ubuntu Full part identity is malformed' }
+  $TicketText = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes($Item.FullName))
+  foreach ($Part in @('main','corpus')) {
+    if ($TicketText -ceq "$Part|$env:GITHUB_SHA|$env:GITHUB_RUN_ID|$env:GITHUB_RUN_ATTEMPT") { return $Part }
+  }
+  throw 'Ubuntu Full part ticket has foreign provenance'
+}
+
+function Invoke-HumWo22Wo23MutationCampaigns {
+  param([string] $Cargo)
+  Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'start'
+  try {
+  Invoke-Wo22BackendPredicateMutationEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
+    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'failed'
+    throw
+  }
+  Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'start'
+  try {
+    Invoke-Wo23UnitAProductionMutationEvidence $Cargo
+    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'failed'
+    throw
+  }
+}
+
+function Get-AqRustProductionSource([string]$Path) {
+  $Source = [System.IO.File]::ReadAllText((Resolve-Path $Path))
+  $Mask = $Source.ToCharArray()
+  $Index = 0
+  while ($Index -lt $Source.Length) {
+    $Start = $Index
+    if ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '/' -and $Source[$Index + 1] -eq '/') {
+      $Index += 2
+      while ($Index -lt $Source.Length -and $Source[$Index] -notin @("`r", "`n")) { $Index++ }
+    } elseif ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '/' -and $Source[$Index + 1] -eq '*') {
+      $CommentDepth = 1
+      $Index += 2
+      while ($Index -lt $Source.Length -and $CommentDepth -gt 0) {
+        if ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '/' -and $Source[$Index + 1] -eq '*') { $CommentDepth++; $Index += 2 }
+        elseif ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '*' -and $Source[$Index + 1] -eq '/') { $CommentDepth--; $Index += 2 }
+        else { $Index++ }
+      }
+    } else {
+      $RawCursor = $Index
+      if ($RawCursor + 1 -lt $Source.Length -and $Source[$RawCursor] -in @('b', 'c') -and $Source[$RawCursor + 1] -eq 'r') { $RawCursor++ }
+      if ($RawCursor -lt $Source.Length -and $Source[$RawCursor] -eq 'r') {
+        $RawCursor++
+        $HashStart = $RawCursor
+        while ($RawCursor -lt $Source.Length -and $Source[$RawCursor] -eq '#') { $RawCursor++ }
+        if ($RawCursor -lt $Source.Length -and $Source[$RawCursor] -eq '"') {
+          $RawDelimiter = '"' + ('#' * ($RawCursor - $HashStart))
+          $RawEnd = $Source.IndexOf($RawDelimiter, $RawCursor + 1, [System.StringComparison]::Ordinal)
+          $Index = if ($RawEnd -lt 0) { $Source.Length } else { $RawEnd + $RawDelimiter.Length }
+        }
+      }
+      if ($Index -eq $Start -and $Source[$Index] -eq '"') {
+        $Index++
+        while ($Index -lt $Source.Length) {
+          if ($Source[$Index] -eq [char]92) { $Index = [Math]::Min($Index + 2, $Source.Length); continue }
+          $ClosingQuote = $Source[$Index] -eq '"'
+          $Index++
+          if ($ClosingQuote) { break }
+        }
+      } elseif ($Index -eq $Start -and $Source[$Index] -eq "'") {
+        $CharCursor = $Index + 1
+        while ($CharCursor -lt $Source.Length -and $Source[$CharCursor] -notin @("'", "`r", "`n")) {
+          if ($Source[$CharCursor] -eq [char]92) { $CharCursor = [Math]::Min($CharCursor + 2, $Source.Length) } else { $CharCursor++ }
+        }
+        if ($CharCursor -lt $Source.Length -and $Source[$CharCursor] -eq "'") { $Index = $CharCursor + 1 }
+      }
+      if ($Index -eq $Start) { $Index++; continue }
+    }
+    for ($MaskIndex = $Start; $MaskIndex -lt $Index; $MaskIndex++) {
+      if ($Mask[$MaskIndex] -notin @("`r", "`n")) { $Mask[$MaskIndex] = ' ' }
+    }
+  }
+  $MaskedSource = -join $Mask
+  $HeaderMatches = @([regex]::Matches($MaskedSource, '(?m)^#\[cfg\(test\)\]\r?\n(?:mod tests|pub\(crate\) mod tests)[ \t]*\{'))
+  $TerminalTestModules = @()
+  foreach ($HeaderMatch in $HeaderMatches) {
+    $ModuleBraceIndex = $HeaderMatch.Index + $HeaderMatch.Length - 1
+    $ModuleDepth = 1
+    $ModuleClosingBraceIndex = -1
+    for ($Index = $ModuleBraceIndex + 1; $Index -lt $MaskedSource.Length; $Index++) {
+      if ($MaskedSource[$Index] -eq '{') { $ModuleDepth++ }
+      elseif ($MaskedSource[$Index] -eq '}') {
+        $ModuleDepth--
+        if ($ModuleDepth -eq 0) { $ModuleClosingBraceIndex = $Index; break }
+      }
+    }
+    if ($ModuleClosingBraceIndex -ge 0 -and [string]::IsNullOrWhiteSpace($MaskedSource.Substring($ModuleClosingBraceIndex + 1))) {
+      $TerminalTestModules += $HeaderMatch
+    }
+  }
+  if ($TerminalTestModules.Count -gt 1) { throw "Session AQ source extraction found ambiguous terminal test modules in $Path" }
+  if ($TerminalTestModules.Count -eq 0) { return $Source }
+  $TerminalTestModule = $TerminalTestModules[0]
+  return $Source.Substring(0, $TerminalTestModule.Index)
+}
+
 function Invoke-HumCompilerFrontChecks {
   param([string] $Cargo, [string] $Hum)
   $MainSource = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'src/main.rs'))
@@ -3174,22 +3486,7 @@ function Invoke-HumCompilerFrontChecks {
   Invoke-ExactRustTest 'Work Order 22 Unit B exact JIT probe matrix' $Cargo 'backend_cranelift::tests::minimal_add_jit_probe_matrix_is_exact'
   Invoke-ExactRustTest 'Work Order 22 Unit B complete load-bearing row matrix' $Cargo 'backend_cranelift::tests::backend_go_no_go_rows_are_complete_and_load_bearing'
   Invoke-ExactRustTest 'Work Order 22 Unit B explicit unsupported targets' $Cargo 'backend_cranelift::tests::unsupported_targets_are_explicit_no_go'
-  Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'start'
-  try {
-  Invoke-Wo22BackendPredicateMutationEvidence $Cargo (Join-Path $RepoRoot 'src/backend_cranelift.rs')
-    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'completed'
-  } catch {
-    Write-HumPhaseMarker 'compiler-front-wo22-mutation' 'end' 'failed'
-    throw
-  }
-  Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'start'
-  try {
-  Invoke-Wo23UnitAProductionMutationEvidence $Cargo
-    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'completed'
-  } catch {
-    Write-HumPhaseMarker 'compiler-front-wo23-mutation' 'end' 'failed'
-    throw
-  }
+  if ($script:HumWindowsFullPart -cne 'main') { Invoke-HumWo22Wo23MutationCampaigns $Cargo }
   Write-HumPhaseMarker 'compiler-front-wo24-mutation' 'start'
   try {
   Invoke-Wo24UnitAProductionMutationEvidence $Cargo
@@ -3791,80 +4088,6 @@ task malformed() -> UInt {
     }
   }
 
-  function Get-AqRustProductionSource([string]$Path) {
-    $Source = [System.IO.File]::ReadAllText((Resolve-Path $Path))
-    $Mask = $Source.ToCharArray()
-    $Index = 0
-    while ($Index -lt $Source.Length) {
-      $Start = $Index
-      if ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '/' -and $Source[$Index + 1] -eq '/') {
-        $Index += 2
-        while ($Index -lt $Source.Length -and $Source[$Index] -notin @("`r", "`n")) { $Index++ }
-      } elseif ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '/' -and $Source[$Index + 1] -eq '*') {
-        $CommentDepth = 1
-        $Index += 2
-        while ($Index -lt $Source.Length -and $CommentDepth -gt 0) {
-          if ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '/' -and $Source[$Index + 1] -eq '*') { $CommentDepth++; $Index += 2 }
-          elseif ($Index + 1 -lt $Source.Length -and $Source[$Index] -eq '*' -and $Source[$Index + 1] -eq '/') { $CommentDepth--; $Index += 2 }
-          else { $Index++ }
-        }
-      } else {
-        $RawCursor = $Index
-        if ($RawCursor + 1 -lt $Source.Length -and $Source[$RawCursor] -in @('b', 'c') -and $Source[$RawCursor + 1] -eq 'r') { $RawCursor++ }
-        if ($RawCursor -lt $Source.Length -and $Source[$RawCursor] -eq 'r') {
-          $RawCursor++
-          $HashStart = $RawCursor
-          while ($RawCursor -lt $Source.Length -and $Source[$RawCursor] -eq '#') { $RawCursor++ }
-          if ($RawCursor -lt $Source.Length -and $Source[$RawCursor] -eq '"') {
-            $RawDelimiter = '"' + ('#' * ($RawCursor - $HashStart))
-            $RawEnd = $Source.IndexOf($RawDelimiter, $RawCursor + 1, [System.StringComparison]::Ordinal)
-            $Index = if ($RawEnd -lt 0) { $Source.Length } else { $RawEnd + $RawDelimiter.Length }
-          }
-        }
-        if ($Index -eq $Start -and $Source[$Index] -eq '"') {
-          $Index++
-          while ($Index -lt $Source.Length) {
-            if ($Source[$Index] -eq [char]92) { $Index = [Math]::Min($Index + 2, $Source.Length); continue }
-            $ClosingQuote = $Source[$Index] -eq '"'
-            $Index++
-            if ($ClosingQuote) { break }
-          }
-        } elseif ($Index -eq $Start -and $Source[$Index] -eq "'") {
-          $CharCursor = $Index + 1
-          while ($CharCursor -lt $Source.Length -and $Source[$CharCursor] -notin @("'", "`r", "`n")) {
-            if ($Source[$CharCursor] -eq [char]92) { $CharCursor = [Math]::Min($CharCursor + 2, $Source.Length) } else { $CharCursor++ }
-          }
-          if ($CharCursor -lt $Source.Length -and $Source[$CharCursor] -eq "'") { $Index = $CharCursor + 1 }
-        }
-        if ($Index -eq $Start) { $Index++; continue }
-      }
-      for ($MaskIndex = $Start; $MaskIndex -lt $Index; $MaskIndex++) {
-        if ($Mask[$MaskIndex] -notin @("`r", "`n")) { $Mask[$MaskIndex] = ' ' }
-      }
-    }
-    $MaskedSource = -join $Mask
-    $HeaderMatches = @([regex]::Matches($MaskedSource, '(?m)^#\[cfg\(test\)\]\r?\n(?:mod tests|pub\(crate\) mod tests)[ \t]*\{'))
-    $TerminalTestModules = @()
-    foreach ($HeaderMatch in $HeaderMatches) {
-      $ModuleBraceIndex = $HeaderMatch.Index + $HeaderMatch.Length - 1
-      $ModuleDepth = 1
-      $ModuleClosingBraceIndex = -1
-      for ($Index = $ModuleBraceIndex + 1; $Index -lt $MaskedSource.Length; $Index++) {
-        if ($MaskedSource[$Index] -eq '{') { $ModuleDepth++ }
-        elseif ($MaskedSource[$Index] -eq '}') {
-          $ModuleDepth--
-          if ($ModuleDepth -eq 0) { $ModuleClosingBraceIndex = $Index; break }
-        }
-      }
-      if ($ModuleClosingBraceIndex -ge 0 -and [string]::IsNullOrWhiteSpace($MaskedSource.Substring($ModuleClosingBraceIndex + 1))) {
-        $TerminalTestModules += $HeaderMatch
-      }
-    }
-    if ($TerminalTestModules.Count -gt 1) { throw "Session AQ source extraction found ambiguous terminal test modules in $Path" }
-    if ($TerminalTestModules.Count -eq 0) { return $Source }
-    $TerminalTestModule = $TerminalTestModules[0]
-    return $Source.Substring(0, $TerminalTestModule.Index)
-  }
   function Assert-AqRustProductionSourceContract {
     $Probe = Join-Path ([System.IO.Path]::GetTempPath()) ("hum-aq-production-source-{0}.rs" -f [guid]::NewGuid().ToString('N'))
     try {
@@ -7124,7 +7347,7 @@ function Invoke-HumCompilerCorpusChecks {
   if (-not $GraphFirstWordJson.Contains('"source": "text"')) { throw 'Session N graph JSON is missing returned-view source text' }
   if (-not $GraphFirstWordJson.Contains('"status": "declared_return_dependency_parameter_v0"')) { throw 'Session N graph JSON is missing returned-view parameter status' }
   if (-not $GraphFirstWordJson.Contains('slice_until(text, \" \"')) { throw 'Session N graph JSON is missing slice_until body evidence' }
-  Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1'
+  Invoke-RepoScript 'editor fixture recovery' 'check_editor_fixtures.ps1' @($Hum)
 
   $SyntaxJson = Read-NativeOutput 'syntax surface JSON' $Hum @('syntax')
   Assert-Json 'syntax surface JSON' $SyntaxJson
@@ -7359,6 +7582,71 @@ function Invoke-HumCompilerCorpusChecks {
 
 }
 
+function Invoke-HumCompilerCorpusPhase {
+  # Dot-sourced by both Full paths to preserve the existing corpus scope.
+  Write-HumPhaseMarker 'compiler-corpus' 'start'
+  try {
+    . Invoke-HumCompilerCorpusChecks $Cargo $Hum
+    Write-HumPhaseMarker 'compiler-corpus' 'end' 'completed'
+  } catch {
+    Write-HumPhaseMarker 'compiler-corpus' 'end' 'failed'
+    throw
+  }
+}
+
+function Assert-HumCorpusDirectory([string] $Path) {
+  $Directory = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if (-not $Directory.PSIsContainer) { throw 'Full corpus build path is not a directory' }
+  while ($null -ne $Directory) {
+    if (($Directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw 'Full corpus build directory has reparse ancestry'
+    }
+    $Directory = $Directory.Parent
+  }
+}
+
+function Get-HumCorpusCompiler([string] $Target, [string] $Name) {
+  if ($Name -notin @('hum.exe','hum')) { throw 'Full corpus compiler name is unsupported' }
+  $Debug = Join-Path $Target 'debug'
+  Assert-HumCorpusDirectory $Debug
+  $Hum = Join-Path $Debug $Name
+  $Item = Get-Item -LiteralPath $Hum -Force -ErrorAction Stop
+  if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $Item.Length -eq 0) {
+    throw 'Full corpus compiler is not an ordinary nonempty file'
+  }
+  [pscustomobject]@{Path=$Hum; Sha256=(Get-FileHash -LiteralPath $Hum -Algorithm SHA256).Hash.ToLowerInvariant()}
+}
+
+function Invoke-HumFullCorpusPart {
+  param([string] $Cargo, [string] $Platform)
+  if ($Platform -notin @('Windows','Ubuntu')) { throw 'Full corpus platform is unsupported' }
+  $Name = if ($Platform -ceq 'Windows') { 'hum.exe' } else { 'hum' }
+  $Before = @(& $Git status --porcelain=v1 --untracked-files=all)
+  if ($LASTEXITCODE -ne 0 -or $Before.Count -ne 0 -or $env:HUM_EVIDENCE_RECEIPT) {
+    throw "$Platform Full corpus requires a clean checkout and no Full receipt"
+  }
+
+  # WO22/23 may have built the shared compiler. Give only this Cargo build
+  # a new target in runner temp, leaving the shared target and environment alone.
+  $RunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
+  Assert-HumCorpusDirectory $RunnerTemp
+  $Target = Join-Path $RunnerTemp ('hum-corpus-target-' + [Guid]::NewGuid().ToString('N'))
+  $null = New-Item -ItemType Directory -Path $Target -ErrorAction Stop
+  Assert-HumCorpusDirectory $Target
+  if (@(Get-ChildItem -LiteralPath $Target -Force -ErrorAction Stop).Count -ne 0) {
+    throw "$Platform Full corpus target is not empty before build"
+  }
+  Invoke-HumPhase 'build' { Invoke-Native 'cargo build' $Cargo @('build','--target-dir',$Target) }
+  $Compiler = Get-HumCorpusCompiler $Target $Name
+  $Hum = $Compiler.Path
+  . Invoke-HumCompilerCorpusPhase
+  if ((Get-HumCorpusCompiler $Target $Name).Sha256 -cne $Compiler.Sha256) { throw "$Platform Full corpus compiler changed during checks" }
+  $After = @(& $Git status --porcelain=v1 --untracked-files=all)
+  if ($LASTEXITCODE -ne 0 -or $After.Count -ne 0) { throw "$Platform Full corpus did not preserve its checkout" }
+  Write-Host "$Platform Full corpus compiler sha256=$($Compiler.Sha256)"
+  Write-Host "$Platform Full part completed: corpus"
+}
+
 Push-Location $RepoRoot
 try {
   if ($EvidenceTier -eq 'Wo25UnitA') { Invoke-Wo25UnitAFocusedEvidence -Cargo $Cargo; return }
@@ -7366,6 +7654,27 @@ try {
   if ($EvidenceTier -eq 'Wo25UnitC') { Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCFocusedEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -eq 'Wo25UnitCMutation') { Initialize-Wo25WindowsToolchain; Reset-ExactRustSelectorCredits; Invoke-Wo25UnitCMutationEvidence -Cargo $Cargo; return }
   if ($EvidenceTier -cin @('Language', 'Runtime', 'Compiler')) { Invoke-HumFixedProfile $EvidenceTier $Cargo; return }
+  $script:HumWindowsFullPart = Get-HumWindowsFullPart
+  $script:HumUbuntuFullPart = Get-HumUbuntuFullPart
+  if ($script:HumWindowsFullPart -ceq 'mutations') {
+    $Before = @(& $Git status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0 -or $Before.Count -ne 0) { throw 'Windows Full mutations require a clean checkout' }
+    Invoke-HumWo22Wo23MutationCampaigns $Cargo
+    $After = @(& $Git status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0 -or $After.Count -ne 0 -or @(Get-ExactRustSelectorCredits).Count -ne 0) {
+      throw 'Windows Full mutations did not restore their checkout or selector credits'
+    }
+    Write-Host 'Windows Full part completed: mutations'
+    return
+  }
+  if ($script:HumWindowsFullPart -ceq 'corpus') {
+    Invoke-HumFullCorpusPart $Cargo 'Windows'
+    return
+  }
+  if ($script:HumUbuntuFullPart -ceq 'corpus') {
+    Invoke-HumFullCorpusPart $Cargo 'Ubuntu'
+    return
+  }
   # Decision 0025: the status-boundary classifier runs in the hygiene group
   # (every profile), not as a standalone Fast-tier invocation.
   $CaptureTest = Join-Path $PSScriptRoot 'test_fast_evidence_capture.ps1'
@@ -7564,28 +7873,36 @@ try {
   foreach ($WorkOrder25UnitBSelector in $WorkOrder25UnitBExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitBSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit B selector $WorkOrder25UnitBSelector" } }
   foreach ($WorkOrder25UnitCSelector in $WorkOrder25UnitCExactRustSelectors) { if (@($ExactRustSelectorCredits | Where-Object { $_ -ceq $WorkOrder25UnitCSelector }).Count -ne 1) { throw "exact Rust selector inventory lost Work Order 25 Unit C selector $WorkOrder25UnitCSelector" } }
 
-  # Dot-source at main scope; markers written manually (see R1 fix above).
-  Write-HumPhaseMarker 'compiler-corpus' 'start'
-  try {
-    . Invoke-HumCompilerCorpusChecks $Cargo $Hum
-    Write-HumPhaseMarker 'compiler-corpus' 'end' 'completed'
-  } catch {
-    Write-HumPhaseMarker 'compiler-corpus' 'end' 'failed'
-    throw
+  if ($script:HumWindowsFullPart -ceq 'main' -or $script:HumUbuntuFullPart -ceq 'main') {
+    # The sidecar cannot check the main runner's working tree or index.
+    Invoke-Native 'git diff --check' $Git @('-c', "safe.directory=$GitRepoRoot", '-C', $GitRepoRoot, 'diff', '--check')
+    Invoke-Native 'git diff --cached --check' $Git @('-c', "safe.directory=$GitRepoRoot", '-C', $GitRepoRoot, 'diff', '--cached', '--check')
+  } else {
+    . Invoke-HumCompilerCorpusPhase
   }
 
   Invoke-HumPhase 'hygiene' { Invoke-HumCoreCheck 'hygiene' $Cargo }
 
-  if (-not [string]::IsNullOrEmpty($env:HUM_EVIDENCE_RECEIPT)) {
+  if ($script:HumWindowsFullPart -ceq '' -and
+      ($script:HumUbuntuFullPart -ceq 'main' -or -not [string]::IsNullOrEmpty($env:HUM_EVIDENCE_RECEIPT))) {
     $Receipt = [IO.Path]::GetFullPath($env:HUM_EVIDENCE_RECEIPT); $RunnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
     if (-not $Receipt.StartsWith($RunnerTemp + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or [string]::IsNullOrEmpty($script:ExactRustSelectorLedgerSha256)) { throw 'full evidence receipt ownership or selector identity is invalid' }
     Assert-Wo25MutationReceiptRecords @($script:Wo25MutationRecords)
-    $MutationBytes=(New-Object Text.UTF8Encoding($false,$true)).GetBytes(([string]::Join("`n",$script:Wo25MutationRecords)+"`n"));$MutationSha=Get-Wo25Sha256 $MutationBytes
-    $ReceiptText = "selector_ledger_sha256=$($script:ExactRustSelectorLedgerSha256)`nselector_count=131`nmutation_ledger_sha256=$MutationSha`nmutation_count=8`nsuite_count=131`nreadiness=ir_ready=1;backend_ready=1`nhygiene_file_count=591`nclaims=passed`nrelease_version=0.0.1`n"
-    [IO.File]::WriteAllText($Receipt,$ReceiptText,(New-Object Text.UTF8Encoding($false,$true)))
+    # A split main must validate the live ledger without claiming whole Full.
+    if ($script:HumUbuntuFullPart -ceq '') {
+      $MutationBytes=(New-Object Text.UTF8Encoding($false,$true)).GetBytes(([string]::Join("`n",$script:Wo25MutationRecords)+"`n"));$MutationSha=Get-Wo25Sha256 $MutationBytes
+      $ReceiptText = "selector_ledger_sha256=$($script:ExactRustSelectorLedgerSha256)`nselector_count=131`nmutation_ledger_sha256=$MutationSha`nmutation_count=8`nsuite_count=131`nreadiness=ir_ready=1;backend_ready=1`nhygiene_file_count=591`nclaims=passed`nrelease_version=0.0.1`n"
+      [IO.File]::WriteAllText($Receipt,$ReceiptText,(New-Object Text.UTF8Encoding($false,$true)))
+    }
   }
 
-  Write-Host 'All Hum preflight checks passed.'
+  if ($script:HumWindowsFullPart -ceq 'main') {
+    Write-Host 'Windows Full part completed: main'
+  } elseif ($script:HumUbuntuFullPart -ceq 'main') {
+    Write-Host 'Ubuntu Full part completed: main'
+  } else {
+    Write-Host 'All Hum preflight checks passed.'
+  }
 } finally {
   Pop-Location
 }

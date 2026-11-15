@@ -7,6 +7,18 @@ mod cli {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    // Windows Unit C compares runner-wide process sets. Keep sibling CLI
+    // launches outside the focused test's process observation window.
+    #[cfg(windows)]
+    static PROCESS_WINDOW: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+    #[cfg(windows)]
+    fn shared_process_window() -> std::sync::RwLockReadGuard<'static, ()> {
+        PROCESS_WINDOW
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     struct Scratch(PathBuf);
     impl Deref for Scratch {
         type Target = Path;
@@ -556,6 +568,12 @@ mod cli {
 
     #[test]
     fn normal_profiles_reject_unbound_or_narrowed_execution() {
+        #[cfg(windows)]
+        let _process_window = shared_process_window();
+        assert_normal_profile_refusals();
+    }
+
+    fn assert_normal_profile_refusals() {
         for profile in ["language", "runtime", "compiler"] {
             for arguments in [
                 vec!["evidence", profile],
@@ -578,6 +596,8 @@ mod cli {
 
     #[test]
     fn legacy_probe_environment_cannot_replace_the_canonical_status_mapping() {
+        #[cfg(windows)]
+        let _process_window = shared_process_window();
         let actual = Command::new(binary())
             .env("HUM_DEV_LEGACY_EQUIVALENCE_PROBE", "1")
             .args(["evidence", "status"])
@@ -593,7 +613,9 @@ mod cli {
 
     #[test]
     fn preflight_repairs_stop_before_state_changing_launch() {
-        normal_profiles_reject_unbound_or_narrowed_execution();
+        #[cfg(windows)]
+        let _process_window = shared_process_window();
+        assert_normal_profile_refusals();
         let missing = scratch("missing-message");
         let output = Command::new(binary())
             .args(["commit-message", "check", "--file"])
@@ -637,6 +659,10 @@ mod cli {
 
     #[test]
     fn public_focused_evidence_resolves_authenticated_pwsh7() {
+        #[cfg(windows)]
+        let _process_window = PROCESS_WINDOW
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let (executable_root, executable) = physical_binary_copy("public-focused");
         let executable_root_path = executable_root.0.clone();
         let output = Command::new(executable)
@@ -667,6 +693,8 @@ mod cli {
     #[test]
     #[rustfmt::skip]
     fn explicit_pwsh_binding_is_required_and_fail_closed() {
+        #[cfg(windows)]
+        let _process_window = shared_process_window();
         let run = |args: &[&str]| Command::new(binary()).args(args).output().unwrap();
         let missing = run(&["evidence", "focused"]);
         assert_eq!(missing.status.code(), Some(2));
@@ -784,6 +812,8 @@ mod cli {
 
     #[test]
     fn candidate_identity_distinguishes_clean_indexed_untracked_and_dirty_state() {
+        #[cfg(windows)]
+        let _process_window = shared_process_window();
         let root_repo = scratch("root");
         init(&root_repo, false);
         let root_identity = identity(&root_repo);

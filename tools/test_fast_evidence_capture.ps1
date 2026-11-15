@@ -907,6 +907,10 @@ function Assert-LaunchedCapture {
   } catch {
     $Diagnostic = Get-HumCaptureFailureDiagnostic $Capture
     [Console]::Error.WriteLine($Diagnostic)
+    try {
+      $StartupDiagnostic = Get-HumPrelaunchStartupDiagnostic $Capture
+      if ($StartupDiagnostic) { [Console]::Error.WriteLine($StartupDiagnostic) }
+    } catch { }
     [Console]::Error.Flush()
     throw
   }
@@ -2158,6 +2162,26 @@ try {
   Assert-True ((Get-HumFileIdentity $Missing.LaunchErrorPath).Bytes -gt 0) 'prelaunch error must be retained'
   $MissingDiagnostic = Get-HumCaptureFailureDiagnostic $Missing
   Assert-PrelaunchDiagnostic $Missing $MissingDiagnostic
+  Assert-True (-not (Get-HumPrelaunchStartupDiagnostic $Missing)) 'ordinary prelaunch failure has no startup deadline report'
+  $DeadlineModel = [pscustomobject]@{
+    CaseName = 'early-marker'
+    DeadlineDisposition = 'deadline_expired_prelaunch'
+  }
+  Assert-True (-not (Get-HumPrelaunchStartupDiagnostic $DeadlineModel)) 'missing samples are not inferred'
+  Add-Member -InputObject $DeadlineModel -NotePropertyName PrelaunchStartup -NotePropertyValue ([pscustomobject]@{
+    frequency = 1000
+    deadline_ticks = 30000
+    checkpoints = @('record-init-start=1','record-init-end=4','job-setup-start=6','job-setup-end=30001')
+  })
+  $StartupDiagnostic = Get-HumPrelaunchStartupDiagnostic $DeadlineModel
+  $StartupPrefix = 'HUM_CAPTURE_PRELAUNCH_STARTUP '
+  Assert-True ($StartupDiagnostic.StartsWith($StartupPrefix,[StringComparison]::Ordinal)) 'separate startup deadline report'
+  $StartupFields = $StartupDiagnostic.Substring($StartupPrefix.Length) | ConvertFrom-Json
+  Assert-True ($StartupFields.case_name -ceq 'early-marker' -and $StartupFields.frequency -eq 1000 -and
+    $StartupFields.deadline_ticks -eq 30000 -and
+    ($StartupFields.checkpoints -join ';') -ceq ($DeadlineModel.PrelaunchStartup.checkpoints -join ';')) 'startup deadline report retains exact samples'
+  $DeadlineModel.DeadlineDisposition = 'prelaunch_failure'
+  Assert-True (-not (Get-HumPrelaunchStartupDiagnostic $DeadlineModel)) 'samples cannot create a deadline disposition'
   $MissingDiagnosticMutation = $MissingDiagnostic -replace '(?m)^launch_error_base64=.*$', 'launch_error_base64='
   Assert-True ($MissingDiagnosticMutation -cne $MissingDiagnostic) 'prelaunch diagnostic mutation did not initialize'
   Assert-True (-not (Test-PrelaunchDiagnostic $Missing $MissingDiagnosticMutation)) 'launch-error diagnostic omission accepted'
