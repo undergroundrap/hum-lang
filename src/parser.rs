@@ -14652,7 +14652,7 @@ task after() -> UInt {
 "#,
         );
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        assert_eq!(parsed.file.items.len(), 2);
+        assert_eq!(parsed.file.items.len(), 3);
         let Item::Task(task) = &parsed.file.items[0] else {
             panic!("task")
         };
