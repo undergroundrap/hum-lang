@@ -1,0 +1,140 @@
+name: Hum Windows CLI timing pilot
+
+on:
+  push:
+    branches:
+      - pilot/hum-windows-cli-timing-20261118-r1
+
+permissions:
+  contents: read
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cargo-home
+  HUM_TIMING_BASE: 7e46adaf15afae22efbb8fdc6c1b56e8558c94e5
+  HUM_TIMING_BASE_TREE: 623470f814d0c96e63491b65d715fce5073970f4
+
+jobs:
+  windows_cli_timing:
+    name: Hum Windows CLI timing (pilot)
+    if: github.repository == 'undergroundrap/hum-lang' && github.event.created == true && github.run_attempt == '1'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pilot revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind source and create diagnostic directory
+        id: bind
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $Head = git rev-parse HEAD
+          $Parents = git show -s --format=%P HEAD
+          $BaseTree = git rev-parse "${env:HUM_TIMING_BASE}^{tree}"
+          $Tree = git rev-parse 'HEAD^{tree}'
+          if ($Head -cne $env:GITHUB_SHA -or $Parents -cne $env:HUM_TIMING_BASE -or $BaseTree -cne $env:HUM_TIMING_BASE_TREE) {
+            throw 'pilot revision, sole parent or base tree mismatch'
+          }
+          $Paths = @(
+            '.github/workflows/windows-hum-dev-cli-timing.yml'
+            'crates/hum-dev/tests/cli.rs'
+            'crates/hum-dev/tests/windows_cli_timing/mod.rs'
+          )
+          $Changed = @(git diff --name-only $env:HUM_TIMING_BASE HEAD)
+          if (($Changed -join "`n") -cne ($Paths -join "`n") -or @(git status --porcelain).Count -ne 0) {
+            throw 'pilot checkout drift'
+          }
+          $Directory = Join-Path $env:RUNNER_TEMP ('hum-windows-cli-timing-' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $Directory | Out-Null
+          "directory=$Directory" >> $env:GITHUB_OUTPUT
+          $Pins = @{}
+          foreach ($Path in $Paths) { $Pins[$Path] = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+          [ordered]@{
+            run = $env:GITHUB_RUN_ID
+            attempt = $env:GITHUB_RUN_ATTEMPT
+            ref = $env:GITHUB_REF
+            head = $Head
+            tree = $Tree
+            base = $Parents
+            base_tree = $BaseTree
+            files_sha256 = $Pins
+            runner_os = $env:RUNNER_OS
+            runner_arch = $env:RUNNER_ARCH
+            image = $env:ImageOS
+            image_version = $env:ImageVersion
+          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Directory 'source.json') -Encoding utf8NoBOM
+
+      - name: Restore Cargo artifacts
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            .cargo-home/registry
+            .cargo-home/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Prepare Rust toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt clippy
+
+      - name: Time the unchanged hum-dev test command
+        timeout-minutes: 12
+        shell: pwsh
+        env:
+          HUM_WINDOWS_CLI_TIMING_DIR: ${{ steps.bind.outputs.directory }}
+          HUM_TIMING_CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+          HUM_TIMING_CACHE_KEY: ${{ steps.cache.outputs.cache-primary-key }}
+          HUM_TIMING_CACHE_MATCH: ${{ steps.cache.outputs.cache-matched-key }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $Cargo = rustup which cargo
+          $Rustc = rustup which rustc
+          [ordered]@{
+            powershell = $PSVersionTable.PSVersion.ToString()
+            cargo = $Cargo
+            cargo_sha256 = (Get-FileHash -LiteralPath $Cargo -Algorithm SHA256).Hash.ToLowerInvariant()
+            cargo_version = @(cargo -Vv)
+            rustc = $Rustc
+            rustc_sha256 = (Get-FileHash -LiteralPath $Rustc -Algorithm SHA256).Hash.ToLowerInvariant()
+            rustc_version = @(rustc -Vv)
+            cache_key = $env:HUM_TIMING_CACHE_KEY
+            cache_hit = $env:HUM_TIMING_CACHE_HIT
+            cache_match = $env:HUM_TIMING_CACHE_MATCH
+            rust_test_threads = $env:RUST_TEST_THREADS
+          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:HUM_WINDOWS_CLI_TIMING_DIR 'toolchain.json') -Encoding utf8NoBOM
+          if ($env:RUST_TEST_THREADS) { throw 'nondefault test scheduling' }
+          $Clock = [Diagnostics.Stopwatch]::StartNew()
+          $PSNativeCommandUseErrorActionPreference = $false
+          cargo test -p hum-dev --all-targets
+          $Code = $LASTEXITCODE
+          $Clock.Stop()
+          [ordered]@{
+            argv = @('cargo', 'test', '-p', 'hum-dev', '--all-targets')
+            exit = $Code
+            elapsed_ticks = $Clock.ElapsedTicks
+            frequency = [Diagnostics.Stopwatch]::Frequency
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:HUM_WINDOWS_CLI_TIMING_DIR 'cargo.json') -Encoding utf8NoBOM
+          exit $Code
+
+      - name: Retain timing diagnostics
+        if: always() && steps.bind.outputs.directory != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hum-windows-cli-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.bind.outputs.directory }}
+          if-no-files-found: error
+          retention-days: 7
