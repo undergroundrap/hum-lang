@@ -344,6 +344,72 @@ if ($EvidenceTier -notin @('Language', 'Runtime', 'Compiler', 'Fast', 'Wo25UnitA
 
 $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'fast'
 
+# This side channel is scoped to one review branch and is never completion evidence.
+function Read-HumCliTimingBytes([string] $Path, [int] $Limit) {
+  $Stream = [IO.File]::OpenRead($Path)
+  try {
+    $Length = $Stream.Length
+    if ($Length -gt $Limit) { throw 'CLI timing input exceeded its bound' }
+    $Bytes = [byte[]]::new([int] $Length)
+    $Stream.ReadExactly($Bytes)
+    if ($Stream.ReadByte() -ne -1) { throw 'CLI timing input changed while reading' }
+    return ,$Bytes
+  } finally {
+    $Stream.Dispose()
+  }
+}
+
+function Start-HumWindowsCliTiming {
+  if ($script:HumWindowsFullPart -cne 'main' -or $env:OS -cne 'Windows_NT' -or
+      $env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_EVENT_NAME -cne 'pull_request' -or
+      $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:GITHUB_REPOSITORY -cne 'undergroundrap/hum-lang' -or
+      $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]{0,19}\z' -or $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z') { return }
+  try {
+    if (-not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP) -or
+        -not [IO.Path]::IsPathFullyQualified($env:GITHUB_EVENT_PATH) -or
+        -not [IO.Path]::IsPathFullyQualified($env:GITHUB_STEP_SUMMARY) -or
+        $null -ne [Environment]::GetEnvironmentVariable('HUM_WINDOWS_CLI_TIMING_DIR')) { return }
+    $EventBytes = Read-HumCliTimingBytes $env:GITHUB_EVENT_PATH (1MB)
+    $Event = [Text.UTF8Encoding]::new($false, $true).GetString($EventBytes) | ConvertFrom-Json -AsHashtable
+    $Pr = $Event.pull_request
+    if ($Event.action -cne 'opened' -or $Pr.draft -isnot [bool] -or -not $Pr.draft -or
+        $Pr.head.ref -cne 'pilot/hum-full-windows-cli-timing-20261119-r1' -or
+        $Pr.head.repo.full_name -cne $env:GITHUB_REPOSITORY -or $Pr.base.repo.full_name -cne $env:GITHUB_REPOSITORY -or
+        $Pr.base.ref -cne 'main' -or $Pr.base.sha -cne '7e46adaf15afae22efbb8fdc6c1b56e8558c94e5') { return }
+    $Directory = Join-Path $env:RUNNER_TEMP ('hum-cli-timing-' + [Guid]::NewGuid().ToString('N'))
+    $Context = [pscustomobject] @{ Directory = $Directory; Summary = $env:GITHUB_STEP_SUMMARY; Run = $env:GITHUB_RUN_ID; Revision = $env:GITHUB_SHA }
+    $null = [IO.Directory]::CreateDirectory($Directory)
+    [Environment]::SetEnvironmentVariable('HUM_WINDOWS_CLI_TIMING_DIR', $Directory)
+    return $Context
+  } catch {
+    # A missing or unavailable observer leaves the native invocation unchanged.
+  }
+}
+
+function Finish-HumWindowsCliTiming($Context) {
+  try {
+    [Environment]::SetEnvironmentVariable('HUM_WINDOWS_CLI_TIMING_DIR', [NullString]::Value)
+  } catch {
+    # Restoration errors cannot replace the native result.
+  }
+  try {
+    $Paths = @([IO.Directory]::EnumerateFiles($Context.Directory) | Select-Object -First 7)
+    if ($Paths.Count -gt 6) { return }
+    $Lines = @('', '### Windows CLI timings (diagnostic only)', '', '~~~text',
+      "hum-windows-cli-summary-v1 run=$($Context.Run) attempt=1 platform=windows-latest revision=$($Context.Revision)")
+    foreach ($Path in ($Paths | Sort-Object)) {
+      $Name = [IO.Path]::GetFileName($Path)
+      if ($Name -cnotmatch '\A[1-9][0-9]{0,9}-[a-z0-9_]{1,80}\.(tsv|partial)\z') { return }
+      $Bytes = Read-HumCliTimingBytes $Path (32KB)
+      $Lines += "$Name $([Convert]::ToBase64String($Bytes))"
+    }
+    $Lines += @("end count=$($Paths.Count)", '~~~', '')
+    [IO.File]::AppendAllText($Context.Summary, ($Lines -join [char]10), [Text.UTF8Encoding]::new($false))
+  } catch {
+    # The step summary is optional and is independent of the gate.
+  }
+}
+
 function Invoke-Native {
   param(
     [string] $Label,
@@ -352,9 +418,15 @@ function Invoke-Native {
   )
 
   Write-Host "==> $Label"
-  & $FilePath @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "$Label failed with exit code $LASTEXITCODE"
+  $Timing = $null
+  if ($Label -ceq 'hum-dev crate tests') { $Timing = Start-HumWindowsCliTiming }
+  try {
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+      throw "$Label failed with exit code $LASTEXITCODE"
+    }
+  } finally {
+    if ($null -ne $Timing) { Finish-HumWindowsCliTiming $Timing }
   }
 }
 
