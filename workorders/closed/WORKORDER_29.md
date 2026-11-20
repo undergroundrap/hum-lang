@@ -1,14 +1,8 @@
 # Hum Work Order 29: decision 0029 implementation — per-platform locality observation and the operator grant
 
 Date: 2026-09-25
-<!-- hum-active-workorder:v1 -->
-Status: ACTIVE (issued 2026-09-27). Supersedes WO30 as the active Work Order;
-WO30 is closed with its full mission complete — closure evidence is recorded
-in the transition record below, and the predecessor is preserved byte-for-byte
-(minus its active marker) at `workorders/closed/WORKORDER_30.md`. Issuance
-authorized by the BDFL (Ocean); this transition PR is draft pending Codex
-review. WO29 implementation requires a separate go signal after the
-transition is reviewed and integrated.
+Status: CLOSED 2026-11-19. Superseded by [WO31 Item A](../active/WORKORDER_31.md).
+Originally issued 2026-09-27, succeeding [WO30](WORKORDER_30.md).
 Decision: 0029 (accepted 2026-09-24, Option D: trusted-local file reads; amended 2026-09-27 — grant-first admission, decision record §14)
 
 ## Authorization
@@ -827,8 +821,30 @@ Work Order text (one-writer rule preserved).
   Windows 44m41s; the four expected push-only artifacts (evidence
   summaries for both platforms plus both hum-dev executables) uploaded
   fresh and unexpired.
-- WO29 remains ACTIVE. Slice B (Items 2 + 3) is unaccepted pending
-  independent review.
+- At the Slice A checkpoint, WO29 was active and Slice B was pending
+  independent review. The closure record below resolves that historical status.
+
+## Closure record (2026-11-19)
+
+WO29's two implementation slices are merged. Both commits are ancestors of
+main `7e46adaf15afae22efbb8fdc6c1b56e8558c94e5` at closeout.
+
+- Slice A merged in PR #59
+  as `037f62b2dd41b9572d9e62037f087fa3694245f7`. Its main push
+  `36503074709/1`
+  completed successfully on Windows and Ubuntu.
+- Slice B (Items 2 + 3) merged in
+  PR #61 as
+  `0cd5e4630b9259c600a7b16de0e63bd628351032`, from reviewed head
+  `83b9fd79ed91eb191b7fb6e173e3ee2255817a97`. Historical Full PR run
+  `36524450254/1`
+  passed Windows, Ubuntu, and
+  Hum required validation job `109275170589`.
+  The tested integration `42732983cad48c22387c020c0417ebfcac95a20a` and the
+  merged commit share tree `017ad93fe76422a24a83fdc938afb76f3d669c90`.
+- Slice B added Windows SD/MMC observations and macOS declared-unproven
+  reporting. Grant-first admission and non-waivable file binding remain in
+  force. Automatic locality proof remains deferred.
 
 ## Affected-file scope (complete)
 

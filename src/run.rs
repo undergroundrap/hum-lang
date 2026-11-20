@@ -456,6 +456,7 @@ impl From<ParamPermission> for RuntimePermission {
 }
 
 type Env = BTreeMap<String, RuntimeBinding>;
+type DisplacedBindings = BTreeMap<String, Option<RuntimeBinding>>;
 
 #[derive(Debug, Clone)]
 struct ActiveIteration {
@@ -2118,7 +2119,8 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         self.capture_old_contract_values(task, &mut env)?;
 
         let lines = executable_lines(&does.lines);
-        match self.eval_block(&lines, 0, lines.len(), &mut env, &task.name)? {
+        // Task-body bindings remain live for the exit and postcondition checks.
+        match self.eval_block_contents(&lines, 0, lines.len(), &mut env, &task.name, None)? {
             Flow::Return { value, root, span } => {
                 self.ensure_return_dependency(task, root.as_deref(), &span)?;
                 self.finish_success(task, value, &env)
@@ -2516,6 +2518,24 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         env: &mut Env,
         task_name: &str,
     ) -> Result<Flow, String> {
+        let mut displaced = DisplacedBindings::new();
+        let result =
+            self.eval_block_contents(lines, start, end, env, task_name, Some(&mut displaced));
+        for (name, previous) in displaced {
+            restore_binding(env, &name, previous);
+        }
+        result
+    }
+
+    fn eval_block_contents(
+        &self,
+        lines: &[ExecLine],
+        start: usize,
+        end: usize,
+        env: &mut Env,
+        task_name: &str,
+        mut displaced: Option<&mut DisplacedBindings>,
+    ) -> Result<Flow, String> {
         let mut index = start;
         while index < end {
             let line = &lines[index];
@@ -2527,29 +2547,9 @@ impl<'program, 'output> Interpreter<'program, 'output> {
 
             if let Some(condition) = header_body(text, "if") {
                 let close = matching_close(lines, index)?;
-                // WO28 #16: scope if-block `let`/`change` bindings like
-                // for-each binders — save shadowed bindings, restore after
-                // the block on every path.
-                let block_names = block_binding_names(lines, index + 1, close);
-                let saved: Vec<(String, Option<RuntimeBinding>)> = block_names
-                    .iter()
-                    .map(|name| (name.clone(), env.get(name).cloned()))
-                    .collect();
-                let restore_block_bindings = |env: &mut Env| {
-                    for (name, previous) in &saved {
-                        restore_binding(env, name, previous.clone());
-                    }
-                };
                 match self.eval_expr(condition, env, &line.span, task_name)? {
                     Evaluated::Value(value) if as_bool(&value)? => {
-                        let flow = match self.eval_block(lines, index + 1, close, env, task_name) {
-                            Ok(flow) => flow,
-                            Err(error) => {
-                                restore_block_bindings(env);
-                                return Err(error);
-                            }
-                        };
-                        restore_block_bindings(env);
+                        let flow = self.eval_block(lines, index + 1, close, env, task_name)?;
                         if flow != Flow::Continue {
                             return Ok(flow);
                         }
@@ -2584,47 +2584,22 @@ impl<'program, 'output> Interpreter<'program, 'output> {
                     .map(|root| self.push_active_iteration(root, line.span.clone()));
                 let name = name.trim();
                 let previous = env.get(name).cloned();
-                // WO28 #16: scope for-each body `let`/`change` bindings per
-                // iteration, like if-block bindings. The binder itself is
-                // managed separately below.
-                let body_names: Vec<String> = block_binding_names(lines, index + 1, close)
-                    .into_iter()
-                    .filter(|n| n != name)
-                    .collect();
-                let body_saved: Vec<(String, Option<RuntimeBinding>)> = body_names
-                    .iter()
-                    .map(|n| (n.clone(), env.get(n).cloned()))
-                    .collect();
-                let restore_body_bindings = |env: &mut Env| {
-                    for (n, prev) in &body_saved {
-                        restore_binding(env, n, prev.clone());
-                    }
-                };
+                let mut result = Ok(Flow::Continue);
                 for value in values {
                     env.insert(name.to_string(), RuntimeBinding::local(value, false));
-                    let flow = match self.eval_block(lines, index + 1, close, env, task_name) {
-                        Ok(flow) => flow,
-                        Err(error) => {
-                            restore_body_bindings(env);
-                            restore_binding(env, name, previous.clone());
-                            if active_iteration.is_some() {
-                                self.pop_active_iteration();
-                            }
-                            return Err(error);
-                        }
-                    };
-                    restore_body_bindings(env);
-                    if flow != Flow::Continue {
-                        restore_binding(env, name, previous);
-                        if active_iteration.is_some() {
-                            self.pop_active_iteration();
-                        }
-                        return Ok(flow);
+                    // Each evaluation owns only this iteration's declarations.
+                    result = self.eval_block(lines, index + 1, close, env, task_name);
+                    if !matches!(result, Ok(Flow::Continue)) {
+                        break;
                     }
                 }
                 restore_binding(env, name, previous);
                 if active_iteration.is_some() {
                     self.pop_active_iteration();
+                }
+                let flow = result?;
+                if flow != Flow::Continue {
+                    return Ok(flow);
                 }
                 index = close + 1;
                 continue;
@@ -2666,7 +2641,14 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             }
 
             if let Some(rest) = strip_keyword(text, "change") {
-                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name, true)? {
+                if let Some(flow) = self.eval_binding(
+                    rest,
+                    env,
+                    &line.span,
+                    task_name,
+                    true,
+                    displaced.as_deref_mut(),
+                )? {
                     return Ok(flow);
                 }
                 index += 1;
@@ -2674,7 +2656,14 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             }
 
             if let Some(rest) = strip_keyword(text, "let") {
-                if let Some(flow) = self.eval_binding(rest, env, &line.span, task_name, false)? {
+                if let Some(flow) = self.eval_binding(
+                    rest,
+                    env,
+                    &line.span,
+                    task_name,
+                    false,
+                    displaced.as_deref_mut(),
+                )? {
                     return Ok(flow);
                 }
                 index += 1;
@@ -2704,6 +2693,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         span: &Span,
         task_name: &str,
         mutable: bool,
+        displaced: Option<&mut DisplacedBindings>,
     ) -> Result<Option<Flow>, String> {
         let (left, expr) = rest
             .split_once('=')
@@ -2714,43 +2704,40 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             return Err(format!("binding `{rest}` is missing a name"));
         }
         let expr = expr.trim();
-        if !mutable
+        let binding = if !mutable
             && let Some(alias) = writable_field_alias::exact_binding_text(&format!("let {rest}"))
         {
             let source_root = place_root(&alias.source_place);
             self.ensure_can_set(env, &alias.source_place, &source_root, span, task_name)?;
-            env.insert(
-                name.to_string(),
-                RuntimeBinding::writable_alias(alias.source_place),
-            );
-            return Ok(None);
-        }
-        if !mutable && let Some((kind, source_place)) = borrowed_view_source(expr) {
+            RuntimeBinding::writable_alias(alias.source_place)
+        } else if !mutable && let Some((kind, source_place)) = borrowed_view_source(expr) {
             let value = match self.eval_expr(source_place, env, span, task_name)? {
                 Evaluated::Value(value) => value,
                 Evaluated::Failure(value) => return Ok(Some(Flow::Fail(value))),
                 Evaluated::ContractViolation => return Ok(Some(Flow::ContractViolation)),
             };
-            env.insert(
-                name.to_string(),
-                RuntimeBinding::view(value, kind, source_place.to_string(), span.clone()),
-            );
-            return Ok(None);
-        }
-        let linear = annotation.is_some_and(is_linear_resource_type);
-        match self.eval_expr(expr, env, span, task_name)? {
-            Evaluated::Value(value) => {
-                let binding = if mutable {
-                    RuntimeBinding::mutable_local(value, linear)
-                } else {
-                    RuntimeBinding::local(value, linear)
-                };
-                env.insert(name.to_string(), binding);
-                Ok(None)
+            RuntimeBinding::view(value, kind, source_place.to_string(), span.clone())
+        } else {
+            let linear = annotation.is_some_and(is_linear_resource_type);
+            let value = match self.eval_expr(expr, env, span, task_name)? {
+                Evaluated::Value(value) => value,
+                Evaluated::Failure(value) => return Ok(Some(Flow::Fail(value))),
+                Evaluated::ContractViolation => return Ok(Some(Flow::ContractViolation)),
+            };
+            if mutable {
+                RuntimeBinding::mutable_local(value, linear)
+            } else {
+                RuntimeBinding::local(value, linear)
             }
-            Evaluated::Failure(value) => Ok(Some(Flow::Fail(value))),
-            Evaluated::ContractViolation => Ok(Some(Flow::ContractViolation)),
+        };
+        if let Some(displaced) = displaced {
+            // Keep the binding displaced by the first executed declaration in this scope.
+            displaced
+                .entry(name.to_string())
+                .or_insert_with(|| env.remove(name));
         }
+        env.insert(name.to_string(), binding);
+        Ok(None)
     }
 
     fn eval_set(
@@ -5518,40 +5505,6 @@ fn restore_binding(env: &mut Env, name: &str, previous: Option<RuntimeBinding>) 
     }
 }
 
-/// WO28 #16: collect the names bound by `let`/`change` at the top level of a
-/// block's line range, so an if-block can save/restore them like for-each
-/// binders. Nested blocks manage their own bindings.
-fn block_binding_names(lines: &[ExecLine], start: usize, end: usize) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut depth = 0usize;
-    for line in &lines[start..end.min(lines.len())] {
-        let text = line.text.trim();
-        if text == "}" {
-            depth = depth.saturating_sub(1);
-            continue;
-        }
-        if depth == 0 {
-            for keyword in ["let", "change"] {
-                if let Some(rest) = strip_keyword(text, keyword) {
-                    // Mirror eval_binding's name extraction: `name` or `name: Type`.
-                    let left = rest.split('=').next().unwrap_or("").trim();
-                    let name = left.split(':').next().unwrap_or("").trim();
-                    if !name.is_empty() && !names.iter().any(|n| n == name) {
-                        names.push(name.to_string());
-                    }
-                    break;
-                }
-            }
-        }
-        // The runtime executes `if` and `for each` blocks; track their
-        // openers so nested lets are not attributed to the outer block.
-        if header_body(text, "if").is_some() || header_body(text, "for each").is_some() {
-            depth += 1;
-        }
-    }
-    names
-}
-
 fn header_body<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
     let rest = strip_keyword(text, keyword)?;
     rest.strip_suffix('{').map(str::trim)
@@ -5799,6 +5752,219 @@ pub(crate) mod tests {
             self.writes.push(bytes.to_vec());
             Ok(())
         }
+    }
+
+    #[test]
+    fn declaration_scope_preserves_write_before_skipped_shadow() {
+        let program = fixture_program(
+            "skipped_shadow.hum",
+            r#"task preserve_write(change slot: Int) -> Int {
+  ensures:
+    slot == 7
+  does:
+    if true {
+      set slot = 7
+      return 19
+      let slot: Int = 3
+    }
+    return 19
+}
+"#,
+        );
+        let report = run_program(&program, Some("preserve_write"), &["1".to_string()]);
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Success("19".to_string()),
+            "{:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn declaration_scope_restores_nested_shadows_on_early_exit() {
+        use super::{
+            Env, Flow, RuntimeBinding, RuntimePermission, RuntimeViewInvalidation,
+            RuntimeViewInvalidationKind, RuntimeViewKind, Value,
+        };
+        use crate::diagnostic::Span;
+
+        let program = fixture_program(
+            "nested_shadows.hum",
+            r#"type ScopeError {
+  code: Text
+}
+
+type Point {
+  x: Int
+}
+
+task reject(value: Int) -> Int {
+  needs:
+    value != 0
+  does:
+    return value
+}
+
+task probe(change slot: Int, stale: Int, point: Point, exit_kind: Int) -> Result Int, ScopeError {
+  does:
+    if true {
+      set slot = 7
+      change slot: Int = slot + 10
+      if true {
+        let stale = borrow point.x
+        set slot = slot + stale
+        if exit_kind == 0 {
+          return slot
+        }
+        if exit_kind == 1 {
+          fail ScopeError.expected
+        }
+        return reject(0)
+      }
+    }
+    return 0
+}
+"#,
+        );
+        let authority = runtime_occurrence_authority(&program).expect("runtime authority");
+        let mut output = RecordingOutput::default();
+        let mut replay = RecordingReplay::new(&[]);
+        let mut files = CountingFileRead::default();
+        let mut locality = CountingLocality::default();
+        let policy = OperatorGrantPolicy::default();
+        let interpreter = test_interpreter(
+            &program,
+            &authority,
+            &policy,
+            RunAdapters {
+                output: &mut output,
+                replay: &mut replay,
+                file: &mut files,
+                file_locality: &mut locality,
+            },
+        )
+        .expect("test interpreter");
+        let mut tasks = Vec::new();
+        super::collect_tasks(&program.files[0].items, &mut tasks);
+        let probe = tasks.into_iter().find(|task| task.name == "probe").unwrap();
+        let lines = super::executable_lines(&probe.section("does").unwrap().lines);
+        let definition_id = interpreter
+            .callable_analysis
+            .definition_id_for_span(&probe.params[0].span)
+            .expect("slot parameter definition identity");
+
+        let bound_at = Span::new("nested_shadows.hum", 1, 1);
+        let invalidated_at = Span::new("nested_shadows.hum", 2, 1);
+        let moved_at = Span::new("nested_shadows.hum", 3, 1);
+        for exit_kind in 0..3 {
+            let mut env = Env::new();
+            env.insert(
+                "slot".to_string(),
+                RuntimeBinding::parameter(
+                    Value::Int(1),
+                    probe.params[0].permission,
+                    Some(definition_id.to_string()),
+                ),
+            );
+            env.insert(
+                "point".to_string(),
+                RuntimeBinding::local(
+                    Value::Record([("x".to_string(), Value::Int(5))].into()),
+                    false,
+                ),
+            );
+            env.insert(
+                "exit_kind".to_string(),
+                RuntimeBinding::local(Value::Int(exit_kind), false),
+            );
+
+            // Seed an enclosing binding whose metadata cannot be reconstructed from its value.
+            let mut stale = RuntimeBinding::view(
+                Value::Int(30),
+                RuntimeViewKind::Field,
+                "earlier.x".to_string(),
+                bound_at.clone(),
+            );
+            stale.moved_at = Some(moved_at.clone());
+            stale.moved_by = Some("return".to_string());
+            stale.view.as_mut().unwrap().invalidated_by = Some(RuntimeViewInvalidation {
+                span: invalidated_at.clone(),
+                kind: RuntimeViewInvalidationKind::FieldWrite,
+            });
+            env.insert("stale".to_string(), stale);
+
+            let flow = interpreter
+                .eval_block(&lines, 0, lines.len(), &mut env, "probe")
+                .unwrap();
+            match (exit_kind, flow) {
+                (
+                    0,
+                    Flow::Return {
+                        value: Value::Int(22),
+                        ..
+                    },
+                ) => {}
+                (1, Flow::Fail(failure)) => {
+                    assert_eq!(
+                        failure.root,
+                        crate::typed_failure::parse_failure_variant("ScopeError.expected").unwrap()
+                    );
+                }
+                (2, Flow::ContractViolation) => {
+                    let diagnostics = interpreter.diagnostics.borrow();
+                    assert_eq!(diagnostics.len(), 1);
+                    assert_eq!(
+                        diagnostics[0].code,
+                        DiagnosticCode::NEEDS_CONTRACT_VIOLATION
+                    );
+                }
+                (exit_kind, flow) => panic!("unexpected flow for case {exit_kind}: {flow:?}"),
+            }
+
+            let slot = &env["slot"];
+            assert_eq!(slot.value, Value::Int(7));
+            assert_eq!(slot.permission, RuntimePermission::Change);
+            assert!(slot.writable);
+            assert_eq!(slot.definition_id.as_deref(), Some(definition_id));
+            assert!(slot.moved_at.is_none());
+            let stale = &env["stale"];
+            assert_eq!(stale.value, Value::Int(30));
+            assert_eq!(stale.moved_at.as_ref(), Some(&moved_at));
+            assert_eq!(stale.moved_by.as_deref(), Some("return"));
+            let view = stale.view.as_ref().unwrap();
+            assert_eq!(view.kind, RuntimeViewKind::Field);
+            assert_eq!(view.source_place, "earlier.x");
+            assert_eq!(view.bound_at, bound_at);
+            let invalidation = view.invalidated_by.as_ref().unwrap();
+            assert_eq!(invalidation.span, invalidated_at);
+            assert_eq!(invalidation.kind, RuntimeViewInvalidationKind::FieldWrite);
+        }
+    }
+
+    #[test]
+    fn declaration_scope_saves_fresh_bindings_per_iteration() {
+        let program = fixture_program(
+            "iteration_shadows.hum",
+            r#"task iteration_total() -> Int {
+  does:
+    change total: Int = 0
+    change shadow_sum: Int = 0
+    for each step in [1, 2] {
+      set total = total + step
+      let total: Int = total + 10
+      set shadow_sum = shadow_sum + total
+    }
+    return total * 100 + shadow_sum
+}
+"#,
+        );
+        let report = run_program(&program, Some("iteration_total"), &[]);
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Success("324".to_string()),
+            "{:?}",
+            report.diagnostics
+        );
     }
 
     pub(crate) fn integer_sign_native_evidence() {
@@ -6135,17 +6301,17 @@ pub(crate) mod tests {
         String,
     >;
 
-    fn probe_corrupted_moved_state_branches<'output>(
-        program: &crate::ast::Program,
-        diagnostic_occurrences: &crate::diagnostic::DiagnosticOccurrenceSet,
+    fn test_interpreter<'program, 'output>(
+        program: &'program Program,
+        diagnostic_occurrences: &DiagnosticOccurrenceSet,
         grant_policy: &'output OperatorGrantPolicy,
         adapters: RunAdapters<'output>,
-    ) -> CorruptedMovedStateProbe {
+    ) -> Result<super::Interpreter<'program, 'output>, String> {
         let collector = crate::diagnostic::DiagnosticOccurrenceCollector::from_authority(
             diagnostic_occurrences,
         )
         .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
-        let interpreter = super::Interpreter {
+        Ok(super::Interpreter {
             program,
             callable_analysis: crate::callable::analyze_program(program),
             predicate_analysis: crate::predicate::analyze_program(program),
@@ -6176,7 +6342,17 @@ pub(crate) mod tests {
             active_call_route: std::cell::RefCell::new(Vec::new()),
             active_callable_applications: std::cell::RefCell::new(Vec::new()),
             authority_events: std::cell::RefCell::new(Vec::new()),
-        };
+        })
+    }
+
+    fn probe_corrupted_moved_state_branches<'output>(
+        program: &Program,
+        diagnostic_occurrences: &DiagnosticOccurrenceSet,
+        grant_policy: &'output OperatorGrantPolicy,
+        adapters: RunAdapters<'output>,
+    ) -> CorruptedMovedStateProbe {
+        let interpreter =
+            test_interpreter(program, diagnostic_occurrences, grant_policy, adapters)?;
         let move_span = crate::diagnostic::Span::new("corrupted-after-preflight.hum", 11, 5);
         let use_span = crate::diagnostic::Span::new("corrupted-after-preflight.hum", 12, 5);
         let mut binding = super::RuntimeBinding::mutable_local(super::Value::Int(7), false);
