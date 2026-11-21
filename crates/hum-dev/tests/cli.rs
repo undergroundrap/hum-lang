@@ -1,4 +1,155 @@
+mod timing {
+    use std::{
+        cell::RefCell,
+        fs::{self, File},
+        io::{self, Write},
+        path::PathBuf,
+        sync::OnceLock,
+        time::Instant,
+    };
+
+    const MAX_ROWS: usize = 256;
+    const MAX_BYTES: usize = 32 * 1024;
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+
+    thread_local! {
+        static ACTIVE: RefCell<Option<Record>> = const { RefCell::new(None) };
+    }
+
+    struct Record {
+        name: &'static str,
+        directory: PathBuf,
+        start: u128,
+        rows: Vec<(&'static str, u128, u128)>,
+        saturated: bool,
+    }
+
+    fn now() -> u128 {
+        EPOCH.get_or_init(Instant::now).elapsed().as_nanos()
+    }
+
+    pub(super) struct Case(bool);
+
+    pub(super) fn case(name: &'static str) -> Case {
+        if !cfg!(windows) {
+            return Case(false);
+        }
+        let Some(directory) = std::env::var_os("HUM_WINDOWS_CLI_TIMING_DIR").map(PathBuf::from)
+        else {
+            return Case(false);
+        };
+        if !directory.is_absolute() {
+            return Case(false);
+        }
+        Case(
+            ACTIVE
+                .try_with(|cell| {
+                    let Ok(mut slot) = cell.try_borrow_mut() else {
+                        return false;
+                    };
+                    if slot.is_some() {
+                        return false;
+                    }
+                    *slot = Some(Record {
+                        name,
+                        directory,
+                        start: now(),
+                        rows: Vec::with_capacity(MAX_ROWS),
+                        saturated: false,
+                    });
+                    true
+                })
+                .unwrap_or(false),
+        )
+    }
+
+    pub(super) struct Span(&'static str, Option<u128>);
+
+    pub(super) fn span(name: &'static str) -> Span {
+        let start = ACTIVE
+            .try_with(|cell| {
+                cell.try_borrow()
+                    .ok()
+                    .filter(|slot| slot.is_some())
+                    .map(|_| now())
+            })
+            .ok()
+            .flatten();
+        Span(name, start)
+    }
+
+    impl Drop for Span {
+        fn drop(&mut self) {
+            if let Some(start) = self.1 {
+                let end = now();
+                let _ = ACTIVE.try_with(|cell| {
+                    if let Ok(mut slot) = cell.try_borrow_mut()
+                        && let Some(record) = slot.as_mut()
+                    {
+                        if record.rows.len() < MAX_ROWS {
+                            record.rows.push((self.0, start, end));
+                        } else {
+                            record.saturated = true;
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    impl Drop for Case {
+        fn drop(&mut self) {
+            if self.0 {
+                let end = now();
+                let record = ACTIVE
+                    .try_with(|cell| cell.try_borrow_mut().ok().and_then(|mut slot| slot.take()))
+                    .ok()
+                    .flatten();
+                if let Some(record) = record {
+                    // Flush after fixture and lock guards have dropped. No test uses this result.
+                    let _ = record.publish(end, std::thread::panicking());
+                }
+            }
+        }
+    }
+
+    impl Record {
+        fn publish(self, end: u128, unwound: bool) -> io::Result<()> {
+            let pid = std::process::id();
+            let mut bytes = Vec::new();
+            writeln!(
+                bytes,
+                "hum.windows-cli-timing.v1\t{pid}\t{}\tns\t{}",
+                self.name, self.start
+            )?;
+            for (name, start, end) in &self.rows {
+                writeln!(bytes, "span\t{name}\t{start}\t{end}")?;
+            }
+            writeln!(
+                bytes,
+                "end\t{end}\t{}\t{}\t{unwound}",
+                self.rows.len(),
+                self.saturated
+            )?;
+            if bytes.len() > MAX_BYTES {
+                return Err(io::Error::other("timing receipt byte limit"));
+            }
+            let partial = self.directory.join(format!("{pid}-{}.partial", self.name));
+            let complete = partial.with_extension("tsv");
+            let mut file = File::create_new(&partial)?;
+            if complete.try_exists()? {
+                return Err(io::Error::other("timing receipt already published"));
+            }
+            file.write_all(&bytes)?;
+            file.flush()?;
+            drop(file);
+            fs::rename(partial, complete)
+        }
+    }
+}
+
 mod cli {
+    use super::timing;
     use std::{
         fs,
         ops::Deref,
@@ -12,11 +163,42 @@ mod cli {
     #[cfg(windows)]
     static PROCESS_WINDOW: std::sync::RwLock<()> = std::sync::RwLock::new(());
 
+    trait ObservedOutput {
+        fn observed_output(&mut self) -> std::io::Result<std::process::Output>;
+    }
+
+    impl ObservedOutput for Command {
+        fn observed_output(&mut self) -> std::io::Result<std::process::Output> {
+            let _child = timing::span("child-launch-return");
+            self.output()
+        }
+    }
+
     #[cfg(windows)]
-    fn shared_process_window() -> std::sync::RwLockReadGuard<'static, ()> {
-        PROCESS_WINDOW
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    struct ProcessWindow<G> {
+        _hold: timing::Span,
+        _guard: G,
+    }
+
+    #[cfg(windows)]
+    fn observe_process_window<G>(acquire: impl FnOnce() -> G) -> ProcessWindow<G> {
+        let wait = timing::span("lock-wait");
+        let guard = acquire();
+        drop(wait);
+        // End the hold span immediately before the original guard is dropped.
+        ProcessWindow {
+            _hold: timing::span("lock-hold"),
+            _guard: guard,
+        }
+    }
+
+    #[cfg(windows)]
+    fn shared_process_window() -> ProcessWindow<std::sync::RwLockReadGuard<'static, ()>> {
+        observe_process_window(|| {
+            PROCESS_WINDOW
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        })
     }
 
     struct Scratch(PathBuf);
@@ -33,6 +215,7 @@ mod cli {
     }
     impl Drop for Scratch {
         fn drop(&mut self) {
+            let _cleanup = timing::span("scratch-cleanup");
             let _ = fs::remove_dir_all(&self.0);
         }
     }
@@ -40,6 +223,7 @@ mod cli {
         env!("CARGO_BIN_EXE_hum-dev")
     }
     fn pwsh() -> PathBuf {
+        let _span = timing::span("powershell-discovery");
         let output = Command::new("pwsh")
             .args([
                 "-NoLogo",
@@ -47,7 +231,7 @@ mod cli {
                 "-Command",
                 "[Environment]::ProcessPath",
             ])
-            .output()
+            .observed_output()
             .unwrap();
         assert!(output.status.success());
         PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
@@ -92,6 +276,7 @@ mod cli {
         (metadata.dev(), metadata.ino(), metadata.nlink())
     }
     fn physical_binary_copy(name: &str) -> (Scratch, PathBuf) {
+        let _span = timing::span("fixture-binary-copy");
         let root = scratch(name);
         assert!(!root.exists());
         fs::create_dir(&*root).unwrap();
@@ -129,7 +314,7 @@ mod cli {
                 repository.to_string_lossy().replace('\\', "/")
             ))
             .args(arguments)
-            .output()
+            .observed_output()
             .unwrap();
         assert!(
             output.status.success(),
@@ -138,6 +323,7 @@ mod cli {
         );
     }
     fn init(repository: &Path, second_commit: bool) {
+        let _span = timing::span("fixture-git-init");
         fs::create_dir(repository).unwrap();
         git(repository, &["init", "-q"]);
         fs::write(repository.join("tracked.txt"), b"root\n").unwrap();
@@ -183,7 +369,7 @@ mod cli {
         if let Some(git) = std::env::var_os("HUM_DEV_GIT") {
             command.env("HUM_DEV_GIT", git);
         }
-        let output = command.output().unwrap();
+        let output = command.observed_output().unwrap();
         assert!(
             output.status.success(),
             "{}",
@@ -224,7 +410,7 @@ mod cli {
                 repository.to_string_lossy().replace('\\', "/")
             ))
             .args(arguments)
-            .output()
+            .observed_output()
             .unwrap();
         assert!(
             output.status.success(),
@@ -238,6 +424,7 @@ mod cli {
     }
 
     fn merge_summary_command_controls() {
+        let setup = timing::span("fixture-summary-prep");
         let repository = scratch("summary-command");
         init(&repository, true);
         fs::write(repository.join("Cargo.lock"), b"controlled lock\n").unwrap();
@@ -286,6 +473,7 @@ mod cli {
             .unwrap();
             fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
         }
+        drop(setup);
         let pwsh = pwsh();
         let fixture = if cfg!(windows) {
             include_str!("../../../fixtures/evidence/job_summary_windows.v2.json")
@@ -345,7 +533,7 @@ mod cli {
             ] {
                 command.env(name, summary_field(fixture, field));
             }
-            command.output().unwrap()
+            command.observed_output().unwrap()
         };
         let positive = |repo: &Path, first: &str| {
             let candidate = identity(repo);
@@ -568,19 +756,24 @@ mod cli {
 
     #[test]
     fn normal_profiles_reject_unbound_or_narrowed_execution() {
+        let _timing = timing::case("normal_profiles_reject_unbound_or_narrowed_execution");
         #[cfg(windows)]
         let _process_window = shared_process_window();
         assert_normal_profile_refusals();
     }
 
     fn assert_normal_profile_refusals() {
+        let _span = timing::span("profile-refusal-batch");
         for profile in ["language", "runtime", "compiler"] {
             for arguments in [
                 vec!["evidence", profile],
                 vec!["evidence", profile, "--pwsh", "relative-pwsh"],
                 vec!["evidence", profile, "--skip", "tests"],
             ] {
-                let output = Command::new(binary()).args(&arguments).output().unwrap();
+                let output = Command::new(binary())
+                    .args(&arguments)
+                    .observed_output()
+                    .unwrap();
                 assert_eq!(output.status.code(), Some(2));
                 assert!(output.stdout.is_empty());
                 let error = String::from_utf8(output.stderr).unwrap();
@@ -596,12 +789,14 @@ mod cli {
 
     #[test]
     fn legacy_probe_environment_cannot_replace_the_canonical_status_mapping() {
+        let _timing =
+            timing::case("legacy_probe_environment_cannot_replace_the_canonical_status_mapping");
         #[cfg(windows)]
         let _process_window = shared_process_window();
         let actual = Command::new(binary())
             .env("HUM_DEV_LEGACY_EQUIVALENCE_PROBE", "1")
             .args(["evidence", "status"])
-            .output()
+            .observed_output()
             .unwrap();
         assert_eq!(actual.status.code(), Some(2));
         assert!(actual.stdout.is_empty());
@@ -613,6 +808,7 @@ mod cli {
 
     #[test]
     fn preflight_repairs_stop_before_state_changing_launch() {
+        let _timing = timing::case("preflight_repairs_stop_before_state_changing_launch");
         #[cfg(windows)]
         let _process_window = shared_process_window();
         assert_normal_profile_refusals();
@@ -620,7 +816,7 @@ mod cli {
         let output = Command::new(binary())
             .args(["commit-message", "check", "--file"])
             .arg(missing.join("message"))
-            .output()
+            .observed_output()
             .unwrap();
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
@@ -632,14 +828,14 @@ mod cli {
         assert!(!missing.exists(), "validation failure created state");
         let accepted = Command::new(binary())
             .args(["commit-message", "check", "--subject", "docs(scope): exact"])
-            .output()
+            .observed_output()
             .unwrap();
         assert_eq!(accepted.status.code(), Some(0));
         assert_eq!(accepted.stdout, b"accepted|subject_sha256=d4e2af7fb6c98315b7442bee716ac277f27cfaa4d8152d822aaa7285f39b5df6\n");
         assert!(accepted.stderr.is_empty());
         let rejected = Command::new(binary())
             .args(["commit-message", "check", "--subject", "docs: unscoped"])
-            .output()
+            .observed_output()
             .unwrap();
         assert_eq!(rejected.status.code(), Some(2));
         assert!(rejected.stdout.is_empty());
@@ -649,7 +845,7 @@ mod cli {
         );
         let help = Command::new(binary())
             .args(["commit-message", "check"])
-            .output()
+            .observed_output()
             .unwrap();
         assert_eq!(help.status.code(), Some(2));
         assert!(help.stdout.is_empty());
@@ -659,17 +855,22 @@ mod cli {
 
     #[test]
     fn public_focused_evidence_resolves_authenticated_pwsh7() {
+        let _timing = timing::case("public_focused_evidence_resolves_authenticated_pwsh7");
         #[cfg(windows)]
-        let _process_window = PROCESS_WINDOW
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _process_window = observe_process_window(|| {
+            PROCESS_WINDOW
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        });
         let (executable_root, executable) = physical_binary_copy("public-focused");
         let executable_root_path = executable_root.0.clone();
+        let focused = timing::span("focused-request");
         let output = Command::new(executable)
             .args(["evidence", "focused", "--pwsh"])
             .arg(pwsh())
-            .output()
+            .observed_output()
             .unwrap();
+        drop(focused);
         assert!(
             output.status.success(),
             "{}",
@@ -693,9 +894,10 @@ mod cli {
     #[test]
     #[rustfmt::skip]
     fn explicit_pwsh_binding_is_required_and_fail_closed() {
+        let _timing = timing::case("explicit_pwsh_binding_is_required_and_fail_closed");
         #[cfg(windows)]
         let _process_window = shared_process_window();
-        let run = |args: &[&str]| Command::new(binary()).args(args).output().unwrap();
+        let run = |args: &[&str]| Command::new(binary()).args(args).observed_output().unwrap();
         let missing = run(&["evidence", "focused"]);
         assert_eq!(missing.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&missing.stderr).contains("explicit --pwsh"));
@@ -714,14 +916,14 @@ mod cli {
         let ignored = Command::new(binary())
             .args(["evidence", "focused"])
             .env("HUM_DEV_PWSH", pwsh())
-            .output()
+            .observed_output()
             .unwrap();
         assert_eq!(ignored.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&ignored.stderr).contains("explicit --pwsh"));
         let directory = Command::new(binary())
             .args(["evidence", "focused", "--pwsh"])
             .arg(std::env::temp_dir())
-            .output()
+            .observed_output()
             .unwrap();
         assert_eq!(directory.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&directory.stderr).contains("ordinary file"));
@@ -730,7 +932,7 @@ mod cli {
         let wrong = Command::new(binary())
             .args(["evidence", "focused", "--pwsh"])
             .arg(&copied)
-            .output()
+            .observed_output()
             .unwrap();
         assert_eq!(wrong.status.code(), Some(2));
         assert!(wrong.stdout.is_empty());
@@ -740,21 +942,23 @@ mod cli {
             "wrong executable stderr: {wrong_stderr}"
         );
         #[cfg(windows)] {
+            let poison_setup = timing::span("fixture-vswhere-prepare");
             let native = PathBuf::from(std::env::var_os("ProgramFiles(x86)").unwrap()).canonicalize().unwrap(); let case_variant = PathBuf::from(native.to_string_lossy().to_ascii_uppercase()); let source = native.join("Microsoft Visual Studio/Installer/vswhere.exe").canonicalize().unwrap();
             let poison = scratch("program-files-x86"); let poison_path = poison.0.clone(); let copied_vswhere = poison.join("Microsoft Visual Studio/Installer/vswhere.exe"); fs::create_dir_all(copied_vswhere.parent().unwrap()).unwrap(); fs::copy(&source, &copied_vswhere).unwrap();
             let root_metadata = fs::symlink_metadata(&*poison).unwrap(); let copy_metadata = fs::symlink_metadata(&copied_vswhere).unwrap(); use std::os::windows::fs::MetadataExt; assert!(root_metadata.is_dir() && root_metadata.file_attributes() & 0x400 == 0); assert!(copy_metadata.is_file() && copy_metadata.file_attributes() & 0x400 == 0); assert_eq!(copy_metadata.len(), fs::metadata(&source).unwrap().len());
             let source_identity = file_identity(&source); let copied_identity = file_identity(&copied_vswhere); assert_eq!(copied_identity.2, 1); assert_ne!((source_identity.0, source_identity.1), (copied_identity.0, copied_identity.1)); let source_bytes = fs::read(&source).unwrap(); let copied_bytes = fs::read(&copied_vswhere).unwrap(); assert_eq!(source_bytes, copied_bytes); assert_eq!(hum_sha256::digest_hex(&source_bytes), hum_sha256::digest_hex(&copied_bytes));
-            let prebootstrap = |path: &Path| Command::new(binary()).args(["evidence", "focused", "--pwsh"]).arg(path).env("ProgramFiles(x86)", poison.as_os_str()).env_remove("PATH").env_remove("Path").env_remove("PSModulePath").output().unwrap();
+            drop(poison_setup);
+            let prebootstrap = |path: &Path| Command::new(binary()).args(["evidence", "focused", "--pwsh"]).arg(path).env("ProgramFiles(x86)", poison.as_os_str()).env_remove("PATH").env_remove("Path").env_remove("PSModulePath").observed_output().unwrap();
             let nonexistent = prebootstrap(&poison.join("missing-pwsh.exe")); assert_eq!(nonexistent.status.code(), Some(2)); assert!(nonexistent.stdout.is_empty()); assert!(String::from_utf8_lossy(&nonexistent.stderr).starts_with("hum-dev: pwsh_executable:"));
             let hard = copied_root.join("hard-pwsh.exe"); fs::hard_link(&copied, &hard).unwrap(); let hard_output = prebootstrap(&hard); assert_eq!(hard_output.stderr, b"hum-dev: pwsh_executable: path is not an ordinary file\n"); fs::remove_file(&hard).unwrap();
-            let reparse = copied_root.join("reparse-pwsh.exe"); let junction = Command::new(std::env::var_os("ComSpec").unwrap()).args(["/d", "/c", "mklink", "/J"]).arg(&reparse).arg(poison.as_ref()).output().unwrap(); assert!(junction.status.success(), "{}", String::from_utf8_lossy(&junction.stderr)); assert_ne!(fs::symlink_metadata(&reparse).unwrap().file_attributes() & 0x400, 0); let reparse_output = prebootstrap(&reparse); assert_eq!(reparse_output.stderr, b"hum-dev: pwsh_executable: path is not an ordinary file\n"); fs::remove_dir(&reparse).unwrap(); let parent_owner = scratch("pwsh-parent-junction"); let parent_owner_path = parent_owner.0.clone(); fs::create_dir(&*parent_owner).unwrap(); let parent_alias = parent_owner.join("alias"); let pwsh = pwsh(); let parent_junction = Command::new(std::env::var_os("ComSpec").unwrap()).args(["/d", "/c", "mklink", "/J"]).arg(&parent_alias).arg(pwsh.parent().unwrap()).output().unwrap(); assert!(parent_junction.status.success(), "{}", String::from_utf8_lossy(&parent_junction.stderr)); assert_ne!(fs::symlink_metadata(&parent_alias).unwrap().file_attributes() & 0x400, 0); let parent_output = prebootstrap(&parent_alias.join(pwsh.file_name().unwrap())); assert_eq!(parent_output.status.code(), Some(2)); assert!(parent_output.stdout.is_empty()); assert_eq!(parent_output.stderr, b"hum-dev: pwsh_executable: path component is not an ordinary directory\n"); let case_output = prebootstrap(&PathBuf::from(pwsh.to_string_lossy().to_ascii_uppercase())); assert_eq!(case_output.stderr, b"hum-dev: environment_required: missing PATH\n"); fs::remove_dir(&parent_alias).unwrap(); drop(parent_owner); assert!(!parent_owner_path.exists());
-            let combined = Command::new(binary()).args(["evidence", "focused", "--pwsh", "pwsh"]).env("ProgramFiles(x86)", poison.as_os_str()).env_remove("PATH").env_remove("Path").env_remove("PSModulePath").output().unwrap(); assert_eq!(combined.status.code(), Some(2)); assert!(combined.stdout.is_empty()); assert_eq!(combined.stderr, b"hum-dev: pwsh_executable: explicit absolute --pwsh path is required\n");
-            let run = |binding: Option<&std::ffi::OsStr>| { let mut command = Command::new(binary()); command.args(["evidence", "focused", "--pwsh"]).arg(&copied); if let Some(value) = binding { command.env("ProgramFiles(x86)", value); } else { command.env_remove("ProgramFiles(x86)"); } command.output().unwrap() };
+            let reparse = copied_root.join("reparse-pwsh.exe"); let junction = Command::new(std::env::var_os("ComSpec").unwrap()).args(["/d", "/c", "mklink", "/J"]).arg(&reparse).arg(poison.as_ref()).observed_output().unwrap(); assert!(junction.status.success(), "{}", String::from_utf8_lossy(&junction.stderr)); assert_ne!(fs::symlink_metadata(&reparse).unwrap().file_attributes() & 0x400, 0); let reparse_output = prebootstrap(&reparse); assert_eq!(reparse_output.stderr, b"hum-dev: pwsh_executable: path is not an ordinary file\n"); fs::remove_dir(&reparse).unwrap(); let parent_owner = scratch("pwsh-parent-junction"); let parent_owner_path = parent_owner.0.clone(); fs::create_dir(&*parent_owner).unwrap(); let parent_alias = parent_owner.join("alias"); let pwsh = pwsh(); let parent_junction = Command::new(std::env::var_os("ComSpec").unwrap()).args(["/d", "/c", "mklink", "/J"]).arg(&parent_alias).arg(pwsh.parent().unwrap()).observed_output().unwrap(); assert!(parent_junction.status.success(), "{}", String::from_utf8_lossy(&parent_junction.stderr)); assert_ne!(fs::symlink_metadata(&parent_alias).unwrap().file_attributes() & 0x400, 0); let parent_output = prebootstrap(&parent_alias.join(pwsh.file_name().unwrap())); assert_eq!(parent_output.status.code(), Some(2)); assert!(parent_output.stdout.is_empty()); assert_eq!(parent_output.stderr, b"hum-dev: pwsh_executable: path component is not an ordinary directory\n"); let case_output = prebootstrap(&PathBuf::from(pwsh.to_string_lossy().to_ascii_uppercase())); assert_eq!(case_output.stderr, b"hum-dev: environment_required: missing PATH\n"); fs::remove_dir(&parent_alias).unwrap(); drop(parent_owner); assert!(!parent_owner_path.exists());
+            let combined = Command::new(binary()).args(["evidence", "focused", "--pwsh", "pwsh"]).env("ProgramFiles(x86)", poison.as_os_str()).env_remove("PATH").env_remove("Path").env_remove("PSModulePath").observed_output().unwrap(); assert_eq!(combined.status.code(), Some(2)); assert!(combined.stdout.is_empty()); assert_eq!(combined.stderr, b"hum-dev: pwsh_executable: explicit absolute --pwsh path is required\n");
+            let run = |binding: Option<&std::ffi::OsStr>| { let mut command = Command::new(binary()); command.args(["evidence", "focused", "--pwsh"]).arg(&copied); if let Some(value) = binding { command.env("ProgramFiles(x86)", value); } else { command.env_remove("ProgramFiles(x86)"); } command.observed_output().unwrap() };
             for (name, binding, expected) in [("missing", None, "pwsh_version"), ("matching", Some(native.as_os_str()), "pwsh_version"), ("case-equivalent", Some(case_variant.as_os_str()), "pwsh_version"), ("relative", Some(std::ffi::OsStr::new("relative")), "program_files_x86: ambient binding differs from native known folder")] { let output = run(binding); assert_eq!(output.status.code(), Some(2), "{name}"); assert!(output.stdout.is_empty(), "{name}"); assert!(String::from_utf8_lossy(&output.stderr).contains(expected), "{name}: {}", String::from_utf8_lossy(&output.stderr)); }
             let poisoned = run(Some(poison.as_os_str())); assert_eq!(poisoned.status.code(), Some(2)); assert!(poisoned.stdout.is_empty()); assert_eq!(poisoned.stderr, b"hum-dev: program_files_x86: ambient binding differs from native known folder\n");
             let production = include_str!("../src/command.rs").split_once("#[cfg(test)]").unwrap().0; assert_eq!(production.matches("known_folder(0x2a").count(), 1); assert!(!production.contains("PathBuf::from(env.get(\"ProgramFiles(x86)\")")); assert!(production.find("ambient binding differs from native known folder").unwrap() < production.find("clean_stdout(&vswhere").unwrap());
             let launch = include_str!("../src/main.rs").split_once("fn launch_legacy").unwrap().1.split_once("#[rustfmt::skip]").unwrap().0; let ordered = |source: &str| source.matches("ExecutableBinding::authenticate").count() == 1 && source.matches("production_environment").count() == 1 && source.find("ExecutableBinding::authenticate").unwrap() < source.find("production_environment").unwrap() && source.contains("PwshRequest {\n        executable,"); assert!(ordered(launch)); assert!(!ordered(&launch.replacen("ExecutableBinding::authenticate", "removed binding", 1))); let reordered = launch.replacen("production_environment", "WO25_ORDER_SWAP", 1).replacen("ExecutableBinding::authenticate", "production_environment", 1).replacen("WO25_ORDER_SWAP", "ExecutableBinding::authenticate", 1); assert!(!ordered(&reordered)); let rebound = launch.replacen("shell::PwshRequest {", "let executable = shell::ExecutableBinding::authenticate(resolved.to_owned(), \"pwsh_executable\")?;\n    shell::PwshRequest {", 1); assert!(!ordered(&rebound));
-            drop(poison); assert!(!poison_path.exists()); let panic_path = { let owned = scratch("program-files-x86-panic"); fs::create_dir(&*owned).unwrap(); let path = owned.0.clone(); assert!(std::panic::catch_unwind(move || { let _owned = owned; panic!("owned native-folder adversary") }).is_err()); path }; assert!(!panic_path.exists()); let junction_cleanup = |mode: &str| { let owned = scratch(&format!("parent-junction-{mode}")); fs::create_dir(&*owned).unwrap(); let target = owned.join("target"); fs::create_dir(&target).unwrap(); let alias = owned.join("alias"); let created = Command::new(std::env::var_os("ComSpec").unwrap()).args(["/d", "/c", "mklink", "/J"]).arg(&alias).arg(&target).output().unwrap(); assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr)); let path = owned.0.clone(); if mode == "error" { let failed: Result<(), ()> = { let _guard = owned; Err(()) }; assert!(failed.is_err()); } else { assert!(std::panic::catch_unwind(move || { let _guard = owned; panic!("owned junction adversary") }).is_err()); } assert!(!path.exists()); }; junction_cleanup("error"); junction_cleanup("panic");
+            drop(poison); assert!(!poison_path.exists()); let panic_path = { let owned = scratch("program-files-x86-panic"); fs::create_dir(&*owned).unwrap(); let path = owned.0.clone(); assert!(std::panic::catch_unwind(move || { let _owned = owned; panic!("owned native-folder adversary") }).is_err()); path }; assert!(!panic_path.exists()); let junction_cleanup = |mode: &str| { let owned = scratch(&format!("parent-junction-{mode}")); fs::create_dir(&*owned).unwrap(); let target = owned.join("target"); fs::create_dir(&target).unwrap(); let alias = owned.join("alias"); let created = Command::new(std::env::var_os("ComSpec").unwrap()).args(["/d", "/c", "mklink", "/J"]).arg(&alias).arg(&target).observed_output().unwrap(); assert!(created.status.success(), "{}", String::from_utf8_lossy(&created.stderr)); let path = owned.0.clone(); if mode == "error" { let failed: Result<(), ()> = { let _guard = owned; Err(()) }; assert!(failed.is_err()); } else { assert!(std::panic::catch_unwind(move || { let _guard = owned; panic!("owned junction adversary") }).is_err()); } assert!(!path.exists()); }; junction_cleanup("error"); junction_cleanup("panic");
         }
         drop(copied_root);
         assert!(!copied_root_path.exists());
@@ -812,6 +1016,9 @@ mod cli {
 
     #[test]
     fn candidate_identity_distinguishes_clean_indexed_untracked_and_dirty_state() {
+        let _timing = timing::case(
+            "candidate_identity_distinguishes_clean_indexed_untracked_and_dirty_state",
+        );
         #[cfg(windows)]
         let _process_window = shared_process_window();
         let root_repo = scratch("root");

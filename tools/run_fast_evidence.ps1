@@ -1107,6 +1107,140 @@ function Update-HumPhaseProgress {
   } catch { }
 }
 
+# The pilot writes outside both the native capture and the phase archive.
+function Read-HumCliTimingText([string] $Path, [int] $Limit) {
+  if ([IO.File]::GetAttributes($Path) -band ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint)) {
+    throw 'CLI timing input is not an ordinary file'
+  }
+  $Stream = [IO.File]::OpenRead($Path)
+  try {
+    $Length = $Stream.Length
+    if ($Length -gt $Limit) { throw 'CLI timing input exceeded its bound' }
+    $Bytes = [byte[]]::new([int] $Length)
+    $Stream.ReadExactly($Bytes)
+    if ($Stream.ReadByte() -ne -1) { throw 'CLI timing input changed while reading' }
+    return [Text.UTF8Encoding]::new($false, $true).GetString($Bytes)
+  } finally {
+    $Stream.Dispose()
+  }
+}
+
+function Get-HumWindowsCliTimingIdentity {
+  if ($env:OS -cne 'Windows_NT' -or $env:GITHUB_ACTIONS -cne 'true' -or
+      $env:GITHUB_EVENT_NAME -cne 'pull_request' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+      $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]{0,19}\z' -or $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z' -or
+      $env:GITHUB_REPOSITORY -cnotmatch '\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\z' -or
+      -not [IO.Path]::IsPathFullyQualified($env:GITHUB_EVENT_PATH)) { return }
+  $Event = Read-HumCliTimingText $env:GITHUB_EVENT_PATH (1MB) | ConvertFrom-Json -AsHashtable
+  $Pr = $Event.pull_request
+  if ($Event.action -cne 'synchronize' -or $Event.number -ne 82 -or $Pr.number -ne 82 -or
+      $Pr.draft -isnot [bool] -or -not $Pr.draft -or
+      $Pr.head.ref -cne 'pilot/hum-full-windows-cli-timing-20261119-r1' -or
+      $Pr.head.sha -cnotmatch '\A[0-9a-f]{40}\z' -or $Event.after -cne $Pr.head.sha -or
+      $Pr.base.ref -cne 'main' -or $Pr.base.sha -cne '7e46adaf15afae22efbb8fdc6c1b56e8558c94e5' -or
+      $Event.repository.full_name -cne $env:GITHUB_REPOSITORY -or
+      $Pr.head.repo.full_name -cne $env:GITHUB_REPOSITORY -or $Pr.base.repo.full_name -cne $env:GITHUB_REPOSITORY -or
+      $Event.repository.id -le 0 -or $Pr.head.repo.id -ne $Event.repository.id -or $Pr.base.repo.id -ne $Event.repository.id) { return }
+  return "run=$($env:GITHUB_RUN_ID) attempt=1 integration=$($env:GITHUB_SHA)"
+}
+
+function Get-HumWindowsCliTimingDirectory([string] $PhaseDirectory) {
+  if (-not [IO.Path]::IsPathFullyQualified($PhaseDirectory) -or
+      -not [IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP)) { return }
+  $RunnerTemp = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($env:RUNNER_TEMP))
+  $Phase = [IO.Path]::GetFullPath($PhaseDirectory)
+  if ([IO.Path]::GetDirectoryName($Phase) -ine $RunnerTemp -or
+      [IO.Path]::GetFileName($Phase) -cnotmatch '\Ahum-phase-diagnostics-[0-9a-f]{32}\z') { return }
+  foreach ($Path in @($RunnerTemp, $Phase)) {
+    $Attributes = [IO.File]::GetAttributes($Path)
+    if (-not ($Attributes -band [IO.FileAttributes]::Directory) -or
+        ($Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
+  }
+  return ($Phase + '-cli-timing')
+}
+
+function ConvertFrom-HumCliTimingTick([string] $Value) {
+  if ($Value -cnotmatch '\A(0|[1-9][0-9]{0,18})\z') { throw 'invalid CLI timing tick' }
+  return [long]::Parse($Value, [Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Get-HumWindowsCliTimingLogRows([string[]] $Paths) {
+  $Cases = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  $Cases.UnionWith([string[]] @(
+    'normal_profiles_reject_unbound_or_narrowed_execution',
+    'legacy_probe_environment_cannot_replace_the_canonical_status_mapping',
+    'preflight_repairs_stop_before_state_changing_launch',
+    'public_focused_evidence_resolves_authenticated_pwsh7',
+    'explicit_pwsh_binding_is_required_and_fail_closed',
+    'candidate_identity_distinguishes_clean_indexed_untracked_and_dirty_state'
+  ))
+  $Phases = @('lock-wait','lock-hold','child-launch-return','scratch-cleanup','powershell-discovery',
+    'fixture-binary-copy','fixture-git-init','profile-refusal-batch','fixture-summary-prep','focused-request','fixture-vswhere-prepare')
+  $Harness = $null
+  if ($Paths.Count -ne $Cases.Count) { throw 'CLI timing inventory is incomplete' }
+  foreach ($Path in $Paths) {
+    $Text = Read-HumCliTimingText $Path (32KB)
+    if (-not $Text.EndsWith("`n", [StringComparison]::Ordinal)) { throw 'CLI timing footer is incomplete' }
+    $Lines = $Text.Substring(0, $Text.Length - 1).Split("`n")
+    if ($Lines.Count -lt 2 -or $Lines.Count -gt 258) { throw 'invalid CLI timing row count' }
+    $Header = $Lines[0].Split("`t")
+    $Footer = $Lines[-1].Split("`t")
+    if ($Header.Count -ne 5 -or $Header[0] -cne 'hum.windows-cli-timing.v1' -or
+        $Header[1] -cnotmatch '\A[1-9][0-9]{0,9}\z' -or $Header[3] -cne 'ns' -or
+        [IO.Path]::GetFileName($Path) -cne ("{0}-{1}.tsv" -f $Header[1], $Header[2]) -or
+        -not $Cases.Remove($Header[2]) -or ($null -ne $Harness -and $Harness -cne $Header[1]) -or
+        $Footer.Count -ne 5 -or $Footer[0] -cne 'end' -or $Footer[2] -cne [string] ($Lines.Count - 2) -or
+        $Footer[3] -cne 'false' -or $Footer[4] -cne 'false') { throw 'invalid CLI timing header or footer' }
+    $Harness = $Header[1]
+    $Start = ConvertFrom-HumCliTimingTick $Header[4]
+    $End = ConvertFrom-HumCliTimingTick $Footer[1]
+    if ($End -lt $Start) { throw 'invalid CLI timing interval' }
+    $Spans = [Collections.Generic.List[object]]::new()
+    for ($Index = 1; $Index -lt $Lines.Count - 1; $Index++) {
+      $Row = $Lines[$Index].Split("`t")
+      if ($Row.Count -ne 4 -or $Row[0] -cne 'span' -or $Row[1] -cnotin $Phases) { throw 'invalid CLI timing span' }
+      $SpanStart = ConvertFrom-HumCliTimingTick $Row[2]
+      $SpanEnd = ConvertFrom-HumCliTimingTick $Row[3]
+      if ($SpanStart -lt $Start -or $SpanEnd -lt $SpanStart -or $SpanEnd -gt $End) { throw 'invalid CLI timing span interval' }
+      $Spans.Add(@($Row[1], $SpanStart, $SpanEnd))
+    }
+    $Json = ConvertTo-Json -InputObject ([ordered]@{ case = $Header[2]; start_ns = $Start; end_ns = $End; spans = $Spans.ToArray() }) -Depth 5 -Compress
+    if ($Json.Length -gt 32KB) { throw 'CLI timing log row exceeded its bound' }
+    $Json
+  }
+}
+
+function Write-HumWindowsCliTimingLog([string] $PhaseDirectory) {
+  try { $Identity = Get-HumWindowsCliTimingIdentity } catch { return }
+  if ($null -eq $Identity) { return }
+  $Prefix = "HUM_CLI_TIMING_V2 $Identity"
+  $Activated = $false
+  try {
+    $Directory = Get-HumWindowsCliTimingDirectory $PhaseDirectory
+    if ($null -eq $Directory -or -not [IO.Directory]::Exists($Directory)) {
+      Write-Host "$Prefix state=skipped"
+      return
+    }
+    if ([IO.File]::GetAttributes($Directory) -band [IO.FileAttributes]::ReparsePoint) { throw 'CLI timing directory is redirected' }
+    $Activation = Join-Path $Directory 'activation.txt'
+    if ((Read-HumCliTimingText $Activation 128) -cne $Identity) { throw 'CLI timing activation is unbound' }
+    $Activated = $true
+    Write-Host "$Prefix state=activated"
+    $Paths = @([IO.Directory]::EnumerateFileSystemEntries($Directory) | Select-Object -First 8 |
+      Where-Object { $_ -cne $Activation } | Sort-Object)
+    if ($Paths.Count -eq 0) {
+      Write-Host "$Prefix state=zero count=0"
+      return
+    }
+    $Rows = @(Get-HumWindowsCliTimingLogRows $Paths)
+    foreach ($Row in $Rows) { Write-Host "$Prefix record=$Row" }
+    Write-Host "$Prefix state=complete count=$($Rows.Count)"
+  } catch {
+    $Status = if ($Activated) { 'incomplete' } else { 'skipped' }
+    Write-Host "$Prefix state=$Status"
+  }
+}
+
 function Invoke-HumBinaryCapture {
   param(
     [Parameter(Mandatory = $true)][string] $FilePath,
@@ -1447,6 +1581,9 @@ function Invoke-HumBinaryCapture {
       deadline_ticks = $DeadlineTicks
       checkpoints = $StartupCheckpoints.ToArray()
     })
+  }
+  if ($WindowsPlatform -and $CaseName -ceq 'ci-full-preflight') {
+    try { Write-HumWindowsCliTimingLog $PhaseDiagnosticDirectory } catch { }
   }
   $Retained
 }
