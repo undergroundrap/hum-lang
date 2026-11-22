@@ -116,6 +116,7 @@ struct TypedStatement {
     type_source: Option<&'static str>,
     status: &'static str,
     reason: Option<&'static str>,
+    unsupported_else_form: bool,
     failure_form: Option<&'static str>,
     callee: Option<String>,
     callee_result_root: Option<String>,
@@ -235,8 +236,9 @@ pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic])
 ///   (the WO30 general call-shape probe replaced the per-builtin probes).
 ///   Listed for completeness; they cannot occur.
 /// - `unchecked_statement_type_v0`, `blocked_unsupported_statement_v0`,
-///   `not_checked_blocked_by_prior_errors_v0`: not rejections; correctly
-///   excluded (report-only, per Decision 0030).
+///   `not_checked_blocked_by_prior_errors_v0`: not rejections and stay
+///   report-only. The unsupported else advisory does not promote its status
+///   to a rejection.
 ///
 /// H0643 (STATEMENT_TYPE_MISMATCH): BDFL-authorized registered diagnostic for
 /// the full-type statement mismatch. H0606 (RETURN_TYPE_MISMATCH) cannot be
@@ -265,6 +267,13 @@ fn check_stage_outcome_from_report(
     };
     for item in &report.items {
         for statement in &item.statements {
+            if statement.unsupported_else_form {
+                out.diagnostics.push(Diagnostic::warning(
+                    DiagnosticCode::UNSUPPORTED_ELSE_FORM,
+                    "this `else` form is unsupported by `hum run`",
+                    Some(statement.span.clone()),
+                ));
+            }
             // Status first: a rejected statement is a demonstrated error
             // regardless of whether it carries a diagnostic code.
             if !is_rejected_statement_status(statement.status) {
@@ -1024,7 +1033,7 @@ fn type_statement(
     }
 
     if statement.status == "unsupported_v0" {
-        return typed_statement(
+        let mut typed = typed_statement(
             statement,
             index,
             None,
@@ -1035,6 +1044,16 @@ fn type_statement(
                 .reason
                 .or(Some("statement_not_in_core_body_grammar_v0")),
         );
+        // Identify this already unsupported row from the parser's retained tokens.
+        if statement.kind == "unknown_body_line"
+            && let crate::ast::ParsedBodyStatementKind::Other { expressions } = &parsed.kind
+            && let [expression] = expressions.as_slice()
+            && let [close, keyword, open] = expression.canonical_tokens.as_slice()
+        {
+            typed.unsupported_else_form =
+                close.spelling == "}" && keyword.spelling == "else" && open.spelling == "{";
+        }
+        return typed;
     }
 
     if let Some(issue) = invalid_text_escape_issue(parsed) {
@@ -1677,6 +1696,7 @@ fn typed_statement(
         type_source: actual.map(|fact| fact.source),
         status,
         reason,
+        unsupported_else_form: false,
         failure_form: None,
         callee: None,
         callee_result_root: None,
