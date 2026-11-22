@@ -2189,6 +2189,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         97 => 97,
         98 => 98,
         99 => 99,
+        100 => 100,
         _ => u16::MAX,
     }
 }
@@ -3009,6 +3010,15 @@ diagnostic_code_allocations!(
         STATEMENT_TYPE_MISMATCH,
         "H0643",
         "statement expression type mismatch",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "full_type_check"
+    ),
+    (
+        100,
+        UNSUPPORTED_ELSE_FORM,
+        "H0644",
+        "unsupported else form",
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "full_type_check"
@@ -3873,6 +3883,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Error,
         explanation: "The full-type checker proved a statement's expression type does not match the type its position requires (return, fail, if/while header, let binding, or set place). This is a deeper proof than the type_check stage's source-visible checks; H0606 covers only the trivial return-type case detected by type_check.",
         repair: "Change the expression to produce the required type, or change the declared type to match what the expression produces.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::UNSUPPORTED_ELSE_FORM,
+        default_severity: Severity::Warning,
+        explanation: "The full-type report identifies a `} else {` statement that the executable subset does not support.",
+        repair: "Express the branch using control flow supported by `hum run`.",
     },
 ];
 
@@ -4895,7 +4911,7 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 97);
+        assert_eq!(summary.active_codes, 98);
         assert_eq!(summary.retired_codes, 3);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
@@ -4957,7 +4973,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 100);
+        assert_eq!(all().len(), 101);
     }
 
     #[test]
@@ -5465,7 +5481,7 @@ mod tests {
         assert_eq!(cause.key.ordinal(), 192);
 
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 97);
+        assert_eq!(summary.active_codes, 98);
         assert_eq!(summary.retired_codes, 3);
     }
 

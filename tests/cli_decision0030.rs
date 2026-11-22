@@ -640,3 +640,105 @@ fn cli_h0642_set_run_preflight_rejects_before_effects() {
         "run preflight must not execute the body (sentinel absent): {combined}"
     );
 }
+
+#[test]
+fn cli_h0644_warns_only_for_unsupported_else_and_preserves_run_preflight() {
+    let prefix = r#"type FileAppError {
+  code: Text
+}
+
+app else_probe {
+  uses:
+    files.read
+
+  starts with:
+    run_tool
+
+  task run_tool(input: Path) -> Result Unit, FileAppError {
+    uses:
+      files.read
+    fails when:
+      reading the input fails
+    allocates:
+      one bounded file buffer
+    does:
+      let input_text = try files_read_text(input) or fail FileAppError.read
+      change value: UInt = 0
+      if input_text == "enabled" {
+        set value = 1
+"#;
+    let suffix = "        set value = 2\n      }\n      return\n  }\n}\n";
+    let branch_line = prefix.lines().count() + 1;
+    let original = write_cli_fixture("h0644_else", &format!("{prefix}      }} else {{\n{suffix}"));
+    let rewrite = write_cli_fixture(
+        "h0644_rewrite",
+        &format!(
+            "{prefix}      }}\n      # }} else {{\n      let marker: Text = \"}} else {{\"\n      if input_text != \"enabled\" {{\n{suffix}"
+        ),
+    );
+    let unrelated = write_cli_fixture(
+        "h0644_unrelated",
+        &format!("{prefix}      }} otherwise {{\n{suffix}"),
+    );
+
+    let message = "this `else` form is unsupported by `hum run`";
+    let plain = run_hum_check(&original, false);
+    assert_eq!(plain.status.code(), Some(0));
+    let plain_stderr = String::from_utf8_lossy(&plain.stderr);
+    let mut warnings = plain_stderr.lines().filter(|line| line.contains("H0644"));
+    let warning = warnings.next().expect("one warning on stderr");
+    assert!(
+        warning.contains(&format!(":{branch_line}:7: warning[H0644]: {message}")),
+        "{warning}"
+    );
+    assert_eq!(warnings.next(), None);
+
+    let json = run_hum_check(&original, true);
+    assert_eq!(json.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&json.stdout);
+    let code = "\"code\": \"H0644\"";
+    assert_eq!(stdout.matches(code).count(), 1, "{stdout}");
+    let (_, fields) = stdout.split_once(code).expect("warning object");
+    let (fields, _) = fields.split_once("\n    }").expect("end of warning object");
+    assert!(fields.contains("\"severity\": \"warning\""), "{fields}");
+    assert!(fields.contains(message), "{fields}");
+    assert!(
+        fields.contains(&format!("\"line\": {branch_line}, \"column\": 7")),
+        "{fields}"
+    );
+    assert!(stdout.contains("\"errors\": 0"), "{stdout}");
+
+    for path in [&rewrite, &unrelated] {
+        for json in [false, true] {
+            let output = run_hum_check(path, json);
+            assert_eq!(output.status.code(), Some(0), "{output:?}");
+            assert!(!String::from_utf8_lossy(&output.stderr).contains("H0644"));
+            assert!(!String::from_utf8_lossy(&output.stdout).contains("H0644"));
+        }
+    }
+
+    let input = original.with_extension("txt");
+    std::fs::write(&input, "enabled").expect("write exact file fixture");
+    let grant = format!("files.read={}", input.display());
+    let run = Command::new(hum_binary())
+        .arg("run")
+        .arg(&original)
+        .arg(format!("--allow={grant}"))
+        .args(["--trust-locality", &grant, "--args"])
+        .arg(&input)
+        .output()
+        .expect("run hum");
+    assert_eq!(run.status.code(), Some(1));
+    assert!(run.stdout.is_empty(), "{run:?}");
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        stderr.contains(&format!(
+            ":{branch_line}:7 [blocked_unsupported_statement_v0] unknown_body_line"
+        )),
+        "{stderr}"
+    );
+    assert!(stderr.contains("not_in_core_body_grammar_v0"), "{stderr}");
+    assert!(!stderr.contains("failure: FileAppError.read"), "{stderr}");
+    assert!(!stderr.contains("trusted-not-proven"), "{stderr}");
+    assert!(!stderr.contains("H0644"), "{stderr}");
+}
