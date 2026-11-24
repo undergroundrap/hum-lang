@@ -2127,34 +2127,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
     }
 
     fn preflight_reachable_typed_failures(&self, reachable_tasks: &[&Task]) -> Result<(), String> {
-        let analysis = typed_failure::analyze_program(self.program);
-        let occurrences = reachable_tasks
-            .iter()
-            .flat_map(|task| {
-                let Some(does) = task.section("does") else {
-                    return Vec::new();
-                };
-                let body = core_body::analyze_does_section(
-                    self.program
-                        .canonical_core_expectation_for_task(task, does)
-                        .expect("live failure-preflight task must have parser authority"),
-                );
-                body.statements
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(index, _statement)| {
-                        (!does
-                            .body_syntax
-                            .get(index)
-                            .and_then(Option::as_ref)
-                            .is_some_and(type_check::is_constant_text_stdout_write_statement))
-                        .then(|| analysis.fact(task, index))
-                        .flatten()
-                        .and_then(|fact| fact.occurrence.clone())
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+        let occurrences = reachable_typed_failure_occurrences(self.program, reachable_tasks);
         if self.emit_exact_occurrences(occurrences)? {
             return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
         }
@@ -5138,6 +5111,57 @@ pub(crate) fn reachable_type_tasks<'program>(
         }
     }
     reachable
+}
+
+pub(crate) fn default_entry_missing_failure_declaration_occurrences(
+    program: &Program,
+) -> Vec<DiagnosticOccurrence> {
+    let Ok(entry) = select_entry(program, None) else {
+        return Vec::new();
+    };
+    let callable_analysis = callable::analyze_program(program);
+    let reachable = reachable_type_tasks(program, &callable_analysis, entry.task, entry.app);
+    let mut occurrences = reachable_typed_failure_occurrences(program, &reachable);
+    occurrences.retain(|occurrence| {
+        occurrence.code == DiagnosticCode::MISSING_FAILURE_DECLARATION
+            && occurrence.owning_stage() == "effect_check"
+    });
+    occurrences.sort_by(occurrence_public_order);
+    occurrences
+}
+
+fn reachable_typed_failure_occurrences(
+    program: &Program,
+    reachable_tasks: &[&Task],
+) -> Vec<DiagnosticOccurrence> {
+    let analysis = typed_failure::analyze_program(program);
+    reachable_tasks
+        .iter()
+        .flat_map(|task| {
+            let Some(does) = task.section("does") else {
+                return Vec::new();
+            };
+            let body = core_body::analyze_does_section(
+                program
+                    .canonical_core_expectation_for_task(task, does)
+                    .expect("live failure-preflight task must have parser authority"),
+            );
+            body.statements
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, _statement)| {
+                    (!does
+                        .body_syntax
+                        .get(index)
+                        .and_then(Option::as_ref)
+                        .is_some_and(type_check::is_constant_text_stdout_write_statement))
+                    .then(|| analysis.fact(task, index))
+                    .flatten()
+                    .and_then(|fact| fact.occurrence.clone())
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 fn find_task_by_definition_id<'program>(

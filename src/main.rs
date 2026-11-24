@@ -529,6 +529,19 @@ fn run() -> Result<ExitCode, String> {
         check_stages.push("full_type_check");
     }
     validate_aq_diagnostic_occurrences(&program, &diagnostics, &diagnostic_occurrences)?;
+    if options.command == "check"
+        && !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        for occurrence in run::default_entry_missing_failure_declaration_occurrences(&program) {
+            let diagnostic = occurrence.diagnostic().clone();
+            diagnostic_occurrences
+                .insert_owned(occurrence)
+                .map_err(|error| format!("diagnostic invariant failure: {error:?}"))?;
+            diagnostics.push(diagnostic);
+        }
+    }
     let has_errors = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);

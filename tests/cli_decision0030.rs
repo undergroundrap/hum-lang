@@ -317,7 +317,7 @@ fn cli_result_multiword_success_type_positive() {
     // Regression for Ubuntu job 108467610692.
     let path = write_cli_fixture(
         "result_multiword_positive",
-        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text, sep: Text) -> Result List Text, SplitError {\n  does:\n    let pieces = try text_split(text, sep) or fail SplitError.split\n    return pieces\n}\n",
+        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text, sep: Text) -> Result List Text, SplitError {\n  fails when:\n    The separator is empty.\n  does:\n    let pieces = try text_split(text, sep) or fail SplitError.split\n    return pieces\n}\n",
     );
     let out = run_hum_check(&path, false);
     assert_eq!(
@@ -397,7 +397,7 @@ fn cli_result_typed_failure_positive_path() {
     // src/full_type_check.rs, which exercises the production owner directly.
     let path = write_cli_fixture(
         "result_error_root",
-        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text, sep: Text) -> Result List Text, SplitError {\n  does:\n    let pieces = try text_split(text, sep) or fail SplitError.split\n    return pieces\n}\n",
+        "type SplitError {\n  code: Text\n}\n\ntask split_args(text: Text, sep: Text) -> Result List Text, SplitError {\n  fails when:\n    The separator is empty.\n  does:\n    let pieces = try text_split(text, sep) or fail SplitError.split\n    return pieces\n}\n",
     );
     let out = run_hum_check(&path, false);
     assert_eq!(
@@ -741,4 +741,329 @@ app else_probe {
     assert!(!stderr.contains("failure: FileAppError.read"), "{stderr}");
     assert!(!stderr.contains("trusted-not-proven"), "{stderr}");
     assert!(!stderr.contains("H0644"), "{stderr}");
+}
+
+const H0907_TYPE_STAGES: &str = r#""parse", "source_check", "app_entry", "path_boundary", "callable", "capability_root", "resolve", "type_check""#;
+const H0907_FULL_STAGES: &str = r#""parse", "source_check", "app_entry", "path_boundary", "callable", "capability_root", "resolve", "type_check", "full_type_check""#;
+
+const H0907_APP: &str = r#"module default_failure_declaration
+
+type ProbeError {
+  code: Text
+}
+
+app failure_probe {
+  why:
+    Exercise typed failure through the default entry.
+  starts with:
+    relay
+
+  task source() -> Result Unit, ProbeError {
+    why:
+      Produce the named failure.
+    fails when:
+      This probe always reaches ProbeError.expected.
+    does:
+      fail ProbeError.expected
+  }
+
+  task relay() -> Result Unit, ProbeError {
+    why:
+      Propagate the source task's typed failure.
+    does:
+      let value = try source()
+      return value
+  }
+}
+"#;
+
+fn h0907_declared_app() -> String {
+    H0907_APP.replace(
+        "    does:\n      let value = try source()",
+        "    fails when:\n      The source task returns ProbeError.expected.\n    does:\n      let value = try source()",
+    )
+}
+
+fn check_json_error_rows(report: &str) -> impl Iterator<Item = &str> {
+    // The check renderer places top-level diagnostic objects on separate lines.
+    let (_, diagnostics) = report
+        .split_once("\n  \"diagnostics\": [")
+        .expect("check JSON diagnostic array");
+    diagnostics.split("\n    {").skip(1).filter_map(|row| {
+        let (row, _) = row
+            .split_once("\n    }")
+            .expect("check JSON diagnostic row");
+        row.lines()
+            .any(|line| line.trim() == r#""severity": "error","#)
+            .then_some(row)
+    })
+}
+
+fn assert_h0907_check_pair(path: &Path, codes: &[&str], stages: &str) -> (String, String) {
+    let plain = run_hum_check(path, false);
+    let json = run_hum_check(path, true);
+    let exit = Some(i32::from(!codes.is_empty()));
+    let stderr = String::from_utf8(plain.stderr).expect("UTF-8 check diagnostics");
+    let report = String::from_utf8(json.stdout).expect("UTF-8 check JSON");
+    assert_eq!(plain.status.code(), exit, "{path:?}: {stderr}");
+    assert_eq!(json.status.code(), exit, "{path:?}: {report}");
+    assert!(json.stderr.is_empty(), "{path:?}: {:?}", json.stderr);
+
+    let plain_codes = stderr
+        .lines()
+        .filter_map(|line| {
+            let (_, diagnostic) = line.split_once(": error[")?;
+            diagnostic.split_once("]: ").map(|(code, _)| code)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(plain_codes, codes, "{path:?}: {stderr}");
+
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.contains(": warning["))
+        .count();
+    let errors = codes.len();
+    assert_eq!(
+        String::from_utf8(plain.stdout).unwrap(),
+        format!("checked 1 file(s): {errors} error(s), {warnings} warning(s)\n"),
+        "{path:?}"
+    );
+    assert!(report.contains(r#""schema": "hum.check.v0""#), "{report}");
+    assert!(
+        report
+            .lines()
+            .any(|line| line.trim() == format!("\"stages\": [{stages}],")),
+        "{report}"
+    );
+    assert!(
+        report.contains(&format!(
+            r#""summary": {{"files": 1, "errors": {errors}, "warnings": {warnings}}}"#
+        )),
+        "{report}"
+    );
+    let rows = check_json_error_rows(&report).collect::<Vec<_>>();
+    assert_eq!(rows.len(), errors, "{report}");
+    for (row, code) in rows.into_iter().zip(codes) {
+        assert!(
+            row.lines()
+                .any(|line| line.trim() == format!("\"code\": {code:?},")),
+            "{row}"
+        );
+    }
+    (stderr, report)
+}
+
+#[test]
+fn cli_h0907_reports_each_reachable_failure_in_plain_and_json() {
+    // The two-site case reaches relay from a distinct default entry.
+    let twice = H0907_APP
+        .replace("  starts with:\n    relay", "  starts with:\n    start")
+        .replace(
+            "      return value",
+            "      let second = try source()\n      return second",
+        );
+    let twice = format!(
+        r#"{}  task start() -> Result Unit, ProbeError {{
+    fails when:
+      The relay task returns ProbeError.expected.
+    does:
+      let result = try relay()
+      return result
+  }}
+}}
+"#,
+        twice.strip_suffix("}\n").unwrap()
+    );
+    for (name, source, sites) in [
+        ("h0907_one", H0907_APP, [(26, 23)].as_slice()),
+        ("h0907_two", twice.as_str(), [(26, 23), (27, 24)].as_slice()),
+    ] {
+        let path = write_cli_fixture(name, source);
+        let codes = vec!["H0907"; sites.len()];
+        let (plain, json) = assert_h0907_check_pair(&path, &codes, H0907_FULL_STAGES);
+
+        let run = run_hum(&["run"], &path);
+        let stderr = String::from_utf8(run.stderr).expect("UTF-8 preflight diagnostics");
+        assert_eq!(run.status.code(), Some(2), "{stderr}");
+        assert!(run.stdout.is_empty(), "{stderr}");
+
+        let run_lines = stderr.lines().collect::<Vec<_>>();
+        assert_eq!(run_lines.len(), sites.len() * 2, "{stderr}");
+        let check_lines = plain.lines().collect::<Vec<_>>();
+        let check_blocks = check_lines
+            .windows(2)
+            .filter(|pair| pair[0].contains(": error[H0907]: "))
+            .map(|pair| [pair[0], pair[1]])
+            .collect::<Vec<_>>();
+        let (preflight_blocks, remainder) = run_lines.as_chunks::<2>();
+        assert!(remainder.is_empty(), "{stderr}");
+        assert_eq!(check_blocks.as_slice(), preflight_blocks);
+
+        let file = path.to_string_lossy().replace('\\', "/");
+        for ((&(line, column), block), row) in sites
+            .iter()
+            .zip(preflight_blocks)
+            .zip(check_json_error_rows(&json))
+        {
+            let location = format!("{file}:{line}:{column}: error[H0907]: ");
+            let message = block[0].strip_prefix(&location).expect("exact H0907 span");
+            let help = block[1].strip_prefix("  help: ").expect("H0907 help");
+            assert!(
+                message
+                    .starts_with("typed failure requires a meaningful `fails when:` declaration"),
+                "{message}"
+            );
+            assert!(
+                help.ends_with("Add a concrete failure condition naming this path."),
+                "{help}"
+            );
+            assert!(
+                row.lines()
+                    .any(|entry| entry.trim() == format!("\"message\": {message:?},")),
+                "{row}"
+            );
+            assert!(
+                row.lines().any(|entry| entry.trim()
+                    == format!(
+                        "\"span\": {{\"file\": {file:?}, \"line\": {line}, \"column\": {column}}},"
+                    )),
+                "{row}"
+            );
+            assert!(
+                row.lines()
+                    .any(|entry| entry.trim() == format!("\"help\": {help:?}")),
+                "{row}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cli_h0907_respects_declared_unreachable_and_missing_defaults() {
+    let declared = write_cli_fixture("h0907_declared", &h0907_declared_app());
+    assert_h0907_check_pair(&declared, &[], H0907_FULL_STAGES);
+    let run = run_hum(&["run"], &declared);
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+    assert!(run.stdout.is_empty(), "{run:?}");
+    assert!(
+        String::from_utf8_lossy(&run.stderr).starts_with("failure: ProbeError.expected\n"),
+        "{run:?}"
+    );
+
+    let unreachable = write_cli_fixture(
+        "h0907_unreachable",
+        &H0907_APP.replace(
+            "  starts with:\n    relay",
+            "  starts with:\n    start\n\n  task start() -> Unit {\n    does:\n      return\n  }",
+        ),
+    );
+    assert_h0907_check_pair(&unreachable, &[], H0907_FULL_STAGES);
+    let run = run_hum(&["run"], &unreachable);
+    assert_eq!(run.status.code(), Some(0), "{run:?}");
+    assert!(run.stdout.is_empty() && run.stderr.is_empty(), "{run:?}");
+    let explicit = run_hum(&["run", "--entry", "relay"], &unreachable);
+    assert_eq!(explicit.status.code(), Some(2), "{explicit:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&explicit.stderr)
+            .matches("error[H0907]")
+            .count(),
+        1
+    );
+
+    let no_default = write_cli_fixture(
+        "h0907_no_default",
+        r#"type ProbeError {
+  code: Text
+}
+
+task first() -> UInt {
+  does:
+    return 1
+}
+
+task broken() -> Result UInt, ProbeError {
+  does:
+    fail ProbeError.expected
+}
+"#,
+    );
+    assert_h0907_check_pair(&no_default, &[], H0907_FULL_STAGES);
+    let run = run_hum(&["run"], &no_default);
+    assert_eq!(run.status.code(), Some(2), "{run:?}");
+    assert!(run.stdout.is_empty(), "{run:?}");
+    assert!(
+        String::from_utf8_lossy(&run.stderr).contains("multiple tasks are available"),
+        "{run:?}"
+    );
+    let explicit = run_hum(&["run", "--entry", "broken"], &no_default);
+    assert_eq!(explicit.status.code(), Some(2), "{explicit:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&explicit.stderr)
+            .matches("error[H0907]")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn cli_h0907_preserves_the_bounded_literal_stdout_exemption() {
+    let text = include_str!("../programs/hello_world.hum")
+        .replace("\r\n", "\n")
+        .replace(
+            "    fails when:\n      bounded output is denied or the output adapter rejects the write\n\n",
+            "",
+        )
+        .replace("\"Hello, world!\"", "\"Hello world!\"");
+    assert!(!text.contains("fails when:"));
+    assert!(text.contains("try stdout_write(\"Hello world!\")"));
+    let path = write_cli_fixture("h0907_bounded_stdout", &text);
+
+    assert_h0907_check_pair(&path, &[], H0907_FULL_STAGES);
+    let run = run_hum(&["run", "--allow", "stdout.write"], &path);
+    assert_eq!(run.status.code(), Some(0), "{run:?}");
+    assert_eq!(run.stdout, b"Hello world!");
+    assert!(run.stderr.is_empty(), "{run:?}");
+}
+
+#[test]
+fn cli_h0907_preserves_type_and_full_type_error_precedence() {
+    for (name, body, code, stages) in [
+        (
+            "h0907_type_blocker",
+            "      return \"not a UInt\"\n",
+            "H0606",
+            H0907_TYPE_STAGES,
+        ),
+        (
+            "h0907_full_type_blocker",
+            "      change count: UInt = 1\n      set count = -5\n      return count\n",
+            "H0642",
+            H0907_FULL_STAGES,
+        ),
+    ] {
+        let app = H0907_APP.strip_suffix("}\n").unwrap();
+        let text = format!("{app}\n  task earlier_error() -> UInt {{\n    does:\n{body}  }}\n}}\n");
+        let path = write_cli_fixture(name, &text);
+        assert_h0907_check_pair(&path, &[code], stages);
+    }
+}
+
+#[test]
+fn cli_h0907_keeps_other_effect_diagnostics_out_of_check() {
+    let text = h0907_declared_app().replace(
+        "    does:\n      let value = try source()",
+        "    avoids:\n      failure\n    does:\n      let value = try source()",
+    );
+    let path = write_cli_fixture("h0907_effect_only", &text);
+    assert_h0907_check_pair(&path, &[], H0907_FULL_STAGES);
+
+    let effect = run_hum(&["effect-check", "--format=json"], &path);
+    assert_eq!(effect.status.code(), Some(1), "{effect:?}");
+    let json = String::from_utf8(effect.stdout).expect("UTF-8 effect JSON");
+    assert!(json.contains("rejected_avoids_contradicted_v0"), "{json}");
+    assert!(
+        json.contains("avoids_failure_but_body_can_fail_v0"),
+        "{json}"
+    );
+    assert!(!json.contains("\"diagnostic_code\": \"H0907\""), "{json}");
 }
