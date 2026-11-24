@@ -9,14 +9,17 @@ humans and coding agents.
 Hum source should scale from the small form most code wants to the explicit
 contract form safety-critical work deserves.
 
-The first canonical user-facing native slice is
-[`programs/integer_sign.hum`](programs/integer_sign.hum):
-`hum run --native --allow stdout.write programs/integer_sign.hum --args -7`
-checks the source, verifies its exact backend facts, and prints `negative`
-through Cranelift on supported Windows and Linux hosts. This is one bounded
-program shape, not general native compilation.
+## Try It
 
-Minimal form:
+With Rust and Cargo on `PATH`, build Hum once from the repository root in
+PowerShell 7. See [setup](docs/SETUP.md) for prerequisites.
+
+```powershell
+cargo build --locked --bin hum
+```
+
+Start with [`examples/core/minimal_add.hum`](examples/core/minimal_add.hum).
+`does:` is the task body. `allocates:` records its allocation intent.
 
 <!-- hum-example:start examples/core/minimal_add.hum -->
 ```hum
@@ -30,7 +33,56 @@ task add(a: Int, b: Int) -> Int {
 ```
 <!-- hum-example:end -->
 
-Full-contract form:
+```powershell
+./target/debug/hum run examples/core/minimal_add.hum --entry add --args 2 3
+```
+
+It prints `5` and exits `0`.
+
+The same `add` task in [`examples/core/add.hum`](examples/core/add.hum) keeps
+the body and adds a postcondition. Hum evaluates it against the result at run
+time. The example's `why:` and `cost:` sections record intent.
+
+<!-- hum-example:start examples/core/add.hum -->
+```hum
+  ensures:
+    result == a + b
+```
+<!-- hum-example:end -->
+
+```powershell
+./target/debug/hum run examples/core/add.hum --entry add --args 2 3
+```
+
+It still prints `5` and exits `0`. Now flip the predicate in a copy under
+`target/` and run the same inputs.
+
+```powershell
+(Get-Content -Raw examples/core/add.hum).Replace(
+    '    result == a + b', '    result != a + b'
+) | Set-Content -Encoding utf8 -NoNewline target/try-it-wrong-ensures.hum
+./target/debug/hum run target/try-it-wrong-ensures.hum --entry add --args 2 3
+```
+
+The unchanged body computes `5`, so the flipped predicate fails. Hum exits
+`1` with empty stdout and reports the failed `ensures:` line.
+
+```text
+target/try-it-wrong-ensures.hum:8:5: error[H0703]: task `add` did not satisfy ensures: result != a + b
+  help: Fix the task body or change the contract; task blame means the caller met entry conditions but the implementation broke its promise.
+```
+
+## Advanced Showcase
+
+The `remember_work_item` task shows 16 intent sections and a `does:` body.
+Hum checks supported code in `does:` and validates structured declarations
+such as `targets:`, `uses:`, and `changes:`. `tests:` names a test obligation
+that can be linked to a test block.
+
+The sentences under `needs:`, `ensures:`, and `fails when:` here are recorded
+as prose. The `if` and `fail` statements in `does:` express the failure logic.
+`why:`, `protects:`, `trusts:`, `watch for:`, `cost:`, `allocates:`, `avoids:`,
+`tradeoffs:`, and `optimizes:` record intent for review.
 
 <!-- hum-example:start examples/reference_surface.hum -->
 ```hum
@@ -120,8 +172,8 @@ int add(int a, int b) { return a - b; }  /* nobody noticed */
 The comment is a promise with no enforcement. The next edit — human or
 AI agent — can silently turn it into a lie.
 
-In Hum, that sentence is a checked contract. This fixture ships in the
-repo with a deliberately sabotaged body:
+A supported Hum predicate can make that promise a runtime check. This
+tracked fixture keeps the predicate and deliberately breaks the body.
 
 <!-- hum-example:start fixtures/run/wrong_add_contract.hum -->
 ```hum
@@ -187,6 +239,13 @@ category into the first, and to never blur which is which.
 
 This repository is a language design seed with a Milestone 0 Rust bootstrap compiler front-end.
 Milestone 1 execution has started with `hum run` interpreting the first Formal Core fixtures; the report/check gates remain honest non-executing evidence surfaces.
+
+The first canonical user-facing native slice is
+[`programs/integer_sign.hum`](programs/integer_sign.hum):
+`hum run --native --allow stdout.write programs/integer_sign.hum --args -7`
+checks the source, verifies its exact backend facts, and prints `negative`
+through Cranelift on supported Windows and Linux hosts. This is one bounded
+program shape, not general native compilation.
 
 Current version: `0.0.1` pre-alpha.
 
