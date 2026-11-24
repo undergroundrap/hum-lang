@@ -1808,7 +1808,12 @@ impl<'program, 'output> Interpreter<'program, 'output> {
         )? {
             return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
         }
-        let reachable_tasks = self.reachable_type_tasks(task);
+        let reachable_tasks = reachable_type_tasks(
+            self.program,
+            &self.callable_analysis,
+            task,
+            *self.active_app.borrow(),
+        );
         if self.emit_exact_occurrences(self.reachable_type_occurrences(&reachable_tasks))? {
             return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
         }
@@ -1891,117 +1896,27 @@ impl<'program, 'output> Interpreter<'program, 'output> {
             .map_err(|error| format!("diagnostic invariant failure: {error:?}"))
     }
 
-    fn reachable_type_tasks(&self, entry: &'program Task) -> Vec<&'program Task> {
-        let mut pending = vec![entry];
-        let mut visited = BTreeSet::new();
-        let mut reachable = Vec::new();
-        while let Some(task) = pending.pop() {
-            let identity = (task.span.file.clone(), task.span.line, task.span.column);
-            if !visited.insert(identity) {
-                continue;
-            }
-            reachable.push(task);
-            for target_definition_id in self
-                .callable_analysis
-                .callable_argument_target_definition_ids(task)
-            {
-                if let Some(target) = self.task_by_definition_id(target_definition_id) {
-                    pending.push(target);
-                }
-            }
-            let Some(does) = task.section("does") else {
-                continue;
-            };
-            let body = core_body::analyze_does_section(
-                self.program
-                    .canonical_core_expectation_for_task(task, does)
-                    .expect("live runtime task must have parser authority"),
-            );
-            for statement in &body.statements {
-                let mut resolver_owned_callable_occurrence = false;
-                if let Some(application) = self
-                    .callable_analysis
-                    .direct_application(task, &statement.span)
-                {
-                    resolver_owned_callable_occurrence = true;
-                    if let Some(receiver) =
-                        self.task_by_definition_id(&application.receiver_definition_id)
-                    {
-                        pending.push(receiver);
-                    }
-                    if let Some(target) =
-                        self.task_by_definition_id(&application.target_definition_id)
-                    {
-                        pending.push(target);
-                    }
-                }
-                for receiver_definition_id in self
-                    .callable_analysis
-                    .callable_callee_target_definition_ids(task, &statement.span)
-                {
-                    resolver_owned_callable_occurrence = true;
-                    if let Some(receiver) = self.task_by_definition_id(receiver_definition_id) {
-                        pending.push(receiver);
-                    }
-                }
-                if resolver_owned_callable_occurrence {
-                    continue;
-                }
-                let Some(expression) = typed_failure::statement_expression(statement) else {
-                    continue;
-                };
-                for call in typed_failure::calls_in_expression(expression) {
-                    if let Some(callee) = self.find_task(&call.callee) {
-                        pending.push(callee);
-                    }
-                }
-            }
-        }
-        reachable
-    }
-
     fn entry_task(&self, entry: Option<&str>) -> Result<(&'program Task, bool), String> {
-        if let Some(name) = entry {
-            return self
-                .find_task(name)
-                .map(|task| (task, false))
-                .ok_or_else(|| format!("entry task `{name}` was not found"));
-        }
-
-        let analysis = app_entry::analyze(self.program);
-        if let Some(diagnostic) = analysis.diagnostic {
-            let code = diagnostic.code.as_str();
-            let title = diagnostic.code.title();
-            let occurrence = analysis.diagnostic_occurrence.ok_or_else(|| {
-                "diagnostic invariant failure: app-entry diagnostic has no occurrence".to_string()
-            })?;
-            self.emit_occurrence(&occurrence, diagnostic)?;
-            return Err(format!("{code} {title}"));
-        }
-        if let Some(entry) = analysis.entry {
-            self.active_app.replace(Some(entry.app));
-            return Ok((entry.task, true));
-        }
-
-        let mut tasks = Vec::new();
-        for file in &self.program.files {
-            collect_tasks(&file.items, &mut tasks);
-        }
-        match tasks.as_slice() {
-            [task] => Ok((*task, false)),
-            [] => Err("no task is available to run".to_string()),
-            _ => Err("multiple tasks are available; pass `--entry <task>`".to_string()),
+        match select_entry(self.program, entry) {
+            Ok(selected) => {
+                if let Some(app) = selected.app {
+                    self.active_app.replace(Some(app));
+                }
+                Ok((selected.task, selected.app.is_some()))
+            }
+            Err(EntrySelectionError::AppDiagnostic(rejection)) => {
+                let (diagnostic, occurrence) = *rejection;
+                let code = diagnostic.code.as_str();
+                let title = diagnostic.code.title();
+                self.emit_occurrence(&occurrence, diagnostic)?;
+                Err(format!("{code} {title}"))
+            }
+            Err(EntrySelectionError::Message(message)) => Err(message),
         }
     }
 
     fn find_task(&self, name: &str) -> Option<&'program Task> {
-        if let Some(app) = *self.active_app.borrow() {
-            return find_task_in_items(&app.items, name);
-        }
-        self.program
-            .files
-            .iter()
-            .find_map(|file| find_task_in_items(&file.items, name))
+        find_task_by_name(self.program, *self.active_app.borrow(), name)
     }
 
     fn parse_args(
@@ -2061,13 +1976,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
     }
 
     fn task_by_definition_id(&self, definition_id: &str) -> Option<&'program Task> {
-        let mut tasks = Vec::new();
-        for file in &self.program.files {
-            collect_tasks(&file.items, &mut tasks);
-        }
-        tasks
-            .into_iter()
-            .find(|task| self.callable_analysis.definition_id_for_task(task) == Some(definition_id))
+        find_task_by_definition_id(self.program, &self.callable_analysis, definition_id)
     }
 
     fn execute_task_body(&self, task: &Task, args: Vec<Value>) -> Result<TaskResult, String> {
@@ -2218,34 +2127,7 @@ impl<'program, 'output> Interpreter<'program, 'output> {
     }
 
     fn preflight_reachable_typed_failures(&self, reachable_tasks: &[&Task]) -> Result<(), String> {
-        let analysis = typed_failure::analyze_program(self.program);
-        let occurrences = reachable_tasks
-            .iter()
-            .flat_map(|task| {
-                let Some(does) = task.section("does") else {
-                    return Vec::new();
-                };
-                let body = core_body::analyze_does_section(
-                    self.program
-                        .canonical_core_expectation_for_task(task, does)
-                        .expect("live failure-preflight task must have parser authority"),
-                );
-                body.statements
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(index, _statement)| {
-                        (!does
-                            .body_syntax
-                            .get(index)
-                            .and_then(Option::as_ref)
-                            .is_some_and(type_check::is_constant_text_stdout_write_statement))
-                        .then(|| analysis.fact(task, index))
-                        .flatten()
-                        .and_then(|fact| fact.occurrence.clone())
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+        let occurrences = reachable_typed_failure_occurrences(self.program, reachable_tasks);
         if self.emit_exact_occurrences(occurrences)? {
             return Err(DIAGNOSTIC_PREFLIGHT_REJECTED.to_string());
         }
@@ -5084,6 +4966,218 @@ fn executable_lines(lines: &[SectionLine]) -> Vec<ExecLine> {
         .collect()
 }
 
+#[derive(Debug)]
+pub(crate) struct SelectedEntry<'program> {
+    pub(crate) task: &'program Task,
+    pub(crate) app: Option<&'program App>,
+}
+
+#[derive(Debug)]
+pub(crate) enum EntrySelectionError {
+    AppDiagnostic(Box<(Diagnostic, DiagnosticOccurrence)>),
+    Message(String),
+}
+
+pub(crate) fn select_entry<'program>(
+    program: &'program Program,
+    entry: Option<&str>,
+) -> Result<SelectedEntry<'program>, EntrySelectionError> {
+    if let Some(name) = entry {
+        return find_task_by_name(program, None, name)
+            .map(|task| SelectedEntry { task, app: None })
+            .ok_or_else(|| {
+                EntrySelectionError::Message(format!("entry task `{name}` was not found"))
+            });
+    }
+
+    let analysis = app_entry::analyze(program);
+    if let Some(diagnostic) = analysis.diagnostic {
+        let occurrence = analysis.diagnostic_occurrence.ok_or_else(|| {
+            EntrySelectionError::Message(
+                "diagnostic invariant failure: app-entry diagnostic has no occurrence".to_string(),
+            )
+        })?;
+        return Err(EntrySelectionError::AppDiagnostic(Box::new((
+            diagnostic, occurrence,
+        ))));
+    }
+    if let Some(entry) = analysis.entry {
+        return Ok(SelectedEntry {
+            task: entry.task,
+            app: Some(entry.app),
+        });
+    }
+
+    let mut tasks = Vec::new();
+    for file in &program.files {
+        collect_tasks(&file.items, &mut tasks);
+    }
+    match tasks.as_slice() {
+        [task] => Ok(SelectedEntry { task, app: None }),
+        [] => Err(EntrySelectionError::Message(
+            "no task is available to run".to_string(),
+        )),
+        _ => Err(EntrySelectionError::Message(
+            "multiple tasks are available; pass `--entry <task>`".to_string(),
+        )),
+    }
+}
+
+fn find_task_by_name<'program>(
+    program: &'program Program,
+    app: Option<&'program App>,
+    name: &str,
+) -> Option<&'program Task> {
+    if let Some(app) = app {
+        return find_task_in_items(&app.items, name);
+    }
+    program
+        .files
+        .iter()
+        .find_map(|file| find_task_in_items(&file.items, name))
+}
+
+pub(crate) fn reachable_type_tasks<'program>(
+    program: &'program Program,
+    callable_analysis: &CallableAnalysis,
+    entry: &'program Task,
+    app: Option<&'program App>,
+) -> Vec<&'program Task> {
+    let mut pending = vec![entry];
+    let mut visited = BTreeSet::new();
+    let mut reachable = Vec::new();
+    while let Some(task) = pending.pop() {
+        let identity = (task.span.file.clone(), task.span.line, task.span.column);
+        if !visited.insert(identity) {
+            continue;
+        }
+        reachable.push(task);
+        for target_definition_id in callable_analysis.callable_argument_target_definition_ids(task)
+        {
+            if let Some(target) =
+                find_task_by_definition_id(program, callable_analysis, target_definition_id)
+            {
+                pending.push(target);
+            }
+        }
+        let Some(does) = task.section("does") else {
+            continue;
+        };
+        let body = core_body::analyze_does_section(
+            program
+                .canonical_core_expectation_for_task(task, does)
+                .expect("live runtime task must have parser authority"),
+        );
+        for statement in &body.statements {
+            let mut resolver_owned_callable_occurrence = false;
+            if let Some(application) = callable_analysis.direct_application(task, &statement.span) {
+                resolver_owned_callable_occurrence = true;
+                if let Some(receiver) = find_task_by_definition_id(
+                    program,
+                    callable_analysis,
+                    &application.receiver_definition_id,
+                ) {
+                    pending.push(receiver);
+                }
+                if let Some(target) = find_task_by_definition_id(
+                    program,
+                    callable_analysis,
+                    &application.target_definition_id,
+                ) {
+                    pending.push(target);
+                }
+            }
+            for receiver_definition_id in
+                callable_analysis.callable_callee_target_definition_ids(task, &statement.span)
+            {
+                resolver_owned_callable_occurrence = true;
+                if let Some(receiver) =
+                    find_task_by_definition_id(program, callable_analysis, receiver_definition_id)
+                {
+                    pending.push(receiver);
+                }
+            }
+            if resolver_owned_callable_occurrence {
+                continue;
+            }
+            let Some(expression) = typed_failure::statement_expression(statement) else {
+                continue;
+            };
+            for call in typed_failure::calls_in_expression(expression) {
+                if let Some(callee) = find_task_by_name(program, app, &call.callee) {
+                    pending.push(callee);
+                }
+            }
+        }
+    }
+    reachable
+}
+
+pub(crate) fn default_entry_missing_failure_declaration_occurrences(
+    program: &Program,
+) -> Vec<DiagnosticOccurrence> {
+    let Ok(entry) = select_entry(program, None) else {
+        return Vec::new();
+    };
+    let callable_analysis = callable::analyze_program(program);
+    let reachable = reachable_type_tasks(program, &callable_analysis, entry.task, entry.app);
+    let mut occurrences = reachable_typed_failure_occurrences(program, &reachable);
+    occurrences.retain(|occurrence| {
+        occurrence.code == DiagnosticCode::MISSING_FAILURE_DECLARATION
+            && occurrence.owning_stage() == "effect_check"
+    });
+    occurrences.sort_by(occurrence_public_order);
+    occurrences
+}
+
+fn reachable_typed_failure_occurrences(
+    program: &Program,
+    reachable_tasks: &[&Task],
+) -> Vec<DiagnosticOccurrence> {
+    let analysis = typed_failure::analyze_program(program);
+    reachable_tasks
+        .iter()
+        .flat_map(|task| {
+            let Some(does) = task.section("does") else {
+                return Vec::new();
+            };
+            let body = core_body::analyze_does_section(
+                program
+                    .canonical_core_expectation_for_task(task, does)
+                    .expect("live failure-preflight task must have parser authority"),
+            );
+            body.statements
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, _statement)| {
+                    (!does
+                        .body_syntax
+                        .get(index)
+                        .and_then(Option::as_ref)
+                        .is_some_and(type_check::is_constant_text_stdout_write_statement))
+                    .then(|| analysis.fact(task, index))
+                    .flatten()
+                    .and_then(|fact| fact.occurrence.clone())
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn find_task_by_definition_id<'program>(
+    program: &'program Program,
+    callable_analysis: &CallableAnalysis,
+    definition_id: &str,
+) -> Option<&'program Task> {
+    let mut tasks = Vec::new();
+    for file in &program.files {
+        collect_tasks(&file.items, &mut tasks);
+    }
+    tasks
+        .into_iter()
+        .find(|task| callable_analysis.definition_id_for_task(task) == Some(definition_id))
+}
+
 fn collect_tasks<'a>(items: &'a [Item], tasks: &mut Vec<&'a Task>) {
     for item in items {
         match item {
@@ -5734,6 +5828,252 @@ pub(crate) mod tests {
     };
     #[cfg(windows)]
     use super::{Value, parse_arg};
+
+    #[test]
+    fn patch1_entry_selection_preserves_modes_and_errors() {
+        let empty = fixture_program("empty.hum", "module empty\n");
+        let single_text = "task only() -> UInt {\n  does:\n    return 7\n}\n";
+        let single = fixture_program("single.hum", single_text);
+        let multiple = fixture_program(
+            "multiple.hum",
+            &format!("{single_text}{}", single_text.replace("only", "other")),
+        );
+
+        for (program, entry, expected) in [
+            (&empty, None, "no task is available to run"),
+            (&single, Some("absent"), "entry task `absent` was not found"),
+            (
+                &multiple,
+                None,
+                "multiple tasks are available; pass `--entry <task>`",
+            ),
+        ] {
+            let error = super::select_entry(program, entry).unwrap_err();
+            assert!(
+                matches!(error, super::EntrySelectionError::Message(message) if message == expected)
+            );
+        }
+
+        for entry in [None, Some("only")] {
+            let selection = super::select_entry(&single, entry).unwrap();
+            assert_eq!(selection.task.name, "only");
+            assert!(selection.app.is_none());
+        }
+        let selected = super::select_entry(&multiple, Some("other")).unwrap();
+        assert_eq!(selected.task.name, "other");
+        assert!(selected.app.is_none());
+
+        let invalid = fixture_program(
+            "external-start.hum",
+            include_str!("../fixtures/app_entry/session_x_external_same_name_fail.hum"),
+        );
+        let Err(super::EntrySelectionError::AppDiagnostic(rejection)) =
+            super::select_entry(&invalid, None)
+        else {
+            panic!("invalid app start should return the original occurrence");
+        };
+        assert_eq!(
+            rejection.0.code,
+            crate::diagnostic::DiagnosticCode::APP_START_NOT_CHILD
+        );
+        assert_eq!(&rejection.0, rejection.1.diagnostic());
+        let direct = super::select_entry(&invalid, Some("run_tool")).unwrap();
+        assert_eq!(direct.task.name, "run_tool");
+        assert!(direct.app.is_none());
+    }
+
+    #[test]
+    fn patch1_reachability_preserves_order_and_callable_identity() {
+        let cases: [(&str, &str, &[&str]); 2] = [
+            (
+                "transitive",
+                r#"module parity_transitive
+
+app transitive {
+  why:
+    exercise the ordinary task closure
+
+  starts with:
+    start
+
+  task start -> Unit {
+    does:
+      let value = middle()
+      return
+  }
+
+  task middle() -> UInt {
+    does:
+      return leaf()
+  }
+
+  task leaf() -> UInt {
+    does:
+      return 23
+  }
+
+  task unreachable() -> UInt {
+    does:
+      return 99
+  }
+}
+"#,
+                &["def_1_task_start", "def_2_task_middle", "def_3_task_leaf"],
+            ),
+            (
+                "callable-scoped",
+                r#"module parity_callable
+
+task increment(value: UInt) -> UInt {
+  does:
+    return 99
+}
+
+task apply_once(value: UInt) -> UInt {
+  does:
+    return 98
+}
+
+app lexical_callable_probe {
+  why:
+    preserve resolved definitions with same-named global tasks
+
+  starts with:
+    start
+
+  task start -> Unit {
+    does:
+      let value = run_tool()
+      return
+  }
+
+  task increment(value: UInt) -> UInt {
+    does:
+      return value + 1
+  }
+
+  task apply_once(operation: task(UInt) -> UInt, value: UInt) -> UInt {
+    does:
+      return operation(value)
+  }
+
+  task unrelated() -> UInt {
+    does:
+      return 12
+  }
+
+  task run_tool -> UInt {
+    does:
+      let ordinary = unrelated()
+      return apply_once(increment, 41)
+  }
+
+  task unreachable() -> UInt {
+    does:
+      return 0
+  }
+}
+"#,
+                &[
+                    "def_5_task_start",
+                    "def_9_task_run_tool",
+                    "def_7_task_apply_once",
+                    "def_6_task_increment",
+                ],
+            ),
+        ];
+        for (name, text, expected) in cases {
+            let program = fixture_program(&format!("{name}.hum"), text);
+            let root = super::select_entry(&program, None).unwrap();
+            assert_eq!(root.task.name, "start");
+            assert!(root.app.is_some());
+            let analysis = crate::callable::analyze_program(&program);
+            let reachable = super::reachable_type_tasks(&program, &analysis, root.task, root.app);
+            let ids = reachable
+                .iter()
+                .map(|task| analysis.definition_id_for_task(task).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(ids, expected);
+
+            let mut all = Vec::new();
+            for file in &program.files {
+                super::collect_tasks(&file.items, &mut all);
+            }
+            let identities = |tasks: &[&crate::ast::Task]| {
+                tasks
+                    .iter()
+                    .map(|task| {
+                        format!(
+                            "{}@{}={}",
+                            task.name,
+                            task.span.line,
+                            analysis.definition_id_for_task(task).unwrap()
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            };
+            println!("parity: {name} all={:?}", identities(&all));
+            println!("parity: {name} reachable={:?}", identities(&reachable));
+
+            if name == "callable-scoped" {
+                let worker = reachable[1];
+                let body = crate::core_body::analyze_does_section(
+                    program
+                        .canonical_core_expectation_for_task(
+                            worker,
+                            worker.section("does").unwrap(),
+                        )
+                        .unwrap(),
+                );
+                assert_eq!(body.statements.len(), 2);
+                for statement in &body.statements {
+                    let app = analysis
+                        .direct_application(worker, &statement.span)
+                        .unwrap();
+                    let args = analysis.callable_argument_target_definition_ids(worker);
+                    let callees =
+                        analysis.callable_callee_target_definition_ids(worker, &statement.span);
+                    assert_eq!(app.receiver_definition_id, "def_7_task_apply_once");
+                    assert_eq!(app.target_definition_id, "def_6_task_increment");
+                    assert_eq!(args, ["def_6_task_increment"]);
+                    assert_eq!(callees, ["def_7_task_apply_once"]);
+                    println!(
+                        "parity: {name} statement={} direct_receiver={} direct_target={} argument_targets={args:?} callee_targets={callees:?}",
+                        statement.span.line, app.receiver_definition_id, app.target_definition_id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn patch1_bounded_output_retains_typed_failure_exemption() {
+        let text = include_str!("../programs/hello_world.hum")
+            .replace("\r\n", "\n")
+            .replace(
+                "    fails when:\n      bounded output is denied or the output adapter rejects the write\n\n",
+                "",
+            )
+            .replace("\"Hello, world!\"", "\"Hello world!\"");
+        assert!(!text.contains("fails when:"));
+        let program = fixture_program("bounded-output.hum", &text);
+        let findings = crate::typed_failure::analyze_program(&program).occurrences();
+        assert_eq!(findings.len(), 1, "{findings:#?}");
+        let diagnostic = findings[0].diagnostic();
+        assert_eq!(
+            diagnostic.code,
+            crate::diagnostic::DiagnosticCode::MISSING_FAILURE_DECLARATION
+        );
+        let span = diagnostic.span.as_ref().unwrap();
+        assert_eq!((span.line, span.column), (24, 25));
+        println!("parity: bounded raw {}", diagnostic.render());
+
+        let mut output = RecordingOutput::default();
+        let report = run_program_with_output(&program, None, &[], &allowed_stdout(), &mut output);
+        assert_eq!(report.outcome, RunOutcome::AppSuccess);
+        assert!(report.diagnostics.is_empty());
+        assert_eq!(output.writes, [b"Hello world!".to_vec()]);
+    }
 
     #[derive(Default)]
     struct RecordingOutput {
