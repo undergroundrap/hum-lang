@@ -22,6 +22,8 @@ pub const FULL_TYPE_CHECK_SCHEMA: &str = "hum.full_type_check.v0";
 pub const FULL_TYPE_CHECK_MODE: &str = "recognized_core_body_type_gate_v0";
 pub const FULL_TYPE_CHECK_STATUS: &str = "recognized_core_body_type_gate_available_v0";
 
+const RECORD_FIELD_CONTEXT_NOT_TRACKED: &str = "record_field_context_not_tracked_v0";
+
 const NON_CLAIMS: &[&str] = &[
     "no executable semantics",
     "no Hum IR emission",
@@ -236,9 +238,9 @@ pub fn full_type_check_has_errors(program: &Program, diagnostics: &[Diagnostic])
 ///   (the WO30 general call-shape probe replaced the per-builtin probes).
 ///   Listed for completeness; they cannot occur.
 /// - `unchecked_statement_type_v0`, `blocked_unsupported_statement_v0`,
-///   `not_checked_blocked_by_prior_errors_v0`: not rejections and stay
-///   report-only. The unsupported else advisory does not promote its status
-///   to a rejection.
+///   `not_checked_blocked_by_prior_errors_v0`: report-only apart from the
+///   unsupported else and default app record initializer advisories. Neither
+///   advisory changes the statement status.
 ///
 /// H0643 (STATEMENT_TYPE_MISMATCH): BDFL-authorized registered diagnostic for
 /// the full-type statement mismatch. H0606 (RETURN_TYPE_MISMATCH) cannot be
@@ -254,13 +256,15 @@ pub(crate) struct CheckStageOutcome {
 pub(crate) fn check_stage_outcome(
     program: &Program,
     diagnostics: &[Diagnostic],
+    has_default_app_entry: bool,
 ) -> Result<CheckStageOutcome, String> {
     let report = build_report(program, diagnostics);
-    check_stage_outcome_from_report(&report)
+    check_stage_outcome_from_report(&report, has_default_app_entry)
 }
 
 fn check_stage_outcome_from_report(
     report: &FullTypeCheckReport,
+    has_default_app_entry: bool,
 ) -> Result<CheckStageOutcome, String> {
     let mut out = CheckStageOutcome {
         diagnostics: Vec::new(),
@@ -271,6 +275,16 @@ fn check_stage_outcome_from_report(
                 out.diagnostics.push(Diagnostic::warning(
                     DiagnosticCode::UNSUPPORTED_ELSE_FORM,
                     "this `else` form is unsupported by `hum run`",
+                    Some(statement.span.clone()),
+                ));
+            }
+            if has_default_app_entry
+                && statement.status == "unchecked_statement_type_v0"
+                && statement.reason == Some(RECORD_FIELD_CONTEXT_NOT_TRACKED)
+            {
+                out.diagnostics.push(Diagnostic::warning(
+                    DiagnosticCode::UNCHECKED_RECORD_FIELD_INITIALIZER,
+                    "the default app run blocks this record field initializer because its field type could not be checked",
                     Some(statement.span.clone()),
                 ));
             }
@@ -1613,7 +1627,7 @@ fn statement_status(
         ),
         "record_field_initializer" => (
             "unchecked_statement_type_v0",
-            Some("record_field_context_not_tracked_v0"),
+            Some(RECORD_FIELD_CONTEXT_NOT_TRACKED),
         ),
         "return" | "fail" | "if_header" | "while_header" | "set_place" => {
             typed_expression_status(expected_type, actual)
@@ -4988,7 +5002,7 @@ app probe {
     // through the exact adapter the check arm calls.
     fn check_stage_codes(source: &str) -> Vec<String> {
         let program = text_split_probe_program(source);
-        check_stage_outcome(&program, &[])
+        check_stage_outcome(&program, &[], false)
             .expect("check_stage_outcome must succeed for valid fixtures")
             .diagnostics
             .iter()
@@ -5020,7 +5034,7 @@ app probe {
             }
         }
         assert!(corrupted, "fixture must produce a rejected statement");
-        let result = check_stage_outcome_from_report(&report);
+        let result = check_stage_outcome_from_report(&report, false);
         assert!(
             result.is_err(),
             "missing diagnostic code must fail closed, not produce Ok"
@@ -5059,7 +5073,7 @@ app probe {
             }
         }
         assert!(corrupted, "fixture must produce a rejected statement");
-        let result = check_stage_outcome_from_report(&report);
+        let result = check_stage_outcome_from_report(&report, false);
         assert!(
             result.is_err(),
             "unknown code spelling must fail closed, not produce Ok"

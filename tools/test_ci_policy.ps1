@@ -1569,7 +1569,7 @@ Assert-Policy ($PidMismatch.Count -eq 1 -and $PidMismatch[0].Clauses[0].Item2.St
 # These pins protect the mechanically shared bodies from silent omissions.
 # They are source-closure evidence, never a claim that the full corpus ran.
 $CompilerBodies=@{
-  'Invoke-HumCompilerFrontChecks'='214b7d6252473211952282bcb1d8b3d98bc6f1ede57ad4f7097d487849f6c109'
+  'Invoke-HumCompilerFrontChecks'='40861e992ff2911b2bbb14643bb614c3f1f3369221a72438eeab7d504c996305'
   'Get-AqRustProductionSource'='51fe78de6bd0fe820c67ca238ed344ed8f45a12f9d74b34b8109d9a9ac6ac379'
   'Invoke-HumWo22Wo23MutationCampaigns'='853630100c06b135c7a806576ce280de12b9b7634872b24a1d62d5ffab967ec4'
   'Invoke-HumCompilerCorpusChecks'='6a707093921c181bf9a85a1104c7ffb09cdf6b6418ce52b9a3faaa1ff9f31e25'

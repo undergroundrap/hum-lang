@@ -524,7 +524,11 @@ fn run() -> Result<ExitCode, String> {
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
     {
-        let outcome = full_type_check::check_stage_outcome(&program, &diagnostics)?;
+        let outcome = full_type_check::check_stage_outcome(
+            &program,
+            &diagnostics,
+            options.single_file_input && loaded.has_single_resolved_app_entry,
+        )?;
         diagnostics.extend(outcome.diagnostics);
         check_stages.push("full_type_check");
     }
@@ -2353,6 +2357,7 @@ enum IrReadinessFormat {
 struct CliOptions {
     command: String,
     inputs: Vec<PathBuf>,
+    single_file_input: bool,
     run_entry: Option<String>,
     run_native: bool,
     run_args: Vec<OsString>,
@@ -2401,6 +2406,9 @@ struct LoadedProgram {
     // every file. This is false for mixed inputs (one clean file, one with
     // errors) and for single-file parse/source failures.
     app_entry_ran_for_all_files: bool,
+    // Used after earlier errors are ruled out. A file with an invalid app
+    // or multiple apps already supplies an app-entry error.
+    has_single_resolved_app_entry: bool,
 }
 
 struct FileTiming {
@@ -2846,6 +2854,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -2892,6 +2901,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -2938,6 +2948,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -2984,6 +2995,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3030,6 +3042,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3076,6 +3089,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3122,6 +3136,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3168,6 +3183,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3214,6 +3230,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3260,6 +3277,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3312,6 +3330,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3358,6 +3377,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3404,6 +3424,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
         return Ok(CliOptions {
             command,
             inputs: Vec::new(),
+            single_file_input: false,
             run_entry: None,
             run_native: false,
             run_args: Vec::new(),
@@ -3483,9 +3504,14 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
     } else {
         collect_inputs(&raw_inputs)?
     };
+    // Use the same admission rule for run and check's default-app advisory.
+    // Expansion or deduplication can leave one file from other input forms.
+    let single_file_input = matches!(command.as_str(), "check" | "run")
+        && raw_inputs.len() == 1
+        && Path::new(&raw_inputs[0]).is_file()
+        && inputs.len() == 1;
     if command == "run" {
-        let input_is_file = raw_inputs.len() == 1 && PathBuf::from(&raw_inputs[0]).is_file();
-        if !input_is_file || inputs.len() != 1 {
+        if !single_file_input {
             return Err("`run` requires exactly one .hum file".to_string());
         }
         if run_native && run_entry.is_some() {
@@ -3499,6 +3525,7 @@ fn parse_cli_text(args: Vec<String>) -> Result<CliOptions, String> {
     Ok(CliOptions {
         command,
         inputs,
+        single_file_input,
         run_entry,
         run_native,
         run_args,
@@ -4013,6 +4040,7 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
     let mut reanalyzable_projections = BTreeMap::new();
     let mut timings = Vec::new();
     let mut app_entry_ran_for_all_files = true;
+    let mut resolved_app_entries = 0;
 
     for (semantic_file_index, path) in paths.iter().enumerate() {
         let read_start = Instant::now();
@@ -4040,11 +4068,9 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
             .chain(&file_diagnostics)
             .any(|diagnostic| diagnostic.severity == Severity::Error);
         if !file_has_errors {
-            let (app_diagnostics, app_occurrences) =
-                app_entry::diagnostics_for_file_with_semantic_index(
-                    &parsed.file,
-                    semantic_file_index,
-                );
+            let (app_diagnostics, app_occurrences, has_entry) =
+                app_entry::analyze_file_with_semantic_index(&parsed.file, semantic_file_index);
+            resolved_app_entries += usize::from(has_entry);
             let app_occurrence_refs = app_occurrences.occurrences().collect::<Vec<_>>();
             match (app_diagnostics.as_slice(), app_occurrence_refs.as_slice()) {
                 ([], []) => {}
@@ -4107,6 +4133,7 @@ fn load_program(paths: &[PathBuf]) -> Result<LoadedProgram, String> {
         timings,
         total: total_start.elapsed(),
         app_entry_ran_for_all_files,
+        has_single_resolved_app_entry: resolved_app_entries == 1,
     })
 }
 

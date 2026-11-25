@@ -2190,6 +2190,7 @@ const fn historical_public_ordinal(key: DiagnosticCodeKey) -> u16 {
         98 => 98,
         99 => 99,
         100 => 100,
+        101 => 101,
         _ => u16::MAX,
     }
 }
@@ -3019,6 +3020,15 @@ diagnostic_code_allocations!(
         UNSUPPORTED_ELSE_FORM,
         "H0644",
         "unsupported else form",
+        FRONT_END_SEMANTICS,
+        "front_end_semantics",
+        "full_type_check"
+    ),
+    (
+        101,
+        UNCHECKED_RECORD_FIELD_INITIALIZER,
+        "H0645",
+        "unchecked record field initializer",
         FRONT_END_SEMANTICS,
         "front_end_semantics",
         "full_type_check"
@@ -3889,6 +3899,12 @@ pub const DIAGNOSTICS: &[DiagnosticInfo] = &[
         default_severity: Severity::Warning,
         explanation: "The full-type report identifies a `} else {` statement that the executable subset does not support.",
         repair: "Express the branch using control flow supported by `hum run`.",
+    },
+    DiagnosticInfo {
+        code: DiagnosticCode::UNCHECKED_RECORD_FIELD_INITIALIZER,
+        default_severity: Severity::Warning,
+        explanation: "The full-type report could not check the field type for this initializer. The default app run preflight blocks the program on this unchecked initializer.",
+        repair: "Use an initializer the full-type checker can check, such as assigning an already-typed record.",
     },
 ];
 
@@ -4911,7 +4927,7 @@ mod tests {
     #[test]
     fn canonical_registry_and_checked_projections_are_valid() {
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 98);
+        assert_eq!(summary.active_codes, 99);
         assert_eq!(summary.retired_codes, 3);
         assert_eq!(summary.reserved_families, 3);
         assert_eq!(validate_static_registry(), Ok(summary));
@@ -4973,7 +4989,7 @@ mod tests {
         assert!(causes.iter().all(|cause| {
             cause.semantic_owner == "native_program" && cause.owning_stage == "native_admission"
         }));
-        assert_eq!(all().len(), 101);
+        assert_eq!(all().len(), 102);
     }
 
     #[test]
@@ -5481,7 +5497,7 @@ mod tests {
         assert_eq!(cause.key.ordinal(), 192);
 
         let summary = validate_static_registry().expect("canonical registry");
-        assert_eq!(summary.active_codes, 98);
+        assert_eq!(summary.active_codes, 99);
         assert_eq!(summary.retired_codes, 3);
     }
 
