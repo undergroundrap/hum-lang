@@ -80,10 +80,14 @@ pub fn diagnostics(program: &Program) -> Vec<Diagnostic> {
     analyze(program).diagnostic.into_iter().collect()
 }
 
-pub(crate) fn diagnostics_for_file_with_semantic_index(
+pub(crate) fn analyze_file_with_semantic_index(
     file: &SourceFile,
     semantic_file_index: usize,
-) -> (Vec<Diagnostic>, crate::diagnostic::DiagnosticOccurrenceSet) {
+) -> (
+    Vec<Diagnostic>,
+    crate::diagnostic::DiagnosticOccurrenceSet,
+    bool,
+) {
     let mut files = (0..semantic_file_index)
         .map(|index| {
             SourceFile::empty_non_authoritative(
@@ -103,7 +107,7 @@ pub(crate) fn diagnostics_for_file_with_semantic_index(
             .insert_owned(occurrence)
             .expect("file app-entry diagnostic occurrence must be unique");
     }
-    (diagnostics, occurrences)
+    (diagnostics, occurrences, analysis.entry.is_some())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]

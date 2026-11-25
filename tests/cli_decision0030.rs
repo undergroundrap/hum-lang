@@ -784,22 +784,27 @@ fn h0907_declared_app() -> String {
     )
 }
 
-fn check_json_error_rows(report: &str) -> impl Iterator<Item = &str> {
+fn check_json_rows(report: &str) -> impl Iterator<Item = &str> {
     // The check renderer places top-level diagnostic objects on separate lines.
     let (_, diagnostics) = report
         .split_once("\n  \"diagnostics\": [")
         .expect("check JSON diagnostic array");
-    diagnostics.split("\n    {").skip(1).filter_map(|row| {
+    diagnostics.split("\n    {").skip(1).map(|row| {
         let (row, _) = row
             .split_once("\n    }")
             .expect("check JSON diagnostic row");
-        row.lines()
-            .any(|line| line.trim() == r#""severity": "error","#)
-            .then_some(row)
+        row
     })
 }
 
-fn assert_h0907_check_pair(path: &Path, codes: &[&str], stages: &str) -> (String, String) {
+fn check_json_error_rows(report: &str) -> impl Iterator<Item = &str> {
+    check_json_rows(report).filter(|row| {
+        row.lines()
+            .any(|line| line.trim() == r#""severity": "error","#)
+    })
+}
+
+fn assert_check_pair(path: &Path, codes: &[&str], stages: &str) -> (String, String) {
     let plain = run_hum_check(path, false);
     let json = run_hum_check(path, true);
     let exit = Some(i32::from(!codes.is_empty()));
@@ -880,7 +885,7 @@ fn cli_h0907_reports_each_reachable_failure_in_plain_and_json() {
     ] {
         let path = write_cli_fixture(name, source);
         let codes = vec!["H0907"; sites.len()];
-        let (plain, json) = assert_h0907_check_pair(&path, &codes, H0907_FULL_STAGES);
+        let (plain, json) = assert_check_pair(&path, &codes, H0907_FULL_STAGES);
 
         let run = run_hum(&["run"], &path);
         let stderr = String::from_utf8(run.stderr).expect("UTF-8 preflight diagnostics");
@@ -941,7 +946,7 @@ fn cli_h0907_reports_each_reachable_failure_in_plain_and_json() {
 #[test]
 fn cli_h0907_respects_declared_unreachable_and_missing_defaults() {
     let declared = write_cli_fixture("h0907_declared", &h0907_declared_app());
-    assert_h0907_check_pair(&declared, &[], H0907_FULL_STAGES);
+    assert_check_pair(&declared, &[], H0907_FULL_STAGES);
     let run = run_hum(&["run"], &declared);
     assert_eq!(run.status.code(), Some(1), "{run:?}");
     assert!(run.stdout.is_empty(), "{run:?}");
@@ -957,7 +962,7 @@ fn cli_h0907_respects_declared_unreachable_and_missing_defaults() {
             "  starts with:\n    start\n\n  task start() -> Unit {\n    does:\n      return\n  }",
         ),
     );
-    assert_h0907_check_pair(&unreachable, &[], H0907_FULL_STAGES);
+    assert_check_pair(&unreachable, &[], H0907_FULL_STAGES);
     let run = run_hum(&["run"], &unreachable);
     assert_eq!(run.status.code(), Some(0), "{run:?}");
     assert!(run.stdout.is_empty() && run.stderr.is_empty(), "{run:?}");
@@ -987,7 +992,7 @@ task broken() -> Result UInt, ProbeError {
 }
 "#,
     );
-    assert_h0907_check_pair(&no_default, &[], H0907_FULL_STAGES);
+    assert_check_pair(&no_default, &[], H0907_FULL_STAGES);
     let run = run_hum(&["run"], &no_default);
     assert_eq!(run.status.code(), Some(2), "{run:?}");
     assert!(run.stdout.is_empty(), "{run:?}");
@@ -1018,7 +1023,7 @@ fn cli_h0907_preserves_the_bounded_literal_stdout_exemption() {
     assert!(text.contains("try stdout_write(\"Hello world!\")"));
     let path = write_cli_fixture("h0907_bounded_stdout", &text);
 
-    assert_h0907_check_pair(&path, &[], H0907_FULL_STAGES);
+    assert_check_pair(&path, &[], H0907_FULL_STAGES);
     let run = run_hum(&["run", "--allow", "stdout.write"], &path);
     assert_eq!(run.status.code(), Some(0), "{run:?}");
     assert_eq!(run.stdout, b"Hello world!");
@@ -1044,7 +1049,7 @@ fn cli_h0907_preserves_type_and_full_type_error_precedence() {
         let app = H0907_APP.strip_suffix("}\n").unwrap();
         let text = format!("{app}\n  task earlier_error() -> UInt {{\n    does:\n{body}  }}\n}}\n");
         let path = write_cli_fixture(name, &text);
-        assert_h0907_check_pair(&path, &[code], stages);
+        assert_check_pair(&path, &[code], stages);
     }
 }
 
@@ -1055,7 +1060,7 @@ fn cli_h0907_keeps_other_effect_diagnostics_out_of_check() {
         "    avoids:\n      failure\n    does:\n      let value = try source()",
     );
     let path = write_cli_fixture("h0907_effect_only", &text);
-    assert_h0907_check_pair(&path, &[], H0907_FULL_STAGES);
+    assert_check_pair(&path, &[], H0907_FULL_STAGES);
 
     let effect = run_hum(&["effect-check", "--format=json"], &path);
     assert_eq!(effect.status.code(), Some(1), "{effect:?}");
@@ -1066,4 +1071,222 @@ fn cli_h0907_keeps_other_effect_diagnostics_out_of_check() {
         "{json}"
     );
     assert!(!json.contains("\"diagnostic_code\": \"H0907\""), "{json}");
+}
+
+const H0645_APP: &str = r#"module record_initializer_probe
+
+type Sample {
+  value: Int
+}
+
+type ProbeError {
+  code: Text
+}
+
+app probe {
+  starts with:
+    verify_value
+
+  task verify_value(input: Sample) -> Result Unit, ProbeError {
+    fails when:
+      the copied field does not have the expected value
+
+    does:
+      let copy: Sample = Sample {
+        value: input.value
+      }
+      if copy.value != 7 {
+        fail ProbeError.wrong_value
+      }
+      return
+  }
+}
+"#;
+
+fn assert_record_initializer_warnings(path: &Path, sites: &[(usize, usize)]) {
+    let message = "the default app run blocks this record field initializer because its field type could not be checked";
+    let (plain, json) = assert_check_pair(path, &[], H0907_FULL_STAGES);
+    let file = path.to_string_lossy().replace('\\', "/");
+    let plain_warnings = plain
+        .lines()
+        .filter(|line| line.contains(": warning[H0645]: "))
+        .collect::<Vec<_>>();
+    let json_warnings = check_json_rows(&json)
+        .filter(|row| row.lines().any(|line| line.trim() == r#""code": "H0645","#))
+        .collect::<Vec<_>>();
+    assert_eq!(plain_warnings.len(), sites.len(), "{plain}");
+    assert_eq!(json_warnings.len(), sites.len(), "{json}");
+    for ((&(line, column), plain_warning), row) in
+        sites.iter().zip(plain_warnings).zip(json_warnings)
+    {
+        assert_eq!(
+            plain_warning,
+            format!("{file}:{line}:{column}: warning[H0645]: {message}")
+        );
+        let span = format!(r#""span": {{"file": {file:?}, "line": {line}, "column": {column}}}"#);
+        assert!(row.contains(&span), "{row}");
+        assert!(row.contains(r#""severity": "warning""#), "{row}");
+        assert!(row.contains(&format!("\"message\": {message:?}")), "{row}");
+    }
+}
+
+#[test]
+fn cli_h0645_warns_at_the_record_field_and_preserves_default_run() {
+    let reproducer = write_cli_fixture("h0645_reproducer", H0645_APP);
+    let initializer = "Sample {\n        value: input.value\n      }";
+    assert_eq!(H0645_APP.matches(initializer).count(), 1);
+    let control = write_cli_fixture(
+        "h0645_control",
+        &H0645_APP.replacen(initializer, "input", 1),
+    );
+
+    assert_record_initializer_warnings(&reproducer, &[(21, 9)]);
+    assert_record_initializer_warnings(&control, &[]);
+
+    let run_default = |path: &Path| {
+        Command::new(hum_binary())
+            .arg("run")
+            .arg(path)
+            .args(["--args", "{value:7}"])
+            .output()
+            .expect("run the default app without capability grants")
+    };
+    let refused = run_default(&reproducer);
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(refused.stdout.is_empty(), "{refused:?}");
+    let stderr = String::from_utf8(refused.stderr).expect("UTF-8 run preflight report");
+    assert!(
+        stderr.contains("status: blocked_by_unchecked_body_types_v0"),
+        "{stderr}"
+    );
+    let file = reproducer.to_string_lossy().replace('\\', "/");
+    assert!(stderr.lines().any(|line| line.trim() == format!(
+        "{file}:21:9 [unchecked_statement_type_v0] record_field_initializer `input.value` expected=none actual=Int reason=record_field_context_not_tracked_v0"
+    )), "{stderr}");
+    assert!(!stderr.contains("H0645"), "{stderr}");
+
+    let accepted = run_default(&control);
+    assert_eq!(accepted.status.code(), Some(0), "{accepted:?}");
+    assert!(
+        accepted.stdout.is_empty() && accepted.stderr.is_empty(),
+        "{accepted:?}"
+    );
+}
+
+#[test]
+fn cli_h0645_uses_the_whole_report_only_with_a_unique_default_app() {
+    let with_unreached_task = H0645_APP.replace(
+        "  starts with:\n    verify_value\n",
+        "  starts with:\n    start\n\n  task start() -> Unit {\n    does:\n      return\n  }\n",
+    );
+    let field_line = with_unreached_task
+        .lines()
+        .position(|line| line.trim() == "value: input.value")
+        .expect("record field in an unreached task")
+        + 1;
+    let app = write_cli_fixture("h0645_whole_report", &with_unreached_task);
+    assert_record_initializer_warnings(&app, &[(field_line, 9)]);
+
+    let same_file = write_cli_fixture(
+        "h0645_ambiguous_app",
+        &format!("{with_unreached_task}\n{H0645_OTHER_APP}"),
+    );
+    let (plain, json) = assert_check_pair(
+        &same_file,
+        &["H0615"],
+        r#""parse", "source_check", "app_entry""#,
+    );
+    assert!(!plain.contains("H0645") && !json.contains("H0645"));
+
+    // Each file has a valid app entry on its own. Together they have no
+    // default app entry, even though full type checking still runs.
+    let other_app = write_cli_fixture(
+        "h0645_other_app",
+        &format!("module other\n\n{H0645_OTHER_APP}"),
+    );
+    assert_no_h0645_in_successful_check(&[&app, &other_app]);
+}
+
+const H0645_OTHER_APP: &str = "app other_app {\n  starts with:\n    start\n\n  task start() -> Unit {\n    does:\n      return\n  }\n}\n";
+
+fn assert_no_h0645_in_successful_check(paths: &[&Path]) {
+    for json in [false, true] {
+        let output = run_hum_check_multi(paths, json);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(0), "{stdout}{stderr}");
+        assert!(
+            !stdout.contains("H0645") && !stderr.contains("H0645"),
+            "{stdout}{stderr}"
+        );
+        if json {
+            assert!(
+                stdout.contains(&format!("\"stages\": [{H0907_FULL_STAGES}]")),
+                "{stdout}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cli_h0645_requires_run_eligible_file_input() {
+    let task = write_cli_fixture(
+        "h0645_a_task",
+        r#"module record_initializer_probe
+
+type Sample {
+  value: Int
+}
+
+type ProbeError {
+  code: Text
+}
+
+task verify_value(input: Sample) -> Result Unit, ProbeError {
+  fails when:
+    the copied field does not have the expected value
+  does:
+    let copy: Sample = Sample {
+      value: input.value
+    }
+    if copy.value != 7 {
+      fail ProbeError.wrong_value
+    }
+    return
+}
+"#,
+    );
+    let app = write_cli_fixture("h0645_z_app", &format!("module other\n\n{H0645_OTHER_APP}"));
+    let app_with_initializer = write_cli_fixture("h0645_single_file", H0645_APP);
+    assert_record_initializer_warnings(&app_with_initializer, &[(21, 9)]);
+
+    // Duplicate arguments and a directory can each collect into one file.
+    // Both still fail the run input guard.
+    for paths in [
+        &[task.as_path(), app.as_path()][..],
+        &[
+            app_with_initializer.as_path(),
+            app_with_initializer.as_path(),
+        ],
+        &[app_with_initializer.parent().expect("fixture directory")],
+    ] {
+        assert_no_h0645_in_successful_check(paths);
+        let run = Command::new(hum_binary())
+            .arg("run")
+            .args(paths)
+            .output()
+            .expect("run with an ineligible input");
+        assert_eq!(run.status.code(), Some(2), "{run:?}");
+        assert!(run.stdout.is_empty(), "{run:?}");
+        assert!(
+            String::from_utf8_lossy(&run.stderr)
+                .lines()
+                .eq(["error: `run` requires exactly one .hum file"]),
+            "{run:?}"
+        );
+    }
+
+    let run = run_hum(&["run"], &app);
+    assert_eq!(run.status.code(), Some(0), "{run:?}");
+    assert!(run.stdout.is_empty() && run.stderr.is_empty(), "{run:?}");
 }

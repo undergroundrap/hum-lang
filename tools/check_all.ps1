@@ -3874,7 +3874,7 @@ task malformed() -> UInt {
   $CatalogTotal = $DiagnosticsCatalog.count
   $CodeTotal = $DiagnosticCodes.Count
   $UniqueTotal = @($DiagnosticCodes | Sort-Object -Unique).Count
-  if ($CatalogTotal -ne 101 -or $CodeTotal -ne 101 -or $UniqueTotal -ne 101) { throw "canonical diagnostic catalog must expose exactly 101 unique codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
+  if ($CatalogTotal -ne 102 -or $CodeTotal -ne 102 -or $UniqueTotal -ne 102) { throw "canonical diagnostic catalog must expose exactly 102 unique codes (found catalog=$CatalogTotal codes=$CodeTotal unique=$UniqueTotal). If a diagnostic code was added or removed, update the pinned count in Invoke-HumCompilerFrontChecks in tools/check_all.ps1." }
   $H0634CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0634' -and $_.title -ceq 'canonical native program layout' })
   if ($H0634CatalogRows.Count -ne 1) { throw 'Work Order 23 H0634 catalog projection drifted' }
   $H0635CatalogRows = @($DiagnosticsCatalog.diagnostics | Where-Object { $_.code -ceq 'H0635' -and $_.title -ceq 'unsupported native program feature' })
