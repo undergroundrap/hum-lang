@@ -55,6 +55,12 @@ paths; for-each per-iteration isolation. Caller-mutating-initializer
 coverage lives in Item B's integrated coverage, with explicit `change`
 arguments where the permission rules require them.
 
+Item A completed in PR #83, merged as
+`879a040a7f23d89b81a453331e369734a2b83197` with reviewed and tested tree
+`d9f6be10e52433c1a8ec60d1e6e047e50eb7d3d7`. PR validation `44779571402/1`
+and automatic main CI `44801443384/1` both passed Runtime with work-order
+status-boundary checks on Windows and Ubuntu.
+
 ## Implementation scope and acceptance
 
 - The runtime owner is `src/run.rs` and its existing test module. Limit any
