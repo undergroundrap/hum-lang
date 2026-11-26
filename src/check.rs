@@ -360,9 +360,7 @@ fn task_missing_why_is_suspicious(task: &Task) -> bool {
 }
 
 fn task_missing_needs_is_suspicious(task: &Task) -> bool {
-    task_has_external_boundary(task)
-        || task_has_failure_modes(task)
-        || task_body_line_count(task) > 8
+    task_has_external_boundary(task) || task_has_failure_modes(task)
 }
 
 fn task_missing_ensures_is_suspicious(task: &Task) -> bool {
@@ -1000,6 +998,66 @@ mod tests {
     use super::check_file;
     use crate::diagnostic::{DiagnosticCode, Severity};
     use crate::parser::parse_source;
+
+    fn h0107_count(source: &str) -> usize {
+        let parsed = parse_source("missing-needs.hum", source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let diagnostics = check_file(&parsed);
+        assert!(
+            diagnostics.iter().all(|d| d.severity != Severity::Error),
+            "{diagnostics:?}"
+        );
+        diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::TASK_MISSING_NEEDS)
+            .count()
+    }
+
+    #[test]
+    fn h0107_long_pure_task_does_not_warn() {
+        let source = r#"task count_to_eight() -> Int {
+  does:
+    let one: Int = 1
+    let two = one + 1
+    let three = two + 1
+    let four = three + 1
+    let five = four + 1
+    let six = five + 1
+    let seven = six + 1
+    let eight = seven + 1
+    return eight
+}
+"#;
+        assert_eq!(h0107_count(source), 0);
+    }
+
+    #[test]
+    fn h0107_short_task_with_caller_mutation_still_warns() {
+        let source = r#"task touch() {
+  changes:
+    public_value
+  does:
+    set public_value = 1
+}
+"#;
+        assert_eq!(h0107_count(source), 1);
+    }
+
+    #[test]
+    fn h0107_short_task_with_typed_failure_still_warns() {
+        let source = r#"type ProbeError {
+  code: Text
+}
+
+task reject() -> Result Unit, ProbeError {
+  fails when:
+    the rejection probe is called
+  does:
+    fail ProbeError.expected
+}
+"#;
+        assert_eq!(h0107_count(source), 1);
+    }
 
     #[test]
     fn producer_identity_is_unique_across_files_with_matching_check_events() {
