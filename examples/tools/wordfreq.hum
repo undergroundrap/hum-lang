@@ -17,7 +17,8 @@ app wordfreq {
 
   task run_tool(input: Path) -> Result Unit, WordfreqError {
     why:
-      compose the exact file boundary, the splitter, and bounded line output
+      compose the exact file boundary, the splitter, bounded line output,
+      and the quadratic word-count summary
 
     uses:
       files.read
@@ -27,7 +28,7 @@ app wordfreq {
       the file cannot be read or a line cannot be written
 
     cost:
-      time: O(bytes)
+      time: O(bytes + words^2)
       space: O(words)
       check: warn
 
@@ -73,8 +74,7 @@ app wordfreq {
 
   task split_spaces(line: Text) -> List Text {
     why:
-      split one line on spaces; the typed parameter carries the Text
-      proof the for-each loop variable cannot supply
+      split one line on spaces into its pieces
 
     cost:
       time: O(line)
@@ -90,8 +90,7 @@ app wordfreq {
 
   task write_word(word: Text) -> Result Unit, WordfreqError {
     why:
-      write one word followed by a newline; the typed parameter carries
-      the Text proof the for-each loop variable cannot supply
+      write one word followed by a newline
 
     uses:
       stdout.write
