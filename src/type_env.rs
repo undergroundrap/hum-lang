@@ -247,8 +247,8 @@ pub fn type_env_json(program: &Program, diagnostics: &[Diagnostic]) -> String {
 }
 
 fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeEnvReport {
-    let resolver_summary = resolve::resolve_readiness_summary(program, diagnostics);
-    let resolver_definitions = resolve::resolve_definition_summaries(program, diagnostics);
+    let (resolver_summary, resolver_definitions, diagnostic_occurrences) =
+        resolve::resolve_type_env_projections(program, diagnostics);
     let declared_types = declared_type_names(program);
     let source_errors = diagnostics
         .iter()
@@ -279,7 +279,7 @@ fn build_report(program: &Program, diagnostics: &[Diagnostic]) -> TypeEnvReport 
         callable_blockers,
         type_names,
         declarations,
-        diagnostic_occurrences: resolve::diagnostic_occurrence_set(program, diagnostics),
+        diagnostic_occurrences,
     }
 }
 
@@ -1114,6 +1114,93 @@ mod tests {
         assert!(type_env_has_errors(&program, &[]));
         assert!(json.contains("\"status\": \"blocked_by_resolver_errors\""));
         assert!(json.contains("\"resolver_errors\": 1"));
+    }
+
+    #[test]
+    fn mixed_source_and_resolver_occurrences_preserve_report_provenance() {
+        use crate::diagnostic::{DiagnosticCode, DiagnosticOccurrenceSet, Severity};
+
+        let source = r#"module regression.type_env_owned
+
+this top level line is not a Hum item
+
+task unresolved_names -> UInt {
+  does:
+    let value: UInt = missing_first
+    return missing_second
+}
+"#;
+        let parsed = parse_source("mixed_type_env.hum", source);
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(
+            parsed.diagnostics[0].code,
+            DiagnosticCode::UNEXPECTED_TOP_LEVEL_LINE
+        );
+        assert_eq!(parsed.diagnostics[0].severity, Severity::Warning);
+
+        let program = Program {
+            files: vec![parsed.file],
+        };
+        let default = super::type_env_report(&program, &parsed.diagnostics);
+        let from_source = super::type_env_report_from_source(
+            &program,
+            &parsed.diagnostics,
+            &parsed.diagnostic_occurrences,
+        );
+
+        let occurrence_pins = |set: &DiagnosticOccurrenceSet| {
+            set.validate().expect("mixed fixture occurrence seals");
+            set.occurrences()
+                .map(|occurrence| {
+                    let span = occurrence.diagnostic().span.as_ref().expect("fixture span");
+                    format!(
+                        "{} | {} | {} | {}:{}:{}",
+                        occurrence.id().as_str(),
+                        occurrence.semantic_owner(),
+                        occurrence.owning_stage(),
+                        span.file,
+                        span.line,
+                        span.column
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Pins captured from the resolver reports at merge 1be93c521.
+        let parser = concat!(
+            "diagnostic-occurrence:48:parser-node:parser-source:file-0:event-0:event-0:",
+            "role-top_level_line:parser_file_index=0>parser_event=0>",
+            "parser_node_role=top_level_line>parser_semantic_node=parser-source:file-0:event-0",
+            " | source_shape | parser | mixed_type_env.hum:3:1",
+        );
+        let first = concat!(
+            "diagnostic-occurrence:78:resolver-reference:ref_0_name_ref_missing_first:",
+            "resolver_reason=unresolved_name_v0>resolver_reference=ref_0_name_ref_missing_first>",
+            "resolver_semantic_node=resolver-reference:ref_0_name_ref_missing_first",
+            " | front_end_semantics | resolve | mixed_type_env.hum:7:23",
+        );
+        let second = concat!(
+            "diagnostic-occurrence:78:resolver-reference:ref_1_name_ref_missing_second:",
+            "resolver_reason=unresolved_name_v0>resolver_reference=ref_1_name_ref_missing_second>",
+            "resolver_semantic_node=resolver-reference:ref_1_name_ref_missing_second",
+            " | front_end_semantics | resolve | mixed_type_env.hum:8:12",
+        );
+
+        for report in [&default, &from_source] {
+            assert_eq!((report.source_errors, report.source_warnings), (0, 1));
+            assert_eq!(report.resolver_summary.unresolved_references, 2);
+            assert_eq!(report.resolver_summary.resolver_errors, 2);
+            assert_eq!(report.status(), "blocked_by_resolver_errors");
+        }
+        assert_eq!(occurrence_pins(&parsed.diagnostic_occurrences), [parser]);
+        assert_eq!(
+            occurrence_pins(&default.diagnostic_occurrences),
+            [first, second]
+        );
+        assert_eq!(
+            occurrence_pins(&from_source.diagnostic_occurrences),
+            [parser, first, second]
+        );
     }
 
     fn demo_program() -> Program {
