@@ -471,7 +471,10 @@ pub fn resolve_definition_summaries(
     program: &Program,
     source_diagnostics: &[Diagnostic],
 ) -> Vec<ResolveDefinitionSummary> {
-    let report = build_report(program, source_diagnostics);
+    definition_summaries(&build_report(program, source_diagnostics))
+}
+
+fn definition_summaries(report: &ResolveReport) -> Vec<ResolveDefinitionSummary> {
     report
         .definitions
         .iter()
@@ -494,7 +497,11 @@ pub fn resolve_scope_summaries(
     program: &Program,
     source_diagnostics: &[Diagnostic],
 ) -> Vec<ResolveScopeSummary> {
-    build_report(program, source_diagnostics)
+    scope_summaries(&build_report(program, source_diagnostics))
+}
+
+fn scope_summaries(report: &ResolveReport) -> Vec<ResolveScopeSummary> {
+    report
         .scopes
         .iter()
         .map(|scope| ResolveScopeSummary {
@@ -514,7 +521,11 @@ pub fn resolve_reference_summaries(
     program: &Program,
     source_diagnostics: &[Diagnostic],
 ) -> Vec<ResolveReferenceSummary> {
-    build_report(program, source_diagnostics)
+    reference_summaries(&build_report(program, source_diagnostics))
+}
+
+fn reference_summaries(report: &ResolveReport) -> Vec<ResolveReferenceSummary> {
+    report
         .references
         .iter()
         .map(|reference| ResolveReferenceSummary {
@@ -536,6 +547,21 @@ pub fn resolve_reference_summaries(
                 .clone(),
         })
         .collect()
+}
+
+pub(crate) fn resolve_callable_summaries(
+    program: &Program,
+) -> (
+    Vec<ResolveDefinitionSummary>,
+    Vec<ResolveScopeSummary>,
+    Vec<ResolveReferenceSummary>,
+) {
+    let report = build_report(program, &[]);
+    (
+        definition_summaries(&report),
+        scope_summaries(&report),
+        reference_summaries(&report),
+    )
 }
 
 pub(crate) fn resolve_call_occurrence_summaries(

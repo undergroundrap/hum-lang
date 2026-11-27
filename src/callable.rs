@@ -260,9 +260,7 @@ thread_local! {
 }
 
 pub(crate) fn analyze_program(program: &Program) -> Arc<CallableAnalysis> {
-    let definitions = resolve::resolve_definition_summaries(program, &[]);
-    let scopes = resolve::resolve_scope_summaries(program, &[]);
-    let references = resolve::resolve_reference_summaries(program, &[]);
+    let (definitions, scopes, references) = resolve::resolve_callable_summaries(program);
     let key = analysis_key(program, &definitions, &scopes, &references);
     ANALYSIS_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -5273,6 +5271,51 @@ task run_right -> UInt {
                 .verify()
                 .contains(&"callable_fact_identity_not_unique_v0")
         );
+    }
+
+    #[test]
+    fn single_report_preserves_ordered_cache_key_and_invalidation() {
+        fn program(binding: &str) -> crate::ast::Program {
+            let source = format!(
+                "module cache_probe\n\ntask compute() -> UInt {{\n  does:\n    let input = 7\n    let {binding} = input\n    return {binding}\n}}\n"
+            );
+            let parsed = parse_source("cache-probe.hum", &source);
+            assert!(parsed.diagnostics.is_empty());
+            crate::ast::Program {
+                files: vec![parsed.file],
+            }
+        }
+
+        fn assert_ordered_cache_key(program: &crate::ast::Program) {
+            let definitions = resolve::resolve_definition_summaries(program, &[]);
+            let scopes = resolve::resolve_scope_summaries(program, &[]);
+            let references = resolve::resolve_reference_summaries(program, &[]);
+            let key = super::analysis_key(program, &definitions, &scopes, &references);
+            super::ANALYSIS_CACHE.with(|cache| {
+                assert!(cache.borrow().as_ref().unwrap().0 == key);
+            });
+        }
+
+        super::ANALYSIS_CACHE.with(|cache| *cache.borrow_mut() = None);
+        let mut input = program("before");
+        let first = analyze_program(&input);
+        assert_ordered_cache_key(&input);
+        assert!(Arc::ptr_eq(&first, &analyze_program(&input)));
+
+        let address = std::ptr::from_ref(&input);
+        input = program("edited");
+        assert_eq!(std::ptr::from_ref(&input), address);
+        let edited = analyze_program(&input);
+        assert!(!Arc::ptr_eq(&first, &edited));
+        assert_ordered_cache_key(&input);
+        assert!(Arc::ptr_eq(&edited, &analyze_program(&input)));
+
+        let copied_input = input.clone();
+        let copied = analyze_program(&copied_input);
+        assert!(!Arc::ptr_eq(&edited, &copied));
+        assert_ordered_cache_key(&copied_input);
+        assert!(Arc::ptr_eq(&copied, &analyze_program(&copied_input)));
+        assert!(!Arc::ptr_eq(&edited, &analyze_program(&input)));
     }
 
     #[test]
