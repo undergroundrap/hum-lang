@@ -445,7 +445,10 @@ pub fn resolve_readiness_summary(
     program: &Program,
     source_diagnostics: &[Diagnostic],
 ) -> ResolveReadinessSummary {
-    let report = build_report(program, source_diagnostics);
+    readiness_summary(&build_report(program, source_diagnostics))
+}
+
+fn readiness_summary(report: &ResolveReport) -> ResolveReadinessSummary {
     ResolveReadinessSummary {
         schema: RESOLVE_REPORT_SCHEMA,
         status: report.status(),
@@ -547,6 +550,22 @@ fn reference_summaries(report: &ResolveReport) -> Vec<ResolveReferenceSummary> {
                 .clone(),
         })
         .collect()
+}
+
+pub(crate) fn resolve_type_env_projections(
+    program: &Program,
+    source_diagnostics: &[Diagnostic],
+) -> (
+    ResolveReadinessSummary,
+    Vec<ResolveDefinitionSummary>,
+    DiagnosticOccurrenceSet,
+) {
+    let report = build_report(program, source_diagnostics);
+    (
+        readiness_summary(&report),
+        definition_summaries(&report),
+        report.diagnostic_occurrences,
+    )
 }
 
 pub(crate) fn resolve_callable_summaries(
@@ -735,13 +754,6 @@ fn item_definition_semantic_shape(item: &Item) -> String {
             test.sections.len()
         ),
     }
-}
-
-pub(crate) fn diagnostic_occurrence_set(
-    program: &Program,
-    source_diagnostics: &[Diagnostic],
-) -> DiagnosticOccurrenceSet {
-    build_report(program, source_diagnostics).diagnostic_occurrences
 }
 
 pub(crate) fn semantic_app_identity(program: &Program, target: &crate::ast::App) -> String {
