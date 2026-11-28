@@ -1,5 +1,6 @@
 param(
   [string] $WorkRoot = '',
+  # Retained for callers that already pass this switch.
   [switch] $KeepClone
 )
 
@@ -69,23 +70,6 @@ function Assert-CleanStatus {
   }
 }
 
-function Remove-CreatedClone {
-  param(
-    [string] $ClonePath,
-    [string] $AllowedRoot
-  )
-
-  $ResolvedClone = [System.IO.Path]::GetFullPath($ClonePath)
-  $ResolvedAllowedRoot = [System.IO.Path]::GetFullPath($AllowedRoot)
-  $Boundary = $ResolvedAllowedRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
-
-  if (-not $ResolvedClone.StartsWith($Boundary, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Refusing to remove clone outside work root: $ResolvedClone"
-  }
-
-  Remove-Item -LiteralPath $ResolvedClone -Recurse -Force
-}
-
 $Git = Resolve-Tool 'git' 'git was not found on PATH'
 
 Assert-CleanStatus 'source checkout' $RepoRoot
@@ -118,9 +102,7 @@ try {
 
   Write-Host "Clean checkout smoke passed for $ShortHead."
 } finally {
-  if ($KeepClone) {
-    Write-Host "Kept clean checkout at $CloneRoot"
-  } elseif (Test-Path -LiteralPath $CloneRoot) {
-    Remove-CreatedClone $CloneRoot $WorkRoot
+  if (Test-Path -LiteralPath $CloneRoot -ErrorAction SilentlyContinue) {
+    Write-Host "Left checkout destination untouched at $CloneRoot"
   }
 }
