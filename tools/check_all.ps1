@@ -344,6 +344,36 @@ if ($EvidenceTier -notin @('Language', 'Runtime', 'Compiler', 'Fast', 'Wo25UnitA
 
 $env:HUM_CANONICAL_SEAL_EVIDENCE_TIER = 'fast'
 
+function Start-HumWindowsCliTiming {
+  if ($script:HumWindowsFullPart -cne 'main') { return }
+  try {
+    if ($null -ne [Environment]::GetEnvironmentVariable('HUM_WINDOWS_CLI_TIMING_DIR')) { return }
+    $Identity = Get-HumWindowsCliTimingIdentity
+    if ($null -eq $Identity) { return }
+    $Directory = Get-HumWindowsCliTimingDirectory $PhaseDiagnostics
+    if ($null -eq $Directory -or (Test-Path -LiteralPath $Directory)) { return }
+    $null = New-Item -ItemType Directory -Path $Directory -ErrorAction Stop
+    [Environment]::SetEnvironmentVariable('HUM_WINDOWS_CLI_TIMING_DIR', $Directory)
+    try {
+      [IO.File]::WriteAllText((Join-Path $Directory 'activation.txt'), $Identity, [Text.Encoding]::ASCII)
+    } catch {
+      Finish-HumWindowsCliTiming
+      return
+    }
+    return $true
+  } catch {
+    # A missing or unavailable observer leaves the native invocation unchanged.
+  }
+}
+
+function Finish-HumWindowsCliTiming {
+  try {
+    [Environment]::SetEnvironmentVariable('HUM_WINDOWS_CLI_TIMING_DIR', [NullString]::Value)
+  } catch {
+    # Restoration errors cannot replace the native result.
+  }
+}
+
 function Invoke-Native {
   param(
     [string] $Label,
@@ -352,9 +382,15 @@ function Invoke-Native {
   )
 
   Write-Host "==> $Label"
-  & $FilePath @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "$Label failed with exit code $LASTEXITCODE"
+  $Timing = $null
+  if ($Label -ceq 'hum-dev crate tests') { $Timing = Start-HumWindowsCliTiming }
+  try {
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+      throw "$Label failed with exit code $LASTEXITCODE"
+    }
+  } finally {
+    if ($Timing) { Finish-HumWindowsCliTiming }
   }
 }
 
